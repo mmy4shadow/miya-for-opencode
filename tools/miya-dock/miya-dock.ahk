@@ -18,6 +18,8 @@ global Config := Map(
   "dockGap", 0,
   "followIntervalMs", 70,
   "transitionDebounceMs", 120,
+  "openCodeWaitMs", 15000,
+  "openCodeRetryMs", 150,
   "openCodeTitle", "OpenCode",
   "openCodeExe", "",
   "openCodeClass", "",
@@ -52,9 +54,9 @@ if (DockState.gatewayUrl = "") {
   ExitApp 1
 }
 
-DockState.openCodeHwnd := FindOpenCodeWindow()
+DockState.openCodeHwnd := WaitForOpenCodeWindow(Config["openCodeWaitMs"])
 if !DockState.openCodeHwnd {
-  MsgBox "Miya Dock: OpenCode window not found.`nAdjust openCodeTitle/openCodeExe/openCodeClass in script header.", "Miya Dock", 48
+  MsgBox "Miya Dock: OpenCode window not found within " Config["openCodeWaitMs"] " ms.`nAdjust openCodeTitle/openCodeExe/openCodeClass in script header.", "Miya Dock", 48
   ExitApp 1
 }
 
@@ -298,23 +300,97 @@ RectContains(rect, x, y) {
 }
 
 FindOpenCodeWindow() {
-  hwnd := WinExist(Config["openCodeTitle"])
-  if hwnd {
-    return hwnd
+  hwnd := 0
+  if (Config["openCodeTitle"] != "") {
+    hwnd := WinExist(Config["openCodeTitle"])
+    if (hwnd && IsWindowCandidate(hwnd)) {
+      return hwnd
+    }
   }
   if (Config["openCodeExe"] != "") {
-    hwnd := WinExist("ahk_exe " Config["openCodeExe"])
-    if hwnd {
-      return hwnd
+    for byExeHwnd in WinGetList("ahk_exe " Config["openCodeExe"]) {
+      if IsWindowCandidate(byExeHwnd) {
+        return byExeHwnd
+      }
     }
   }
   if (Config["openCodeClass"] != "") {
-    hwnd := WinExist("ahk_class " Config["openCodeClass"])
+    for byClassHwnd in WinGetList("ahk_class " Config["openCodeClass"]) {
+      if IsWindowCandidate(byClassHwnd) {
+        return byClassHwnd
+      }
+    }
+  }
+
+  ; Fallbacks for common OpenCode host windows (Windows Terminal and native build).
+  for byTitleHwnd in WinGetList("OpenCode") {
+    if IsWindowCandidate(byTitleHwnd) {
+      return byTitleHwnd
+    }
+  }
+
+  candidateExes := ["opencode.exe", "OpenCode.exe", "WindowsTerminal.exe", "wt.exe"]
+  for exeName in candidateExes {
+    for byKnownExeHwnd in WinGetList("ahk_exe " exeName) {
+      if !IsWindowCandidate(byKnownExeHwnd) {
+        continue
+      }
+      title := ""
+      try title := WinGetTitle("ahk_id " byKnownExeHwnd)
+      ; For terminal hosts, only accept tabs/window that actually show OpenCode title.
+      if ((exeName = "WindowsTerminal.exe" || exeName = "wt.exe")) {
+        if InStr(title, "OpenCode") {
+          return byKnownExeHwnd
+        }
+        continue
+      }
+      return byKnownExeHwnd
+    }
+  }
+
+  for className in ["CASCADIA_HOSTING_WINDOW_CLASS"] {
+    for byKnownClassHwnd in WinGetList("ahk_class " className) {
+      if !IsWindowCandidate(byKnownClassHwnd) {
+        continue
+      }
+      title := ""
+      try title := WinGetTitle("ahk_id " byKnownClassHwnd)
+      if InStr(title, "OpenCode") {
+        return byKnownClassHwnd
+      }
+    }
+  }
+
+  return 0
+}
+
+WaitForOpenCodeWindow(timeoutMs) {
+  deadline := A_TickCount + Max(200, timeoutMs)
+  loop {
+    hwnd := FindOpenCodeWindow()
     if hwnd {
       return hwnd
     }
+    if (A_TickCount >= deadline) {
+      return 0
+    }
+    Sleep Config["openCodeRetryMs"]
   }
-  return 0
+}
+
+IsWindowCandidate(hwnd) {
+  if (hwnd = 0) {
+    return false
+  }
+  if !DllCall("IsWindowVisible", "ptr", hwnd, "int") {
+    return false
+  }
+  w := 0, h := 0
+  try WinGetPos ,, &w, &h, "ahk_id " hwnd
+  catch {
+    return false
+  }
+  return (w >= 200 && h >= 120)
 }
 
 TryActivateOpenCode() {
