@@ -17,7 +17,9 @@ Windows external dock sidebar for Miya Gateway console.
 
 1. Windows
 2. Microsoft Edge installed
-3. AutoHotkey v2 installed: https://www.autohotkey.com/
+3. AutoHotkey v2 (one of the two):
+   - Installed in system: https://www.autohotkey.com/
+   - Portable binary in repo, e.g. `./v2/AutoHotkey64.exe`
 4. OpenCode running in this project with Miya plugin loaded
 
 ## Quick start

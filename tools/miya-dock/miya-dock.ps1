@@ -63,6 +63,12 @@ function Resolve-AhkExecutable {
   if ($cmd) { return $cmd.Source }
 
   $candidates = @(
+    (Join-Path $PSScriptRoot "v2\AutoHotkey64.exe"),
+    (Join-Path $PSScriptRoot "v2\AutoHotkey.exe"),
+    (Join-Path $ProjectRoot "v2\AutoHotkey64.exe"),
+    (Join-Path $ProjectRoot "v2\AutoHotkey.exe"),
+    (Join-Path $ProjectRoot "AutoHotkey64.exe"),
+    (Join-Path $ProjectRoot "AutoHotkey.exe"),
     "$Env:ProgramFiles\AutoHotkey\v2\AutoHotkey64.exe",
     "$Env:ProgramFiles\AutoHotkey\AutoHotkey64.exe",
     "$Env:ProgramFiles\AutoHotkey\v2\AutoHotkey.exe",
