@@ -1,0 +1,9 @@
+export declare function getConfigDir(): string;
+export declare function getOpenCodeConfigPaths(): string[];
+export declare function getConfigJson(): string;
+export declare function getConfigJsonc(): string;
+export declare function getLiteConfig(): string;
+export declare function getLiteConfigCandidates(): string[];
+export declare function getExistingLiteConfigPath(): string;
+export declare function getExistingConfigPath(): string;
+export declare function ensureConfigDir(): void;

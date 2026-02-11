@@ -1,0 +1,68 @@
+{
+  "name": "miya",
+  "version": "0.7.0",
+  "description": "Miya agent-team orchestration plugin for OpenCode",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "miya": "./dist/cli/index.js"
+  },
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "ai",
+    "agents",
+    "orchestration",
+    "llm",
+    "claude",
+    "gpt",
+    "gemini"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mmy4shadow/miya-for-opencode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mmy4shadow/miya-for-opencode/issues"
+  },
+  "homepage": "https://github.com/mmy4shadow/miya-for-opencode#readme",
+  "files": [
+    "dist",
+    "src/skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm && bun build src/cli/index.ts --outdir dist/cli --target bun --format esm && tsc --emitDeclarationOnly",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "biome lint .",
+    "format": "biome format . --write",
+    "check": "biome check --write .",
+    "check:ci": "biome check .",
+    "dev": "bun run build && opencode",
+    "prepublishOnly": "bun run build",
+    "release:patch": "npm version patch && git push --follow-tags && npm publish",
+    "release:minor": "npm version minor && git push --follow-tags && npm publish",
+    "release:major": "npm version major && git push --follow-tags && npm publish"
+  },
+  "dependencies": {
+    "@ast-grep/cli": "^0.40.0",
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "@opencode-ai/plugin": "^1.1.19",
+    "@opencode-ai/sdk": "^1.1.19",
+    "vscode-jsonrpc": "^8.2.0",
+    "vscode-languageserver-protocol": "^3.17.5",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.11",
+    "bun-types": "latest",
+    "typescript": "^5.7.3"
+  },
+  "trustedDependencies": [
+    "@ast-grep/cli"
+  ]
+}

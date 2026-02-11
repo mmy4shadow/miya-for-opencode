@@ -1,0 +1,28 @@
+## Dependencies
+node_modules/
+**/node_modules/
+
+## Python
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+
+## OpenCode caches / local state (do not commit)
+.opencode/
+**/.opencode/
+cowork-saves/
+**/cowork-saves/
+
+## Local clones / large vendor dirs (do not commit)
+opencode/
+opencode-src/
+third_party/
+
+## Local runtime state (do not commit)
+miya/
+
+## OS / editor noise
+.DS_Store
+Thumbs.db
+*.log

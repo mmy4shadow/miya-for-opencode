@@ -1,0 +1,304 @@
+import type { Plugin } from '@opencode-ai/plugin';
+import { getAgentConfigs } from './agents';
+import { MiyaAutomationService } from './automation';
+import { BackgroundTaskManager, TmuxSessionManager } from './background';
+import { loadPluginConfig, type TmuxConfig } from './config';
+import { parseList } from './config/agent-mcps';
+import {
+  createLoopGuardHook,
+  createPhaseReminderHook,
+  createPostReadNudgeHook,
+} from './hooks';
+import { createSafetyTools, handlePermissionAsk } from './safety';
+import { createBuiltinMcps } from './mcp';
+import {
+  ast_grep_replace,
+  ast_grep_search,
+  createAutomationTools,
+  createBackgroundTools,
+  grep,
+  lsp_diagnostics,
+  lsp_find_references,
+  lsp_goto_definition,
+  lsp_rename,
+  createWorkflowTools,
+} from './tools';
+import { startTmuxCheck } from './utils';
+import { log } from './utils/logger';
+
+const MiyaPlugin: Plugin = async (ctx) => {
+  const config = loadPluginConfig(ctx.directory);
+  const agents = getAgentConfigs(config);
+
+  // Parse tmux config with defaults
+  const tmuxConfig: TmuxConfig = {
+    enabled: config.tmux?.enabled ?? false,
+    layout: config.tmux?.layout ?? 'main-vertical',
+    main_pane_size: config.tmux?.main_pane_size ?? 60,
+  };
+
+  log('[plugin] initialized with tmux config', {
+    tmuxConfig,
+    rawTmuxConfig: config.tmux,
+    directory: ctx.directory,
+  });
+
+  // Start background tmux check if enabled
+  if (tmuxConfig.enabled) {
+    startTmuxCheck();
+  }
+
+  const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
+  const automationService = new MiyaAutomationService(ctx.directory);
+  automationService.start();
+
+  const backgroundTools = createBackgroundTools(
+    ctx,
+    backgroundManager,
+    tmuxConfig,
+    config,
+  );
+  const automationTools = createAutomationTools(automationService);
+  const workflowTools = createWorkflowTools(ctx.directory);
+  const safetyTools = createSafetyTools(ctx);
+  // Stability-first default: keep plugin-hosted remote MCPs disabled unless explicitly enabled
+  // by setting disabled_mcps in config (remove entries you want to use).
+  const defaultDisabledMcps = ['websearch', 'context7', 'grep_app'];
+  const disabledMcps = config.disabled_mcps ?? defaultDisabledMcps;
+  const mcps = createBuiltinMcps(disabledMcps);
+
+  // Initialize TmuxSessionManager to handle OpenCode's built-in Task tool sessions
+  const tmuxSessionManager = new TmuxSessionManager(ctx, tmuxConfig);
+
+  // Initialize loop guard hook for hard iteration limits and strict mode.
+  const loopGuardHook = createLoopGuardHook(ctx.directory);
+
+  // Initialize phase reminder hook for workflow compliance
+  const phaseReminderHook = createPhaseReminderHook();
+
+  // Initialize post-read nudge hook
+  const postReadNudgeHook = createPostReadNudgeHook();
+
+  return {
+    name: 'miya',
+
+    agent: agents,
+
+    tool: {
+      ...backgroundTools,
+      ...automationTools,
+      ...workflowTools,
+      ...safetyTools,
+      lsp_goto_definition,
+      lsp_find_references,
+      lsp_diagnostics,
+      lsp_rename,
+      grep,
+      ast_grep_search,
+      ast_grep_replace,
+    },
+
+    mcp: mcps,
+
+    config: async (opencodeConfig: Record<string, unknown>) => {
+      (opencodeConfig as { default_agent?: string }).default_agent =
+        '1-task-manager';
+
+      // Register Miya control-plane commands in the command palette.
+      const commandConfig = (opencodeConfig.command ?? {}) as Record<
+        string,
+        Record<string, unknown>
+      >;
+      opencodeConfig.command = commandConfig;
+
+      if (!commandConfig.miya) {
+        commandConfig.miya = {
+          description: 'Open Miya control plane panel',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_status_panel` exactly once. Return only the tool output verbatim. If tool invocation fails, return the exact error text only.',
+        };
+      }
+
+      if (!commandConfig['miya-schedule']) {
+        commandConfig['miya-schedule'] = {
+          description: 'Create daily schedule from natural language',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_schedule_from_text` with request="$ARGUMENTS". Return only tool output.',
+        };
+      }
+
+      if (!commandConfig['miya-jobs']) {
+        commandConfig['miya-jobs'] = {
+          description: 'List Miya jobs',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_list_jobs` once. Return only tool output.',
+        };
+      }
+
+      if (!commandConfig['miya-approvals']) {
+        commandConfig['miya-approvals'] = {
+          description: 'List pending Miya approvals',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_list_approvals` once. Return only tool output.',
+        };
+      }
+
+      if (!commandConfig['miya-history']) {
+        commandConfig['miya-history'] = {
+          description: 'Show recent Miya automation history',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_job_history` with limit=20. Return only tool output.',
+        };
+      }
+
+      if (!commandConfig['miya-safety']) {
+        commandConfig['miya-safety'] = {
+          description: 'Show Miya safety status (kill-switch and approvals)',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_kill_status` once. Then summarize latest `miya_status_panel` in 5 lines max.',
+        };
+      }
+
+      // Merge Agent configs
+      if (!opencodeConfig.agent) {
+        opencodeConfig.agent = { ...agents };
+      } else {
+        Object.assign(opencodeConfig.agent, agents);
+      }
+      const configAgent = opencodeConfig.agent as Record<string, unknown>;
+
+      // Merge MCP configs
+      const configMcp = opencodeConfig.mcp as
+        | Record<string, unknown>
+        | undefined;
+      if (!configMcp) {
+        opencodeConfig.mcp = { ...mcps };
+      } else {
+        Object.assign(configMcp, mcps);
+      }
+
+      // Get all MCP names from our config
+      const allMcpNames = Object.keys(mcps);
+
+      // For each agent, create permission rules based on their mcps list
+      for (const [agentName, agentConfig] of Object.entries(agents)) {
+        const agentMcps = (agentConfig as { mcps?: string[] })?.mcps;
+        if (!agentMcps) continue;
+
+        // Get or create agent permission config
+        if (!configAgent[agentName]) {
+          configAgent[agentName] = { ...agentConfig };
+        }
+        const agentConfigEntry = configAgent[agentName] as Record<
+          string,
+          unknown
+        >;
+        const agentPermission = (agentConfigEntry.permission ?? {}) as Record<
+          string,
+          unknown
+        >;
+
+        // Parse mcps list with wildcard and exclusion support
+        const allowedMcps = parseList(agentMcps, allMcpNames);
+
+        // Create permission rules for each MCP
+        // MCP tools are named as <server>_<tool>, so we use <server>_*
+        for (const mcpName of allMcpNames) {
+          const sanitizedMcpName = mcpName.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const permissionKey = `${sanitizedMcpName}_*`;
+          const action = allowedMcps.includes(mcpName) ? 'allow' : 'deny';
+
+          // Only set if not already defined by user
+          if (!(permissionKey in agentPermission)) {
+            agentPermission[permissionKey] = action;
+          }
+        }
+
+        // Update agent config with permissions
+        agentConfigEntry.permission = agentPermission;
+      }
+    },
+
+    event: async (input) => {
+      // Handle tmux pane spawning for OpenCode's Task tool sessions
+      await tmuxSessionManager.onSessionCreated(
+        input.event as {
+          type: string;
+          properties?: {
+            info?: { id?: string; parentID?: string; title?: string };
+          };
+        },
+      );
+
+      // Handle session.status events for:
+      // 1. BackgroundTaskManager: completion detection
+      // 2. TmuxSessionManager: pane cleanup
+      await backgroundManager.handleSessionStatus(
+        input.event as {
+          type: string;
+          properties?: { sessionID?: string; status?: { type: string } };
+        },
+      );
+      await tmuxSessionManager.onSessionStatus(
+        input.event as {
+          type: string;
+          properties?: { sessionID?: string; status?: { type: string } };
+        },
+      );
+
+      // Drive scheduler ticks from plugin lifecycle events as backup to timer.
+      // Use fire-and-forget to avoid delaying session event processing.
+      void automationService.tick();
+    },
+
+    // Inject loop guard + phase reminder before sending to API.
+    'experimental.chat.messages.transform': async (input, output) => {
+      await loopGuardHook['experimental.chat.messages.transform'](input, output);
+      await phaseReminderHook['experimental.chat.messages.transform'](input, output);
+    },
+
+    // Nudge after file reads to encourage delegation
+    'tool.execute.after': postReadNudgeHook['tool.execute.after'],
+
+    'permission.ask': async (input, output) => {
+      const status = await handlePermissionAsk(ctx.directory, {
+        sessionID: String(input.sessionID ?? 'main'),
+        permission: String(input.permission ?? ''),
+        patterns: Array.isArray(input.patterns)
+          ? input.patterns.map(String)
+          : [],
+        metadata:
+          input.metadata && typeof input.metadata === 'object'
+            ? (input.metadata as Record<string, unknown>)
+            : {},
+        messageID:
+          input.tool && typeof input.tool === 'object' && 'messageID' in input.tool
+            ? String((input.tool as { messageID?: string }).messageID ?? '')
+            : undefined,
+        toolCallID:
+          input.tool && typeof input.tool === 'object' && 'callID' in input.tool
+            ? String((input.tool as { callID?: string }).callID ?? '')
+            : undefined,
+      });
+      output.status = status.status;
+    },
+  };
+};
+
+export default MiyaPlugin;
+
+export type {
+  AgentName,
+  AgentOverrideConfig,
+  McpName,
+  PluginConfig,
+  TmuxConfig,
+  TmuxLayout,
+} from './config';
+export type { RemoteMcpConfig } from './mcp';

@@ -1,0 +1,10 @@
+import type { MiyaApprovalRequest, MiyaAutomationState, MiyaJob, MiyaJobHistoryRecord } from './types';
+export declare function readAutomationState(projectDir: string): MiyaAutomationState;
+export declare function writeAutomationState(projectDir: string, state: MiyaAutomationState): void;
+export declare function appendHistoryRecord(projectDir: string, record: MiyaJobHistoryRecord): void;
+export declare function readHistoryRecords(projectDir: string, limit: number): MiyaJobHistoryRecord[];
+export declare function createJobId(): string;
+export declare function createApprovalId(): string;
+export declare function createHistoryId(): string;
+export declare function touchJob(job: MiyaJob): MiyaJob;
+export declare function createApproval(job: MiyaJob, reason: string): MiyaApprovalRequest;

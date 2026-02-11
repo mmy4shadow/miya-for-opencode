@@ -1,0 +1,14 @@
+export declare const AGENT_ALIASES: Record<string, string>;
+export declare const SUBAGENT_NAMES: readonly ["2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer"];
+export declare const ORCHESTRATOR_NAME: "1-task-manager";
+export declare const ALL_AGENT_NAMES: readonly ["1-task-manager", "2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer"];
+export type AgentName = (typeof ALL_AGENT_NAMES)[number];
+export declare const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]>;
+export declare const DEFAULT_MODELS: Record<AgentName, string>;
+export declare const POLL_INTERVAL_MS = 500;
+export declare const POLL_INTERVAL_SLOW_MS = 1000;
+export declare const POLL_INTERVAL_BACKGROUND_MS = 2000;
+export declare const DEFAULT_TIMEOUT_MS: number;
+export declare const MAX_POLL_TIME_MS: number;
+export declare const FALLBACK_FAILOVER_TIMEOUT_MS = 15000;
+export declare const STABLE_POLLS_THRESHOLD = 3;
