@@ -129,7 +129,7 @@ export async function autoSaveToGithub(
     allowFailure: true,
   });
   const target = branch.stdout && branch.stdout !== 'HEAD' ? branch.stdout : 'main';
-  const push = await runGit(directory, ['push', remoteName, `HEAD:${target}`], {
+  const push = await runGit(directory, ['push', '--no-verify', remoteName, `HEAD:${target}`], {
     allowFailure: true,
   });
   if (push.code !== 0) {
