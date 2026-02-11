@@ -8,121 +8,262 @@ DetectHiddenWindows False
 ; Miya Dock user-config section
 ; -----------------------------
 global Config := Map(
-  "CollapsedWidth", 20, ; default collapsed strip width (~0.5cm)
-  "ExpandedWidth", 420, ; expanded dock width
-  "FollowIntervalMs", 70, ; 50-100ms recommended
-  "OpenCodeTitle", "OpenCode", ; primary title match
-  "OpenCodeExe", "", ; fallback: e.g. opencode.exe
-  "OpenCodeClass", "", ; fallback: window class
-  "EdgePath", "", ; leave empty to auto-detect msedge
-  "EdgeProfileDir", A_ScriptDir "\.edge-profile"
+  "collapsedW", 20,
+  "expandedW", 420,
+  "edgeStripW", 12,
+  "hoverExpandEnabled", true,
+  "hoverExpandDelay", 200,
+  "autoCollapseEnabled", true,
+  "collapseDelay", 900,
+  "dockGap", 0,
+  "followIntervalMs", 70,
+  "transitionDebounceMs", 120,
+  "openCodeTitle", "OpenCode",
+  "openCodeExe", "",
+  "openCodeClass", "",
+  "edgePath", "",
+  "edgeProfileDir", A_ScriptDir "\.edge-profile"
 )
 
 global DockState := {
-  Expanded: false,
-  DockHwnd: 0,
-  OpenCodeHwnd: 0,
-  EdgePid: 0,
-  GatewayFile: "",
-  GatewayUrl: ""
+  state: "collapsed", ; collapsed | expanding | expanded | collapsing
+  expanded: false,
+  dockHwnd: 0,
+  hotZoneGui: 0,
+  hotZoneHwnd: 0,
+  openCodeHwnd: 0,
+  edgePid: 0,
+  gatewayFile: "",
+  gatewayUrl: "",
+  hoverStartTime: 0,
+  leaveStartTime: 0,
+  lastTransitionTime: 0,
+  lastGatewayWarnAt: 0,
+  lastGatewayStartAttempt: 0,
+  dockRect: {x: 0, y: 0, w: 0, h: 0},
+  hotRect: {x: 0, y: 0, w: 0, h: 0},
+  openCodeRect: {x: 0, y: 0, w: 0, h: 0}
 }
 
-DockState.GatewayFile := A_Args.Length >= 1 ? A_Args[1] : A_ScriptDir "\..\..\.opencode\miya\gateway.json"
-DockState.GatewayUrl := ReadGatewayUrl(DockState.GatewayFile)
-if (DockState.GatewayUrl = "") {
-  MsgBox "Miya Dock: failed to read gateway URL from`n" DockState.GatewayFile "`n`nPlease start OpenCode + Miya first.", "Miya Dock", 48
+DockState.gatewayFile := A_Args.Length >= 1 ? A_Args[1] : A_ScriptDir "\..\..\.opencode\miya\gateway.json"
+DockState.gatewayUrl := ReadGatewayUrl(DockState.gatewayFile)
+if (DockState.gatewayUrl = "") {
+  MsgBox "Miya Dock: failed to read gateway URL from`n" DockState.gatewayFile "`n`nPlease start OpenCode + Miya first.", "Miya Dock", 48
   ExitApp 1
 }
 
-DockState.OpenCodeHwnd := FindOpenCodeWindow()
-if !DockState.OpenCodeHwnd {
-  MsgBox "Miya Dock: OpenCode window not found.`nAdjust OpenCodeTitle/OpenCodeExe/OpenCodeClass in script header.", "Miya Dock", 48
+DockState.openCodeHwnd := FindOpenCodeWindow()
+if !DockState.openCodeHwnd {
+  MsgBox "Miya Dock: OpenCode window not found.`nAdjust openCodeTitle/openCodeExe/openCodeClass in script header.", "Miya Dock", 48
   ExitApp 1
 }
 
-edgePath := ResolveEdgePath(Config["EdgePath"])
+edgePath := ResolveEdgePath(Config["edgePath"])
 if (edgePath = "") {
-  MsgBox "Miya Dock: Microsoft Edge executable not found.`nInstall Edge or set Config.EdgePath manually.", "Miya Dock", 48
+  MsgBox "Miya Dock: Microsoft Edge executable not found.`nInstall Edge or set Config.edgePath manually.", "Miya Dock", 48
   ExitApp 1
 }
 
-DirCreate Config["EdgeProfileDir"]
-runCmd := Format('"{1}" --app="{2}" --user-data-dir="{3}" --new-window --no-first-run --disable-session-crashed-bubble', edgePath, DockState.GatewayUrl, Config["EdgeProfileDir"])
+DirCreate Config["edgeProfileDir"]
+runCmd := Format('"{1}" --app="{2}" --user-data-dir="{3}" --new-window --no-first-run --disable-session-crashed-bubble', edgePath, DockState.gatewayUrl, Config["edgeProfileDir"])
 Run runCmd, A_ScriptDir, , &edgePid
-DockState.EdgePid := edgePid
+DockState.edgePid := edgePid
 
 if !WinWait("ahk_pid " edgePid, , 12) {
   MsgBox "Miya Dock: timed out waiting for Edge app window.", "Miya Dock", 48
   ExitApp 1
 }
 
-DockState.DockHwnd := WinExist("ahk_pid " edgePid)
-if !DockState.DockHwnd {
+DockState.dockHwnd := WinExist("ahk_pid " edgePid)
+if !DockState.dockHwnd {
   MsgBox "Miya Dock: failed to capture Edge app window handle.", "Miya Dock", 48
   ExitApp 1
 }
 
-PrepareDockWindow(DockState.DockHwnd)
-SyncDockPosition()
-SetTimer SyncDockPosition, Config["FollowIntervalMs"]
+PrepareDockWindow(DockState.dockHwnd)
+CreateHotZone()
+ApplyStateLayout()
+SetTimer PollDockState, Config["followIntervalMs"]
 OnExit CleanupDock
 
 ; Return focus to OpenCode after launching dock.
 TryActivateOpenCode()
 return
 
-^!m::ToggleDock()
-~LButton::HandleDockClick()
+^!m::HandleToggleHotkey()
 
-ToggleDock() {
-  global DockState
-  DockState.Expanded := !DockState.Expanded
-  SyncDockPosition()
+HandleToggleHotkey() {
+  if (DockState.state = "expanded" || DockState.state = "expanding") {
+    BeginCollapse("hotkey")
+  } else {
+    BeginExpand("hotkey")
+  }
 }
 
-HandleDockClick() {
+CreateHotZone() {
   global DockState
-  if !DockState.DockHwnd {
-    return
-  }
-  MouseGetPos , , &hoverHwnd
-  if !hoverHwnd {
-    return
-  }
-  hoverPid := 0
-  try {
-    hoverPid := WinGetPID("ahk_id " hoverHwnd)
-  } catch {
-    return
-  }
-  if (hoverPid != DockState.EdgePid) {
-    return
-  }
-  ToggleDock()
+  hotGui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000", "MiyaHotZone") ; WS_EX_NOACTIVATE
+  hotGui.MarginX := 0
+  hotGui.MarginY := 0
+  hotGui.BackColor := "202020"
+  hotGui.OnEvent("Click", HotZoneClicked)
+  DockState.hotZoneGui := hotGui
+  DockState.hotZoneHwnd := hotGui.Hwnd
+  WinSetTransparent 60, "ahk_id " DockState.hotZoneHwnd
+  hotGui.Show("NA x0 y0 w1 h1")
 }
 
-SyncDockPosition() {
-  global Config, DockState
+HotZoneClicked(*) {
+  if (DockState.state = "collapsed" || DockState.state = "collapsing") {
+    BeginExpand("click")
+  } else if (DockState.state = "expanded" || DockState.state = "expanding") {
+    BeginCollapse("click")
+  }
+}
+
+PollDockState() {
+  if !UpdateLayoutFromOpenCode() {
+    return
+  }
+
+  MouseGetPos &mx, &my
+  inDock := RectContains(DockState.dockRect, mx, my)
+  inHot := RectContains(DockState.hotRect, mx, my)
+  inOpenCode := RectContains(DockState.openCodeRect, mx, my)
+  inSidebarArea := inDock || inHot
+  now := A_TickCount
+
+  if (DockState.state = "collapsed") {
+    DockState.leaveStartTime := 0
+    if (Config["hoverExpandEnabled"] && inHot) {
+      if (DockState.hoverStartTime = 0) {
+        DockState.hoverStartTime := now
+      } else if ((now - DockState.hoverStartTime) >= Config["hoverExpandDelay"]) {
+        BeginExpand("hover")
+      }
+    } else {
+      DockState.hoverStartTime := 0
+    }
+    return
+  }
+
+  if (DockState.state = "expanded") {
+    DockState.hoverStartTime := 0
+    if !Config["autoCollapseEnabled"] {
+      DockState.leaveStartTime := 0
+      return
+    }
+
+    ; Delay collapse when moving out of sidebar, including to OpenCode area.
+    if inSidebarArea {
+      DockState.leaveStartTime := 0
+      return
+    }
+
+    if (DockState.leaveStartTime = 0) {
+      DockState.leaveStartTime := now
+      return
+    }
+
+    if ((now - DockState.leaveStartTime) >= Config["collapseDelay"]) {
+      BeginCollapse(inOpenCode ? "auto-openCode" : "auto")
+    }
+  }
+}
+
+UpdateLayoutFromOpenCode() {
   openCodeHwnd := FindOpenCodeWindow()
   if !openCodeHwnd {
-    return
+    return false
   }
-  DockState.OpenCodeHwnd := openCodeHwnd
+  DockState.openCodeHwnd := openCodeHwnd
 
   ox := 0, oy := 0, ow := 0, oh := 0
   try {
     WinGetPos &ox, &oy, &ow, &oh, "ahk_id " openCodeHwnd
   } catch {
-    return
+    return false
   }
   if (ow <= 0 || oh <= 0) {
+    return false
+  }
+
+  DockState.openCodeRect := {x: ox, y: oy, w: ow, h: oh}
+  ApplyStateLayout()
+  return true
+}
+
+ApplyStateLayout() {
+  ox := DockState.openCodeRect.x
+  oy := DockState.openCodeRect.y
+  oh := DockState.openCodeRect.h
+  if (oh <= 0) {
     return
   }
 
-  dockW := DockState.Expanded ? Config["ExpandedWidth"] : Config["CollapsedWidth"]
-  dockX := ox - dockW
+  dockW := DockState.expanded ? Config["expandedW"] : Config["collapsedW"]
+  dockRight := ox - Config["dockGap"]
+  dockX := dockRight - dockW
   dockY := oy
-  SetDockPosNoActivate(DockState.DockHwnd, dockX, dockY, dockW, oh)
+  DockState.dockRect := {x: dockX, y: dockY, w: dockW, h: oh}
+  SetWindowPosNoActivate(DockState.dockHwnd, dockX, dockY, dockW, oh)
+
+  if DockState.expanded {
+    hotW := Max(1, Min(Config["edgeStripW"], dockW))
+    hotX := dockRight - hotW
+    WinSetTransparent 40, "ahk_id " DockState.hotZoneHwnd
+  } else {
+    hotW := dockW
+    hotX := dockX
+    WinSetTransparent 75, "ahk_id " DockState.hotZoneHwnd
+  }
+  DockState.hotRect := {x: hotX, y: dockY, w: hotW, h: oh}
+  DockState.hotZoneGui.Show(Format("NA x{1} y{2} w{3} h{4}", hotX, dockY, hotW, oh))
+  SetWindowPosNoActivate(DockState.hotZoneHwnd, hotX, dockY, hotW, oh)
+}
+
+BeginExpand(reason := "") {
+  if !CanTransition() {
+    return
+  }
+  DockState.state := "expanding"
+  DockState.expanded := true
+  DockState.hoverStartTime := 0
+  DockState.leaveStartTime := 0
+  ApplyStateLayout()
+  DockState.state := "expanded"
+
+  if !IsGatewayReachable(DockState.gatewayUrl) {
+    ShowGatewayHint()
+    TryStartGatewayCommand()
+  }
+
+  ; Keep typing focus in OpenCode after non-content interactions.
+  TryActivateOpenCode()
+}
+
+BeginCollapse(reason := "") {
+  if !CanTransition() {
+    return
+  }
+  DockState.state := "collapsing"
+  DockState.expanded := false
+  DockState.hoverStartTime := 0
+  DockState.leaveStartTime := 0
+  ApplyStateLayout()
+  DockState.state := "collapsed"
+
+  ; Keep typing focus in OpenCode after strip/hotkey collapse.
+  TryActivateOpenCode()
+}
+
+CanTransition() {
+  now := A_TickCount
+  if ((now - DockState.lastTransitionTime) < Config["transitionDebounceMs"]) {
+    return false
+  }
+  DockState.lastTransitionTime := now
+  return true
 }
 
 PrepareDockWindow(hwnd) {
@@ -133,7 +274,7 @@ PrepareDockWindow(hwnd) {
   WinSetAlwaysOnTop true, "ahk_id " hwnd
 }
 
-SetDockPosNoActivate(hwnd, x, y, w, h) {
+SetWindowPosNoActivate(hwnd, x, y, w, h) {
   static HWND_TOPMOST := -1
   static SWP_NOACTIVATE := 0x0010
   static SWP_SHOWWINDOW := 0x0040
@@ -149,20 +290,26 @@ SetDockPosNoActivate(hwnd, x, y, w, h) {
   )
 }
 
+RectContains(rect, x, y) {
+  if !IsObject(rect) {
+    return false
+  }
+  return x >= rect.x && x < (rect.x + rect.w) && y >= rect.y && y < (rect.y + rect.h)
+}
+
 FindOpenCodeWindow() {
-  global Config
-  hwnd := WinExist(Config["OpenCodeTitle"])
+  hwnd := WinExist(Config["openCodeTitle"])
   if hwnd {
     return hwnd
   }
-  if (Config["OpenCodeExe"] != "") {
-    hwnd := WinExist("ahk_exe " Config["OpenCodeExe"])
+  if (Config["openCodeExe"] != "") {
+    hwnd := WinExist("ahk_exe " Config["openCodeExe"])
     if hwnd {
       return hwnd
     }
   }
-  if (Config["OpenCodeClass"] != "") {
-    hwnd := WinExist("ahk_class " Config["OpenCodeClass"])
+  if (Config["openCodeClass"] != "") {
+    hwnd := WinExist("ahk_class " Config["openCodeClass"])
     if hwnd {
       return hwnd
     }
@@ -171,11 +318,10 @@ FindOpenCodeWindow() {
 }
 
 TryActivateOpenCode() {
-  global DockState
-  if !DockState.OpenCodeHwnd {
+  if !DockState.openCodeHwnd {
     return
   }
-  try WinActivate "ahk_id " DockState.OpenCodeHwnd
+  try WinActivate "ahk_id " DockState.openCodeHwnd
 }
 
 ResolveEdgePath(configuredPath) {
@@ -215,9 +361,48 @@ ReadGatewayUrl(filePath) {
   return ""
 }
 
+IsGatewayReachable(url) {
+  try {
+    req := ComObject("WinHttp.WinHttpRequest.5.1")
+    req.SetTimeouts(500, 500, 800, 800)
+    req.Open("GET", url, false)
+    req.Send()
+    status := req.Status
+    ; Any HTTP response means server is up; treat >=500 as not healthy.
+    return status >= 100 && status < 500
+  } catch {
+    return false
+  }
+}
+
+ShowGatewayHint() {
+  now := A_TickCount
+  if ((now - DockState.lastGatewayWarnAt) < 3000) {
+    return
+  }
+  DockState.lastGatewayWarnAt := now
+  ToolTip "Gateway not running. Try /miya-gateway-start"
+  SetTimer () => ToolTip(), -1800
+}
+
+TryStartGatewayCommand() {
+  now := A_TickCount
+  if ((now - DockState.lastGatewayStartAttempt) < 15000) {
+    return
+  }
+  DockState.lastGatewayStartAttempt := now
+  try {
+    Run A_ComSpec ' /c opencode run --command "miya-gateway-start"', A_ScriptDir, "Hide"
+  } catch {
+    ; Fallback is tooltip instruction.
+  }
+}
+
 CleanupDock(*) {
-  global DockState
-  if (DockState.EdgePid != 0 && ProcessExist(DockState.EdgePid)) {
-    try ProcessClose DockState.EdgePid
+  if (DockState.hotZoneGui) {
+    try DockState.hotZoneGui.Destroy()
+  }
+  if (DockState.edgePid != 0 && ProcessExist(DockState.edgePid)) {
+    try ProcessClose DockState.edgePid
   }
 }
