@@ -108,9 +108,9 @@ CreateHotZone() {
   hotGui.MarginX := 0
   hotGui.MarginY := 0
   hotGui.BackColor := "202020"
-  hotGui.OnEvent("Click", HotZoneClicked)
   DockState.hotZoneGui := hotGui
   DockState.hotZoneHwnd := hotGui.Hwnd
+  OnMessage(0x0201, HotZoneLButtonDown) ; WM_LBUTTONDOWN
   WinSetTransparent 60, "ahk_id " DockState.hotZoneHwnd
   hotGui.Show("NA x0 y0 w1 h1")
 }
@@ -121,6 +121,13 @@ HotZoneClicked(*) {
   } else if (DockState.state = "expanded" || DockState.state = "expanding") {
     BeginCollapse("click")
   }
+}
+
+HotZoneLButtonDown(wParam, lParam, msg, hwnd) {
+  if (hwnd != DockState.hotZoneHwnd) {
+    return
+  }
+  HotZoneClicked()
 }
 
 PollDockState() {
