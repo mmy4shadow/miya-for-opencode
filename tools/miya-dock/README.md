@@ -8,10 +8,11 @@ Windows external dock sidebar for Miya Gateway console.
 - Uses two layers:
   - Edge App window for real Gateway content.
   - AHK HotZone window (always-on-top + no-activate) for hover/click capture.
-- Default collapsed width: `20px` (a thin interactive strip).
+- Default collapsed width: `10px` (thin strip).
 - Expanded width: `420px` (configurable in `miya-dock.ahk`).
-- In expanded mode, HotZone only covers the right edge strip (`12px` by default) for quick collapse.
-- Follows OpenCode move/resize every `70ms`.
+- In expanded mode, HotZone only covers a small collapse strip (`6px` by default).
+- Dock follows OpenCode move/resize with a low-frequency poll and only repositions on geometry change.
+- Default safety mode avoids covering OpenCode content (`allowOverlay = false`).
 
 ## Requirements
 
@@ -29,27 +30,33 @@ Windows external dock sidebar for Miya Gateway console.
 3. Use `Ctrl+Alt+M` to collapse/expand.
 4. In collapsed mode:
    - Click thin strip to expand.
-   - Hover on strip for `hoverExpandDelay` (default `200ms`) to auto-expand.
+   - Optional: enable hover expand in config (`hoverExpandEnabled = true`).
 5. In expanded mode:
-   - Click right edge strip to collapse.
-   - Moving mouse out of sidebar starts delayed auto-collapse (`collapseDelay`, default `900ms`).
+   - Click edge strip to collapse.
+   - Optional: enable delayed auto-collapse in config (`autoCollapseEnabled = true`).
 
 ## Controls
 
 - `Ctrl + Alt + M`: collapse/expand
 - Collapsed strip click: expand
-- Collapsed strip hover (debounced): expand
-- Expanded right edge strip click: collapse
-- Auto collapse on leave (delayed, cancel if mouse returns)
+- Collapsed strip hover (optional, disabled by default)
+- Expanded edge strip click: collapse
+- Auto collapse on leave (optional, disabled by default)
 
 ## Config
 
 Edit `tools/miya-dock/miya-dock.ahk` header:
 
 - `collapsedW`, `expandedW`, `edgeStripW`
+- `minExpandedVisibleW` (minimum free side space required in non-overlay mode)
 - `hoverExpandEnabled`, `hoverExpandDelay`
-- `autoCollapseEnabled`, `collapseDelay`
+- `autoCollapseEnabled`, `collapseDelay`, `collapseWhenInOpenCode`
 - `dockGap`, `followIntervalMs`
+- `preferredSide` (`left`/`right`)
+- `allowOverlay` (`false` by default, avoids covering OpenCode)
+- `collapseStripOnOuterEdge` (default `true`, keeps collapse strip away from OpenCode edge)
+- `keepTopmostWhenOpenCodeActive` (topmost only when OpenCode context is active)
+- `stripWindowFrame` (off by default to avoid Chromium repaint glitches)
 - `openCodeTitle` (primary matcher, default `OpenCode`)
 - `openCodeExe` / `openCodeClass` (fallback matcher)
 - `edgePath` (manual edge binary path)
@@ -77,3 +84,9 @@ These are excluded from git by repository `.gitignore`.
 
 4. AutoHotkey not found
 - Install AutoHotkey v2 and retry.
+
+5. Dock cannot fully expand
+- In default non-overlay mode, Dock refuses large expansion if no free side space.
+- Recovery options:
+  - Leave horizontal margin next to OpenCode (unmaximize or resize OpenCode).
+  - Or set `allowOverlay := true` in `miya-dock.ahk` if you accept overlap behavior.
