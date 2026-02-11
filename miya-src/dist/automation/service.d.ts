@@ -4,6 +4,7 @@ export declare class MiyaAutomationService {
     private timer;
     private running;
     constructor(projectDir: string);
+    getProjectDir(): string;
     start(): void;
     stop(): void;
     tick(): Promise<void>;

@@ -1,5 +1,5 @@
 import type { PluginInput } from '@opencode-ai/plugin';
-import { type ToolDefinition, tool } from '@opencode-ai/plugin/tool';
+import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import { collectSafetyEvidence } from './evidence';
 import {
   activateKillSwitch,
@@ -119,7 +119,7 @@ export async function handlePermissionAsk(
   );
   if (!token) {
     const traceID = createTraceId();
-    activateKillSwitch(projectDir, 'missing_or_stale_evidence', traceID);
+    activateKillSwitch(projectDir, 'missing_evidence', traceID);
     writeSelfApprovalRecord(projectDir, {
       trace_id: traceID,
       session_id: request.sessionID,
@@ -127,7 +127,7 @@ export async function handlePermissionAsk(
       action: `permission.ask:${request.permission}`,
       tier: requiredTier,
       status: 'deny',
-      reason: 'missing_or_stale_evidence',
+      reason: 'missing_evidence',
       checks: ['approval token'],
       evidence: ['no valid token matched request hash'],
       executor: {
@@ -141,7 +141,7 @@ export async function handlePermissionAsk(
       },
       rollback: { strategy: 'rerun miya_self_approve before side-effect actions' },
     });
-    return { status: 'deny', reason: 'missing_or_stale_evidence' };
+    return { status: 'deny', reason: 'missing_evidence' };
   }
 
   writeSelfApprovalRecord(projectDir, {

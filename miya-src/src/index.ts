@@ -267,24 +267,21 @@ const MiyaPlugin: Plugin = async (ctx) => {
     'tool.execute.after': postReadNudgeHook['tool.execute.after'],
 
     'permission.ask': async (input, output) => {
+      const patterns = Array.isArray(input.pattern)
+        ? input.pattern.map(String)
+        : typeof input.pattern === 'string'
+          ? [String(input.pattern)]
+          : [];
       const status = await handlePermissionAsk(ctx.directory, {
         sessionID: String(input.sessionID ?? 'main'),
-        permission: String(input.permission ?? ''),
-        patterns: Array.isArray(input.patterns)
-          ? input.patterns.map(String)
-          : [],
+        permission: String(input.type ?? ''),
+        patterns,
         metadata:
           input.metadata && typeof input.metadata === 'object'
             ? (input.metadata as Record<string, unknown>)
             : {},
-        messageID:
-          input.tool && typeof input.tool === 'object' && 'messageID' in input.tool
-            ? String((input.tool as { messageID?: string }).messageID ?? '')
-            : undefined,
-        toolCallID:
-          input.tool && typeof input.tool === 'object' && 'callID' in input.tool
-            ? String((input.tool as { callID?: string }).callID ?? '')
-            : undefined,
+        messageID: input.messageID ? String(input.messageID) : undefined,
+        toolCallID: input.callID ? String(input.callID) : undefined,
       });
       output.status = status.status;
     },

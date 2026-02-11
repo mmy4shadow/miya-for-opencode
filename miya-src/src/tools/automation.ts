@@ -1,4 +1,6 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { MiyaAutomationService } from '../automation';
 import { getSafetySnapshot } from '../safety';
 
@@ -78,6 +80,30 @@ function parseNaturalSchedule(input: string): { time: string; command: string } 
 
   const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
   return { time, command };
+}
+
+function readAutoGitStatus(projectDir: string): {
+  updated_at?: string;
+  status?: string;
+  reason?: string;
+  trace?: string;
+  target_ref?: string;
+  session_id?: string;
+} {
+  const file = path.join(projectDir, '.opencode', 'miya', 'auto-git-push.json');
+  if (!fs.existsSync(file)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      updated_at?: string;
+      status?: string;
+      reason?: string;
+      trace?: string;
+      target_ref?: string;
+      session_id?: string;
+    };
+  } catch {
+    return {};
+  }
 }
 
 export function createAutomationTools(
@@ -279,6 +305,11 @@ timed_out=${result.result?.timedOut ?? 'n/a'}`;
                   `- ${item.created_at} | ${item.status} | ${item.tier} | ${item.reason} | trace=${item.trace_id}`,
               )
               .join('\n');
+      const autoGit = readAutoGitStatus(automationService.getProjectDir());
+      const autoGitText =
+        autoGit.status && autoGit.updated_at
+          ? `${autoGit.updated_at} | ${autoGit.status} | reason=${autoGit.reason ?? 'n/a'} | trace=${autoGit.trace ?? 'n/a'} | target=${autoGit.target_ref ?? 'n/a'}`
+          : '(none)';
 
       return `<details>
 <summary>Miya Control Plane</summary>
@@ -289,6 +320,7 @@ jobs_enabled=${jobs.filter((job) => job.enabled).length}
 approvals_pending=${approvals.length}
 kill_switch_active=${safety.kill.active}
 kill_switch_reason=${safety.kill.reason ?? 'n/a'}
+auto_git_last=${autoGitText}
 
 Jobs:
 ${formatJobs(jobs)}

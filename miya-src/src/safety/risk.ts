@@ -14,9 +14,16 @@ const IRREVERSIBLE_BASH_PATTERNS: RegExp[] = [
   /\bgit\s+push\b/i,
   /\bgit\s+remote\s+set-url\b/i,
   /\bgit\s+reset\s+--hard\b/i,
+  /\bgit\s+clean\b[^\n]*\b-f\b/i,
+  /\bgit\s+branch\b[^\n]*\b-D\b/i,
   /\brm\s+-[^\n]*\br\b/i,
+  /\brm\s+-[^\n]*\bf\b/i,
+  /\brm\s+(-rf|-fr)\b/i,
   /\bdel\s+\/[sfpq]/i,
+  /\berase\s+\/[sfpq]/i,
   /\bRemove-Item\b[^\n]*\b(-Recurse|-Force)\b/i,
+  /\btruncate\b/i,
+  /\bcp\b[^\n]*\b-f\b/i,
   />\s*\.env(\.|$)/i,
   /\b(overwrite|truncate)\b/i,
 ];
@@ -47,6 +54,15 @@ function hasSensitivePath(patterns: string[]): boolean {
   );
 }
 
+function hasIrreversibleEditPattern(patterns: string[]): boolean {
+  return patterns.some(
+    (pattern) =>
+      /\b(delete|remove|overwrite|truncate|destroy|wipe)\b/i.test(pattern) ||
+      pattern.endsWith('.env') ||
+      pattern.includes('/.env'),
+  );
+}
+
 export function isSideEffectPermission(permission: string): boolean {
   return (
     permission === 'edit' ||
@@ -65,7 +81,10 @@ export function requiredTierForRequest(
     return hasIrreversiblePattern(patterns) ? 'THOROUGH' : 'STANDARD';
   }
   if (request.permission === 'edit') {
-    return hasSensitivePath(patterns) ? 'THOROUGH' : 'STANDARD';
+    if (hasSensitivePath(patterns) || hasIrreversibleEditPattern(patterns)) {
+      return 'THOROUGH';
+    }
+    return 'STANDARD';
   }
   return 'STANDARD';
 }

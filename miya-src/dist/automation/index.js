@@ -1,0 +1,1 @@
+export { MiyaAutomationService } from './service';

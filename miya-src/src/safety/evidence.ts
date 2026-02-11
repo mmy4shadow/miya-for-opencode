@@ -6,11 +6,11 @@ const MAX_OUTPUT = 8_000;
 const LARGE_FILE_LIMIT = 2 * 1024 * 1024;
 
 const SECRET_RULES: Array<{ name: string; pattern: RegExp }> = [
-  { name: 'openai', pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/g },
-  { name: 'github_pat', pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g },
-  { name: 'slack_token', pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
-  { name: 'aws_key', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
-  { name: 'private_key', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
+  { name: 'openai', pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
+  { name: 'github_pat', pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/ },
+  { name: 'slack_token', pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/ },
+  { name: 'aws_key', pattern: /\bAKIA[0-9A-Z]{16}\b/ },
+  { name: 'private_key', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
 ];
 
 export interface SafetyEvidenceResult {

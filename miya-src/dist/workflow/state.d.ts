@@ -1,9 +1,16 @@
 export interface MiyaSessionState {
-    iteration: number;
+    loopEnabled: boolean;
+    autoContinue: boolean;
+    maxIterationsPerWindow: number;
+    iterationCompleted: number;
     windowStartIteration: number;
-    lastAssistantCount: number;
     awaitingConfirmation: boolean;
     strictQualityGate: boolean;
+    lastDone: string[];
+    lastMissing: string[];
+    lastUnresolved: string[];
+    autoContinueIteration: number;
+    autoContinueAt: string;
     updatedAt: string;
 }
 export declare function getMiyaRuntimeDir(projectDir: string): string;
