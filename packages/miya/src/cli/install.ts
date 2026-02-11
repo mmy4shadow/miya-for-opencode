@@ -1,0 +1,890 @@
+import * as readline from 'node:readline/promises';
+import {
+  addAntigravityPlugin,
+  addChutesProvider,
+  addGoogleProvider,
+  addPluginToOpenCodeConfig,
+  buildDynamicModelPlan,
+  detectCurrentConfig,
+  disableDefaultAgents,
+  discoverModelCatalog,
+  discoverOpenCodeFreeModels,
+  discoverProviderFreeModels,
+  generateLiteConfig,
+  getOpenCodeVersion,
+  isOpenCodeInstalled,
+  pickBestCodingChutesModel,
+  pickBestCodingOpenCodeModel,
+  pickSupportChutesModel,
+  pickSupportOpenCodeModel,
+  writeLiteConfig,
+} from './config-manager';
+import { CUSTOM_SKILLS, installCustomSkill } from './custom-skills';
+import { installSkill, RECOMMENDED_SKILLS } from './skills';
+import type {
+  BooleanArg,
+  ConfigMergeResult,
+  DetectedConfig,
+  InstallArgs,
+  InstallConfig,
+  OpenCodeFreeModel,
+} from './types';
+
+// Colors
+const GREEN = '\x1b[32m';
+const BLUE = '\x1b[34m';
+const YELLOW = '\x1b[33m';
+const RED = '\x1b[31m';
+const BOLD = '\x1b[1m';
+const DIM = '\x1b[2m';
+const RESET = '\x1b[0m';
+
+const SYMBOLS = {
+  check: `${GREEN}✓${RESET}`,
+  cross: `${RED}✗${RESET}`,
+  arrow: `${BLUE}→${RESET}`,
+  bullet: `${DIM}•${RESET}`,
+  info: `${BLUE}ℹ${RESET}`,
+  warn: `${YELLOW}⚠${RESET}`,
+  star: `${YELLOW}★${RESET}`,
+};
+
+function printHeader(isUpdate: boolean): void {
+  console.log();
+  console.log(
+    `${BOLD}miya ${isUpdate ? 'Update' : 'Install'}${RESET}`,
+  );
+  console.log('='.repeat(30));
+  console.log();
+}
+
+function printStep(step: number, total: number, message: string): void {
+  console.log(`${DIM}[${step}/${total}]${RESET} ${message}`);
+}
+
+function printSuccess(message: string): void {
+  console.log(`${SYMBOLS.check} ${message}`);
+}
+
+function printError(message: string): void {
+  console.log(`${SYMBOLS.cross} ${RED}${message}${RESET}`);
+}
+
+function printInfo(message: string): void {
+  console.log(`${SYMBOLS.info} ${message}`);
+}
+
+function printWarning(message: string): void {
+  console.log(`${SYMBOLS.warn} ${YELLOW}${message}${RESET}`);
+}
+
+async function checkOpenCodeInstalled(): Promise<{
+  ok: boolean;
+  version?: string;
+}> {
+  const installed = await isOpenCodeInstalled();
+  if (!installed) {
+    printError('OpenCode is not installed on this system.');
+    printInfo('Install it with:');
+    console.log(
+      `     ${BLUE}curl -fsSL https://opencode.ai/install | bash${RESET}`,
+    );
+    return { ok: false };
+  }
+  const version = await getOpenCodeVersion();
+  printSuccess(`OpenCode ${version ?? ''} detected`);
+  return { ok: true, version: version ?? undefined };
+}
+
+function handleStepResult(
+  result: ConfigMergeResult,
+  successMsg: string,
+): boolean {
+  if (!result.success) {
+    printError(`Failed: ${result.error}`);
+    return false;
+  }
+  printSuccess(
+    `${successMsg} ${SYMBOLS.arrow} ${DIM}${result.configPath}${RESET}`,
+  );
+  return true;
+}
+
+function formatConfigSummary(config: InstallConfig): string {
+  const liteConfig = generateLiteConfig(config);
+  const preset = (liteConfig.preset as string) || 'unknown';
+
+  const lines: string[] = [];
+  lines.push(`${BOLD}Configuration Summary${RESET}`);
+  lines.push('');
+  lines.push(`  ${BOLD}Preset:${RESET} ${BLUE}${preset}${RESET}`);
+  lines.push(`  ${config.hasKimi ? SYMBOLS.check : `${DIM}○${RESET}`} Kimi`);
+  lines.push(
+    `  ${config.hasOpenAI ? SYMBOLS.check : `${DIM}○${RESET}`} OpenAI`,
+  );
+  lines.push(
+    `  ${config.hasAnthropic ? SYMBOLS.check : `${DIM}○${RESET}`} Anthropic`,
+  );
+  lines.push(
+    `  ${config.hasCopilot ? SYMBOLS.check : `${DIM}○${RESET}`} GitHub Copilot`,
+  );
+  lines.push(
+    `  ${config.hasZaiPlan ? SYMBOLS.check : `${DIM}○${RESET}`} ZAI Coding Plan`,
+  );
+  lines.push(
+    `  ${config.hasAntigravity ? SYMBOLS.check : `${DIM}○${RESET}`} Antigravity (Google)`,
+  );
+  lines.push(
+    `  ${config.hasChutes ? SYMBOLS.check : `${DIM}○${RESET}`} Chutes`,
+  );
+  lines.push(`  ${SYMBOLS.check} Opencode Zen`);
+  if (config.useOpenCodeFreeModels && config.selectedOpenCodePrimaryModel) {
+    lines.push(
+      `  ${SYMBOLS.check} OpenCode Free Primary: ${BLUE}${config.selectedOpenCodePrimaryModel}${RESET}`,
+    );
+  }
+  if (config.useOpenCodeFreeModels && config.selectedOpenCodeSecondaryModel) {
+    lines.push(
+      `  ${SYMBOLS.check} OpenCode Free Support: ${BLUE}${config.selectedOpenCodeSecondaryModel}${RESET}`,
+    );
+  }
+  if (config.hasChutes && config.selectedChutesPrimaryModel) {
+    lines.push(
+      `  ${SYMBOLS.check} Chutes Primary: ${BLUE}${config.selectedChutesPrimaryModel}${RESET}`,
+    );
+  }
+  if (config.hasChutes && config.selectedChutesSecondaryModel) {
+    lines.push(
+      `  ${SYMBOLS.check} Chutes Support: ${BLUE}${config.selectedChutesSecondaryModel}${RESET}`,
+    );
+  }
+  lines.push(
+    `  ${config.hasTmux ? SYMBOLS.check : `${DIM}○${RESET}`} Tmux Integration`,
+  );
+  return lines.join('\n');
+}
+
+function printAgentModels(config: InstallConfig): void {
+  const liteConfig = generateLiteConfig(config);
+  const presetName = (liteConfig.preset as string) || 'unknown';
+  const presets = liteConfig.presets as Record<string, unknown>;
+  const agents = presets?.[presetName] as Record<
+    string,
+    { model: string; skills: string[] }
+  >;
+
+  if (!agents || Object.keys(agents).length === 0) return;
+
+  console.log(
+    `${BOLD}Agent Configuration (Preset: ${BLUE}${presetName}${RESET}):${RESET}`,
+  );
+  console.log();
+
+  const maxAgentLen = Math.max(...Object.keys(agents).map((a) => a.length));
+
+  for (const [agent, info] of Object.entries(agents)) {
+    const padding = ' '.repeat(maxAgentLen - agent.length);
+    const skillsStr =
+      info.skills.length > 0
+        ? ` ${DIM}[${info.skills.join(', ')}]${RESET}`
+        : '';
+    console.log(
+      `  ${DIM}${agent}${RESET}${padding} ${SYMBOLS.arrow} ${BLUE}${info.model}${RESET}${skillsStr}`,
+    );
+  }
+  console.log();
+}
+
+function argsToConfig(args: InstallArgs): InstallConfig {
+  return {
+    hasKimi: args.kimi === 'yes',
+    hasOpenAI: args.openai === 'yes',
+    hasAnthropic: args.anthropic === 'yes',
+    hasCopilot: args.copilot === 'yes',
+    hasZaiPlan: args.zaiPlan === 'yes',
+    hasAntigravity: args.antigravity === 'yes',
+    hasChutes: args.chutes === 'yes',
+    hasOpencodeZen: true, // Always enabled - free models available to all users
+    useOpenCodeFreeModels: args.opencodeFree === 'yes',
+    preferredOpenCodeModel:
+      args.opencodeFreeModel && args.opencodeFreeModel !== 'auto'
+        ? args.opencodeFreeModel
+        : undefined,
+    hasTmux: args.tmux === 'yes',
+    installSkills: args.skills === 'yes',
+    installCustomSkills: args.skills === 'yes', // Install custom skills when skills=yes
+  };
+}
+
+async function askModelSelection(
+  rl: readline.Interface,
+  models: OpenCodeFreeModel[],
+  defaultModel: string,
+  prompt: string,
+): Promise<string> {
+  const defaultIndex = Math.max(
+    0,
+    models.findIndex((model) => model.model === defaultModel),
+  );
+
+  for (const [index, model] of models.entries()) {
+    const marker =
+      model.model === defaultModel ? `${BOLD}(recommended)${RESET}` : '';
+    console.log(
+      `  ${DIM}${index + 1}.${RESET} ${BLUE}${model.model}${RESET} ${DIM}${model.name}${RESET} ${marker}`,
+    );
+  }
+
+  const answer = (
+    await rl.question(
+      `${BLUE}${prompt}${RESET} ${DIM}[default: ${defaultIndex + 1}]${RESET}: `,
+    )
+  )
+    .trim()
+    .toLowerCase();
+
+  if (!answer) return defaultModel;
+
+  const asNumber = Number.parseInt(answer, 10);
+  if (Number.isFinite(asNumber)) {
+    const chosen = models[asNumber - 1];
+    if (chosen) return chosen.model;
+  }
+
+  const byId = models.find((model) => model.model.toLowerCase() === answer);
+  return byId?.model ?? defaultModel;
+}
+
+async function askYesNo(
+  rl: readline.Interface,
+  prompt: string,
+  defaultValue: BooleanArg = 'no',
+): Promise<BooleanArg> {
+  const hint = defaultValue === 'yes' ? '[Y/n]' : '[y/N]';
+  const answer = (await rl.question(`${BLUE}${prompt}${RESET} ${hint}: `))
+    .trim()
+    .toLowerCase();
+
+  if (answer === '') return defaultValue;
+  if (answer === 'y' || answer === 'yes') return 'yes';
+  if (answer === 'n' || answer === 'no') return 'no';
+  return defaultValue;
+}
+
+async function runInteractiveMode(
+  detected: DetectedConfig,
+): Promise<InstallConfig> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  // TODO: tmux has a bug, disabled for now
+  // const tmuxInstalled = await isTmuxInstalled()
+  // const totalQuestions = tmuxInstalled ? 3 : 2
+  const totalQuestions = 8;
+
+  try {
+    console.log(`${BOLD}Question 1/${totalQuestions}:${RESET}`);
+    const useOpenCodeFree = await askYesNo(
+      rl,
+      'Use only OpenCode free models (opencode/*) with live refresh?',
+      'yes',
+    );
+    console.log();
+
+    let availableOpenCodeFreeModels: OpenCodeFreeModel[] | undefined;
+    let selectedOpenCodePrimaryModel: string | undefined;
+    let selectedOpenCodeSecondaryModel: string | undefined;
+    let availableChutesFreeModels: OpenCodeFreeModel[] | undefined;
+    let selectedChutesPrimaryModel: string | undefined;
+    let selectedChutesSecondaryModel: string | undefined;
+
+    if (useOpenCodeFree === 'yes') {
+      printInfo('Refreshing models with: opencode models --refresh --verbose');
+      const discovery = await discoverOpenCodeFreeModels();
+
+      if (discovery.models.length === 0) {
+        printWarning(
+          discovery.error ??
+            'No OpenCode free models found. Continuing without OpenCode free-model assignment.',
+        );
+      } else {
+        availableOpenCodeFreeModels = discovery.models;
+
+        const recommendedPrimary =
+          pickBestCodingOpenCodeModel(discovery.models)?.model ??
+          discovery.models[0]?.model;
+
+        if (recommendedPrimary) {
+          console.log(`${BOLD}OpenCode Free Models:${RESET}`);
+          selectedOpenCodePrimaryModel = await askModelSelection(
+            rl,
+            discovery.models,
+            recommendedPrimary,
+            'Choose primary model for 1-task-manager/4-architecture-advisor',
+          );
+        }
+
+        if (selectedOpenCodePrimaryModel) {
+          const recommendedSecondary =
+            pickSupportOpenCodeModel(
+              discovery.models,
+              selectedOpenCodePrimaryModel,
+            )?.model ?? selectedOpenCodePrimaryModel;
+          selectedOpenCodeSecondaryModel = await askModelSelection(
+            rl,
+            discovery.models,
+            recommendedSecondary,
+            'Choose support model for 2-code-search/3-docs-helper/5-code-fixer',
+          );
+        }
+
+        console.log();
+      }
+    }
+
+    console.log(`${BOLD}Question 2/${totalQuestions}:${RESET}`);
+    const kimi = await askYesNo(
+      rl,
+      'Do you want to use Kimi For Coding?',
+      detected.hasKimi ? 'yes' : 'no',
+    );
+    console.log();
+
+    console.log(`${BOLD}Question 3/${totalQuestions}:${RESET}`);
+    const openai = await askYesNo(
+      rl,
+      'Do you have access to OpenAI API?',
+      detected.hasOpenAI ? 'yes' : 'no',
+    );
+    console.log();
+
+    console.log(`${BOLD}Question 4/${totalQuestions}:${RESET}`);
+    const anthropic = await askYesNo(
+      rl,
+      'Do you have access to Anthropic models?',
+      detected.hasAnthropic ? 'yes' : 'no',
+    );
+    console.log();
+
+    console.log(`${BOLD}Question 5/${totalQuestions}:${RESET}`);
+    const copilot = await askYesNo(
+      rl,
+      'Do you have access to GitHub Copilot models?',
+      detected.hasCopilot ? 'yes' : 'no',
+    );
+    console.log();
+
+    console.log(`${BOLD}Question 6/${totalQuestions}:${RESET}`);
+    const zaiPlan = await askYesNo(
+      rl,
+      'Do you have access to ZAI Coding Plan models?',
+      detected.hasZaiPlan ? 'yes' : 'no',
+    );
+    console.log();
+
+    console.log(`${BOLD}Question 7/${totalQuestions}:${RESET}`);
+    const antigravity = await askYesNo(
+      rl,
+      'Enable Antigravity authentication for Google models?',
+      detected.hasAntigravity ? 'yes' : 'no',
+    );
+    console.log();
+
+    console.log(`${BOLD}Question 8/${totalQuestions}:${RESET}`);
+    const chutes = await askYesNo(
+      rl,
+      'Enable Chutes provider with free daily capped models?',
+      detected.hasChutes ? 'yes' : 'no',
+    );
+    console.log();
+
+    if (chutes === 'yes') {
+      printInfo(
+        'Refreshing Chutes model list with: opencode models --refresh --verbose',
+      );
+      const discovery = await discoverProviderFreeModels('chutes');
+
+      if (discovery.models.length === 0) {
+        printWarning(
+          discovery.error ??
+            'No free Chutes models found. Continuing without Chutes dynamic assignment.',
+        );
+      } else {
+        availableChutesFreeModels = discovery.models;
+
+        const recommendedPrimary =
+          pickBestCodingChutesModel(discovery.models)?.model ??
+          discovery.models[0]?.model;
+
+        if (recommendedPrimary) {
+          console.log(`${BOLD}Chutes Free Models:${RESET}`);
+          selectedChutesPrimaryModel = await askModelSelection(
+            rl,
+            discovery.models,
+            recommendedPrimary,
+            'Choose Chutes primary model for 1-task-manager/4-architecture-advisor/6-ui-designer',
+          );
+        }
+
+        if (selectedChutesPrimaryModel) {
+          const recommendedSecondary =
+            pickSupportChutesModel(discovery.models, selectedChutesPrimaryModel)
+              ?.model ?? selectedChutesPrimaryModel;
+          selectedChutesSecondaryModel = await askModelSelection(
+            rl,
+            discovery.models,
+            recommendedSecondary,
+            'Choose Chutes support model for 2-code-search/3-docs-helper/5-code-fixer',
+          );
+        }
+
+        console.log();
+      }
+    }
+
+    // TODO: tmux has a bug, disabled for now
+    // let tmux: BooleanArg = "no"
+    // if (tmuxInstalled) {
+    //   console.log(`${BOLD}Question 3/3:${RESET}`)
+    //   printInfo(`${BOLD}Tmux detected!${RESET} We can enable tmux integration for you.`)
+    //   printInfo("This will spawn new panes for sub-agents, letting you watch them work in real-time.")
+    //   tmux = await askYesNo(rl, "Enable tmux integration?", detected.hasTmux ? "yes" : "no")
+    //   console.log()
+    // }
+
+    // Skills prompt
+    console.log(`${BOLD}Recommended Skills:${RESET}`);
+    for (const skill of RECOMMENDED_SKILLS) {
+      console.log(
+        `  ${SYMBOLS.bullet} ${BOLD}${skill.name}${RESET}: ${skill.description}`,
+      );
+    }
+    console.log();
+    const skills = await askYesNo(rl, 'Install recommended skills?', 'yes');
+    console.log();
+
+    // Custom skills prompt
+    console.log(`${BOLD}Custom Skills:${RESET}`);
+    for (const skill of CUSTOM_SKILLS) {
+      console.log(
+        `  ${SYMBOLS.bullet} ${BOLD}${skill.name}${RESET}: ${skill.description}`,
+      );
+    }
+    console.log();
+    const customSkills = await askYesNo(rl, 'Install custom skills?', 'yes');
+    console.log();
+
+    return {
+      hasKimi: kimi === 'yes',
+      hasOpenAI: openai === 'yes',
+      hasAnthropic: anthropic === 'yes',
+      hasCopilot: copilot === 'yes',
+      hasZaiPlan: zaiPlan === 'yes',
+      hasAntigravity: antigravity === 'yes',
+      hasChutes: chutes === 'yes',
+      hasOpencodeZen: true,
+      useOpenCodeFreeModels:
+        useOpenCodeFree === 'yes' && selectedOpenCodePrimaryModel !== undefined,
+      selectedOpenCodePrimaryModel,
+      selectedOpenCodeSecondaryModel,
+      availableOpenCodeFreeModels,
+      selectedChutesPrimaryModel,
+      selectedChutesSecondaryModel,
+      availableChutesFreeModels,
+      hasTmux: false,
+      installSkills: skills === 'yes',
+      installCustomSkills: customSkills === 'yes',
+    };
+  } finally {
+    rl.close();
+  }
+}
+
+async function runInstall(config: InstallConfig): Promise<number> {
+  const resolvedConfig: InstallConfig = {
+    ...config,
+  };
+
+  const detected = detectCurrentConfig();
+  const isUpdate = detected.isInstalled;
+
+  printHeader(isUpdate);
+
+  const hasAnyEnabledProvider =
+    resolvedConfig.hasKimi ||
+    resolvedConfig.hasOpenAI ||
+    resolvedConfig.hasAnthropic ||
+    resolvedConfig.hasCopilot ||
+    resolvedConfig.hasZaiPlan ||
+    resolvedConfig.hasAntigravity ||
+    resolvedConfig.hasChutes ||
+    resolvedConfig.useOpenCodeFreeModels;
+
+  // Calculate total steps dynamically
+  let totalSteps = 4; // Base: check opencode, add plugin, disable default agents, write lite config
+  if (resolvedConfig.useOpenCodeFreeModels) totalSteps += 1;
+  if (resolvedConfig.hasAntigravity) totalSteps += 2; // antigravity plugin + google provider
+  if (resolvedConfig.hasChutes) totalSteps += 1; // chutes provider
+  if (hasAnyEnabledProvider) totalSteps += 1; // dynamic model resolution
+  if (resolvedConfig.installSkills) totalSteps += 1; // skills installation
+  if (resolvedConfig.installCustomSkills) totalSteps += 1; // custom skills installation
+
+  let step = 1;
+
+  printStep(step++, totalSteps, 'Checking OpenCode installation...');
+  const { ok } = await checkOpenCodeInstalled();
+  if (!ok) return 1;
+
+  if (
+    resolvedConfig.useOpenCodeFreeModels &&
+    (resolvedConfig.availableOpenCodeFreeModels?.length ?? 0) === 0
+  ) {
+    printStep(
+      step++,
+      totalSteps,
+      'Refreshing OpenCode free models (opencode/*)...',
+    );
+    const discovery = await discoverOpenCodeFreeModels();
+    if (discovery.models.length === 0) {
+      printWarning(
+        discovery.error ??
+          'No OpenCode free models found. Continuing without dynamic OpenCode assignment.',
+      );
+      resolvedConfig.useOpenCodeFreeModels = false;
+    } else {
+      resolvedConfig.availableOpenCodeFreeModels = discovery.models;
+
+      const selectedPrimary =
+        resolvedConfig.preferredOpenCodeModel &&
+        discovery.models.some(
+          (model) => model.model === resolvedConfig.preferredOpenCodeModel,
+        )
+          ? resolvedConfig.preferredOpenCodeModel
+          : (resolvedConfig.selectedOpenCodePrimaryModel ??
+            pickBestCodingOpenCodeModel(discovery.models)?.model);
+
+      resolvedConfig.selectedOpenCodePrimaryModel =
+        selectedPrimary ?? discovery.models[0]?.model;
+      resolvedConfig.selectedOpenCodeSecondaryModel =
+        resolvedConfig.selectedOpenCodeSecondaryModel ??
+        pickSupportOpenCodeModel(
+          discovery.models,
+          resolvedConfig.selectedOpenCodePrimaryModel,
+        )?.model ??
+        resolvedConfig.selectedOpenCodePrimaryModel;
+
+      printSuccess(
+        `OpenCode free models ready (${discovery.models.length} models found)`,
+      );
+    }
+  } else if (
+    resolvedConfig.useOpenCodeFreeModels &&
+    (resolvedConfig.availableOpenCodeFreeModels?.length ?? 0) > 0
+  ) {
+    const availableModels = resolvedConfig.availableOpenCodeFreeModels ?? [];
+    resolvedConfig.selectedOpenCodePrimaryModel =
+      resolvedConfig.selectedOpenCodePrimaryModel ??
+      pickBestCodingOpenCodeModel(availableModels)?.model;
+    resolvedConfig.selectedOpenCodeSecondaryModel =
+      resolvedConfig.selectedOpenCodeSecondaryModel ??
+      pickSupportOpenCodeModel(
+        availableModels,
+        resolvedConfig.selectedOpenCodePrimaryModel,
+      )?.model ??
+      resolvedConfig.selectedOpenCodePrimaryModel;
+
+    printStep(
+      step++,
+      totalSteps,
+      'Using previously refreshed OpenCode free model list...',
+    );
+    printSuccess(
+      `OpenCode free models ready (${availableModels.length} models found)`,
+    );
+  }
+
+  if (
+    resolvedConfig.hasChutes &&
+    (resolvedConfig.availableChutesFreeModels?.length ?? 0) === 0
+  ) {
+    printStep(
+      step++,
+      totalSteps,
+      'Refreshing Chutes free models (chutes/*)...',
+    );
+    const discovery = await discoverProviderFreeModels('chutes');
+    if (discovery.models.length === 0) {
+      printWarning(
+        discovery.error ??
+          'No free Chutes models found. Continuing with fallback Chutes mapping.',
+      );
+    } else {
+      resolvedConfig.availableChutesFreeModels = discovery.models;
+      resolvedConfig.selectedChutesPrimaryModel =
+        resolvedConfig.selectedChutesPrimaryModel ??
+        pickBestCodingChutesModel(discovery.models)?.model ??
+        discovery.models[0]?.model;
+      resolvedConfig.selectedChutesSecondaryModel =
+        resolvedConfig.selectedChutesSecondaryModel ??
+        pickSupportChutesModel(
+          discovery.models,
+          resolvedConfig.selectedChutesPrimaryModel,
+        )?.model ??
+        resolvedConfig.selectedChutesPrimaryModel;
+
+      printSuccess(
+        `Chutes models ready (${discovery.models.length} models found)`,
+      );
+    }
+  } else if (
+    resolvedConfig.hasChutes &&
+    (resolvedConfig.availableChutesFreeModels?.length ?? 0) > 0
+  ) {
+    const availableChutes = resolvedConfig.availableChutesFreeModels ?? [];
+    resolvedConfig.selectedChutesPrimaryModel =
+      resolvedConfig.selectedChutesPrimaryModel ??
+      pickBestCodingChutesModel(availableChutes)?.model;
+    resolvedConfig.selectedChutesSecondaryModel =
+      resolvedConfig.selectedChutesSecondaryModel ??
+      pickSupportChutesModel(
+        availableChutes,
+        resolvedConfig.selectedChutesPrimaryModel,
+      )?.model ??
+      resolvedConfig.selectedChutesPrimaryModel;
+
+    printStep(
+      step++,
+      totalSteps,
+      'Using previously refreshed Chutes free model list...',
+    );
+    printSuccess(
+      `Chutes models ready (${availableChutes.length} models found)`,
+    );
+  }
+
+  printStep(step++, totalSteps, 'Adding miya plugin...');
+  const pluginResult = await addPluginToOpenCodeConfig();
+  if (!handleStepResult(pluginResult, 'Plugin added')) return 1;
+
+  // Add Antigravity support if requested
+  if (resolvedConfig.hasAntigravity) {
+    printStep(step++, totalSteps, 'Adding Antigravity plugin...');
+    const antigravityPluginResult = addAntigravityPlugin();
+    if (!handleStepResult(antigravityPluginResult, 'Antigravity plugin added'))
+      return 1;
+
+    printStep(step++, totalSteps, 'Configuring Google Provider...');
+    const googleProviderResult = addGoogleProvider();
+    if (!handleStepResult(googleProviderResult, 'Google Provider configured'))
+      return 1;
+  }
+
+  if (resolvedConfig.hasChutes) {
+    printStep(step++, totalSteps, 'Configuring Chutes Provider...');
+    const chutesProviderResult = addChutesProvider();
+    if (!handleStepResult(chutesProviderResult, 'Chutes Provider configured'))
+      return 1;
+  }
+
+  if (hasAnyEnabledProvider) {
+    printStep(step++, totalSteps, 'Resolving dynamic model assignments...');
+    const catalogDiscovery = await discoverModelCatalog();
+    if (catalogDiscovery.models.length === 0) {
+      printWarning(
+        catalogDiscovery.error ??
+          'Unable to discover model catalog. Falling back to static mappings.',
+      );
+    } else {
+      const dynamicPlan = buildDynamicModelPlan(
+        catalogDiscovery.models,
+        resolvedConfig,
+      );
+      if (!dynamicPlan) {
+        printWarning(
+          'Dynamic planner found no suitable models. Using static mappings.',
+        );
+      } else {
+        resolvedConfig.dynamicModelPlan = dynamicPlan;
+        printSuccess(
+          `Dynamic assignments ready (${Object.keys(dynamicPlan.agents).length} agents)`,
+        );
+      }
+    }
+  }
+
+  printStep(step++, totalSteps, 'Disabling OpenCode default agents...');
+  const agentResult = disableDefaultAgents();
+  if (!handleStepResult(agentResult, 'Default agents disabled')) return 1;
+
+  printStep(step++, totalSteps, 'Writing miya configuration...');
+  const liteResult = writeLiteConfig(resolvedConfig);
+  if (!handleStepResult(liteResult, 'Config written')) return 1;
+
+  // Install skills if requested
+  if (resolvedConfig.installSkills) {
+    printStep(step++, totalSteps, 'Installing recommended skills...');
+    let skillsInstalled = 0;
+    for (const skill of RECOMMENDED_SKILLS) {
+      printInfo(`Installing ${skill.name}...`);
+      if (installSkill(skill)) {
+        printSuccess(`Installed: ${skill.name}`);
+        skillsInstalled++;
+      } else {
+        printWarning(`Failed to install: ${skill.name}`);
+      }
+    }
+    printSuccess(
+      `${skillsInstalled}/${RECOMMENDED_SKILLS.length} skills installed`,
+    );
+  }
+
+  // Install custom skills if requested
+  if (resolvedConfig.installCustomSkills) {
+    printStep(step++, totalSteps, 'Installing custom skills...');
+    let customSkillsInstalled = 0;
+    for (const skill of CUSTOM_SKILLS) {
+      printInfo(`Installing ${skill.name}...`);
+      if (installCustomSkill(skill)) {
+        printSuccess(`Installed: ${skill.name}`);
+        customSkillsInstalled++;
+      } else {
+        printWarning(`Failed to install: ${skill.name}`);
+      }
+    }
+    printSuccess(
+      `${customSkillsInstalled}/${CUSTOM_SKILLS.length} custom skills installed`,
+    );
+  }
+
+  // Summary
+  console.log();
+  console.log(formatConfigSummary(resolvedConfig));
+  console.log();
+
+  printAgentModels(resolvedConfig);
+
+  if (
+    !resolvedConfig.hasKimi &&
+    !resolvedConfig.hasOpenAI &&
+    !resolvedConfig.hasAnthropic &&
+    !resolvedConfig.hasCopilot &&
+    !resolvedConfig.hasZaiPlan &&
+    !resolvedConfig.hasAntigravity &&
+    !resolvedConfig.hasChutes
+  ) {
+    printWarning(
+      'No providers configured. Zen Big Pickle models will be used as fallback.',
+    );
+  }
+
+  console.log(
+    `${SYMBOLS.star} ${BOLD}${GREEN}${isUpdate ? 'Configuration updated!' : 'Installation complete!'}${RESET}`,
+  );
+  console.log();
+  console.log(`${BOLD}Next steps:${RESET}`);
+  console.log();
+
+  let nextStep = 1;
+
+  if (
+    resolvedConfig.hasKimi ||
+    resolvedConfig.hasOpenAI ||
+    resolvedConfig.hasAnthropic ||
+    resolvedConfig.hasCopilot ||
+    resolvedConfig.hasZaiPlan ||
+    resolvedConfig.hasAntigravity ||
+    resolvedConfig.hasChutes
+  ) {
+    console.log(`  ${nextStep++}. Authenticate with your providers:`);
+    console.log(`     ${BLUE}$ opencode auth login${RESET}`);
+    if (resolvedConfig.hasKimi) {
+      console.log();
+      console.log(`     Then select ${BOLD}Kimi For Coding${RESET} provider.`);
+    }
+    if (resolvedConfig.hasAntigravity) {
+      console.log();
+      console.log(`     Then select ${BOLD}google${RESET} provider.`);
+    }
+    if (resolvedConfig.hasAnthropic) {
+      console.log();
+      console.log(`     Then select ${BOLD}anthropic${RESET} provider.`);
+    }
+    if (resolvedConfig.hasCopilot) {
+      console.log();
+      console.log(`     Then select ${BOLD}github-copilot${RESET} provider.`);
+    }
+    if (resolvedConfig.hasZaiPlan) {
+      console.log();
+      console.log(`     Then select ${BOLD}zai-coding-plan${RESET} provider.`);
+    }
+    if (resolvedConfig.hasChutes) {
+      console.log();
+      console.log(`     Then set ${BOLD}CHUTES_API_KEY${RESET} in your shell.`);
+    }
+    console.log();
+  }
+
+  // TODO: tmux has a bug, disabled for now
+  // if (config.hasTmux) {
+  //   console.log(`  ${nextStep++}. Run OpenCode inside tmux:`)
+  //   console.log(`     ${BLUE}$ tmux${RESET}`)
+  //   console.log(`     ${BLUE}$ opencode${RESET}`)
+  // } else {
+  console.log(`  ${nextStep++}. Start OpenCode:`);
+  console.log(`     ${BLUE}$ opencode${RESET}`);
+  // }
+  console.log();
+
+  return 0;
+}
+
+export async function install(args: InstallArgs): Promise<number> {
+  // Non-interactive mode: all args must be provided
+  if (!args.tui) {
+    const requiredArgs = [
+      'kimi',
+      'openai',
+      'anthropic',
+      'copilot',
+      'zaiPlan',
+      'antigravity',
+      'chutes',
+      'tmux',
+    ] as const;
+    const errors = requiredArgs.filter((key) => {
+      const value = args[key];
+      return value === undefined || !['yes', 'no'].includes(value);
+    });
+
+    if (errors.length > 0) {
+      printHeader(false);
+      printError('Missing or invalid arguments:');
+      for (const key of errors) {
+        const flagName = key === 'zaiPlan' ? 'zai-plan' : key;
+        console.log(`  ${SYMBOLS.bullet} --${flagName}=<yes|no>`);
+      }
+      console.log();
+      printInfo(
+        'Usage: bunx miya install --no-tui --kimi=<yes|no> --openai=<yes|no> --anthropic=<yes|no> --copilot=<yes|no> --zai-plan=<yes|no> --antigravity=<yes|no> --chutes=<yes|no> --tmux=<yes|no>',
+      );
+      console.log();
+      return 1;
+    }
+
+    return runInstall(argsToConfig(args));
+  }
+
+  // Interactive mode
+  const detected = detectCurrentConfig();
+
+  printHeader(detected.isInstalled);
+
+  printStep(1, 1, 'Checking OpenCode installation...');
+  const { ok } = await checkOpenCodeInstalled();
+  if (!ok) return 1;
+  console.log();
+
+  const config = await runInteractiveMode(detected);
+  return runInstall(config);
+}

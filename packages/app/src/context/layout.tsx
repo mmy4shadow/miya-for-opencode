@@ -107,6 +107,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           workspacesDefault: sidebar.workspaces,
         }
       })()
+      const migratedSidebarPanel = (() => {
+        if (!isRecord(migratedSidebar)) return migratedSidebar
+        const panel = migratedSidebar.panel
+        if (panel === "project" || panel === "miya") return migratedSidebar
+        return { ...migratedSidebar, panel: "project" }
+      })()
 
       const review = value.review
       const fileTree = value.fileTree
@@ -134,10 +140,15 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         }
       })()
 
-      if (migratedSidebar === sidebar && migratedReview === review && migratedFileTree === fileTree) return value
+      if (
+        migratedSidebarPanel === sidebar &&
+        migratedReview === review &&
+        migratedFileTree === fileTree
+      )
+        return value
       return {
         ...value,
-        sidebar: migratedSidebar,
+        sidebar: migratedSidebarPanel,
         review: migratedReview,
         fileTree: migratedFileTree,
       }
@@ -149,6 +160,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       createStore({
         sidebar: {
           opened: false,
+          panel: "project" as "project" | "miya",
           width: 344,
           workspaces: {} as Record<string, boolean>,
           workspacesDefault: false,
@@ -510,6 +522,15 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         },
         toggle() {
           setStore("sidebar", "opened", (x) => !x)
+        },
+        panel: {
+          get: createMemo(() => store.sidebar.panel ?? "project"),
+          set(panel: "project" | "miya") {
+            setStore("sidebar", "panel", panel)
+          },
+          toggle() {
+            setStore("sidebar", "panel", (x) => (x === "miya" ? "project" : "miya"))
+          },
         },
         width: createMemo(() => store.sidebar.width),
         resize(width: number) {

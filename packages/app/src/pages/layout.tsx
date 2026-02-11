@@ -75,6 +75,7 @@ import {
 import { workspaceOpenState } from "./layout/sidebar-workspace-helpers"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
+import { MiyaPanel } from "@/components/miya/panel"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
@@ -895,6 +896,16 @@ export default function Layout(props: ParentProps) {
         category: language.t("command.category.view"),
         keybind: "mod+b",
         onSelect: () => layout.sidebar.toggle(),
+      },
+      {
+        id: "miya.open",
+        title: language.t("sidebar.miya"),
+        category: language.t("command.category.view"),
+        keybind: "mod+shift+m",
+        onSelect: () => {
+          layout.sidebar.open()
+          layout.sidebar.panel.set("miya")
+        },
       },
       {
         id: "project.open",
@@ -1902,12 +1913,21 @@ export default function Layout(props: ParentProps) {
               renderProjectOverlay={() => (
                 <ProjectDragOverlay projects={() => layout.projects.list()} activeProject={() => store.activeProject} />
               )}
+              miyaLabel={() => language.t("sidebar.miya")}
+              miyaKeybind={() => command.keybind("miya.open")}
+              miyaActive={() => layout.sidebar.panel.get() === "miya"}
+              onOpenMiya={() => {
+                layout.sidebar.open()
+                layout.sidebar.panel.toggle()
+              }}
               settingsLabel={() => language.t("sidebar.settings")}
               settingsKeybind={() => command.keybind("settings.open")}
               onOpenSettings={openSettings}
               helpLabel={() => language.t("sidebar.help")}
               onOpenHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
-              renderPanel={() => <SidebarPanel project={currentProject()} />}
+              renderPanel={() =>
+                layout.sidebar.panel.get() === "miya" ? <MiyaPanel /> : <SidebarPanel project={currentProject()} />
+              }
             />
           </div>
           <Show when={!layout.sidebar.opened() ? hoverProjectData() : undefined} keyed>
@@ -1965,12 +1985,20 @@ export default function Layout(props: ParentProps) {
               renderProjectOverlay={() => (
                 <ProjectDragOverlay projects={() => layout.projects.list()} activeProject={() => store.activeProject} />
               )}
+              miyaLabel={() => language.t("sidebar.miya")}
+              miyaKeybind={() => command.keybind("miya.open")}
+              miyaActive={() => layout.sidebar.panel.get() === "miya"}
+              onOpenMiya={() => {
+                layout.sidebar.panel.toggle()
+              }}
               settingsLabel={() => language.t("sidebar.settings")}
               settingsKeybind={() => command.keybind("settings.open")}
               onOpenSettings={openSettings}
               helpLabel={() => language.t("sidebar.help")}
               onOpenHelp={() => platform.openLink("https://opencode.ai/desktop-feedback")}
-              renderPanel={() => <SidebarPanel project={currentProject()} mobile />}
+              renderPanel={() =>
+                layout.sidebar.panel.get() === "miya" ? <MiyaPanel /> : <SidebarPanel project={currentProject()} mobile />
+              }
             />
           </nav>
         </div>

@@ -7,6 +7,7 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { useProviders } from "@/hooks/use-providers"
 import { useModels } from "@/context/models"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
+import { Persist, persisted } from "@/utils/persist"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -74,11 +75,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           const value = available[next]
           if (!value) return
           setStore("current", value.name)
-          if (value.model)
-            model.set({
-              providerID: value.model.providerID,
-              modelID: value.model.modelID,
-            })
         },
       }
     })()
@@ -86,11 +82,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const model = (() => {
       const models = useModels()
 
-      const [ephemeral, setEphemeral] = createStore<{
-        model: Record<string, ModelKey | undefined>
-      }>({
-        model: {},
-      })
+      const [ephemeral, setEphemeral] = persisted(
+        Persist.workspace(sdk.directory, "agent-model", ["agent-model.v1"]),
+        createStore<{
+          model: Record<string, ModelKey | undefined>
+        }>({
+          model: {},
+        }),
+      )
 
       const fallbackModel = createMemo<ModelKey | undefined>(() => {
         if (sync.data.config.model) {

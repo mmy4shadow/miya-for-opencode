@@ -133,6 +133,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         Bun.write(
           file,
           JSON.stringify({
+            model: modelStore.model,
             recent: modelStore.recent,
             favorite: modelStore.favorite,
             variant: modelStore.variant,
@@ -143,6 +144,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       file
         .json()
         .then((x) => {
+          if (typeof x.model === "object" && x.model !== null) setModelStore("model", x.model)
           if (Array.isArray(x.recent)) setModelStore("recent", x.recent)
           if (Array.isArray(x.favorite)) setModelStore("favorite", x.favorite)
           if (typeof x.variant === "object" && x.variant !== null) setModelStore("variant", x.variant)
@@ -244,6 +246,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           const val = recent[next]
           if (!val) return
           setModelStore("model", agent.current().name, { ...val })
+          save()
         },
         cycleFavorite(direction: 1 | -1) {
           const favorites = modelStore.favorite.filter((item) => isModelValid(item))
@@ -289,6 +292,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
               return
             }
             setModelStore("model", agent.current().name, model)
+            save()
             if (options?.recent) {
               const uniq = uniqueBy([model, ...modelStore.recent], (x) => `${x.providerID}/${x.modelID}`)
               if (uniq.length > 10) uniq.pop()
@@ -382,22 +386,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     // Automatically update model when agent changes
-    createEffect(() => {
-      const value = agent.current()
-      if (value.model) {
-        if (isModelValid(value.model))
-          model.set({
-            providerID: value.model.providerID,
-            modelID: value.model.modelID,
-          })
-        else
-          toast.show({
-            variant: "warning",
-            message: `Agent ${value.name}'s configured model ${value.model.providerID}/${value.model.modelID} is not valid`,
-            duration: 3000,
-          })
-      }
-    })
+    // Keep per-agent model overrides stable when switching agents.
+    // Agent defaults (agent.model) are used as fallback by model.current() and should not overwrite user selections.
 
     const result = {
       model,

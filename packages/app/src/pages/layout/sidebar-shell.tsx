@@ -26,6 +26,10 @@ export const SidebarContent = (props: {
   openProjectKeybind: Accessor<string | undefined>
   onOpenProject: () => void
   renderProjectOverlay: () => JSX.Element
+  miyaLabel: Accessor<string>
+  miyaKeybind?: Accessor<string | undefined>
+  miyaActive: Accessor<boolean>
+  onOpenMiya: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
@@ -78,6 +82,19 @@ export const SidebarContent = (props: {
           </DragDropProvider>
         </div>
         <div class="shrink-0 w-full pt-3 pb-3 flex flex-col items-center gap-2">
+          <TooltipKeybind
+            placement={props.mobile ? "bottom" : "right"}
+            title={props.miyaLabel()}
+            keybind={props.miyaKeybind?.() ?? ""}
+          >
+            <IconButton
+              icon="brain"
+              variant={props.miyaActive() ? "secondary" : "ghost"}
+              size="large"
+              onClick={props.onOpenMiya}
+              aria-label={props.miyaLabel()}
+            />
+          </TooltipKeybind>
           <TooltipKeybind
             placement={props.mobile ? "bottom" : "right"}
             title={props.settingsLabel()}
