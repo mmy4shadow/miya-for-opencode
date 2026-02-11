@@ -3,6 +3,10 @@ import { getAgentConfigs } from './agents';
 import { MiyaAutomationService } from './automation';
 import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
+import {
+  extractAgentModelSelectionFromEvent,
+  persistAgentModelSelection,
+} from './config/agent-model-persistence';
 import { parseList } from './config/agent-mcps';
 import { createGatewayTools, startGatewayWithLog } from './gateway';
 import { autoStartMiyaDock } from './dock/autostart';
@@ -256,6 +260,21 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
 
     event: async (input) => {
+      const modelSelection = extractAgentModelSelectionFromEvent(input.event);
+      if (modelSelection) {
+        const changed = persistAgentModelSelection(
+          ctx.directory,
+          modelSelection.agentName,
+          modelSelection.model,
+        );
+        if (changed) {
+          log('[model-persistence] updated', {
+            agent: modelSelection.agentName,
+            model: modelSelection.model,
+          });
+        }
+      }
+
       // Handle tmux pane spawning for OpenCode's Task tool sessions
       await tmuxSessionManager.onSessionCreated(
         input.event as {

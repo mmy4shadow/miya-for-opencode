@@ -49,6 +49,28 @@ describe('loadPluginConfig', () => {
     expect(config.agents?.oracle?.model).toBe('test/model');
   });
 
+  test('applies persisted runtime agent model overrides from .opencode/miya/agent-models.json', () => {
+    const projectDir = path.join(tempDir, 'project');
+    const projectConfigDir = path.join(projectDir, '.opencode');
+    const runtimeDir = path.join(projectConfigDir, 'miya');
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeDir, 'agent-models.json'),
+      JSON.stringify({
+        agents: {
+          explorer: 'openai/gpt-5.1-codex-mini',
+          '6-ui-designer': 'google/gemini-2.5-pro',
+        },
+      }),
+    );
+
+    const config = loadPluginConfig(projectDir);
+    expect(config.agents?.['2-code-search']?.model).toBe(
+      'openai/gpt-5.1-codex-mini',
+    );
+    expect(config.agents?.['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
+  });
+
   test('ignores invalid config (schema violation or malformed JSON)', () => {
     const projectDir = path.join(tempDir, 'project');
     const projectConfigDir = path.join(projectDir, '.opencode');
