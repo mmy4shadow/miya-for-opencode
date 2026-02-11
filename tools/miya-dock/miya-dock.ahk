@@ -332,15 +332,15 @@ ResolveEdgePath(configuredPath) {
   candidates := []
   pf := EnvGet("ProgramFiles")
   pfx86 := EnvGet("ProgramFiles(x86)")
-  local := EnvGet("LocalAppData")
+  localAppData := EnvGet("LocalAppData")
   if (pf != "") {
     candidates.Push(pf "\Microsoft\Edge\Application\msedge.exe")
   }
   if (pfx86 != "") {
     candidates.Push(pfx86 "\Microsoft\Edge\Application\msedge.exe")
   }
-  if (local != "") {
-    candidates.Push(local "\Microsoft\Edge\Application\msedge.exe")
+  if (localAppData != "") {
+    candidates.Push(localAppData "\Microsoft\Edge\Application\msedge.exe")
   }
   for path in candidates {
     if FileExist(path) {
