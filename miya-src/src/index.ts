@@ -5,6 +5,7 @@ import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
 import { parseList } from './config/agent-mcps';
 import { createGatewayTools, startGatewayWithLog } from './gateway';
+import { autoStartMiyaDock } from './dock/autostart';
 import {
   createLoopGuardHook,
   createPhaseReminderHook,
@@ -55,6 +56,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const automationService = new MiyaAutomationService(ctx.directory);
   automationService.start();
   startGatewayWithLog(ctx.directory);
+  autoStartMiyaDock(ctx.directory, { enabled: config.dock?.autostart ?? true });
 
   const backgroundTools = createBackgroundTools(
     ctx,

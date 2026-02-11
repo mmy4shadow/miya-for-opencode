@@ -79,6 +79,12 @@ export const BackgroundTaskConfigSchema = z.object({
 
 export type BackgroundTaskConfig = z.infer<typeof BackgroundTaskConfigSchema>;
 
+export const DockConfigSchema = z.object({
+  autostart: z.boolean().default(true),
+});
+
+export type DockConfig = z.infer<typeof DockConfigSchema>;
+
 export const FailoverConfigSchema = z.object({
   enabled: z.boolean().default(true),
   timeoutMs: z.number().min(1000).max(120000).default(15000),
@@ -94,6 +100,7 @@ export const PluginConfigSchema = z.object({
   agents: z.record(z.string(), AgentOverrideConfigSchema).optional(),
   disabled_mcps: z.array(z.string()).optional(),
   tmux: TmuxConfigSchema.optional(),
+  dock: DockConfigSchema.optional(),
   background: BackgroundTaskConfigSchema.optional(),
   fallback: FailoverConfigSchema.optional(),
 });
