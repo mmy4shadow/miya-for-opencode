@@ -110,97 +110,281 @@ function renderConsoleHtml(projectDir: string, runtime: GatewayRuntime): string 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Miya Gateway Console</title>
+  <title>Miya Dock</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f4f6f8;
-      --panel: #ffffff;
-      --text: #10243a;
-      --muted: #5d7288;
-      --ok: #0d8a46;
-      --warn: #b64a00;
-      --border: #d8e0e8;
+      color-scheme: dark;
+      --bg: #080b10;
+      --bg-soft: #0f141d;
+      --panel: #121926;
+      --panel-alt: #0f1723;
+      --text: #e6edf7;
+      --muted: #8f9ab1;
+      --ok: #37d67a;
+      --warn: #ffb347;
+      --danger: #ff6e79;
+      --line: #1f2a3d;
+      --accent: #4f8cff;
     }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-      background: linear-gradient(180deg, #e8eef3 0%, var(--bg) 45%, #eef3f7 100%);
+      background:
+        radial-gradient(1200px 600px at -18% -30%, rgba(79, 140, 255, 0.20), transparent 55%),
+        radial-gradient(900px 560px at 120% 120%, rgba(60, 167, 255, 0.12), transparent 58%),
+        var(--bg);
       color: var(--text);
+      height: 100vh;
+      overflow: hidden;
     }
     main {
-      padding: 12px;
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      height: 100vh;
+    }
+    .rail {
+      border-right: 1px solid var(--line);
+      background: linear-gradient(180deg, #0b111a 0%, #090e15 100%);
+      display: grid;
+      align-content: start;
+      gap: 10px;
+      padding: 10px 8px;
+    }
+    .rail-dot {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: #101827;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 12px;
+      font-family: Consolas, "JetBrains Mono", monospace;
+      user-select: none;
+    }
+    .rail-dot.active {
+      color: #d7e6ff;
+      border-color: #2a4f8e;
+      background: #122238;
+    }
+    .panel {
+      padding: 10px;
       display: grid;
       gap: 10px;
+      grid-template-rows: auto auto auto 1fr;
+      overflow: hidden;
+    }
+    .header {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: linear-gradient(180deg, #111b2a 0%, #0e1622 100%);
+    }
+    .kicker {
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+    #updatedAt {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
     }
     .card {
       background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
       padding: 10px 12px;
-      box-shadow: 0 2px 10px rgba(16, 36, 58, 0.08);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .span2 {
+      grid-column: 1 / -1;
     }
     .label {
-      font-size: 12px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       color: var(--muted);
       margin-bottom: 4px;
     }
     .value {
-      font-size: 14px;
+      font-size: 13px;
       line-height: 1.45;
       word-break: break-word;
+      font-family: Consolas, "JetBrains Mono", monospace;
     }
-    .status-ok {
+    .detail {
+      margin-top: 6px;
+      color: #c4cee1;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 4px 8px;
+      white-space: nowrap;
+    }
+    .badge-ok {
       color: var(--ok);
-      font-weight: 600;
+      border-color: rgba(55, 214, 122, 0.32);
+      background: rgba(55, 214, 122, 0.12);
     }
-    .status-warn {
+    .badge-warn {
       color: var(--warn);
-      font-weight: 600;
+      border-color: rgba(255, 179, 71, 0.36);
+      background: rgba(255, 179, 71, 0.12);
+    }
+    .badge-danger {
+      color: var(--danger);
+      border-color: rgba(255, 110, 121, 0.36);
+      background: rgba(255, 110, 121, 0.12);
+    }
+    .badge-muted {
+      color: var(--muted);
+      background: #101827;
+    }
+    .hints {
+      margin: 0;
+      padding-left: 18px;
+      color: #c2ccdf;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .debug {
+      background: var(--panel-alt);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 6px 10px;
+      overflow: auto;
+    }
+    .debug > summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 12px;
+      user-select: none;
+      margin: 4px 0 8px;
     }
     pre {
       margin: 0;
       white-space: pre-wrap;
       font-size: 12px;
-      color: #223649;
+      color: #aeb9cf;
+      font-family: Consolas, "JetBrains Mono", monospace;
     }
   </style>
 </head>
 <body>
   <main>
-    <section class="card">
-      <div class="label">Autopilot</div>
-      <div id="autopilot" class="value"></div>
-    </section>
-    <section class="card">
-      <div class="label">Kill Switch</div>
-      <div id="killswitch" class="value"></div>
-    </section>
-    <section class="card">
-      <div class="label">Gateway</div>
-      <div id="gateway" class="value"></div>
-    </section>
-    <section class="card">
-      <div class="label">Raw Status (debug)</div>
-      <pre id="raw"></pre>
+    <aside class="rail">
+      <div class="rail-dot active">M</div>
+      <div class="rail-dot">A</div>
+      <div class="rail-dot">K</div>
+    </aside>
+    <section class="panel">
+      <header class="header">
+        <div class="kicker">Miya Dock</div>
+        <div class="title-row">
+          <h1>Control Plane</h1>
+          <span id="gatewayStateBadge" class="badge badge-muted">booting</span>
+        </div>
+        <div id="updatedAt">updated: --</div>
+      </header>
+
+      <section class="grid">
+        <article class="card">
+          <div class="label">Autopilot</div>
+          <div id="autopilotStatus" class="value">--</div>
+          <div id="autopilotDetail" class="detail"></div>
+        </article>
+        <article class="card">
+          <div class="label">Kill Switch</div>
+          <div id="killState" class="value">--</div>
+          <div id="killMeta" class="detail"></div>
+        </article>
+        <article class="card span2">
+          <div class="label">Gateway</div>
+          <div id="gatewayEndpoint" class="value">--</div>
+          <div id="gatewayMeta" class="detail"></div>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="label">Quick Hints</div>
+        <ul class="hints">
+          <li>Hover the strip to expand.</li>
+          <li>Click the inner edge to collapse.</li>
+          <li>Focus remains in OpenCode while dock updates.</li>
+        </ul>
+      </section>
+
+      <details class="debug">
+        <summary>Debug Payload</summary>
+        <pre id="raw"></pre>
+      </details>
     </section>
   </main>
   <script>
     const initial = ${JSON.stringify(payload)};
+    function asText(value, fallback = "n/a") {
+      if (value === undefined || value === null || value === "") return fallback;
+      return String(value);
+    }
+    function setBadge(tone, text) {
+      const el = document.getElementById("gatewayStateBadge");
+      el.className = "badge badge-" + tone;
+      el.innerText = text;
+    }
     function render(data) {
       const ap = data.autopilot || {};
       const kill = data.killSwitch || {};
       const gateway = data.gateway || {};
-      const killClass = kill.active ? "status-warn" : "status-ok";
-      document.getElementById("autopilot").innerText = ap.status + " | " + (ap.detail || "");
-      document.getElementById("killswitch").innerHTML =
-        '<span class="' + killClass + '">' + (kill.active ? "ACTIVE" : "INACTIVE") + "</span>" +
-        " | reason=" + (kill.reason || "n/a") +
-        " | trace=" + (kill.traceId || "n/a");
-      document.getElementById("gateway").innerText =
-        "status=" + (gateway.status || "n/a") +
-        " | url=" + (gateway.url || "n/a") +
-        " | pid=" + (gateway.pid || "n/a");
+      const state = asText(gateway.status).toLowerCase();
+
+      let tone = "muted";
+      if (kill.active) tone = "danger";
+      else if (state === "running") tone = "ok";
+      else if (state === "killswitch") tone = "warn";
+
+      setBadge(tone, asText(gateway.status).toUpperCase());
+      document.getElementById("updatedAt").innerText = "updated: " + asText(data.updatedAt);
+
+      document.getElementById("autopilotStatus").innerText = asText(ap.status);
+      document.getElementById("autopilotDetail").innerText = asText(ap.detail, "No detail");
+
+      document.getElementById("killState").innerText = kill.active ? "ACTIVE" : "INACTIVE";
+      document.getElementById("killMeta").innerText =
+        "reason=" + asText(kill.reason) + " | trace=" + asText(kill.traceId);
+
+      document.getElementById("gatewayEndpoint").innerText = asText(gateway.url);
+      document.getElementById("gatewayMeta").innerText =
+        "pid=" + asText(gateway.pid) + " | port=" + asText(gateway.port) + " | started=" + asText(gateway.startedAt);
+
       document.getElementById("raw").innerText = JSON.stringify(data, null, 2);
     }
     async function pull() {

@@ -18,6 +18,8 @@ global Config := Map(
   "dockGap", 0,
   "followIntervalMs", 70,
   "transitionDebounceMs", 120,
+  "transitionSteps", 6,
+  "transitionStepMs", 14,
   "openCodeWaitMs", 15000,
   "openCodeRetryMs", 150,
   "openCodeTitle", "OpenCode",
@@ -47,7 +49,13 @@ global DockState := {
   openCodeRect: {x: 0, y: 0, w: 0, h: 0}
 }
 
-DockState.gatewayFile := A_Args.Length >= 1 ? A_Args[1] : A_ScriptDir "\..\..\.opencode\miya\gateway.json"
+defaultGatewayFile := A_ScriptDir "\..\..\.opencode\miya\gateway.json"
+argGatewayFile := A_Args.Length >= 1 ? A_Args[1] : ""
+if (argGatewayFile != "" && FileExist(argGatewayFile)) {
+  DockState.gatewayFile := argGatewayFile
+} else {
+  DockState.gatewayFile := defaultGatewayFile
+}
 DockState.gatewayUrl := ReadGatewayUrl(DockState.gatewayFile)
 if (DockState.gatewayUrl = "") {
   MsgBox "Miya Dock: failed to read gateway URL from`n" DockState.gatewayFile "`n`nPlease start OpenCode + Miya first.", "Miya Dock", 48
@@ -67,16 +75,16 @@ if (edgePath = "") {
 }
 
 DirCreate Config["edgeProfileDir"]
-runCmd := Format('"{1}" --app="{2}" --user-data-dir="{3}" --new-window --no-first-run --disable-session-crashed-bubble', edgePath, DockState.gatewayUrl, Config["edgeProfileDir"])
+knownEdgeWindows := Map()
+for existingHwnd in WinGetList("ahk_exe msedge.exe") {
+  knownEdgeWindows[existingHwnd] := true
+}
+
+runCmd := Format('"{1}" --app="{2}" --force-dark-mode --disable-features=Translate,msEdgeTranslate,msEdgeAutoTranslate --user-data-dir="{3}" --new-window --no-first-run --disable-session-crashed-bubble', edgePath, DockState.gatewayUrl, Config["edgeProfileDir"])
 Run runCmd, A_ScriptDir, , &edgePid
 DockState.edgePid := edgePid
 
-if !WinWait("ahk_pid " edgePid, , 12) {
-  MsgBox "Miya Dock: timed out waiting for Edge app window.", "Miya Dock", 48
-  ExitApp 1
-}
-
-DockState.dockHwnd := WinExist("ahk_pid " edgePid)
+DockState.dockHwnd := WaitForDockWindow(edgePid, knownEdgeWindows, 12000)
 if !DockState.dockHwnd {
   MsgBox "Miya Dock: failed to capture Edge app window handle.", "Miya Dock", 48
   ExitApp 1
@@ -202,7 +210,7 @@ UpdateLayoutFromOpenCode() {
   return true
 }
 
-ApplyStateLayout() {
+ApplyStateLayout(overrideDockW := 0) {
   if !WindowExists(DockState.dockHwnd) || !WindowExists(DockState.hotZoneHwnd) {
     return
   }
@@ -214,7 +222,7 @@ ApplyStateLayout() {
     return
   }
 
-  dockW := DockState.expanded ? Config["expandedW"] : Config["collapsedW"]
+  dockW := overrideDockW > 0 ? overrideDockW : (DockState.expanded ? Config["expandedW"] : Config["collapsedW"])
   dockRight := ox - Config["dockGap"]
   dockX := dockRight - dockW
   dockY := oy
@@ -243,6 +251,7 @@ BeginExpand(reason := "") {
   DockState.expanded := true
   DockState.hoverStartTime := 0
   DockState.leaveStartTime := 0
+  AnimateDockWidth(Config["collapsedW"], Config["expandedW"])
   ApplyStateLayout()
   DockState.state := "expanded"
 
@@ -260,9 +269,11 @@ BeginCollapse(reason := "") {
     return
   }
   DockState.state := "collapsing"
-  DockState.expanded := false
+  DockState.expanded := true
   DockState.hoverStartTime := 0
   DockState.leaveStartTime := 0
+  AnimateDockWidth(Config["expandedW"], Config["collapsedW"])
+  DockState.expanded := false
   ApplyStateLayout()
   DockState.state := "collapsed"
 
@@ -277,6 +288,19 @@ CanTransition() {
   }
   DockState.lastTransitionTime := now
   return true
+}
+
+AnimateDockWidth(fromW, toW) {
+  steps := Max(1, Config["transitionSteps"])
+  if (fromW = toW) {
+    return
+  }
+  loop steps {
+    t := A_Index / steps
+    w := Round(fromW + ((toW - fromW) * t))
+    ApplyStateLayout(w)
+    Sleep Config["transitionStepMs"]
+  }
 }
 
 PrepareDockWindow(hwnd) {
@@ -401,6 +425,78 @@ WaitForOpenCodeWindow(timeoutMs) {
     }
     Sleep Config["openCodeRetryMs"]
   }
+}
+
+WaitForDockWindow(edgePid, knownEdgeWindows, timeoutMs) {
+  deadline := A_TickCount + Max(800, timeoutMs)
+  loop {
+    hwnd := FindDockWindow(edgePid, knownEdgeWindows)
+    if hwnd {
+      return hwnd
+    }
+    if (A_TickCount >= deadline) {
+      return 0
+    }
+    Sleep 80
+  }
+}
+
+FindDockWindow(edgePid, knownEdgeWindows) {
+  hwnd := PickLargestDockWindow("ahk_pid " edgePid)
+  if hwnd {
+    return hwnd
+  }
+
+  for byExeHwnd in WinGetList("ahk_exe msedge.exe") {
+    if knownEdgeWindows.Has(byExeHwnd) {
+      continue
+    }
+    if IsDockWindowCandidate(byExeHwnd) {
+      return byExeHwnd
+    }
+  }
+
+  for byTitleHwnd in WinGetList("ahk_exe msedge.exe") {
+    if !IsDockWindowCandidate(byTitleHwnd) {
+      continue
+    }
+    title := ""
+    try title := WinGetTitle("ahk_id " byTitleHwnd)
+    if InStr(title, "Miya Gateway") || InStr(title, "Miya Dock") {
+      return byTitleHwnd
+    }
+  }
+  return 0
+}
+
+PickLargestDockWindow(winTitle) {
+  bestHwnd := 0
+  bestArea := 0
+  for hwnd in WinGetList(winTitle) {
+    if !IsDockWindowCandidate(hwnd) {
+      continue
+    }
+    w := 0, h := 0
+    try WinGetPos ,, &w, &h, "ahk_id " hwnd
+    area := w * h
+    if (area > bestArea) {
+      bestArea := area
+      bestHwnd := hwnd
+    }
+  }
+  return bestHwnd
+}
+
+IsDockWindowCandidate(hwnd) {
+  if !IsWindowCandidate(hwnd) {
+    return false
+  }
+  className := ""
+  try className := WinGetClass("ahk_id " hwnd)
+  if (className != "" && !InStr(className, "Chrome_WidgetWin")) {
+    return false
+  }
+  return true
 }
 
 IsWindowCandidate(hwnd) {
