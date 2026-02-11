@@ -8,7 +8,7 @@ DetectHiddenWindows False
 ; Miya Dock user-config section
 ; -----------------------------
 global Config := Map(
-  "collapsedW", 20,
+  "collapsedW", 12,
   "expandedW", 420,
   "edgeStripW", 12,
   "hoverExpandEnabled", true,
@@ -109,10 +109,10 @@ CreateHotZone() {
   hotGui.MarginY := 0
   hotGui.BackColor := "202020"
   DockState.hotZoneGui := hotGui
+  hotGui.Show("NA x0 y0 w1 h1")
   DockState.hotZoneHwnd := hotGui.Hwnd
   OnMessage(0x0201, HotZoneLButtonDown) ; WM_LBUTTONDOWN
-  WinSetTransparent 60, "ahk_id " DockState.hotZoneHwnd
-  hotGui.Show("NA x0 y0 w1 h1")
+  SafeWinSetTransparent(60, DockState.hotZoneHwnd)
 }
 
 HotZoneClicked(*) {
@@ -203,6 +203,10 @@ UpdateLayoutFromOpenCode() {
 }
 
 ApplyStateLayout() {
+  if !WindowExists(DockState.dockHwnd) || !WindowExists(DockState.hotZoneHwnd) {
+    return
+  }
+
   ox := DockState.openCodeRect.x
   oy := DockState.openCodeRect.y
   oh := DockState.openCodeRect.h
@@ -220,11 +224,11 @@ ApplyStateLayout() {
   if DockState.expanded {
     hotW := Max(1, Min(Config["edgeStripW"], dockW))
     hotX := dockRight - hotW
-    WinSetTransparent 40, "ahk_id " DockState.hotZoneHwnd
+    SafeWinSetTransparent(40, DockState.hotZoneHwnd)
   } else {
     hotW := dockW
     hotX := dockX
-    WinSetTransparent 75, "ahk_id " DockState.hotZoneHwnd
+    SafeWinSetTransparent(75, DockState.hotZoneHwnd)
   }
   DockState.hotRect := {x: hotX, y: dockY, w: hotW, h: oh}
   DockState.hotZoneGui.Show(Format("NA x{1} y{2} w{3} h{4}", hotX, dockY, hotW, oh))
@@ -284,6 +288,9 @@ PrepareDockWindow(hwnd) {
 }
 
 SetWindowPosNoActivate(hwnd, x, y, w, h) {
+  if !WindowExists(hwnd) {
+    return
+  }
   static HWND_TOPMOST := -1
   static SWP_NOACTIVATE := 0x0010
   static SWP_SHOWWINDOW := 0x0040
@@ -297,6 +304,17 @@ SetWindowPosNoActivate(hwnd, x, y, w, h) {
     "int", h,
     "uint", SWP_NOACTIVATE | SWP_SHOWWINDOW
   )
+}
+
+SafeWinSetTransparent(alpha, hwnd) {
+  if !WindowExists(hwnd) {
+    return
+  }
+  try WinSetTransparent alpha, "ahk_id " hwnd
+}
+
+WindowExists(hwnd) {
+  return hwnd != 0 && DllCall("IsWindow", "ptr", hwnd, "int")
 }
 
 RectContains(rect, x, y) {
