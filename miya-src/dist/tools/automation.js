@@ -76,6 +76,17 @@ function readAutoGitStatus(projectDir) {
         return {};
     }
 }
+function readGatewayStatus(projectDir) {
+    const file = path.join(projectDir, '.opencode', 'miya', 'gateway.json');
+    if (!fs.existsSync(file))
+        return {};
+    try {
+        return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    }
+    catch {
+        return {};
+    }
+}
 export function createAutomationTools(automationService) {
     const miya_schedule_daily_command = tool({
         description: 'Create a daily scheduled command job (HH:mm local time) in Miya automation runtime.',
@@ -243,6 +254,10 @@ timed_out=${result.result?.timedOut ?? 'n/a'}`;
             const autoGitText = autoGit.status && autoGit.updated_at
                 ? `${autoGit.updated_at} | ${autoGit.status} | reason=${autoGit.reason ?? 'n/a'} | trace=${autoGit.trace ?? 'n/a'} | target=${autoGit.target_ref ?? 'n/a'}`
                 : '(none)';
+            const gateway = readGatewayStatus(automationService.getProjectDir());
+            const gatewayText = gateway.url && gateway.status
+                ? `${gateway.status} | ${gateway.url} | port=${gateway.port ?? 'n/a'}`
+                : '(not started)';
             return `<details>
 <summary>Miya Control Plane</summary>
 
@@ -252,6 +267,7 @@ jobs_enabled=${jobs.filter((job) => job.enabled).length}
 approvals_pending=${approvals.length}
 kill_switch_active=${safety.kill.active}
 kill_switch_reason=${safety.kill.reason ?? 'n/a'}
+gateway=${gatewayText}
 auto_git_last=${autoGitText}
 
 Jobs:

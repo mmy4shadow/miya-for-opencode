@@ -26,3 +26,12 @@ miya/
 .DS_Store
 Thumbs.db
 *.log
+
+## Miya Dock runtime artifacts
+tools/miya-dock/.edge-profile/
+tools/miya-dock/.tmp/
+tools/miya-dock/*.log
+tools/miya-dock/*.pid
+tools/miya-dock/*AutoHotkey*.zip
+tools/miya-dock/*AutoHotkey*.exe
+tools/miya-dock/*AutoHotkey*.msi

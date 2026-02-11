@@ -3,6 +3,7 @@ import { MiyaAutomationService } from './automation';
 import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig } from './config';
 import { parseList } from './config/agent-mcps';
+import { createGatewayTools, startGatewayWithLog } from './gateway';
 import { createLoopGuardHook, createPhaseReminderHook, createPostReadNudgeHook, } from './hooks';
 import { createSafetyTools, handlePermissionAsk } from './safety';
 import { createBuiltinMcps } from './mcp';
@@ -30,10 +31,12 @@ const MiyaPlugin = async (ctx) => {
     const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
     const automationService = new MiyaAutomationService(ctx.directory);
     automationService.start();
+    startGatewayWithLog(ctx.directory);
     const backgroundTools = createBackgroundTools(ctx, backgroundManager, tmuxConfig, config);
     const automationTools = createAutomationTools(automationService);
     const workflowTools = createWorkflowTools(ctx.directory);
     const safetyTools = createSafetyTools(ctx);
+    const gatewayTools = createGatewayTools(ctx);
     // Stability-first default: keep plugin-hosted remote MCPs disabled unless explicitly enabled
     // by setting disabled_mcps in config (remove entries you want to use).
     const defaultDisabledMcps = ['websearch', 'context7', 'grep_app'];
@@ -55,6 +58,7 @@ const MiyaPlugin = async (ctx) => {
             ...automationTools,
             ...workflowTools,
             ...safetyTools,
+            ...gatewayTools,
             lsp_goto_definition,
             lsp_find_references,
             lsp_diagnostics,
@@ -110,6 +114,13 @@ const MiyaPlugin = async (ctx) => {
                     description: 'Show Miya safety status (kill-switch and approvals)',
                     agent: '1-task-manager',
                     template: 'MANDATORY: Call tool `miya_kill_status` once. Then summarize latest `miya_status_panel` in 5 lines max.',
+                };
+            }
+            if (!commandConfig['miya-gateway-start']) {
+                commandConfig['miya-gateway-start'] = {
+                    description: 'Start Miya Gateway and print runtime URL for Dock clients',
+                    agent: '1-task-manager',
+                    template: 'MANDATORY: Call tool `miya_gateway_start` once. Return only tool output.',
                 };
             }
             // Merge Agent configs

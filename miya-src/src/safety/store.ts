@@ -58,6 +58,10 @@ interface KillSwitchState {
   activated_at?: string;
 }
 
+interface GatewayStatusFile {
+  status?: 'running' | 'killswitch';
+}
+
 function runtimeFile(projectDir: string, name: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), name);
 }
@@ -82,6 +86,14 @@ function writeJson(file: string, value: unknown): void {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function syncGatewayStatus(projectDir: string, status: 'running' | 'killswitch'): void {
+  const file = runtimeFile(projectDir, 'gateway.json');
+  if (!fs.existsSync(file)) return;
+  const current = readJson<GatewayStatusFile>(file, {});
+  if (!current || typeof current !== 'object') return;
+  writeJson(file, { ...current, status });
 }
 
 export function createTraceId(): string {
@@ -188,11 +200,13 @@ export function activateKillSwitch(
     activated_at: nowIso(),
   };
   writeJson(runtimeFile(projectDir, 'kill-switch.json'), next);
+  syncGatewayStatus(projectDir, 'killswitch');
   return next;
 }
 
 export function releaseKillSwitch(projectDir: string): KillSwitchState {
   const next: KillSwitchState = { active: false };
   writeJson(runtimeFile(projectDir, 'kill-switch.json'), next);
+  syncGatewayStatus(projectDir, 'running');
   return next;
 }

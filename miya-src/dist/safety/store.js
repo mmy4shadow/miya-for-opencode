@@ -29,6 +29,15 @@ function writeJson(file, value) {
 function nowIso() {
     return new Date().toISOString();
 }
+function syncGatewayStatus(projectDir, status) {
+    const file = runtimeFile(projectDir, 'gateway.json');
+    if (!fs.existsSync(file))
+        return;
+    const current = readJson(file, {});
+    if (!current || typeof current !== 'object')
+        return;
+    writeJson(file, { ...current, status });
+}
 export function createTraceId() {
     return randomUUID();
 }
@@ -105,10 +114,12 @@ export function activateKillSwitch(projectDir, reason, traceID) {
         activated_at: nowIso(),
     };
     writeJson(runtimeFile(projectDir, 'kill-switch.json'), next);
+    syncGatewayStatus(projectDir, 'killswitch');
     return next;
 }
 export function releaseKillSwitch(projectDir) {
     const next = { active: false };
     writeJson(runtimeFile(projectDir, 'kill-switch.json'), next);
+    syncGatewayStatus(projectDir, 'running');
     return next;
 }

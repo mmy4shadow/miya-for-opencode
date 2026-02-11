@@ -17,6 +17,10 @@ const EXCLUDED_PATH_RULES: RegExp[] = [
   /^\.opencode\//i,
   /^\.venv\//i,
   /(^|\/)node_modules\//i,
+  /^tools\/miya-dock\/\.edge-profile\//i,
+  /^tools\/miya-dock\/\.tmp\//i,
+  /^tools\/miya-dock\/.*\.(log|pid)$/i,
+  /^tools\/miya-dock\/.*autohotkey.*\.(zip|exe|msi)$/i,
 ]
 const DENYLIST_PATH_RULES: Array<{ name: string; pattern: RegExp }> = [
   { name: "env_file", pattern: /(^|\/)\.env(\.[^/]+)?$/i },
