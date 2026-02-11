@@ -9,6 +9,7 @@
 2. Auto-save is implemented by the project hook plugin at `plugin/auto-git-push.ts`.
 3. The hook stages touched files plus tracked updates only (prevents accidental full-repo add).
 4. If auto push fails, report the error clearly and provide a reproducible recovery command.
+5. Project rule: all modifications must be limited to Miya plugin files (primarily `miya-src/**`) unless explicitly requested otherwise.
 
 ## Runtime Verification
 - Check resolved config: `opencode debug config`
