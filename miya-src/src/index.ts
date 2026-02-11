@@ -9,6 +9,7 @@ import {
   createLoopGuardHook,
   createPhaseReminderHook,
   createPostReadNudgeHook,
+  createSlashCommandBridgeHook,
 } from './hooks';
 import { createSafetyTools, handlePermissionAsk } from './safety';
 import { createBuiltinMcps } from './mcp';
@@ -24,6 +25,7 @@ import {
   lsp_rename,
   createWorkflowTools,
 } from './tools';
+import { mergePluginAgentConfigs } from './config/runtime-merge';
 import { startTmuxCheck } from './utils';
 import { log } from './utils/logger';
 
@@ -78,6 +80,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
   // Initialize phase reminder hook for workflow compliance
   const phaseReminderHook = createPhaseReminderHook();
+
+  // Bridge typed slash commands (eg. /miya-gateway-start) in case they are sent as plain prompts.
+  const slashCommandBridgeHook = createSlashCommandBridgeHook();
 
   // Initialize post-read nudge hook
   const postReadNudgeHook = createPostReadNudgeHook();
@@ -169,21 +174,31 @@ const MiyaPlugin: Plugin = async (ctx) => {
         };
       }
 
-      if (!commandConfig['miya-gateway-start']) {
-        commandConfig['miya-gateway-start'] = {
-          description: 'Start Miya Gateway and print runtime URL for Dock clients',
+      commandConfig['miya-gateway-start'] = {
+        description: 'Start Miya Gateway and print runtime URL for Dock clients',
+        agent: '1-task-manager',
+        template:
+          'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
+      };
+
+      // Aliases for users/IMEs that prefer underscore or dot command styles.
+      if (!commandConfig.miya_gateway_start) {
+        commandConfig.miya_gateway_start = { ...commandConfig['miya-gateway-start'] };
+      }
+      if (!commandConfig['miya.gateway.start']) {
+        commandConfig['miya.gateway.start'] = {
+          description: 'Alias of miya-gateway-start',
           agent: '1-task-manager',
           template:
-            'MANDATORY: Call tool `miya_gateway_start` once. Return only tool output.',
+            'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
         };
       }
 
       // Merge Agent configs
-      if (!opencodeConfig.agent) {
-        opencodeConfig.agent = { ...agents };
-      } else {
-        Object.assign(opencodeConfig.agent, agents);
-      }
+      opencodeConfig.agent = mergePluginAgentConfigs(
+        opencodeConfig.agent as Record<string, unknown> | undefined,
+        agents as Record<string, Record<string, unknown>>,
+      );
       const configAgent = opencodeConfig.agent as Record<string, unknown>;
 
       // Merge MCP configs
@@ -272,6 +287,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
     // Inject loop guard + phase reminder before sending to API.
     'experimental.chat.messages.transform': async (input, output) => {
+      await slashCommandBridgeHook['experimental.chat.messages.transform'](
+        input,
+        output,
+      );
       await loopGuardHook['experimental.chat.messages.transform'](input, output);
       await phaseReminderHook['experimental.chat.messages.transform'](input, output);
     },
