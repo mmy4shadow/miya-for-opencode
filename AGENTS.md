@@ -7,7 +7,8 @@
 ## Required Workflow
 1. Every code/config modification must be persisted to GitHub automatically.
 2. Auto-save is implemented by the project hook plugin at `plugin/auto-git-push.ts`.
-3. If auto push fails, report the error clearly and provide a reproducible recovery command.
+3. The hook stages touched files plus tracked updates only (prevents accidental full-repo add).
+4. If auto push fails, report the error clearly and provide a reproducible recovery command.
 
 ## Runtime Verification
 - Check resolved config: `opencode debug config`
