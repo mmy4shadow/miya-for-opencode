@@ -20,6 +20,7 @@ global Config := Map(
   "dockGap", 0,
   "preferredSide", "left",
   "allowOverlay", false,
+  "allowCollapsedOverlay", true,
   "collapseStripOnOuterEdge", true,
   "followIntervalMs", 120,
   "transitionDebounceMs", 160,
@@ -29,6 +30,8 @@ global Config := Map(
   "stripWindowFrame", false,
   "openCodeWaitMs", 15000,
   "openCodeRetryMs", 150,
+  "openCodeLostHideDelayMs", 1800,
+  "terminalTitleLooseMatch", true,
   "openCodeTitle", "OpenCode",
   "openCodeExe", "",
   "openCodeClass", "",
@@ -60,7 +63,8 @@ global DockState := {
   hotRect: {x: 0, y: 0, w: 0, h: 0},
   openCodeRect: {x: 0, y: 0, w: 0, h: 0},
   lastDockRect: {x: -1, y: -1, w: -1, h: -1},
-  lastHotRect: {x: -1, y: -1, w: -1, h: -1}
+  lastHotRect: {x: -1, y: -1, w: -1, h: -1},
+  openCodeMissSince: 0
 }
 
 defaultGatewayFile := A_ScriptDir "\..\..\.opencode\miya\gateway.json"
@@ -155,10 +159,17 @@ HotZoneLButtonDown(wParam, lParam, msg, hwnd) {
 
 PollDockState() {
   if !UpdateLayoutFromOpenCode() {
-    SetDockVisibility(false)
-    SetDockTopmost(false)
+    if (DockState.openCodeMissSince = 0) {
+      DockState.openCodeMissSince := A_TickCount
+      return
+    }
+    if ((A_TickCount - DockState.openCodeMissSince) >= Config["openCodeLostHideDelayMs"]) {
+      SetDockVisibility(false)
+      SetDockTopmost(false)
+    }
     return
   }
+  DockState.openCodeMissSince := 0
   SetDockVisibility(true)
 
   MouseGetPos &mx, &my
@@ -451,8 +462,10 @@ BuildDockLayout(overrideDockW := 0) {
   side := sideInfo.side
   available := sideInfo.space
   monitorRect := sideInfo.monitorRect
+  collapsedOverlayAllowed := (!DockState.expanded) && Config["allowCollapsedOverlay"]
+  overlayAllowed := Config["allowOverlay"] || collapsedOverlayAllowed
 
-  if Config["allowOverlay"] {
+  if overlayAllowed {
     dockW := desiredW
   } else {
     dockW := Min(desiredW, available)
@@ -463,14 +476,14 @@ BuildDockLayout(overrideDockW := 0) {
 
   if (side = "left") {
     dockX := ox - Config["dockGap"] - dockW
-    if Config["allowOverlay"] {
+    if overlayAllowed {
       dockX := Max(monitorRect.left, dockX)
     } else if (available = 0 && !DockState.expanded) {
       dockX := monitorRect.left
     }
   } else {
     dockX := ox + ow + Config["dockGap"]
-    if Config["allowOverlay"] {
+    if overlayAllowed {
       dockX := Min(dockX, monitorRect.right - dockW)
     } else if (available = 0 && !DockState.expanded) {
       dockX := monitorRect.right - dockW
@@ -765,6 +778,12 @@ IsOpenCodeWindowCandidate(hwnd) {
     return false
   }
   if (exe = "windowsterminal.exe" || exe = "wt.exe" || exe = "openconsole.exe") {
+    if (Config["terminalTitleLooseMatch"] && DockState.openCodeHwnd = hwnd) {
+      return true
+    }
+    if (Config["openCodeExe"] != "" && exe = NormalizeExeName(Config["openCodeExe"])) {
+      return true
+    }
     return hasOpenCodeTitle
   }
   if (exe = "opencode.exe") {

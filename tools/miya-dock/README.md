@@ -54,9 +54,12 @@ Edit `tools/miya-dock/miya-dock.ahk` header:
 - `dockGap`, `followIntervalMs`
 - `preferredSide` (`left`/`right`)
 - `allowOverlay` (`false` by default, avoids covering OpenCode)
+- `allowCollapsedOverlay` (`true` by default, keeps collapsed strip visible even when OpenCode is maximized)
 - `collapseStripOnOuterEdge` (default `true`, keeps collapse strip away from OpenCode edge)
 - `keepTopmostWhenOpenCodeActive` (topmost only when OpenCode context is active)
 - `stripWindowFrame` (off by default to avoid Chromium repaint glitches)
+- `openCodeLostHideDelayMs` (delay before hiding dock when OpenCode detection is temporarily lost)
+- `terminalTitleLooseMatch` (keep current bound terminal window even if tab title changes)
 - `openCodeTitle` (primary matcher, default `OpenCode`)
 - `openCodeExe` / `openCodeClass` (fallback matcher)
 - `edgePath` (manual edge binary path)
