@@ -1,8 +1,11 @@
 #!/usr/bin/env bun
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { install } from './install';
 import type { BooleanArg, InstallArgs } from './types';
 
-function parseArgs(args: string[]): InstallArgs {
+function parseInstallArgs(args: string[]): InstallArgs {
   const result: InstallArgs = {
     tui: true,
   };
@@ -32,9 +35,6 @@ function parseArgs(args: string[]): InstallArgs {
       result.opencodeFree = arg.split('=')[1] as BooleanArg;
     } else if (arg.startsWith('--opencode-free-model=')) {
       result.opencodeFreeModel = arg.split('=')[1];
-    } else if (arg === '-h' || arg === '--help') {
-      printHelp();
-      process.exit(0);
     }
   }
 
@@ -43,49 +43,299 @@ function parseArgs(args: string[]): InstallArgs {
 
 function printHelp(): void {
   console.log(`
-miya installer
+miya cli
 
-Usage: bunx miya install [OPTIONS]
-
-Options:
-  --kimi=yes|no          Kimi API access (yes/no)
-  --openai=yes|no        OpenAI API access (yes/no)
-  --anthropic=yes|no     Anthropic access (yes/no)
-  --copilot=yes|no       GitHub Copilot access (yes/no)
-  --zai-plan=yes|no      ZAI Coding Plan access (yes/no)
-  --antigravity=yes|no   Antigravity/Google models (yes/no)
-  --chutes=yes|no        Chutes models (yes/no)
-  --opencode-free=yes|no Use OpenCode free models (opencode/*)
-  --opencode-free-model  Preferred OpenCode model id or "auto"
-  --tmux=yes|no          Enable tmux integration (yes/no)
-  --skills=yes|no        Install recommended skills (yes/no)
-  --no-tui               Non-interactive mode (requires all flags)
-  -h, --help             Show this help message
+Usage:
+  bunx miya install [OPTIONS]
+  bunx miya gateway <start|status|doctor>
+  bunx miya sessions <list|get|send|policy>
+  bunx miya channels <list|status|pairs|approve|reject|send>
+  bunx miya nodes <list|status|describe|pairs|approve|reject|invoke>
+  bunx miya skills <status|enable|disable|install|update>
+  bunx miya cron <list|runs|add|run|remove|approvals|approve|reject>
 
 Examples:
-  bunx miya install
-  bunx miya install --no-tui --kimi=yes --openai=yes --anthropic=yes --copilot=no --zai-plan=no --antigravity=yes --chutes=no --opencode-free=yes --opencode-free-model=auto --tmux=no --skills=yes
+  bunx miya gateway status
+  bunx miya sessions send webchat:main "hello"
+  bunx miya channels send telegram 123456 "hi"
+  bunx miya nodes invoke node-1 system.run '{"command":"pwd"}'
 `);
+}
+
+function runtimeGatewayFile(cwd: string): string {
+  return path.join(cwd, '.opencode', 'miya', 'gateway.json');
+}
+
+function readGatewayUrl(cwd: string): string | null {
+  const file = runtimeGatewayFile(cwd);
+  if (!fs.existsSync(file)) return null;
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { url?: string };
+    return parsed.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function runGatewayStart(cwd: string): boolean {
+  const proc = spawnSync('opencode', ['run', '--command', 'miya-gateway-start'], {
+    cwd,
+    stdio: 'inherit',
+  });
+  return proc.status === 0;
+}
+
+async function callGatewayMethod(
+  url: string,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const wsUrl = url.replace(/^http/, 'ws');
+  const socket = new WebSocket(`${wsUrl}/ws`);
+
+  return await new Promise<unknown>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      try {
+        socket.close();
+      } catch {}
+      reject(new Error('gateway_timeout'));
+    }, 10000);
+
+    socket.addEventListener('open', () => {
+      socket.send(JSON.stringify({ type: 'hello', role: 'admin', protocolVersion: '1.0' }));
+      socket.send(
+        JSON.stringify({
+          type: 'request',
+          id: 'cli-1',
+          method,
+          params,
+        }),
+      );
+    });
+
+    socket.addEventListener('message', (event) => {
+      try {
+        const frame = JSON.parse(String(event.data)) as {
+          type?: string;
+          id?: string;
+          ok?: boolean;
+          result?: unknown;
+          error?: { message?: string };
+        };
+
+        if (frame.type !== 'response' || frame.id !== 'cli-1') return;
+        clearTimeout(timeout);
+        socket.close();
+
+        if (frame.ok) {
+          resolve(frame.result);
+        } else {
+          reject(new Error(frame.error?.message ?? 'gateway_method_failed'));
+        }
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+
+    socket.addEventListener('error', () => {
+      clearTimeout(timeout);
+      reject(new Error('gateway_socket_error'));
+    });
+  });
+}
+
+async function ensureGatewayUrl(cwd: string, autoStart = true): Promise<string> {
+  let url = readGatewayUrl(cwd);
+  if (url) return url;
+
+  if (autoStart && runGatewayStart(cwd)) {
+    url = readGatewayUrl(cwd);
+    if (url) return url;
+  }
+
+  throw new Error('gateway_unavailable');
+}
+
+async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
+  const action = args[0] ?? 'status';
+
+  if (action === 'start') {
+    const ok = runGatewayStart(cwd);
+    return ok ? 0 : 1;
+  }
+
+  const url = await ensureGatewayUrl(cwd, false);
+  if (action === 'status') {
+    const result = await callGatewayMethod(url, 'gateway.status.get', {});
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  if (action === 'doctor') {
+    const result = await callGatewayMethod(url, 'doctor.run', {});
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+
+  throw new Error(`unknown_gateway_action:${action}`);
+}
+
+async function runSubcommand(cwd: string, top: string, args: string[]): Promise<number> {
+  const url = await ensureGatewayUrl(cwd);
+
+  const method = (() => {
+    if (top === 'sessions') {
+      const action = args[0] ?? 'list';
+      if (action === 'list') return ['sessions.list', {}] as const;
+      if (action === 'get') return ['sessions.get', { sessionID: args[1] }] as const;
+      if (action === 'send')
+        return [
+          'sessions.send',
+          {
+            sessionID: args[1],
+            text: args[2],
+            source: args[3] ?? 'cli',
+          },
+        ] as const;
+      if (action === 'policy')
+        return [
+          'sessions.policy.set',
+          {
+            sessionID: args[1],
+            activation: args[2],
+            reply: args[3],
+          },
+        ] as const;
+    }
+
+    if (top === 'channels') {
+      const action = args[0] ?? 'status';
+      if (action === 'list') return ['channels.list', {}] as const;
+      if (action === 'status') return ['channels.status', {}] as const;
+      if (action === 'pairs') return ['channels.pair.list', { status: args[1] }] as const;
+      if (action === 'approve') return ['channels.pair.approve', { pairID: args[1] }] as const;
+      if (action === 'reject') return ['channels.pair.reject', { pairID: args[1] }] as const;
+      if (action === 'send')
+        return [
+          'channels.message.send',
+          {
+            channel: args[1],
+            destination: args[2],
+            text: args[3],
+            sessionID: args[4] ?? 'main',
+          },
+        ] as const;
+    }
+
+    if (top === 'nodes') {
+      const action = args[0] ?? 'status';
+      if (action === 'list') return ['nodes.list', {}] as const;
+      if (action === 'status') return ['nodes.status', {}] as const;
+      if (action === 'describe') return ['nodes.describe', { nodeID: args[1] }] as const;
+      if (action === 'pairs') return ['nodes.pair.list', { status: args[1] }] as const;
+      if (action === 'approve') return ['nodes.pair.approve', { pairID: args[1] }] as const;
+      if (action === 'reject') return ['nodes.pair.reject', { pairID: args[1] }] as const;
+      if (action === 'invoke')
+        return [
+          'nodes.invoke',
+          {
+            nodeID: args[1],
+            capability: args[2],
+            args: args[3] ? JSON.parse(args[3]) : {},
+            sessionID: args[4] ?? 'main',
+          },
+        ] as const;
+    }
+
+    if (top === 'skills') {
+      const action = args[0] ?? 'status';
+      if (action === 'status') return ['skills.status', {}] as const;
+      if (action === 'enable') return ['skills.enable', { skillID: args[1] }] as const;
+      if (action === 'disable') return ['skills.disable', { skillID: args[1] }] as const;
+      if (action === 'install')
+        return [
+          'skills.install',
+          {
+            repo: args[1],
+            targetName: args[2],
+            sessionID: args[3] ?? 'main',
+          },
+        ] as const;
+      if (action === 'update')
+        return [
+          'skills.update',
+          {
+            dir: args[1],
+            sessionID: args[2] ?? 'main',
+          },
+        ] as const;
+    }
+
+    if (top === 'cron') {
+      const action = args[0] ?? 'list';
+      if (action === 'list') return ['cron.list', {}] as const;
+      if (action === 'runs') return ['cron.runs.list', { limit: Number(args[1] ?? 50) }] as const;
+      if (action === 'add')
+        return [
+          'cron.add',
+          {
+            name: args[1],
+            time: args[2],
+            command: args[3],
+            requireApproval: args[4] === 'true',
+          },
+        ] as const;
+      if (action === 'run') return ['cron.run.now', { jobID: args[1] }] as const;
+      if (action === 'remove') return ['cron.remove', { jobID: args[1] }] as const;
+      if (action === 'approvals') return ['cron.approvals.list', {}] as const;
+      if (action === 'approve') return ['cron.approvals.approve', { approvalID: args[1] }] as const;
+      if (action === 'reject') return ['cron.approvals.reject', { approvalID: args[1] }] as const;
+    }
+
+    return null;
+  })();
+
+  if (!method) {
+    throw new Error(`unknown_subcommand:${top}`);
+  }
+
+  const [methodName, params] = method;
+  const result = await callGatewayMethod(url, methodName, params);
+  console.log(JSON.stringify(result, null, 2));
+  return 0;
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  const cwd = process.cwd();
 
   if (args.length === 0 || args[0] === 'install') {
-    const installArgs = parseArgs(args.slice(args[0] === 'install' ? 1 : 0));
+    const installArgs = parseInstallArgs(args.slice(args[0] === 'install' ? 1 : 0));
     const exitCode = await install(installArgs);
     process.exit(exitCode);
-  } else if (args[0] === '-h' || args[0] === '--help') {
+  }
+
+  if (args[0] === '-h' || args[0] === '--help') {
     printHelp();
     process.exit(0);
-  } else {
-    console.error(`Unknown command: ${args[0]}`);
-    console.error('Run with --help for usage information');
-    process.exit(1);
   }
+
+  if (args[0] === 'gateway') {
+    const exitCode = await runGatewayCommand(cwd, args.slice(1));
+    process.exit(exitCode);
+  }
+
+  const top = args[0];
+  if (top === 'sessions' || top === 'channels' || top === 'nodes' || top === 'skills' || top === 'cron') {
+    const exitCode = await runSubcommand(cwd, top, args.slice(1));
+    process.exit(exitCode);
+  }
+
+  throw new Error(`unknown_command:${args[0]}`);
 }
 
-main().catch((err) => {
-  console.error('Fatal error:', err);
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

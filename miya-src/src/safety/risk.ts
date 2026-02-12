@@ -67,7 +67,11 @@ export function isSideEffectPermission(permission: string): boolean {
   return (
     permission === 'edit' ||
     permission === 'bash' ||
-    permission === 'external_directory'
+    permission === 'external_directory' ||
+    permission === 'external_message' ||
+    permission === 'node_invoke' ||
+    permission === 'skills_install' ||
+    permission === 'webhook_outbound'
   );
 }
 
@@ -77,6 +81,20 @@ export function requiredTierForRequest(
   const patterns = request.patterns.map(normalizePattern);
 
   if (request.permission === 'external_directory') return 'THOROUGH';
+  if (request.permission === 'external_message') return 'THOROUGH';
+  if (request.permission === 'node_invoke') {
+    const patterns = request.patterns.map(normalizePattern).join(' ');
+    if (
+      /\b(system\.run|camera\.capture|canvas\.open|canvas\.render|voice\.)\b/i.test(
+        patterns,
+      )
+    ) {
+      return 'THOROUGH';
+    }
+    return 'STANDARD';
+  }
+  if (request.permission === 'skills_install') return 'THOROUGH';
+  if (request.permission === 'webhook_outbound') return 'THOROUGH';
   if (request.permission === 'bash') {
     return hasIrreversiblePattern(patterns) ? 'THOROUGH' : 'STANDARD';
   }

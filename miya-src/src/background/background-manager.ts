@@ -668,6 +668,16 @@ export class BackgroundTaskManager {
   }
 
   /**
+   * Return a snapshot of tracked tasks for observability surfaces (Gateway/HUD).
+   */
+  listTasks(limit = 200): BackgroundTask[] {
+    return [...this.tasks.values()]
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
+      .slice(0, Math.max(1, limit))
+      .map((task) => ({ ...task }));
+  }
+
+  /**
    * Clean up all tasks.
    */
   cleanup(): void {
