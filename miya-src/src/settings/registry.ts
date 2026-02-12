@@ -1,0 +1,593 @@
+export type MiyaConfigRisk = 'LOW' | 'MED' | 'HIGH';
+export type MiyaConfigType =
+  | 'boolean'
+  | 'integer'
+  | 'string'
+  | 'enum'
+  | 'object'
+  | 'array';
+
+export interface MiyaSettingEntry {
+  key: string;
+  type: MiyaConfigType;
+  defaultValue: unknown;
+  risk: MiyaConfigRisk;
+  description: string;
+  requiresEvidence: boolean;
+  minimum?: number;
+  maximum?: number;
+  enumValues?: string[];
+}
+
+interface MiyaSettingEntryInput {
+  key: string;
+  type: MiyaConfigType;
+  defaultValue: unknown;
+  risk: MiyaConfigRisk;
+  description: string;
+  minimum?: number;
+  maximum?: number;
+  enumValues?: string[];
+}
+
+function entry(input: MiyaSettingEntryInput): MiyaSettingEntry {
+  return {
+    ...input,
+    requiresEvidence: input.risk === 'HIGH',
+  };
+}
+
+function cloneValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+export function keySegments(key: string): string[] {
+  return key
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+export function getNestedValue(root: unknown, key: string): unknown {
+  if (!root || typeof root !== 'object') return undefined;
+  const segments = keySegments(key);
+  let current: unknown = root;
+  for (const segment of segments) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+export function setNestedValue(
+  root: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  const segments = keySegments(key);
+  if (segments.length === 0) return;
+
+  let current: Record<string, unknown> = root;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    const next = current[segment];
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      current[segment] = {};
+    }
+    current = current[segment] as Record<string, unknown>;
+  }
+  current[segments[segments.length - 1]] = value;
+}
+
+export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
+  entry({
+    key: 'ui.language',
+    type: 'enum',
+    enumValues: ['zh-CN'],
+    defaultValue: 'zh-CN',
+    risk: 'LOW',
+    description: '控制台语言。',
+  }),
+  entry({
+    key: 'ui.theme',
+    type: 'enum',
+    enumValues: ['dark', 'light', 'system'],
+    defaultValue: 'dark',
+    risk: 'LOW',
+    description: '控制台主题。',
+  }),
+  entry({
+    key: 'ui.dashboard.openOnStart',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'LOW',
+    description: '启动时自动打开控制台。',
+  }),
+  entry({
+    key: 'ui.dashboard.startPage',
+    type: 'enum',
+    enumValues: [
+      'overview',
+      'autopilot',
+      'approvals',
+      'runtime',
+      'jobs',
+      'skills',
+      'killswitch',
+    ],
+    defaultValue: 'overview',
+    risk: 'LOW',
+    description: '控制台默认首页。',
+  }),
+  entry({
+    key: 'ui.dashboard.refreshMs',
+    type: 'integer',
+    minimum: 200,
+    maximum: 5000,
+    defaultValue: 800,
+    risk: 'LOW',
+    description: '控制台自动刷新间隔（毫秒）。',
+  }),
+
+  entry({
+    key: 'autopilot.enabled',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '是否启用自动循环执行。',
+  }),
+  entry({
+    key: 'autopilot.maxCycles',
+    type: 'integer',
+    minimum: 1,
+    maximum: 3,
+    defaultValue: 3,
+    risk: 'MED',
+    description: '单窗口最大循环轮次。',
+  }),
+  entry({
+    key: 'autopilot.noInterruptChat',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '自动执行时尽量不打断主对话。',
+  }),
+  entry({
+    key: 'autopilot.stallDetection.enabled',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '启用停滞检测。',
+  }),
+  entry({
+    key: 'autopilot.stallDetection.maxNoImprovementCycles',
+    type: 'integer',
+    minimum: 1,
+    maximum: 3,
+    defaultValue: 2,
+    risk: 'MED',
+    description: '连续无改进轮次阈值。',
+  }),
+  entry({
+    key: 'autopilot.iterationDoneRequired',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '每轮必须写入迭代完成记录。',
+  }),
+
+  entry({
+    key: 'approval.mode',
+    type: 'enum',
+    enumValues: ['self'],
+    defaultValue: 'self',
+    risk: 'MED',
+    description: '审批模式。',
+  }),
+  entry({
+    key: 'approval.requireEvidence',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '是否强制证据链。',
+  }),
+  entry({
+    key: 'approval.signers',
+    type: 'object',
+    defaultValue: {
+      executor: true,
+      verifier: true,
+    },
+    risk: 'MED',
+    description: '审批签字人配置。',
+  }),
+  entry({
+    key: 'approval.tier.default',
+    type: 'enum',
+    enumValues: ['LIGHT', 'STANDARD', 'THOROUGH'],
+    defaultValue: 'STANDARD',
+    risk: 'MED',
+    description: '默认验证等级。',
+  }),
+  entry({
+    key: 'approval.tier.irreversible',
+    type: 'enum',
+    enumValues: ['THOROUGH'],
+    defaultValue: 'THOROUGH',
+    risk: 'HIGH',
+    description: '不可逆动作必须验证等级。',
+  }),
+  entry({
+    key: 'approval.onDeny.activateKillSwitch',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '审批拒绝后是否触发急停。',
+  }),
+
+  entry({
+    key: 'killswitch.active',
+    type: 'boolean',
+    defaultValue: false,
+    risk: 'HIGH',
+    description: '急停总开关状态。',
+  }),
+  entry({
+    key: 'killswitch.lockdownOnHighRisk',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '高风险拒绝后进入锁定。',
+  }),
+  entry({
+    key: 'killswitch.unlockPolicy',
+    type: 'enum',
+    enumValues: ['explicit'],
+    defaultValue: 'explicit',
+    risk: 'HIGH',
+    description: '急停解锁策略。',
+  }),
+  entry({
+    key: 'killswitch.stopTargets',
+    type: 'object',
+    defaultValue: {
+      desktop: true,
+      outbound: true,
+      exec: true,
+      browser: true,
+      voice: false,
+    },
+    risk: 'HIGH',
+    description: '急停需要停止的目标模块。',
+  }),
+
+  entry({
+    key: 'gateway.bindHost',
+    type: 'string',
+    defaultValue: '127.0.0.1',
+    risk: 'MED',
+    description: 'Gateway 绑定地址。',
+  }),
+  entry({
+    key: 'gateway.port',
+    type: 'integer',
+    minimum: 1024,
+    maximum: 65535,
+    defaultValue: 17321,
+    risk: 'MED',
+    description: 'Gateway 监听端口。',
+  }),
+  entry({
+    key: 'gateway.baseUrl',
+    type: 'string',
+    defaultValue: 'http://127.0.0.1:17321',
+    risk: 'MED',
+    description: 'Gateway 基础 URL。',
+  }),
+  entry({
+    key: 'gateway.wsPath',
+    type: 'string',
+    defaultValue: '/ws',
+    risk: 'MED',
+    description: 'Gateway WebSocket 路径。',
+  }),
+  entry({
+    key: 'gateway.staticSpa.enabled',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '是否启用静态网页控制台。',
+  }),
+  entry({
+    key: 'gateway.auth.mode',
+    type: 'enum',
+    enumValues: ['localToken', 'none'],
+    defaultValue: 'localToken',
+    risk: 'HIGH',
+    description: 'Gateway 鉴权模式。',
+  }),
+
+  entry({
+    key: 'skills.enabled',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '是否启用技能系统。',
+  }),
+  entry({
+    key: 'skills.packages',
+    type: 'array',
+    defaultValue: [],
+    risk: 'MED',
+    description: '已启用技能包列表。',
+  }),
+  entry({
+    key: 'skills.versionLock.enabled',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '技能包版本锁定。',
+  }),
+  entry({
+    key: 'skills.compat.openCodeNative',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'LOW',
+    description: '兼容 OpenCode 原生技能。',
+  }),
+
+  entry({
+    key: 'desktop.enabled',
+    type: 'boolean',
+    defaultValue: false,
+    risk: 'HIGH',
+    description: '桌面自动化开关。',
+  }),
+  entry({
+    key: 'desktop.preferUia',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '优先 UIA 自动化。',
+  }),
+  entry({
+    key: 'desktop.requirePreSendScreenshotVerify',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '发送前截图核验。',
+  }),
+  entry({
+    key: 'desktop.requirePostActionVerify',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '动作后状态核验。',
+  }),
+  entry({
+    key: 'desktop.focusPolicy',
+    type: 'enum',
+    enumValues: ['strict', 'relaxed'],
+    defaultValue: 'strict',
+    risk: 'HIGH',
+    description: '桌面焦点策略。',
+  }),
+
+  entry({
+    key: 'outbound.enabled',
+    type: 'boolean',
+    defaultValue: false,
+    risk: 'HIGH',
+    description: '外发消息总开关。',
+  }),
+  entry({
+    key: 'outbound.channels',
+    type: 'object',
+    defaultValue: {
+      wechat: true,
+      feishu: true,
+      email: true,
+    },
+    risk: 'HIGH',
+    description: '外发渠道配置。',
+  }),
+  entry({
+    key: 'outbound.requireDraftInChat',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '外发前先在对话中生成草稿。',
+  }),
+  entry({
+    key: 'outbound.requireVerifierSign',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '外发前强制 verifier 签字。',
+  }),
+
+  entry({
+    key: 'voice.enabled',
+    type: 'boolean',
+    defaultValue: false,
+    risk: 'HIGH',
+    description: '语音能力总开关。',
+  }),
+  entry({
+    key: 'voice.input.stt',
+    type: 'enum',
+    enumValues: ['local', 'off'],
+    defaultValue: 'local',
+    risk: 'MED',
+    description: '语音输入 STT 模式。',
+  }),
+  entry({
+    key: 'voice.output.tts',
+    type: 'enum',
+    enumValues: ['local', 'off'],
+    defaultValue: 'local',
+    risk: 'MED',
+    description: '语音输出 TTS 模式。',
+  }),
+  entry({
+    key: 'voice.wakeWord.enabled',
+    type: 'boolean',
+    defaultValue: false,
+    risk: 'MED',
+    description: '唤醒词开关。',
+  }),
+  entry({
+    key: 'voice.oneShotMode',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '一句话触发模式。',
+  }),
+  entry({
+    key: 'voice.routeToChat',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'MED',
+    description: '语音输入统一写入会话。',
+  }),
+
+  entry({
+    key: 'git.autoPush.enabled',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '自动推送开关。',
+  }),
+  entry({
+    key: 'git.autoPush.remote',
+    type: 'string',
+    defaultValue: 'https://github.com/mmy4shadow/miya-for-opencode.git',
+    risk: 'HIGH',
+    description: '自动推送远端仓库。',
+  }),
+  entry({
+    key: 'git.autoPush.branchPattern',
+    type: 'string',
+    defaultValue: 'refs/heads/miya/<session-id>',
+    risk: 'HIGH',
+    description: '自动推送分支策略。',
+  }),
+  entry({
+    key: 'git.autoPush.maxFileSizeMB',
+    type: 'integer',
+    minimum: 1,
+    maximum: 50,
+    defaultValue: 2,
+    risk: 'HIGH',
+    description: '自动推送单文件大小上限。',
+  }),
+  entry({
+    key: 'git.autoPush.blockWhenKillSwitchActive',
+    type: 'boolean',
+    defaultValue: true,
+    risk: 'HIGH',
+    description: '急停时阻断自动推送。',
+  }),
+  entry({
+    key: 'git.autoPush.excludeGlobs',
+    type: 'array',
+    defaultValue: [
+      '.opencode/**',
+      '.venv/**',
+      'node_modules/**',
+      '**/*.pem',
+      '**/*.key',
+      '**/.env*',
+    ],
+    risk: 'HIGH',
+    description: '自动推送排除列表。',
+  }),
+];
+
+const REGISTRY_MAP = new Map(
+  SETTINGS_REGISTRY.map((item) => [item.key, item] as const),
+);
+
+function leafSchema(entryValue: MiyaSettingEntry): Record<string, unknown> {
+  if (entryValue.type === 'boolean') return { type: 'boolean' };
+  if (entryValue.type === 'integer') {
+    const schema: Record<string, unknown> = { type: 'integer' };
+    if (typeof entryValue.minimum === 'number') schema.minimum = entryValue.minimum;
+    if (typeof entryValue.maximum === 'number') schema.maximum = entryValue.maximum;
+    return schema;
+  }
+  if (entryValue.type === 'string') return { type: 'string' };
+  if (entryValue.type === 'enum') {
+    return { type: 'string', enum: [...(entryValue.enumValues ?? [])] };
+  }
+  if (entryValue.type === 'array') return { type: 'array' };
+  return { type: 'object' };
+}
+
+function setSchemaAtPath(
+  root: Record<string, unknown>,
+  key: string,
+  schema: Record<string, unknown>,
+): void {
+  const segments = keySegments(key);
+  if (segments.length === 0) return;
+
+  let current = root;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    const existing = current[segment];
+    if (!existing || typeof existing !== 'object') {
+      current[segment] = {
+        type: 'object',
+        additionalProperties: true,
+        properties: {},
+      };
+    }
+    const node = current[segment] as Record<string, unknown>;
+    if (!node.properties || typeof node.properties !== 'object') {
+      node.properties = {};
+    }
+    current = node.properties as Record<string, unknown>;
+  }
+  current[segments[segments.length - 1]] = schema;
+}
+
+export function getSettingEntry(key: string): MiyaSettingEntry | undefined {
+  return REGISTRY_MAP.get(key);
+}
+
+export function listSettingEntries(): MiyaSettingEntry[] {
+  return SETTINGS_REGISTRY.map((item) => cloneValue(item));
+}
+
+export function buildDefaultConfig(): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  for (const item of SETTINGS_REGISTRY) {
+    setNestedValue(config, item.key, cloneValue(item.defaultValue));
+  }
+  return config;
+}
+
+export function buildRegistryDocument(): Record<string, unknown> {
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    settings: listSettingEntries(),
+  };
+}
+
+export function buildSchemaDocument(): Record<string, unknown> {
+  const rootProperties: Record<string, unknown> = {};
+  for (const item of SETTINGS_REGISTRY) {
+    setSchemaAtPath(rootProperties, item.key, leafSchema(item));
+  }
+
+  return {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    title: 'Miya Config',
+    type: 'object',
+    additionalProperties: true,
+    properties: rootProperties,
+  };
+}
+

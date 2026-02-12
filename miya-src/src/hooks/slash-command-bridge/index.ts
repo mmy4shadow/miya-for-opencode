@@ -26,6 +26,10 @@ const BRIDGE_PROMPTS: Record<string, BridgePromptFactory> = {
     'MANDATORY: Call tool `miya_gateway_status` exactly once. Return only tool output.',
   miya_gateway_status: () =>
     'MANDATORY: Call tool `miya_gateway_status` exactly once. Return only tool output.',
+  'miya-ui-open': () =>
+    'MANDATORY: Call tool `miya_ui_open` exactly once. Return only tool output.',
+  miya_ui_open: () =>
+    'MANDATORY: Call tool `miya_ui_open` exactly once. Return only tool output.',
 };
 
 function extractSlashCommand(text: string): {

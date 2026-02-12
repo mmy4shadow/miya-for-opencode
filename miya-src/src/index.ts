@@ -17,6 +17,7 @@ import {
   createSlashCommandBridgeHook,
 } from './hooks';
 import { createSafetyTools, handlePermissionAsk } from './safety';
+import { createConfigTools } from './settings';
 import { createBuiltinMcps } from './mcp';
 import {
   ast_grep_replace,
@@ -71,6 +72,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const automationTools = createAutomationTools(automationService);
   const workflowTools = createWorkflowTools(ctx.directory);
   const safetyTools = createSafetyTools(ctx);
+  const configTools = createConfigTools(ctx);
   const gatewayTools = createGatewayTools(ctx);
   // Stability-first default: keep plugin-hosted remote MCPs disabled unless explicitly enabled
   // by setting disabled_mcps in config (remove entries you want to use).
@@ -103,6 +105,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ...automationTools,
       ...workflowTools,
       ...safetyTools,
+      ...configTools,
       ...gatewayTools,
       lsp_goto_definition,
       lsp_find_references,
@@ -186,6 +189,33 @@ const MiyaPlugin: Plugin = async (ctx) => {
         template:
           'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
       };
+
+      if (!commandConfig['miya-ui-open']) {
+        commandConfig['miya-ui-open'] = {
+          description: 'Open Miya web control console in default browser',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_ui_open` exactly once. Return only tool output.',
+        };
+      }
+
+      if (!commandConfig['miya-config-get']) {
+        commandConfig['miya-config-get'] = {
+          description: 'Read Miya config key',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_config_get` with key="$ARGUMENTS". Return only tool output.',
+        };
+      }
+
+      if (!commandConfig['miya-config-validate']) {
+        commandConfig['miya-config-validate'] = {
+          description: 'Validate Miya config patch JSON',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Parse $ARGUMENTS as JSON patch payload, then call tool `miya_config_validate`. Return only tool output.',
+        };
+      }
 
       // Aliases for users/IMEs that prefer underscore or dot command styles.
       if (!commandConfig.miya_gateway_start) {

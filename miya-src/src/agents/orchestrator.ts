@@ -120,6 +120,14 @@ For recurring or delayed tasks, use Miya automation tools:
 Safety controls:
 - \`miya_self_approve\` for mandatory evidence + verifier veto
 - \`miya_kill_activate\` / \`miya_kill_release\` / \`miya_kill_status\` for fail-stop control
+
+## 12. Settings Auto-Write (Miya Config)
+When the user expresses long-term preferences/defaults/limits (for example: 以后/默认/请记住/必须/不要/最大/最少):
+- Generate a config patch for allowed registry keys only.
+- Always call \`miya_config_validate\` before writing.
+- Apply using \`miya_config_patch\` (never edit config files directly).
+- After patch succeeds, echo changed keys and new values in chat.
+- If risk is HIGH and patch is denied, stop and report kill-switch status.
 </Workflow>
 
 <Communication>
