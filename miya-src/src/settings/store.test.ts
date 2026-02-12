@@ -31,6 +31,29 @@ describe('settings store', () => {
     expect(config).toBeDefined();
     expect((config.ui as { language?: string }).language).toBe('zh-CN');
     expect((config.autopilot as { maxCycles?: number }).maxCycles).toBe(3);
+    expect(
+      (
+        config.intake as {
+          stats?: {
+            windowN?: number;
+            downrankThresholdRatioX100?: number;
+            downrankExplorePercent?: number;
+          };
+        }
+      ).stats?.windowN,
+    ).toBe(10);
+    expect(
+      (
+        config.intake as {
+          stats?: { downrankThresholdRatioX100?: number };
+        }
+      ).stats?.downrankThresholdRatioX100,
+    ).toBe(150);
+    expect(
+      (
+        config.intake as { stats?: { downrankExplorePercent?: number } }
+      ).stats?.downrankExplorePercent,
+    ).toBe(30);
 
     const configPath = path.join(projectDir, '.opencode', 'miya', 'config.json');
     const registryPath = path.join(
@@ -96,4 +119,3 @@ describe('settings store', () => {
     );
   });
 });
-

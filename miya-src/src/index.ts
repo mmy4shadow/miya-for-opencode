@@ -8,7 +8,12 @@ import {
   persistAgentModelSelection,
 } from './config/agent-model-persistence';
 import { parseList } from './config/agent-mcps';
-import { createGatewayTools, startGatewayWithLog } from './gateway';
+import {
+  createGatewayTools,
+  registerGatewayDependencies,
+  startGatewayWithLog,
+} from './gateway';
+import { createIntakeTools } from './intake';
 import { autoStartMiyaDock } from './dock/autostart';
 import {
   createLoopGuardHook,
@@ -60,6 +65,12 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
   const automationService = new MiyaAutomationService(ctx.directory);
   automationService.start();
+  registerGatewayDependencies(ctx.directory, {
+    client: ctx.client,
+    backgroundManager,
+    automationService,
+    extraSkillDirs: [],
+  });
   startGatewayWithLog(ctx.directory);
   autoStartMiyaDock(ctx.directory, { enabled: config.dock?.autostart ?? true });
 
@@ -73,6 +84,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const workflowTools = createWorkflowTools(ctx.directory);
   const safetyTools = createSafetyTools(ctx);
   const configTools = createConfigTools(ctx);
+  const intakeTools = createIntakeTools(ctx);
   const gatewayTools = createGatewayTools(ctx);
   // Stability-first default: keep plugin-hosted remote MCPs disabled unless explicitly enabled
   // by setting disabled_mcps in config (remove entries you want to use).
@@ -106,6 +118,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ...workflowTools,
       ...safetyTools,
       ...configTools,
+      ...intakeTools,
       ...gatewayTools,
       lsp_goto_definition,
       lsp_find_references,
@@ -214,6 +227,24 @@ const MiyaPlugin: Plugin = async (ctx) => {
           agent: '1-task-manager',
           template:
             'MANDATORY: Parse $ARGUMENTS as JSON patch payload, then call tool `miya_config_validate`. Return only tool output.',
+        };
+      }
+
+      if (!commandConfig['miya-intake']) {
+        commandConfig['miya-intake'] = {
+          description: 'List intake gate pending/allow/deny records',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_intake_list` with target="all". Return only tool output.',
+        };
+      }
+
+      if (!commandConfig['miya-intake-pending']) {
+        commandConfig['miya-intake-pending'] = {
+          description: 'List pending intake proposals',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_intake_list` with target="pending". Return only tool output.',
         };
       }
 
