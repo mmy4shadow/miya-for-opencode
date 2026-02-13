@@ -10,6 +10,7 @@ export {
   getContactTier,
   isSenderAllowed,
   listChannelStates,
+  listContactTiers,
   listPairRequests,
   readChannelStore,
   resolvePairRequest,

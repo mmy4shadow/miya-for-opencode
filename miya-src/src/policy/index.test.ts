@@ -3,9 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  POLICY_DOMAINS,
   assertPolicyHash,
   currentPolicyHash,
   isDomainRunning,
+  isPolicyDomain,
   readPolicy,
   writePolicy,
 } from './index';
@@ -19,6 +21,9 @@ describe('policy hash guard', () => {
     const projectDir = tempProjectDir();
     const policy = readPolicy(projectDir);
     expect(policy.outbound.allowedChannels).toEqual(['qq', 'wechat']);
+    expect(Object.keys(policy.domains).sort()).toEqual([...POLICY_DOMAINS].sort());
+    expect(isPolicyDomain('fs_write')).toBe(true);
+    expect(isPolicyDomain('not_a_domain')).toBe(false);
 
     const hash = currentPolicyHash(projectDir);
     const ok = assertPolicyHash(projectDir, hash);
@@ -42,13 +47,16 @@ describe('policy hash guard', () => {
   test('supports domain pause and resume state', () => {
     const projectDir = tempProjectDir();
     expect(isDomainRunning(projectDir, 'outbound_send')).toBe(true);
+    expect(isDomainRunning(projectDir, 'memory_write')).toBe(true);
 
     writePolicy(projectDir, {
       domains: {
         ...readPolicy(projectDir).domains,
         outbound_send: 'paused',
+        memory_write: 'paused',
       },
     });
     expect(isDomainRunning(projectDir, 'outbound_send')).toBe(false);
+    expect(isDomainRunning(projectDir, 'memory_write')).toBe(false);
   });
 });

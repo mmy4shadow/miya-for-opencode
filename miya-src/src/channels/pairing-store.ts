@@ -218,3 +218,27 @@ export function setContactTier(
   writeChannelStore(projectDir, store);
   return next;
 }
+
+export function listContactTiers(
+  projectDir: string,
+  channel?: ChannelName,
+): Array<{ channel: ChannelName; senderID: string; tier: 'owner' | 'friend' }> {
+  const store = readChannelStore(projectDir);
+  const channels = channel ? [channel] : [...CHANNEL_NAMES];
+  const rows: Array<{ channel: ChannelName; senderID: string; tier: 'owner' | 'friend' }> =
+    [];
+  for (const name of channels) {
+    const state = store.channels[name];
+    const mapping = state.contactTiers ?? {};
+    for (const senderID of state.allowlist) {
+      rows.push({
+        channel: name,
+        senderID,
+        tier: mapping[senderID] ?? 'friend',
+      });
+    }
+  }
+  return rows.sort((a, b) =>
+    `${a.channel}:${a.senderID}`.localeCompare(`${b.channel}:${b.senderID}`),
+  );
+}

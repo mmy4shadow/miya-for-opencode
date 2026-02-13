@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import type { MiyaAutomationService } from '../automation';
 import type { BackgroundTaskManager } from '../background';
 import { readChannelStore } from '../channel';
-import { getContactTier, setContactTier } from '../channel';
+import { getContactTier, listContactTiers, setContactTier } from '../channel';
 import {
   type ChannelInboundMessage,
   ChannelRuntime,
@@ -28,9 +28,13 @@ import {
   assertPolicyHash,
   currentPolicyHash,
   isDomainRunning,
+  isPolicyDomain,
+  POLICY_DOMAINS,
+  type PolicyDomain,
   readPolicy,
   writePolicy,
 } from '../policy';
+import { appendPolicyIncident, listPolicyIncidents } from '../policy/incident';
 import {
   createInvokeRequest,
   createNodePairRequest,
@@ -288,6 +292,20 @@ function parseText(value: unknown): string {
 
 function parseChannel(value: unknown): ChannelName | null {
   return isChannelName(value) ? value : null;
+}
+
+function requirePolicyHash(projectDir: string, providedHash: string | undefined): string {
+  const policyGuard = assertPolicyHash(projectDir, providedHash);
+  if (!policyGuard.ok) {
+    throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
+  }
+  return policyGuard.hash;
+}
+
+function requireDomainRunning(projectDir: string, domain: PolicyDomain): void {
+  if (!isDomainRunning(projectDir, domain)) {
+    throw new Error(`domain_paused:${domain}`);
+  }
 }
 
 function listBackground(projectDir: string): GatewaySnapshot['background'] {
@@ -1291,7 +1309,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
   methods.register('sessions.policy.set', async (params) => {
     const sessionID = parseText(params.sessionID);
+    const policyHash = parseText(params.policyHash) || undefined;
     if (!sessionID) throw new Error('invalid_session_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
     const patch: Parameters<typeof setSessionPolicy>[2] = {};
     if (params.activation === 'active' || params.activation === 'queued' || params.activation === 'muted') {
       patch.activation = params.activation;
@@ -1335,10 +1356,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('cron.add', async (params) => {
     const service = depsOf(projectDir).automationService;
     if (!service) throw new Error('automation_service_unavailable');
+    const policyHash = parseText(params.policyHash) || undefined;
     const name = parseText(params.name);
     const time = parseText(params.time);
     const command = parseText(params.command);
     if (!name || !time || !command) throw new Error('invalid_cron_add_args');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     return service.scheduleDailyCommand({
       name,
       time,
@@ -1352,37 +1376,52 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('cron.remove', async (params) => {
     const service = depsOf(projectDir).automationService;
     if (!service) throw new Error('automation_service_unavailable');
+    const policyHash = parseText(params.policyHash) || undefined;
     const jobID = parseText(params.jobID);
     if (!jobID) throw new Error('invalid_job_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     return { removed: service.deleteJob(jobID) };
   });
   methods.register('cron.update', async (params) => {
     const service = depsOf(projectDir).automationService;
     if (!service) throw new Error('automation_service_unavailable');
+    const policyHash = parseText(params.policyHash) || undefined;
     const jobID = parseText(params.jobID);
     if (!jobID || typeof params.enabled !== 'boolean') throw new Error('invalid_cron_update_args');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     return service.setJobEnabled(jobID, params.enabled);
   });
   methods.register('cron.run.now', async (params) => {
     const service = depsOf(projectDir).automationService;
     if (!service) throw new Error('automation_service_unavailable');
+    const policyHash = parseText(params.policyHash) || undefined;
     const jobID = parseText(params.jobID);
     if (!jobID) throw new Error('invalid_job_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'local_build');
     return service.runJobNow(jobID);
   });
   methods.register('cron.approvals.list', async () => depsOf(projectDir).automationService?.listApprovals() ?? []);
   methods.register('cron.approvals.approve', async (params) => {
     const service = depsOf(projectDir).automationService;
     if (!service) throw new Error('automation_service_unavailable');
+    const policyHash = parseText(params.policyHash) || undefined;
     const approvalID = parseText(params.approvalID);
     if (!approvalID) throw new Error('invalid_approval_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'local_build');
     return service.approveAndRun(approvalID);
   });
   methods.register('cron.approvals.reject', async (params) => {
     const service = depsOf(projectDir).automationService;
     if (!service) throw new Error('automation_service_unavailable');
+    const policyHash = parseText(params.policyHash) || undefined;
     const approvalID = parseText(params.approvalID);
     if (!approvalID) throw new Error('invalid_approval_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     return service.rejectApproval(approvalID);
   });
 
@@ -1427,6 +1466,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       tier: getContactTier(projectDir, channel, senderID),
     };
   });
+  methods.register('channels.contact.tier.list', async (params) => {
+    const channel = parseChannel(params.channel);
+    return {
+      contacts: listContactTiers(projectDir, channel ?? undefined),
+    };
+  });
   methods.register('channels.message.send', async (params) => {
     const channel = parseChannel(params.channel);
     const destination = parseText(params.destination);
@@ -1435,13 +1480,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const sessionID = parseText(params.sessionID) || 'main';
     const policyHash = parseText(params.policyHash) || undefined;
     if (!channel || !destination || !text) throw new Error('invalid_channels_send_args');
-    const policyGuard = assertPolicyHash(projectDir, policyHash);
-    if (!policyGuard.ok) {
-      throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
-    }
-    if (!isDomainRunning(projectDir, 'outbound_send')) {
-      throw new Error('domain_paused:outbound_send');
-    }
+    const resolvedPolicyHash = requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'outbound_send');
     const outboundCheckRaw =
       params.outboundCheck && typeof params.outboundCheck === 'object'
         ? (params.outboundCheck as Record<string, unknown>)
@@ -1499,9 +1539,42 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         riskLevel,
         intent: intent === 'reply' ? 'reply' : 'initiate',
         containsSensitive,
-        policyHash,
+        policyHash: resolvedPolicyHash,
       },
     });
+    const violationType =
+      result.message === 'outbound_blocked:friend_tier_sensitive_content_denied'
+        ? 'friend_tier_sensitive_violation'
+        : result.message === 'outbound_blocked:friend_tier_can_only_reply'
+          ? 'friend_tier_initiate_violation'
+          : null;
+    if (violationType) {
+      const policy = writePolicy(projectDir, {
+        domains: {
+          ...readPolicy(projectDir).domains,
+          outbound_send: 'paused',
+          desktop_control: 'paused',
+        },
+      });
+      const incident = appendPolicyIncident(projectDir, {
+        type: violationType,
+        reason: result.message,
+        channel,
+        destination,
+        auditID: result.auditID,
+        policyHash: resolvedPolicyHash,
+        pausedDomains: ['outbound_send', 'desktop_control'],
+        statusByDomain: {
+          outbound_send: policy.domains.outbound_send,
+          desktop_control: policy.domains.desktop_control,
+        },
+      });
+      return {
+        ...result,
+        policyHash: currentPolicyHash(projectDir),
+        incident,
+      };
+    }
     if (idempotencyKey) {
       const key = `channels.send:${idempotencyKey}`;
       runtime.outboundSendDedupe.set(key, { ts: Date.now(), result });
@@ -1510,7 +1583,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         if (value.ts < cutoff) runtime.outboundSendDedupe.delete(dedupeKey);
       }
     }
-    return result;
+    return {
+      ...result,
+      policyHash: resolvedPolicyHash,
+    };
   });
 
   methods.register('policy.get', async () => {
@@ -1520,9 +1596,28 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       hash: currentPolicyHash(projectDir),
     };
   });
+  methods.register('policy.domains.list', async () => {
+    const policy = readPolicy(projectDir);
+    return {
+      domains: POLICY_DOMAINS.map((domain) => ({
+        domain,
+        status: policy.domains[domain],
+      })),
+      hash: currentPolicyHash(projectDir),
+    };
+  });
+  methods.register('policy.incidents.list', async (params) => {
+    const limit =
+      typeof params.limit === 'number' && params.limit > 0
+        ? Math.min(500, Number(params.limit))
+        : 100;
+    return {
+      incidents: listPolicyIncidents(projectDir, limit),
+    };
+  });
   methods.register('policy.domain.pause', async (params) => {
     const domain = parseText(params.domain);
-    if (domain !== 'outbound_send' && domain !== 'desktop_control') {
+    if (!isPolicyDomain(domain)) {
       throw new Error('invalid_policy_domain');
     }
     const policy = writePolicy(projectDir, {
@@ -1530,6 +1625,15 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ...readPolicy(projectDir).domains,
         [domain]: 'paused',
       },
+    });
+    appendPolicyIncident(projectDir, {
+      type: 'manual_pause',
+      reason: `manual_pause:${domain}`,
+      pausedDomains: [domain],
+      statusByDomain: {
+        [domain]: policy.domains[domain],
+      },
+      policyHash: currentPolicyHash(projectDir),
     });
     return {
       domain,
@@ -1539,7 +1643,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
   methods.register('policy.domain.resume', async (params) => {
     const domain = parseText(params.domain);
-    if (domain !== 'outbound_send' && domain !== 'desktop_control') {
+    if (!isPolicyDomain(domain)) {
       throw new Error('invalid_policy_domain');
     }
     const policy = writePolicy(projectDir, {
@@ -1547,6 +1651,15 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ...readPolicy(projectDir).domains,
         [domain]: 'running',
       },
+    });
+    appendPolicyIncident(projectDir, {
+      type: 'manual_resume',
+      reason: `manual_resume:${domain}`,
+      pausedDomains: [domain],
+      statusByDomain: {
+        [domain]: policy.domains[domain],
+      },
+      policyHash: currentPolicyHash(projectDir),
     });
     return {
       domain,
@@ -1669,13 +1782,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ? (params.args as Record<string, unknown>)
         : {};
     if (!nodeID || !capability) throw new Error('invalid_nodes_invoke_args');
-    const policyGuard = assertPolicyHash(projectDir, policyHash);
-    if (!policyGuard.ok) {
-      throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
-    }
-    if (!isDomainRunning(projectDir, 'desktop_control')) {
-      throw new Error('domain_paused:desktop_control');
-    }
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'desktop_control');
 
     const token = enforceToken({
       projectDir,
@@ -1741,10 +1849,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const sessionID = parseText(params.sessionID) || 'main';
     const policyHash = parseText(params.policyHash) || undefined;
     if (!repo) throw new Error('invalid_repo');
-    const policyGuard = assertPolicyHash(projectDir, policyHash);
-    if (!policyGuard.ok) {
-      throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
-    }
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'shell_exec');
+    requireDomainRunning(projectDir, 'fs_write');
 
     const token = enforceToken({
       projectDir,
@@ -1784,10 +1891,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const sessionID = parseText(params.sessionID) || 'main';
     const policyHash = parseText(params.policyHash) || undefined;
     if (!dir) throw new Error('invalid_dir');
-    const policyGuard = assertPolicyHash(projectDir, policyHash);
-    if (!policyGuard.ok) {
-      throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
-    }
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'shell_exec');
+    requireDomainRunning(projectDir, 'fs_write');
 
     const token = enforceToken({
       projectDir,
@@ -1814,10 +1920,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
 
   methods.register('media.ingest', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
     const source = parseText(params.source);
     const mimeType = parseText(params.mimeType);
     const fileName = parseText(params.fileName);
     if (!source || !mimeType || !fileName) throw new Error('invalid_media_ingest_args');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     if (
       params.kind !== 'image' &&
       params.kind !== 'audio' &&
@@ -1847,7 +1956,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!mediaID) throw new Error('invalid_media_id');
     return getMediaItem(projectDir, mediaID);
   });
-  methods.register('media.gc.run', async () => runMediaGc(projectDir));
+  methods.register('media.gc.run', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
+    return runMediaGc(projectDir);
+  });
   methods.register('media.list', async (params) => {
     const limit =
       typeof params.limit === 'number' && params.limit > 0
@@ -1857,30 +1971,45 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
 
   methods.register('voice.status', async () => readVoiceState(projectDir));
-  methods.register('voice.wake.enable', async () =>
-    patchVoiceState(projectDir, {
+  methods.register('voice.wake.enable', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    return patchVoiceState(projectDir, {
       enabled: true,
       wakeWordEnabled: true,
-    }),
-  );
-  methods.register('voice.wake.disable', async () =>
-    patchVoiceState(projectDir, {
+    });
+  });
+  methods.register('voice.wake.disable', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    return patchVoiceState(projectDir, {
       wakeWordEnabled: false,
-    }),
-  );
-  methods.register('voice.talk.start', async (params) =>
-    patchVoiceState(projectDir, {
+    });
+  });
+  methods.register('voice.talk.start', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    return patchVoiceState(projectDir, {
       enabled: true,
       talkMode: true,
       routeSessionID: parseText(params.sessionID) || readVoiceState(projectDir).routeSessionID,
-    }),
-  );
-  methods.register('voice.talk.stop', async () =>
-    patchVoiceState(projectDir, {
+    });
+  });
+  methods.register('voice.talk.stop', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    return patchVoiceState(projectDir, {
       talkMode: false,
-    }),
-  );
+    });
+  });
   methods.register('voice.input.ingest', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
     const mediaID = parseText(params.mediaID) || undefined;
     const source =
       parseText(params.source) === 'wake' ||
@@ -1925,7 +2054,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         : 100;
     return readVoiceState(projectDir).history.slice(0, limit);
   });
-  methods.register('voice.history.clear', async () => clearVoiceHistory(projectDir));
+  methods.register('voice.history.clear', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_delete');
+    return clearVoiceHistory(projectDir);
+  });
 
   methods.register('canvas.status', async () => {
     const state = readCanvasState(projectDir);
@@ -1942,10 +2076,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return getCanvasDoc(projectDir, docID);
   });
   methods.register('canvas.open', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
     const title = parseText(params.title);
     const type = parseText(params.type);
     const content = parseText(params.content);
     if (!title) throw new Error('invalid_canvas_title');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     if (type && type !== 'text' && type !== 'markdown' && type !== 'json' && type !== 'html') {
       throw new Error('invalid_canvas_type');
     }
@@ -1961,9 +2098,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
   });
   methods.register('canvas.render', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
     const docID = parseText(params.docID);
     const content = parseText(params.content);
     if (!docID || !content) throw new Error('invalid_canvas_render_args');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     return renderCanvasDoc(projectDir, {
       docID,
       content,
@@ -1972,8 +2112,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
   });
   methods.register('canvas.close', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
     const docID = parseText(params.docID);
     if (!docID) throw new Error('invalid_doc_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     return closeCanvasDoc(projectDir, docID, parseText(params.actor) || 'gateway');
   });
 
@@ -2000,8 +2143,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       ],
     };
   });
-  methods.register('companion.profile.update', async (params) =>
-    patchCompanionProfile(projectDir, {
+  methods.register('companion.profile.update', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    return patchCompanionProfile(projectDir, {
       enabled:
         typeof params.enabled === 'boolean'
           ? Boolean(params.enabled)
@@ -2014,20 +2160,26 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       persona: parseText(params.persona) || undefined,
       relationship: parseText(params.relationship) || undefined,
       style: parseText(params.style) || undefined,
-    }),
-  );
+    });
+  });
   methods.register('companion.memory.add', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
     const fact = parseText(params.fact);
     if (!fact) throw new Error('invalid_memory_fact');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
     return addCompanionMemoryFact(projectDir, fact);
   });
   methods.register('companion.memory.list', async () =>
     readCompanionProfile(projectDir).memoryFacts,
   );
   methods.register('companion.asset.add', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
     const type = parseText(params.type);
     const pathOrUrl = parseText(params.pathOrUrl);
     if (!pathOrUrl) throw new Error('invalid_asset_path');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
     if (type !== 'image' && type !== 'audio') throw new Error('invalid_asset_type');
     return addCompanionAsset(projectDir, {
       type,
@@ -2036,7 +2188,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
   });
   methods.register('companion.asset.list', async () => readCompanionProfile(projectDir).assets);
-  methods.register('companion.reset', async () => resetCompanionProfile(projectDir));
+  methods.register('companion.reset', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_delete');
+    return resetCompanionProfile(projectDir);
+  });
 
   return methods;
 }

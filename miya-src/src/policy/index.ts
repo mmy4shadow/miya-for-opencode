@@ -3,13 +3,26 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 
+export const POLICY_DOMAINS = [
+  'outbound_send',
+  'desktop_control',
+  'shell_exec',
+  'fs_write',
+  'memory_write',
+  'memory_delete',
+  'training',
+  'media_generate',
+  'read_only_research',
+  'local_build',
+] as const;
+
+export type PolicyDomain = (typeof POLICY_DOMAINS)[number];
+export type PolicyDomainState = 'running' | 'paused';
+
 export interface MiyaPolicy {
   version: number;
   updatedAt: string;
-  domains: {
-    outbound_send: 'running' | 'paused';
-    desktop_control: 'running' | 'paused';
-  };
+  domains: Record<PolicyDomain, PolicyDomainState>;
   outbound: {
     allowedChannels: Array<'qq' | 'wechat'>;
     requireArchAdvisorApproval: boolean;
@@ -36,6 +49,14 @@ function defaultPolicy(): MiyaPolicy {
     domains: {
       outbound_send: 'running',
       desktop_control: 'running',
+      shell_exec: 'running',
+      fs_write: 'running',
+      memory_write: 'running',
+      memory_delete: 'running',
+      training: 'running',
+      media_generate: 'running',
+      read_only_research: 'running',
+      local_build: 'running',
     },
     outbound: {
       allowedChannels: ['qq', 'wechat'],
@@ -61,9 +82,17 @@ export function readPolicy(projectDir: string): MiyaPolicy {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MiyaPolicy>;
     const base = defaultPolicy();
+    const parsedDomains =
+      parsed.domains && typeof parsed.domains === 'object'
+        ? (parsed.domains as Partial<Record<PolicyDomain, PolicyDomainState>>)
+        : {};
     return {
       ...base,
       ...parsed,
+      domains: {
+        ...base.domains,
+        ...parsedDomains,
+      },
       outbound: {
         ...base.outbound,
         ...(parsed.outbound ?? {}),
@@ -128,8 +157,12 @@ export function assertPolicyHash(
 
 export function isDomainRunning(
   projectDir: string,
-  domain: keyof MiyaPolicy['domains'],
+  domain: PolicyDomain,
 ): boolean {
   const policy = readPolicy(projectDir);
   return policy.domains[domain] === 'running';
+}
+
+export function isPolicyDomain(value: unknown): value is PolicyDomain {
+  return typeof value === 'string' && (POLICY_DOMAINS as readonly string[]).includes(value);
 }
