@@ -39,6 +39,7 @@ export interface ChannelState {
   lastError?: string;
   updatedAt: string;
   allowlist: string[];
+  contactTiers?: Record<string, 'owner' | 'friend'>;
 }
 
 export interface ChannelStore {

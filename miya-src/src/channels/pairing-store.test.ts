@@ -3,54 +3,29 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  ensurePairRequest,
-  isSenderAllowed,
-  listPairRequests,
-  resolvePairRequest,
+  getContactTier,
+  setContactTier,
   upsertChannelState,
 } from './pairing-store';
 
 function tempProjectDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-channel-test-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-channel-pairing-store-'));
 }
 
-describe('channel pairing store', () => {
-  test('creates and resolves pair requests', () => {
+describe('channel contact tier store', () => {
+  test('sets and reads contact tier while ensuring allowlist', () => {
     const projectDir = tempProjectDir();
-    upsertChannelState(projectDir, 'telegram', {
-      enabled: true,
-      connected: true,
-    });
+    upsertChannelState(projectDir, 'qq', { allowlist: [] });
 
-    const pair = ensurePairRequest(projectDir, {
-      channel: 'telegram',
-      senderID: 'u1',
-      displayName: 'User One',
-      messagePreview: 'hello',
-    });
-
-    expect(pair.status).toBe('pending');
-    expect(listPairRequests(projectDir, 'pending').length).toBe(1);
-
-    const approved = resolvePairRequest(projectDir, pair.id, 'approved');
-    expect(approved?.status).toBe('approved');
-    expect(isSenderAllowed(projectDir, 'telegram', 'u1')).toBe(true);
+    setContactTier(projectDir, 'qq', 'user-a', 'owner');
+    expect(getContactTier(projectDir, 'qq', 'user-a')).toBe('owner');
   });
 
-  test('avoids duplicate pending pair request', () => {
+  test('returns null when sender is not allowlisted', () => {
     const projectDir = tempProjectDir();
-    const first = ensurePairRequest(projectDir, {
-      channel: 'slack',
-      senderID: 'U123',
-      messagePreview: 'ping',
-    });
-    const second = ensurePairRequest(projectDir, {
-      channel: 'slack',
-      senderID: 'U123',
-      messagePreview: 'ping again',
-    });
+    upsertChannelState(projectDir, 'wechat', { allowlist: [] });
 
-    expect(first.id).toBe(second.id);
-    expect(listPairRequests(projectDir, 'pending').length).toBe(1);
+    expect(getContactTier(projectDir, 'wechat', 'nope')).toBeNull();
   });
 });
+

@@ -28,6 +28,7 @@ function defaultChannelState(name: ChannelName): ChannelState {
     connected: name === 'webchat',
     updatedAt: nowIso(),
     allowlist: [],
+    contactTiers: {},
   };
 }
 
@@ -138,10 +139,23 @@ export function resolvePairRequest(
 
   if (status === 'approved') {
     const channel = store.channels[pair.channel];
+    const ownerByEnv = new Set(
+      String(process.env.MIYA_OWNER_IDS ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    );
     if (!channel.allowlist.includes(pair.senderID)) {
       channel.allowlist = [...channel.allowlist, pair.senderID].sort();
-      channel.updatedAt = nowIso();
     }
+    const currentTier = channel.contactTiers?.[pair.senderID];
+    const resolvedTier =
+      currentTier ?? (ownerByEnv.has(pair.senderID) ? 'owner' : 'friend');
+    channel.contactTiers = {
+      ...(channel.contactTiers ?? {}),
+      [pair.senderID]: resolvedTier,
+    };
+    channel.updatedAt = nowIso();
   }
 
   writeChannelStore(projectDir, store);
@@ -167,4 +181,40 @@ export function isSenderAllowed(
   const store = readChannelStore(projectDir);
   const allowed = store.channels[channel].allowlist;
   return allowed.includes(senderID);
+}
+
+export function getContactTier(
+  projectDir: string,
+  channel: ChannelName,
+  senderID: string,
+): 'owner' | 'friend' | null {
+  const store = readChannelStore(projectDir);
+  const state = store.channels[channel];
+  if (!state.allowlist.includes(senderID)) return null;
+  return state.contactTiers?.[senderID] ?? 'friend';
+}
+
+export function setContactTier(
+  projectDir: string,
+  channel: ChannelName,
+  senderID: string,
+  tier: 'owner' | 'friend',
+): ChannelState {
+  const store = readChannelStore(projectDir);
+  const state = store.channels[channel];
+  const allowlist = state.allowlist.includes(senderID)
+    ? state.allowlist
+    : [...state.allowlist, senderID].sort();
+  const next: ChannelState = {
+    ...state,
+    allowlist,
+    contactTiers: {
+      ...(state.contactTiers ?? {}),
+      [senderID]: tier,
+    },
+    updatedAt: nowIso(),
+  };
+  store.channels[channel] = next;
+  writeChannelStore(projectDir, store);
+  return next;
 }

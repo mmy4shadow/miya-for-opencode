@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import type { MiyaAutomationService } from '../automation';
 import type { BackgroundTaskManager } from '../background';
 import { readChannelStore } from '../channel';
+import { getContactTier, setContactTier } from '../channel';
 import {
   type ChannelInboundMessage,
   ChannelRuntime,
@@ -1400,6 +1401,26 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!pairID) throw new Error('invalid_pair_id');
     return runtime.channelRuntime.rejectPair(pairID);
   });
+  methods.register('channels.contact.tier.set', async (params) => {
+    const channel = parseChannel(params.channel);
+    const senderID = parseText(params.senderID);
+    const tier = parseText(params.tier);
+    if (!channel || !senderID) throw new Error('invalid_channels_contact_tier_args');
+    if (tier !== 'owner' && tier !== 'friend') {
+      throw new Error('invalid_channels_contact_tier');
+    }
+    return setContactTier(projectDir, channel, senderID, tier);
+  });
+  methods.register('channels.contact.tier.get', async (params) => {
+    const channel = parseChannel(params.channel);
+    const senderID = parseText(params.senderID);
+    if (!channel || !senderID) throw new Error('invalid_channels_contact_tier_args');
+    return {
+      channel,
+      senderID,
+      tier: getContactTier(projectDir, channel, senderID),
+    };
+  });
   methods.register('channels.message.send', async (params) => {
     const channel = parseChannel(params.channel);
     const destination = parseText(params.destination);
@@ -1428,6 +1449,14 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       riskLevelInput === 'LOW' || riskLevelInput === 'MEDIUM' || riskLevelInput === 'HIGH'
         ? riskLevelInput
         : 'HIGH';
+    const intent =
+      outboundCheckRaw && typeof outboundCheckRaw.intent === 'string'
+        ? String(outboundCheckRaw.intent)
+        : 'initiate';
+    const containsSensitive =
+      outboundCheckRaw && typeof outboundCheckRaw.containsSensitive === 'boolean'
+        ? Boolean(outboundCheckRaw.containsSensitive)
+        : false;
 
     if (idempotencyKey) {
       const key = `channels.send:${idempotencyKey}`;
@@ -1459,6 +1488,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       outboundCheck: {
         archAdvisorApproved,
         riskLevel,
+        intent: intent === 'reply' ? 'reply' : 'initiate',
+        containsSensitive,
       },
     });
     if (idempotencyKey) {
@@ -1588,11 +1619,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const nodeID = parseText(params.nodeID);
     const capability = parseText(params.capability);
     const sessionID = parseText(params.sessionID) || 'main';
+    const policyHash = parseText(params.policyHash) || undefined;
     const args =
       params.args && typeof params.args === 'object'
         ? (params.args as Record<string, unknown>)
         : {};
     if (!nodeID || !capability) throw new Error('invalid_nodes_invoke_args');
+    const policyGuard = assertPolicyHash(projectDir, policyHash);
+    if (!policyGuard.ok) {
+      throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
+    }
 
     const token = enforceToken({
       projectDir,

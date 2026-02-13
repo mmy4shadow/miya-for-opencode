@@ -7,6 +7,7 @@ import type { ChannelName } from './types';
 import { assertChannelCanSend } from './policy';
 import {
   ensurePairRequest,
+  getContactTier,
   isSenderAllowed,
   listChannelStates,
   listPairRequests,
@@ -515,6 +516,8 @@ export class ChannelRuntime {
     outboundCheck?: {
       archAdvisorApproved?: boolean;
       riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+      intent?: 'reply' | 'initiate';
+      containsSensitive?: boolean;
       bypassAllowlist?: boolean;
       bypassThrottle?: boolean;
       bypassDuplicateGuard?: boolean;
@@ -571,6 +574,43 @@ export class ChannelRuntime {
         riskLevel,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
+    }
+
+    const tier =
+      input.outboundCheck?.bypassAllowlist === true
+        ? 'owner'
+        : getContactTier(this.projectDir, input.channel, input.destination);
+    const intent = input.outboundCheck?.intent ?? 'initiate';
+    const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
+    if (tier === 'friend') {
+      if (intent !== 'reply') {
+        const audit = this.recordOutboundAttempt({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: input.text.slice(0, 200),
+          sent: false,
+          message: 'outbound_blocked:friend_tier_can_only_reply',
+          reason: 'allowlist_denied',
+          archAdvisorApproved,
+          targetInAllowlist,
+          riskLevel,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+      if (containsSensitive) {
+        const audit = this.recordOutboundAttempt({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: input.text.slice(0, 200),
+          sent: false,
+          message: 'outbound_blocked:friend_tier_sensitive_content_denied',
+          reason: 'allowlist_denied',
+          archAdvisorApproved,
+          targetInAllowlist,
+          riskLevel,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
     }
 
     if (input.outboundCheck?.bypassThrottle !== true) {

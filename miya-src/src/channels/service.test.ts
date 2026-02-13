@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ChannelRuntime } from './service';
-import { upsertChannelState } from './pairing-store';
+import { setContactTier, upsertChannelState } from './pairing-store';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-channels-service-'));
@@ -33,9 +33,7 @@ describe('channel runtime send policy', () => {
       onPairRequested: () => {},
     });
 
-    upsertChannelState(projectDir, 'qq', {
-      allowlist: ['tester'],
-    });
+    setContactTier(projectDir, 'qq', 'tester', 'owner');
 
     const result = await runtime.sendMessage({
       channel: 'qq',
@@ -124,9 +122,7 @@ describe('channel runtime send policy', () => {
       onInbound: () => {},
       onPairRequested: () => {},
     });
-    upsertChannelState(projectDir, 'qq', {
-      allowlist: ['tester'],
-    });
+    setContactTier(projectDir, 'qq', 'tester', 'owner');
 
     const first = await runtime.sendMessage({
       channel: 'qq',
@@ -150,5 +146,54 @@ describe('channel runtime send policy', () => {
     expect(first.message.length).toBeGreaterThan(0);
     expect(second.sent).toBe(false);
     expect(second.message).toMatch(/outbound_blocked:throttled:/);
+  });
+
+  test('friend tier can only reply', async () => {
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(projectDir, {
+      onInbound: () => {},
+      onPairRequested: () => {},
+    });
+    setContactTier(projectDir, 'qq', 'friend-1', 'friend');
+
+    const result = await runtime.sendMessage({
+      channel: 'qq',
+      destination: 'friend-1',
+      text: 'hello',
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+        intent: 'initiate',
+      },
+    });
+
+    expect(result.sent).toBe(false);
+    expect(result.message).toBe('outbound_blocked:friend_tier_can_only_reply');
+  });
+
+  test('friend tier blocks sensitive content even on reply', async () => {
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(projectDir, {
+      onInbound: () => {},
+      onPairRequested: () => {},
+    });
+    setContactTier(projectDir, 'qq', 'friend-2', 'friend');
+
+    const result = await runtime.sendMessage({
+      channel: 'qq',
+      destination: 'friend-2',
+      text: 'sensitive',
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+        intent: 'reply',
+        containsSensitive: true,
+      },
+    });
+
+    expect(result.sent).toBe(false);
+    expect(result.message).toBe(
+      'outbound_blocked:friend_tier_sensitive_content_denied',
+    );
   });
 });
