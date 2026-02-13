@@ -48,6 +48,10 @@
 - **Ralph Loop 归位**：Ralph Loop 作为执行管线默认机制（而非独立大功能），优先级定为 **P0 核心交付**。
 - **核心能力范围冻结**：`像人类一样看网页/点击软件/控制电脑` 与 `陪伴式聊天（含本地多模态）` 均属于核心实现，必须进入 P0/P1 主里程碑而非可选增强。
 - **通道策略冻结**：参考 OpenClaw 的 Gateway/Node 与本地控制范式，但本项目**不做多通道集成**，仅实现 QQ/微信 UI 自动化外发链路。
+- **显存调度策略冻结**：采用**全局 VRAM 信号量 + 模型动态装卸载（Model Swapping）+ idle 分时训练**三件套；禁止多模型常驻导致显存挤兑。
+- **调度主权冻结**：`miya-launcher` 作为唯一守夜人持有定时触发器；daemon 不常驻、不接管系统级定时器。
+- **UI 自动化口径冻结**：Windows UIA/可访问性树优先，视觉模型仅作为 fallback；并引入坐标缓存与像素指纹快速校验。
+- **人格注入口径冻结**：执行型 Agent 走 Zero-Persona（最小称呼约束），对外回复由 Manager/Designer 进行 Tone Rewriter。
 
 ### **0.1 Miya = OpenCode 插件（唯一入口）**
 - 所有对话都发生在 OpenCode 里；文本/推理 LLM 的调用只发生在 OpenCode
@@ -83,7 +87,9 @@
   - 失败策略：拉起失败只在本机弹通知/写本地日志，不尝试外发；并且不得绕过 OpenCode 的 permission/ask 体系。
 ### **0.2 女友=助理，不分人格体、不新增 agent**
 - 不新增"女友代理"。仍是定义的 6 大 Agent
-- 所谓"女友感"是 **一份共享人格层（Persona Layer）** 注入到全部 6 个 Agent 的提示词中，保持一致的称呼、语气、边界与陪伴感
+- 所谓"女友感"是 **一份共享人格层（Persona Layer）**，但采用**按角色动态挂载**：
+  - 执行型 Agent（Fixer/Search/Advisor）默认 Zero-Persona，仅保留最小称呼和边界约束
+  - 对外呈现型 Agent（Manager/Designer）加载 full persona，并负责 Tone Rewriter（语气重写）
 - 同一聊天里可以编程也可以陪伴；编程时仍能"聊"，聊天时仍能利用自主编程优势完成任务
 
 ### **0.3 安全与隐私铁律（工程化实现）**
@@ -119,12 +125,21 @@
   - 读取 GPU 可用显存（并保留安全余量），计算可行的 batch/分辨率/精度/梯度检查点策略
   - 若预计超限：自动降级到更轻方案，**绝不硬顶 OOM**
   - 训练过程中若触发 OOM：立刻停止当前策略 → 自动回退到更轻策略重新开跑，并记录审计（不得反复重试同一策略刷爆系统）
+- **全局显存信号量（Global VRAM Semaphore，强制）**：
+  - 图像生成（FLUX）、视觉理解（Qwen-VL）、语音（GPT-SoVITS/Whisper）、训练任务必须统一走同一个显存调度器。
+  - 调度策略采用“互斥 + 排队 + 可抢占”：高优先级交互任务可抢占低优先级训练任务；训练任务必须可暂停并可从 checkpoint 恢复。
+- **模型动态装卸载（Model Swapping，强制）**：
+  - daemon 禁止让多套重模型常驻；采用“用完即卸载 + LRU 缓存”的组合策略。
+  - 生成/识别完成后必须释放显存并写审计（释放前后显存、模型标识、耗时）。
 - **训练独立进程 + 互斥锁（强制）**：
   - daemon 启动训练 job 时必须 `spawn` 独立子进程（或独立 worker）；训练进程 OOM/崩溃不得带崩 daemon（daemon 必须能向 OpenCode 汇报“训练失败/已降级/可重试窗口”）。
   - 训练与本地推理（含“快眼”视觉模型）必须有 GPU 互斥锁/配额：训练启动前必须确认不会挤爆 OpenCode 正在使用的本地小模型；否则只允许进入更轻档位或延后到 idle 窗口。
 - **Reference-first（建议默认）**：
   - 向导完成后优先走“reference set / IP-Adapter 或等价参考适配器”这类 **低显存、零训练/少训练** 的一致性方案。
   - 只有在用户 idle 且显存充裕时，才允许后台慢速跑 LoRA/adapter（可暂停、可取消、可回滚）。
+- **分时复用（强制）**：
+  - 训练任务仅允许在 idle 窗口执行（默认：用户无操作 >= 5 分钟）。
+  - 一旦检测到用户活跃或交互任务到达，必须在 1-2 秒内暂停训练并让出显存，不得阻塞语音/对话/桌面控制。
 - 训练源码必须存在于 miya 插件仓库内（daemon/插件工具都能直接调用），不是"手动跑脚本"
 -一开始就根据模型特点，官方说明和设备限制确定好训练的各种信息（这是在设计和编写源码时就已经确定好），到时候在miya后台直接根据我发的材料训练，要在GATEWAY上有进度提示，不影响正常使用opencode和其他功能。
 #### **0.3.5 消灭"双口径风险"（Single Source of Truth）**
@@ -906,6 +921,10 @@ interface CheckTrainingProgressOutput {
 - **行为记忆（Traits/Style）**：persona layer 的来源（向导与后续对话可写入，但必须有证据来源）
 - **工作记忆（Work Context）**：项目/代码相关长期状态（RAG/索引/关键决策摘要）
 - **隔离原则**：运行态按 sessionId 分桶；长期记忆按 namespace（work/personal/shared）控制注入
+- **检索注入原则（防 Context Window 爆炸）**：
+  - 记忆层默认使用本地 embedding（建议 `bge-m3`）+ 向量索引，仅按当前任务检索 Top-K 片段注入。
+  - 对话任务仅检索 personal/traits；代码任务仅检索 work context；默认禁止跨域混注。
+  - System Prompt 禁止承载全量记忆，只允许固定骨架 + 检索片段。
 - **审计**：每次写入记忆必须带"来源证据"（哪条消息、哪次向导、哪次你确认）
 - **记忆写入 = 副作用动作（硬规则）**：任何 `memory_write/memory_delete` 都必须走 Policy Engine（Arch Advisor 裁决）+ 证据包；不得“对话里随口记住”直接落盘。
 - **两阶段生效（默认保守，防幻记忆与注入污染）**：
@@ -1018,6 +1037,10 @@ interface CheckTrainingProgressOutput {
 **抗扰动工程化策略（硬规则，允许“不完成”，不允许“误发”）**：
 - **自动化必须是状态机**：每一步都要有“进入条件/退出条件/超时/回退/证据”，禁止把“点击坐标串”当协议。
 - **定位优先级**（从稳到脆）：Windows UI Automation/可访问性树（控件语义） > 应用内可读元信息（窗口标题/进程/控件属性） > OCR/模板匹配（图像） > 坐标（仅作为最后 fallback，且必须有二次校验）。
+- **UIA-first 默认路径（强制）**：能从 UIA 获取句柄时，禁止先走视觉模型；只有 UIA 缺失/失真时才启用视觉 fallback。
+- **坐标缓存（低延迟必须）**：
+  - 成功操作后缓存控件相对坐标 + 像素指纹 + UIA 属性签名。
+  - 下次优先走缓存快路径，命中后直接执行；未命中再回退到 UIA/视觉全流程，减少高频发送延迟。
 - **混合感知与双重校验（推荐默认启用）**：
   - 本地“快眼”（小型视觉模型）负责快速定位关键控件（例如 QQ/微信 的搜索框、发送按钮、附件按钮等），降低延迟与误触。
   - 视觉给出候选坐标后，优先用 UIA 做 hit-test/可点击性校验；若命中可点击元素，则对齐到元素中心点；若无法校验则标记为“纯视觉定位（更高风险）”，提高证据要求并缩小动作集合。
@@ -1158,6 +1181,11 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
    - Windows/PowerShell环境下使用原生进程管理
    - 支持WSL但非强制依赖
    - 提供PowerShell脚本作为替代方案
+
+3. **Plugin-Daemon 通信韧性（WebSocket，强制）**：
+   - 必须实现 `heartbeat/ping-pong`（建议 10s 心跳，30s 超时）与指数退避重连。
+   - OpenCode 插件重启后优先恢复会话态，再逐步恢复 job 订阅，避免重复执行。
+   - daemon 检测到 WebSocket 断开后进入 60 秒自杀倒计时；若超时仍无重连则自动退出，防止僵尸进程长期占用 GPU。
 
 这种设计的优势在于它完全透明。用户感觉不到 Gateway 的存在，但它在后台默默地管理着上下文窗口，防止 irrelevant 的信息（例如 Docs-Helper 刚刚搜到的 5000 字文档）污染 Code Fixer 的上下文。Gateway 负责**上下文清洗（Context Sanitation）**，只传递关键信息。
 
@@ -1412,6 +1440,11 @@ type IntakeScope =
   - `diffHash`（本轮改动的 git diff 摘要）
   - `toolPlanHash`（本轮采取的动作类型/策略）
 - 若 `iterationFingerprint` 命中历史（出现环）→ 立即终止循环并 `load_work` 回滚到最近一次可用检查点，输出“环检测命中”的证据包与建议下一步（通常需要换策略/缩小范围/请求你提供更多信息）。
+- **错误相似度判定（强制）**：
+  - 连续 3 次 `stderr` 文本相似度 > 90%（建议 Levenshtein 或等价算法）视为“高概率原地打转”。
+  - 命中后必须切换策略（缩小范围/更换验证命令/回滚检查点），不得继续同路径硬试。
+- **文件反复横跳判定（强制）**：
+  - 同一文件同一行附近（建议 +/-3 行窗口）被重复修改超过 5 次，视为循环抖动并触发停机或升级人工介入。
 
 ```typescript
 // 取消固定轮数限制，采用进展驱动模式
@@ -1640,7 +1673,7 @@ function sendMessage(msg: UnifiedMessage) {
 - [ ] **错误捕获**：自动捕获stderr/stdout
 - [ ] **智能重试**：基于错误类型选择修复策略
 - [ ] **验证命令**：支持自定义验证命令
-- [ ] **最大重试次数**：可配置的重试上限
+- [ ] **停机判定**：基于“进展驱动 + 相似错误 + 文件抖动 + 风险上限”的组合策略（替代固定轮数）
 
 **新增文件**：
 ```
@@ -1658,7 +1691,9 @@ const miya_ralph_loop = tool({
   args: {
     task_description: z.string(),
     verification_command: z.string(),
-    max_iterations: z.number().default(5),
+    stall_window: z.number().default(3),
+    error_similarity_threshold: z.number().default(0.9),
+    same_line_touch_limit: z.number().default(5),
     timeout_ms: z.number().default(60000),
   },
   async execute(args, ctx) {
