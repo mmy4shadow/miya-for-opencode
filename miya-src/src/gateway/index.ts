@@ -34,6 +34,7 @@ import {
   readPolicy,
   writePolicy,
 } from '../policy';
+import { evaluateOutboundDecisionFusion } from '../policy/decision-fusion';
 import { appendPolicyIncident, listPolicyIncidents } from '../policy/incident';
 import {
   createInvokeRequest,
@@ -306,6 +307,20 @@ function requireDomainRunning(projectDir: string, domain: PolicyDomain): void {
   if (!isDomainRunning(projectDir, domain)) {
     throw new Error(`domain_paused:${domain}`);
   }
+}
+
+async function notifySafetyReport(
+  projectDir: string,
+  sessionID: string,
+  lines: string[],
+): Promise<void> {
+  try {
+    await routeSessionMessage(projectDir, {
+      sessionID: sessionID || 'main',
+      text: lines.join('\n'),
+      source: 'policy:incident',
+    });
+  } catch {}
 }
 
 function listBackground(projectDir: string): GatewaySnapshot['background'] {
@@ -1506,6 +1521,22 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       outboundCheckRaw && typeof outboundCheckRaw.containsSensitive === 'boolean'
         ? Boolean(outboundCheckRaw.containsSensitive)
         : false;
+    const factorRecipientIsMeInput =
+      outboundCheckRaw && typeof outboundCheckRaw.factorRecipientIsMe === 'boolean'
+        ? Boolean(outboundCheckRaw.factorRecipientIsMe)
+        : null;
+    const factorIntentSuspicious =
+      outboundCheckRaw && typeof outboundCheckRaw.factorIntentSuspicious === 'boolean'
+        ? Boolean(outboundCheckRaw.factorIntentSuspicious)
+        : false;
+    const confidenceIntentRaw =
+      outboundCheckRaw && typeof outboundCheckRaw.confidenceIntent === 'number'
+        ? Number(outboundCheckRaw.confidenceIntent)
+        : 0.5;
+    const factorRecipientIsMe =
+      factorRecipientIsMeInput !== null
+        ? factorRecipientIsMeInput
+        : getContactTier(projectDir, channel, destination) === 'owner';
 
     if (idempotencyKey) {
       const key = `channels.send:${idempotencyKey}`;
@@ -1516,6 +1547,96 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           cached: true,
         };
       }
+    }
+
+    const fusion = evaluateOutboundDecisionFusion({
+      factorTextSensitive: containsSensitive,
+      factorRecipientIsMe,
+      factorIntentSuspicious,
+      confidenceIntent: confidenceIntentRaw,
+    });
+    if (fusion.action === 'hard_fuse') {
+      const policy = writePolicy(projectDir, {
+        domains: {
+          ...readPolicy(projectDir).domains,
+          outbound_send: 'paused',
+          desktop_control: 'paused',
+        },
+      });
+      const incident = appendPolicyIncident(projectDir, {
+        type: 'decision_fusion_hard',
+        reason: 'outbound_blocked:decision_fusion_hard',
+        channel,
+        destination,
+        policyHash: resolvedPolicyHash,
+        pausedDomains: ['outbound_send', 'desktop_control'],
+        statusByDomain: {
+          outbound_send: policy.domains.outbound_send,
+          desktop_control: policy.domains.desktop_control,
+        },
+        semanticSummary: {
+          trigger: 'decision_fusion_hard',
+          keyAssertion:
+            'A=contains_sensitive and decision fusion matched in danger zone (confidence < 0.5).',
+          recovery:
+            'Review outbound intent in OpenCode and manually resume paused domains after confirmation.',
+        },
+        details: {
+          factorTextSensitive: containsSensitive,
+          factorRecipientIsMe,
+          factorIntentSuspicious,
+          confidenceIntent: confidenceIntentRaw,
+          zone: fusion.zone,
+        },
+      });
+      await notifySafetyReport(projectDir, sessionID, [
+        'Miya安全报告：已触发硬熔断并暂停能力域',
+        `触发原因: ${incident.reason}`,
+        `能力域状态: outbound_send=${policy.domains.outbound_send}, desktop_control=${policy.domains.desktop_control}`,
+        `关键断言: A=${containsSensitive}, B_is_me=${factorRecipientIsMe}, C_suspicious=${factorIntentSuspicious}, Conf(C)=${confidenceIntentRaw}`,
+        '恢复条件: 请在确认外发意图后手动恢复域开关',
+      ]);
+      return {
+        sent: false,
+        message: 'outbound_blocked:decision_fusion_hard',
+        policyHash: currentPolicyHash(projectDir),
+        incident,
+      };
+    }
+    if (fusion.action === 'soft_fuse') {
+      const incident = appendPolicyIncident(projectDir, {
+        type: 'decision_fusion_soft',
+        reason: 'outbound_blocked:decision_fusion_soft_confirmation_required',
+        channel,
+        destination,
+        policyHash: resolvedPolicyHash,
+        semanticSummary: {
+          trigger: 'decision_fusion_soft',
+          keyAssertion:
+            'Decision fusion matched in gray zone (0.5 <= confidence <= 0.85), manual confirmation required.',
+          recovery: 'Confirm outbound intent in OpenCode, then retry with explicit approval.',
+        },
+        details: {
+          factorTextSensitive: containsSensitive,
+          factorRecipientIsMe,
+          factorIntentSuspicious,
+          confidenceIntent: confidenceIntentRaw,
+          zone: fusion.zone,
+        },
+      });
+      await notifySafetyReport(projectDir, sessionID, [
+        'Miya安全提示：当前外发进入灰区柔性熔断',
+        `触发原因: ${incident.reason}`,
+        `关键断言: A=${containsSensitive}, B_is_me=${factorRecipientIsMe}, C_suspicious=${factorIntentSuspicious}, Conf(C)=${confidenceIntentRaw}`,
+        '建议确认: 亲爱的，这句话听起来有点敏感，你是认真的吗？',
+      ]);
+      return {
+        sent: false,
+        message: 'outbound_blocked:decision_fusion_soft_confirmation_required',
+        requiresConfirmation: true,
+        policyHash: resolvedPolicyHash,
+        incident,
+      };
     }
 
     const token = enforceToken({
@@ -1568,7 +1689,20 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           outbound_send: policy.domains.outbound_send,
           desktop_control: policy.domains.desktop_control,
         },
+        semanticSummary: {
+          trigger: violationType,
+          keyAssertion: `Outbound to friend tier violated policy (${result.message}).`,
+          recovery:
+            'Review recipient tier and outbound payload, then manually resume paused domains.',
+        },
       });
+      await notifySafetyReport(projectDir, sessionID, [
+        'Miya安全报告：朋友档外发违规，已暂停能力域',
+        `触发原因: ${result.message}`,
+        `能力域状态: outbound_send=${policy.domains.outbound_send}, desktop_control=${policy.domains.desktop_control}`,
+        `收件通道: ${channel}, 收件目标: ${destination}`,
+        '恢复条件: 调整联系人档位/内容后手动恢复域开关',
+      ]);
       return {
         ...result,
         policyHash: currentPolicyHash(projectDir),

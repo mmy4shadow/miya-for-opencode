@@ -10,6 +10,8 @@ export interface PolicyIncident {
   type:
     | 'friend_tier_sensitive_violation'
     | 'friend_tier_initiate_violation'
+    | 'decision_fusion_soft'
+    | 'decision_fusion_hard'
     | 'manual_pause'
     | 'manual_resume';
   reason: string;
@@ -19,6 +21,11 @@ export interface PolicyIncident {
   policyHash?: string;
   pausedDomains?: PolicyDomain[];
   statusByDomain?: Partial<Record<PolicyDomain, 'running' | 'paused'>>;
+  semanticSummary?: {
+    trigger: string;
+    keyAssertion: string;
+    recovery: string;
+  };
   details?: Record<string, unknown>;
 }
 
@@ -41,6 +48,7 @@ export function appendPolicyIncident(
     policyHash: incident.policyHash,
     pausedDomains: incident.pausedDomains,
     statusByDomain: incident.statusByDomain,
+    semanticSummary: incident.semanticSummary,
     details: incident.details,
   };
   const file = incidentFile(projectDir);
