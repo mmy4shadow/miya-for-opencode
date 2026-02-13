@@ -145,7 +145,10 @@
 - **分时复用（强制）**：
   - 训练任务仅允许在 idle 窗口执行（默认：用户无操作 >= 5 分钟）。
   - 一旦检测到用户活跃或交互任务到达，必须在 1-2 秒内终止训练子进程并让出显存，不得阻塞语音/对话/桌面控制。
-  - 训练进程建议高频 checkpoint（默认每 50 step）；被终止后从最近 checkpoint 重排队恢复。
+  - 训练进程 checkpoint 采用“按模型分别配置”：
+    - 图像（FLUX）：默认每 50 step（可调 50-100 step）
+    - 语音（GPT-SoVITS）：默认每 100 step，或按 epoch 触发；并要求 checkpoint 间隔不低于 5 分钟
+  - 被终止后从最近 checkpoint 重排队恢复，不保留挂起显存镜像。
 - 训练源码必须存在于 miya 插件仓库内（daemon/插件工具都能直接调用），不是"手动跑脚本"
 -一开始就根据模型特点，官方说明和设备限制确定好训练的各种信息（这是在设计和编写源码时就已经确定好），到时候在miya后台直接根据我发的材料训练，要在GATEWAY上有进度提示，不影响正常使用opencode和其他功能。
 #### **0.3.5 消灭"双口径风险"（Single Source of Truth）**
@@ -223,6 +226,7 @@ Miya 项目提出的“Gateway \+ 6 大 Agent”架构，实际上是一种**微
   - 外部通道：QQ/微信 allowlist、二次验证开关、速率限制、最近对话摘要（可选）
   - **配置中心（不改目录结构，但可配置路径/版本）**：
     - 本地模型路径/版本（图像/语音/ASR）与默认 `training_preset=0.5`（“训练.5”）
+    - 训练策略矩阵 `training_strategies`（按模型配置 checkpoint、I/O 优先级、显存安全余量）
     - 能力域开关：`outbound_send` / `desktop_control` / `shell_exec` / `fs_write` / `training` / `media_generate` / `read_only_research` / `local_build`
     - 记忆能力域开关：`memory_write` / `memory_delete`（默认“保守”：新记忆先进入 pending，不影响注入）
     - 开机自启动（启用/关闭）、定时任务（启用/关闭、时间窗口、模板）
@@ -986,7 +990,30 @@ interface CheckTrainingProgressOutput {
   - `0.0`：只做最轻策略（embedding/reference-set），不做 LoRA/重训
   - `0.5`：默认（允许 LoRA/adapter，但必须通过预算与稳定性门槛；失败自动回退）
   - `1.0`：高质量（更高步数/分辨率/更重策略；但仍必须预算通过）
-- 图像/语音两个模态必须各自给出“preset=0.5 的固定参数表”（分辨率上限、步数区间、batch、精度、缓存策略、回退链）。
+- 图像/语音两个模态必须各自给出“preset=0.5 的固定参数表”（分辨率上限、步数区间、batch、精度、缓存策略、回退链、checkpoint 策略）。
+
+**补充（miya-daemon 训练策略矩阵，建议落地为配置中心 JSON）**：
+```json
+{
+  "training_strategies": {
+    "image_flux": {
+      "checkpoint_interval": 50,
+      "io_priority": "low",
+      "vram_safety_margin_mb": 1024
+    },
+    "voice_sovits": {
+      "checkpoint_interval": 100,
+      "io_priority": "medium",
+      "vram_safety_margin_mb": 512,
+      "min_checkpoint_interval_sec": 300
+    }
+  }
+}
+```
+
+说明：
+- `image_flux` 允许调整到 50-100 step，以平衡 I/O 写入与恢复成本。
+- `voice_sovits` 支持 step 或 epoch 驱动，但必须满足最小时间间隔（默认 300 秒）防止过频写盘。
 ---
 
 ### **4.7 语音：克隆（TTS）/识别（ASR）/可选音色转换（VC）——本地训练闭环**
