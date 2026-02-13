@@ -1277,6 +1277,8 @@ miya-src/src/
 miya
 ├── automation             
 └── model
+    ├──shi jue
+    │      └── Qwen3VL-4B-Instruct-Q4_K_M       #用于控制电脑的视觉模型，注意是GGUF，
     ├── sheng yin         
     │      └── GPT-SoVITS-v2pro-20250604        #用于克隆声音的模型
     └── tu pian         
