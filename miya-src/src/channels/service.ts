@@ -73,6 +73,9 @@ export interface ChannelOutboundAudit {
   riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
   archAdvisorApproved?: boolean;
   targetInAllowlist?: boolean;
+  contactTier?: 'owner' | 'friend' | null;
+  intent?: 'reply' | 'initiate';
+  containsSensitive?: boolean;
   policyHash?: string;
 }
 
@@ -456,6 +459,9 @@ export class ChannelRuntime {
       riskLevel: row.riskLevel,
       archAdvisorApproved: row.archAdvisorApproved,
       targetInAllowlist: row.targetInAllowlist,
+      contactTier: row.contactTier,
+      intent: row.intent,
+      containsSensitive: row.containsSensitive,
       policyHash: row.policyHash,
     };
     appendOutboundAudit(this.projectDir, payload);
@@ -546,6 +552,8 @@ export class ChannelRuntime {
 
     const archAdvisorApproved = Boolean(input.outboundCheck?.archAdvisorApproved);
     const riskLevel = input.outboundCheck?.riskLevel ?? 'HIGH';
+    const intent = input.outboundCheck?.intent ?? 'initiate';
+    const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
     const policyHash = input.outboundCheck?.policyHash;
     if (!archAdvisorApproved) {
       const audit = this.recordOutboundAttempt({
@@ -557,6 +565,8 @@ export class ChannelRuntime {
         reason: 'arch_advisor_denied',
         archAdvisorApproved,
         riskLevel,
+        intent,
+        containsSensitive,
         policyHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
@@ -577,6 +587,8 @@ export class ChannelRuntime {
         archAdvisorApproved,
         targetInAllowlist,
         riskLevel,
+        intent,
+        containsSensitive,
         policyHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
@@ -586,8 +598,6 @@ export class ChannelRuntime {
       input.outboundCheck?.bypassAllowlist === true
         ? 'owner'
         : getContactTier(this.projectDir, input.channel, input.destination);
-    const intent = input.outboundCheck?.intent ?? 'initiate';
-    const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
     if (tier === 'friend') {
       if (intent !== 'reply') {
         const audit = this.recordOutboundAttempt({
@@ -599,6 +609,9 @@ export class ChannelRuntime {
           reason: 'allowlist_denied',
           archAdvisorApproved,
           targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
           riskLevel,
           policyHash,
         });
@@ -614,6 +627,9 @@ export class ChannelRuntime {
           reason: 'allowlist_denied',
           archAdvisorApproved,
           targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
           riskLevel,
           policyHash,
         });
@@ -633,6 +649,9 @@ export class ChannelRuntime {
           reason: 'throttled',
           archAdvisorApproved,
           targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
           riskLevel,
           policyHash,
         });
@@ -656,6 +675,9 @@ export class ChannelRuntime {
           reason: 'duplicate_payload',
           archAdvisorApproved,
           targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
           riskLevel,
           policyHash,
         });
@@ -677,6 +699,9 @@ export class ChannelRuntime {
         reason: result.sent ? 'sent' : 'desktop_send_failed',
         archAdvisorApproved,
         targetInAllowlist,
+        contactTier: tier,
+        intent,
+        containsSensitive,
         riskLevel,
         policyHash,
       });
@@ -697,6 +722,9 @@ export class ChannelRuntime {
         reason: result.sent ? 'sent' : 'desktop_send_failed',
         archAdvisorApproved,
         targetInAllowlist,
+        contactTier: tier,
+        intent,
+        containsSensitive,
         riskLevel,
         policyHash,
       });
