@@ -1172,7 +1172,9 @@ G:\pythonG\py\yun\.opencode\miya\
 - 发送失败文件口径（Context Hard Limit）：发送失败或回执不确定的语音任务，设置 `TTL=10分钟`。
 - TTL 内策略：优先重试发送原文件（网络/UI 失败视为同一任务，不重生成语音）。
 - TTL 到期策略：若 10 分钟仍未发出，直接标记任务失败并删除该语音文件，不做盲目重试。
-- 重生成边界：仅当 Arch Advisor 判定“原话术已过时/意图变更”时，才创建新文本与新语音，并按新任务处理（例如“早安”过期后改为“午安”）。
+- TTL 到期补发硬分类（Intent Type，强制）：
+  - Type A `Greeting/Chat`（问候/闲聊）：允许重生成；Task Manager 按当前时间语境改写后补发（例如“早安”过期改“午安”）。
+  - Type B `Transactional/Evidence`（事务/通知/证据）：禁止重生成；直接 `Drop & Report`，在 OpenCode 界面明确报告“该事务消息已过期未发出，请手动检查”，禁止自动编造“已发送”事实。
 
 ---
 
@@ -1233,11 +1235,15 @@ G:\pythonG\py\yun\.opencode\miya\
     - 触发词：识别到“miya”后，不再使用固定回声词（拒绝机械 `hallo`）；改为本地缓存短语池随机确认（如：`我在`、`嗯？`、`来了`、`Hallo`、`说吧`），随后进入短时指令窗口（建议 8-12 秒，可配置）。
     - 本地短语池：在初始化 Wizard 阶段预生成并缓存 5-10 条短语及对应 `.wav`（目录建议：`miya/model/sheng yin/cache`）；实时触发只做本地加权随机播放，避免每次唤醒调用 GPT-SoVITS 造成延迟。
     - 核心清单：短语元数据统一写入 `wake_words.json`（字段至少含 `path/text/weight/tags`），作为实时反射循环唯一输入。
+    - 权重窗口（默认拍板）：`WAKE_WORD_WINDOW_DAYS=3`（默认值，可在 `.opencode/config` 覆盖）；评分采用时间衰减滑窗：`Day_0=1.00`、`Day_-1=0.50`、`Day_-2=0.25`，窗口外样本不参与权重累计。
     - 直接命令：若一次语句包含“miya，帮我……”则跳过二次确认，直接进入执行编排，并可并行发起陪伴对话。
     - 防抖：要求 VAD + 关键词双命中，且 2 秒内不重复触发，避免环境噪声误唤醒。
   - **Idle 状态（离开电脑）**：启用双阶触发机制，目标是“秒级响应 + GPU 常态休眠”：
     - 异步进化循环（Evolution Loop，Idle）：检测到系统 Idle 且存在新记忆/对话时，OpenCode LLM 基于 `memory/chats + user_preference` 重新打分短语池；可筛除不合适短语、生成新短语，并在空闲时调用本地 GPT-SoVITS 生成新 `.wav` 与更新 `wake_words.json`。
-    - 同步反射循环（Reflex Loop，Realtime）：检测到唤醒词后加载 `wake_words.json`，按环境因子二级过滤（如 `Environment=Work` 时过滤 `tags=["intimate"]`），再按 `weight` 加权随机播放。
+    - 同步反射循环（Reflex Loop，Realtime）：检测到唤醒词后加载 `wake_words.json`，并在反射层按硬编码优先级执行（禁止交给 Agent 自由解释）：`Active/Work > LateNight > Relationship`。
+    - `Active/Work`（最高优先级）：检测到 IDE 输入/全屏会议/多人语音时，强制屏蔽 `intimate` 与 `casual`，仅允许 `neutral`。
+    - `LateNight`（23:00-07:00）：在未触发 `Active/Work` 阻断时，强制切换到轻声/低音 `Whisper Variant`。
+    - `Relationship`（最低优先级）：仅当前两层未触发阻断时，才按亲密度加载情感化短语与权重。
     - 低功耗阶（Pixel Diff）：每 5 秒对动态双 ROI（任务栏微信图标 + QQ 图标）执行像素差分；ROI 由 UIA 在进入 Idle 瞬间扫描任务栏并定位当前坐标矩形 `(x,y,w,h)`；仅 CPU 执行，不占 GPU。
     - 任务栏自动隐藏降级：若检测到任务栏自动隐藏导致 ROI 不可见/屏外，自动降级为系统 UIA NotificationEvent 监听，暂停视觉监控；任务栏恢复可见后再恢复 Pixel Diff。
     - 高功耗阶（Qwen-VL 确认）：仅当 Pixel Diff 命中阈值（建议连续 2 次命中）后，才调用 `Qwen3VL-4B-Instruct-Q4_K_M` 做截图语义确认。
