@@ -73,6 +73,7 @@ export interface ChannelOutboundAudit {
   riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
   archAdvisorApproved?: boolean;
   targetInAllowlist?: boolean;
+  policyHash?: string;
 }
 
 export function listOutboundAudit(
@@ -455,6 +456,7 @@ export class ChannelRuntime {
       riskLevel: row.riskLevel,
       archAdvisorApproved: row.archAdvisorApproved,
       targetInAllowlist: row.targetInAllowlist,
+      policyHash: row.policyHash,
     };
     appendOutboundAudit(this.projectDir, payload);
     return payload;
@@ -521,6 +523,7 @@ export class ChannelRuntime {
       bypassAllowlist?: boolean;
       bypassThrottle?: boolean;
       bypassDuplicateGuard?: boolean;
+      policyHash?: string;
     };
   }): Promise<{ sent: boolean; message: string; auditID?: string }> {
     try {
@@ -543,6 +546,7 @@ export class ChannelRuntime {
 
     const archAdvisorApproved = Boolean(input.outboundCheck?.archAdvisorApproved);
     const riskLevel = input.outboundCheck?.riskLevel ?? 'HIGH';
+    const policyHash = input.outboundCheck?.policyHash;
     if (!archAdvisorApproved) {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
@@ -553,6 +557,7 @@ export class ChannelRuntime {
         reason: 'arch_advisor_denied',
         archAdvisorApproved,
         riskLevel,
+        policyHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
     }
@@ -572,6 +577,7 @@ export class ChannelRuntime {
         archAdvisorApproved,
         targetInAllowlist,
         riskLevel,
+        policyHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
     }
@@ -594,6 +600,7 @@ export class ChannelRuntime {
           archAdvisorApproved,
           targetInAllowlist,
           riskLevel,
+          policyHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -608,6 +615,7 @@ export class ChannelRuntime {
           archAdvisorApproved,
           targetInAllowlist,
           riskLevel,
+          policyHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -626,6 +634,7 @@ export class ChannelRuntime {
           archAdvisorApproved,
           targetInAllowlist,
           riskLevel,
+          policyHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -648,6 +657,7 @@ export class ChannelRuntime {
           archAdvisorApproved,
           targetInAllowlist,
           riskLevel,
+          policyHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -668,6 +678,7 @@ export class ChannelRuntime {
         archAdvisorApproved,
         targetInAllowlist,
         riskLevel,
+        policyHash,
       });
       return { ...result, auditID: audit.id };
     }
@@ -687,6 +698,7 @@ export class ChannelRuntime {
         archAdvisorApproved,
         targetInAllowlist,
         riskLevel,
+        policyHash,
       });
       return { ...result, auditID: audit.id };
     }

@@ -1499,6 +1499,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         riskLevel,
         intent: intent === 'reply' ? 'reply' : 'initiate',
         containsSensitive,
+        policyHash,
       },
     });
     if (idempotencyKey) {
@@ -1738,7 +1739,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const repo = parseText(params.repo);
     const targetName = parseText(params.targetName) || undefined;
     const sessionID = parseText(params.sessionID) || 'main';
+    const policyHash = parseText(params.policyHash) || undefined;
     if (!repo) throw new Error('invalid_repo');
+    const policyGuard = assertPolicyHash(projectDir, policyHash);
+    if (!policyGuard.ok) {
+      throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
+    }
 
     const token = enforceToken({
       projectDir,
@@ -1776,7 +1782,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('skills.update', async (params) => {
     const dir = parseText(params.dir);
     const sessionID = parseText(params.sessionID) || 'main';
+    const policyHash = parseText(params.policyHash) || undefined;
     if (!dir) throw new Error('invalid_dir');
+    const policyGuard = assertPolicyHash(projectDir, policyHash);
+    if (!policyGuard.ok) {
+      throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
+    }
 
     const token = enforceToken({
       projectDir,
