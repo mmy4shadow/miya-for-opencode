@@ -1014,6 +1014,7 @@ interface CheckTrainingProgressOutput {
 说明：
 - `image_flux` 允许调整到 50-100 step，以平衡 I/O 写入与恢复成本。
 - `voice_sovits` 支持 step 或 epoch 驱动，但必须满足最小时间间隔（默认 300 秒）防止过频写盘。
+- Task Manager 根据 `training_preset` 与当前资源状态选择策略档位，并将最终参数下发给 miya-daemon 执行。
 ---
 
 ### **4.7 语音：克隆（TTS）/识别（ASR）/可选音色转换（VC）——本地训练闭环**
