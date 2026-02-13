@@ -59,6 +59,14 @@
 - **异构算力调度冻结（2026）**：ASR（Whisper）与轻量风险分类优先调度 NPU；GPU 保留给 FLUX/重型推理；必须提供 NPU→GPU→CPU 明确回退路径并可审计。
 - **Task Manager 内部调度口径**：Task Manager 的内部推理与子任务指令采用 Zero-Persona；仅最终对外回复走人格润色。
 
+**当前决策状态矩阵（冻结，2026-02-13）**：
+| 关键口径 | 最终拍板方案 | 核心价值点 |
+|---|---|---|
+| 语义标签 | 严格枚举（Frozen Enum） | 统计准确、策略联锁稳定 |
+| 自愈行为 | 显式授权（Opt-in Only） | 保持非侵入、尊重用户主权 |
+| 物理锁等待超时 | 20 秒后自动降级草稿 | 避免与用户产生物理操作冲突 |
+| 记忆曲线 | 指数衰减（Exponential） | 贴近人类遗忘规律，区分长短期记忆 |
+
 ### **0.1 Miya = OpenCode 插件（唯一入口）**
 - 所有对话都发生在 OpenCode 里；文本/推理 LLM 的调用只发生在 OpenCode
 - Miya 只依赖 OpenCode 的公开插件接口/公开工具接口，降低跟随升级的维护面
@@ -254,6 +262,7 @@ Miya 项目提出的“Gateway \+ 6 大 Agent”架构，实际上是一种**微
   - **配置中心（不改目录结构，但可配置路径/版本）**：
     - 本地模型路径/版本（图像/语音/ASR）与默认 `training_preset=0.5`（“训练.5”）
     - 训练策略矩阵 `training_strategies`（按模型配置 checkpoint、I/O 优先级、显存安全余量）
+    - 自愈策略开关：`auto_heal_system_theme`（默认 `false`，仅显式授权后允许切换系统主题/OCR样式）
     - 能力域开关：`outbound_send` / `desktop_control` / `shell_exec` / `fs_write` / `training` / `media_generate` / `read_only_research` / `local_build`
     - 记忆能力域开关：`memory_write` / `memory_delete`（默认“保守”：新记忆先进入 pending，不影响注入）
     - 开机自启动（启用/关闭）、定时任务（启用/关闭、时间窗口、模板）
@@ -482,11 +491,24 @@ Miya 插件将构建在 opencode 平台之上。opencode 本身是一个基于 G
 
 **证据语义化层（Semantic Evidence Layer，强制）**：
 - 在保留原始证据前提下，额外输出 `semantic_summary`（人类可读）：
-  - `decision_reason`：本次允许/拒绝/停机的主因（例如：`window_occluded`、`recipient_mismatch`、`receipt_uncertain`）。
+  - `decision_reason`：本次允许/拒绝/停机的主因，**必须来自冻结枚举**（`semantic_reason_enum_v1`）。
+  - `decision_reason_version`：固定值 `v1.0`（用于统计口径与策略联锁）。
   - `key_assertions[]`：关键断言（例如“窗口标题包含‘工作组’且发送按钮颜色/位置校验通过”）。
   - `evidence_pointers[]`：每条断言对应的原始证据指针（截图ID、日志段、hash 列表索引）。
   - `operator_next_step`：给操作者的下一步建议（恢复条件/人工确认点）。
 - Kill-Switch 报告必须优先展示 `semantic_summary`，原始证据作为可追溯附件；禁止只展示哈希清单。
+- **语义标签枚举冻结（Enum Standardization，强制）**：Miya 初级阶段禁止自由生成新标签，必须使用下表。
+
+| 标签（Slug） | 语义定义 | 触发动作 |
+|---|---|---|
+| `window_not_found` | 找不到目标应用（QQ/微信）窗口 | 提示检查进程是否存活 |
+| `window_occluded` | 目标窗口被其他全屏或顶层窗口遮挡 | 提示清理桌面或重试 |
+| `recipient_mismatch` | 搜索/定位到的收件人与 allowlist 不符 | 硬熔断（Kill-Switch） |
+| `input_mutex_timeout` | 用户持续操作导致物理锁申请超时 | 柔性降级（仅草稿） |
+| `receipt_uncertain` | 发送后无法在界面确认消息气泡/回执 | 标记“不确定状态”并停机 |
+| `privilege_barrier` | 目标权限高于 Miya（如 Admin 隔离） | 预警并阻止操作 |
+
+- 兼容映射：低层错误码（例如 `blocked_by_privilege`）上送到语义层时，必须统一映射为 `privilege_barrier`，禁止双口径。
 
 **按动作类型的最小证据**：
 - `fs_write`（写文件/改配置）：`git diff` 或文件 hash（前/后）、写入路径列表、关联测试/构建结果（若适用）
@@ -1170,7 +1192,9 @@ interface CheckTrainingProgressOutput {
 - **扰动检测与熔断**：任一步发现“前台窗口/进程/控件树”与期望不一致 → 立刻中止并触发 `outbound_send`/`desktop_control` 停机；不得继续尝试“碰碰运气”。
 - **环境自愈启发式（Self-Healing，受限）**：
   - 仅在“定位失败/遮挡导致校验失败”场景允许一次自愈回合；禁止在收件人不匹配时自愈后继续发送。
-  - 自愈动作白名单：最小化非目标窗口、重新激活 QQ/微信 任务栏图标、重建输入法/主题匹配配置（如 OCR 亮暗模式切换）。
+  - 自愈动作白名单（默认启用，低侵入）：最小化非目标窗口、重新激活 QQ/微信 任务栏图标。
+  - 高侵入自愈动作（默认禁用）：切换系统亮/暗主题、修改系统级 OCR 相关配置；仅当 `auto_heal_system_theme=true` 时允许执行。
+  - 若检测到“样式不匹配”但未启用高侵入自愈：只输出 `semantic_summary` 建议，不得改动系统环境。
   - 自愈后必须从“窗口定位”重新走完整校验链；若仍失败，任务保持 `paused` 并输出语义化失败原因，不得连续盲重试。
 - **幂等与重复发送防护**：每次发送生成 `sendFingerprint`（收件人条目ID + payload hash + 时间窗），发送前必须检查最近历史避免重复；检测到不确定回执时，禁止自动重发（只能你确认后重试）。
 - **证据优先于完成**：无法稳定拿到回执/无法证明当前聊天对象正确 → 一律视为失败/不确定，绝不宣称成功。
