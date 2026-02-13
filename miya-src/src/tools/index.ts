@@ -4,6 +4,7 @@ export { createBackgroundTools } from './background';
 export { createNodeTools } from './nodes';
 export { createRalphTools } from './ralph';
 export { createAutopilotTools } from './autopilot';
+export { createMultimodalTools } from './multimodal';
 
 // Grep tool (ripgrep-based)
 export { grep } from './grep';

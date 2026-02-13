@@ -29,6 +29,7 @@ import {
   createAutomationTools,
   createAutopilotTools,
   createBackgroundTools,
+  createMultimodalTools,
   createNodeTools,
   createRalphTools,
   grep,
@@ -86,6 +87,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const autopilotTools = createAutopilotTools(ctx.directory);
   const ralphTools = createRalphTools();
   const nodeTools = createNodeTools(ctx.directory);
+  const multimodalTools = createMultimodalTools(ctx.directory);
   const safetyTools = createSafetyTools(ctx);
   const configTools = createConfigTools(ctx);
   const intakeTools = createIntakeTools(ctx);
@@ -123,6 +125,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ...autopilotTools,
       ...ralphTools,
       ...nodeTools,
+      ...multimodalTools,
       ...safetyTools,
       ...configTools,
       ...intakeTools,
