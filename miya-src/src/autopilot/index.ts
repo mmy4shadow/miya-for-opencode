@@ -1,5 +1,10 @@
-export { configureAutopilotSession } from './executor';
-export { createAutopilotPlan } from './planner';
-export { summarizeAutopilotPlan } from './verifier';
-export type { AutopilotPlan, AutopilotPlanStep } from './types';
-
+export { configureAutopilotSession, runAutopilot } from './executor';
+export { attachCommandSteps, createAutopilotPlan } from './planner';
+export { summarizeAutopilotPlan, summarizeVerification } from './verifier';
+export type {
+  AutopilotCommandResult,
+  AutopilotPlan,
+  AutopilotPlanStep,
+  AutopilotRunInput,
+  AutopilotRunResult,
+} from './types';
