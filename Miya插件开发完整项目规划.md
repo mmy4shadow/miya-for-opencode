@@ -1,4 +1,5 @@
 # **Miya 插件开发深度研究报告与实施蓝图**
+
 **核心设计哲学**：
 - **OpenCode原生优先**：充分利用OpenCode内置的permission体系（allow/ask/deny）和Agent/Skill系统，避免重复造轮子，并且必须兼容openclaw的生态，能直接使用他们成熟的工具和skill等资源。
 - **高度自主化工作**：通过OpenCode原生permission配置 + 可选的Self-Approval增强，实现工作流级别的审批自动化，非紧急情况不打断自主工作流；紧急情况直接暂停相关能力域并通过已有渠道（比如指定的微信和QQ账号，opencode界面同时发布通知和报告）。**补充（2026-02-13决策）**：若微信或QQ任意一个出问题，默认触发**按能力域停机**（至少 `outbound_send` / `desktop_control` 停止，`local_build` / `read_only_research` 可继续）；并在OpenCode上发给我报告（包括遇见了什么，为什么停止，现在哪些能力域停止，分别做到什么情况和下一步的计划等等）并等待我的指令。
@@ -43,6 +44,10 @@
 - **证据驱动落地**：同意把“证据驱动”变成可验证的产物清单（不同动作类型有固定证据要求）。
 - **可配置但不乱目录**：同意把机器路径/模型版本从硬编码升级为可配置（在 Gateway 与 OpenCode 中可配置），但保持既定目录结构，不随意改动用户本地目录布局。
 - **本地模型训练档位**：本地部署模型统一采用“训练.5”默认档位（在配置中可显式设置为 `training_preset=0.5`，含降级策略）。
+- **循环策略统一口径**：同意统一为**进展驱动 + 上限（时间/成本/风险）**，禁止任何“固定轮数上限”口径继续存在于规范文档。
+- **Ralph Loop 归位**：Ralph Loop 作为执行管线默认机制（而非独立大功能），优先级定为 **P0 核心交付**。
+- **核心能力范围冻结**：`像人类一样看网页/点击软件/控制电脑` 与 `陪伴式聊天（含本地多模态）` 均属于核心实现，必须进入 P0/P1 主里程碑而非可选增强。
+- **通道策略冻结**：参考 OpenClaw 的 Gateway/Node 与本地控制范式，但本项目**不做多通道集成**，仅实现 QQ/微信 UI 自动化外发链路。
 
 ### **0.1 Miya = OpenCode 插件（唯一入口）**
 - 所有对话都发生在 OpenCode 里；文本/推理 LLM 的调用只发生在 OpenCode
@@ -55,6 +60,10 @@
     - **大模型（文本/推理）**：使用OpenCode连接的大模型（通过OpenCode标准接口调用）
       - 职责：对话理解、任务分解、代码生成、架构决策、人格表达
       - 模型选择：在OpenCode中配置（如Claude、GPT-4等）
+      - 多代理模型配置：Miya 仅做“按代理保存/恢复模型选择”，不自建独立模型来源
+      - 实现范式：参考 Oh-my-opencode 的多代理编排成功范式，采用“每代理独立配置 + 切换即回读 + 会话落盘恢复”
+      - 持久化要求：每个代理独立配置键（`agentId -> modelId`），禁止全局共享键覆盖
+      - 已知问题（必须修复）：当前切换代理后模型选择会被第6代理覆盖，导致其他代理无法保持独立模型配置
     - **小模型（图像/语音/ASR）**：**本地部署+本地推理**（绝不外发图片/音频到第三方）
       - 图像生成：
       1.即时生图FLUX.1 schnell："G:\pythonG\py\yun\.opencode\miya\model\tu pian\FLUX.1 schnell"。
@@ -68,7 +77,6 @@
 **补充（开机自启动，随 OpenCode 起落）**：
 - Miya 在 Gateway 提供“开机自启动 OpenCode”选项；启用后由系统启动项/计划任务拉起 OpenCode（从而拉起 Miya）。
 - 设计原则：不让 daemon 变成“脱离 OpenCode 的对话入口”；即使后台有作业队列，**所有对话与文本推理仍只发生在 OpenCode**。
-
 ### **0.2 女友=助理，不分人格体、不新增 agent**
 - 不新增"女友代理"。仍是定义的 6 大 Agent
 - 所谓"女友感"是 **一份共享人格层（Persona Layer）** 注入到全部 6 个 Agent 的提示词中，保持一致的称呼、语气、边界与陪伴感
@@ -207,7 +215,7 @@ Miya 项目提出的“Gateway \+ 6 大 Agent”架构，实际上是一种**微
 你给的 6 角色保持不变，最终实现必须满足：
 
 1-Task Manager（指挥）
-- 任务分解、并发派工、合并结果、循环控制（最多 3 轮完整循环）、最终对外回复。
+- 任务分解、并发派工、合并结果、循环控制（进展驱动 + 上限约束：时间/成本/风险）、最终对外回复。
 - 任何外部动作包装成“证据链”（计划→执行→验证→回报）。
 - 任何 send 动作必须先请求 Arch Advisor 风控。
 
@@ -378,6 +386,8 @@ Miya 插件将构建在 opencode 平台之上。opencode 本身是一个基于 G
 ---
 
 
+
+
 ---
 
 ## **3. 深度竞品分析与功能融合策略**
@@ -443,7 +453,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - Self-Approval联锁（已实现）
 - Ralph Loop自修正（部分实现）
 - 验证分层（部分实现）
-- 循环修复机制（已实现，最多3轮）
+- 循环修复机制（已实现，正从“固定轮数守卫”迁移到“进展驱动 + 上限约束”）
 #### 3. Clawra 与OpenClaw AI Girlfriend by Clawra(https://github.com/SumeLabs/clawra.git，https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git)
 **核心特性**：
 - **SOUL.md人格系统**：定义Agent人格、语气、价值观，将AI助手变成有"灵魂"的陪伴者
@@ -606,11 +616,11 @@ Miya 通过随 OpenCode 启动/退出的轻量 daemon 获得“精简版 OpenCla
 
 **视觉效果**：机器人会问："给我展示我应该是什么样子。发送1到5张照片。"
 - 动作：将照片拖拽到聊天中
-- 结果：系统后台自动使用这些材料训练本地模型，后续的图片将是同一个人的不同动作不同情景的照片
+- 结果：miya后台自动使用这些材料训练本地模型，后续的图片将是同一个人的不同动作不同情景的照片
 
 **声音**：机器人会问："我应该用什么声音？录音或发送文件。"
 - 动作：按下麦克风说点什么（或者上传音频文件）
-- 结果：系统后台自动使用这些材料训练本地模型，克隆了音色和音准
+- 结果：miya后台自动使用这些材料训练本地模型，克隆了音色和音准
 
 **性格**：机器人会问："我是谁？告诉我我的性格、习惯和我们的关系。"
 - 动作：用文字写作（例如，"你是个讽刺的艺术学生，你喜欢动漫，我们已经交往两年了"）
@@ -876,7 +886,6 @@ interface CheckTrainingProgressOutput {
   - `0.5`：默认（允许 LoRA/adapter，但必须通过预算与稳定性门槛；失败自动回退）
   - `1.0`：高质量（更高步数/分辨率/更重策略；但仍必须预算通过）
 - 图像/语音两个模态必须各自给出“preset=0.5 的固定参数表”（分辨率上限、步数区间、batch、精度、缓存策略、回退链）。
-
 ---
 
 ### **4.7 语音：克隆（TTS）/识别（ASR）/可选音色转换（VC）——本地训练闭环**
@@ -1077,7 +1086,7 @@ miya-src/src/
 │   └── workflow.ts       # 工作流工具
 ├── hooks/                # 生命周期钩子
 │   ├── index.ts          # 钩子导出
-│   ├── loop-guard.ts     # 循环守卫（最多3轮）
+│   ├── loop-guard.ts     # 循环守卫（迁移为进展驱动 + 上限约束）
 │   ├── phase-reminder.ts # 阶段提醒
 │   └── post-read-nudge.ts# 读后提示
 ├── config/               # 配置管理
@@ -1124,7 +1133,7 @@ miya
 
 | Agent | 源码文件 | 职责定位 | 默认模型 |
 |-------|----------|----------|----------|
-| **1-task-manager** | `orchestrator.ts` | 指挥：任务分解、并发派工、合并结果、循环控制（≤3） | openrouter/moonshotai/kimi-k2.5 |
+| **1-task-manager** | `orchestrator.ts` | 指挥：任务分解、并发派工、合并结果、循环控制（进展驱动 + 上限约束） | openrouter/moonshotai/kimi-k2.5 |
 | **2-code-search** | `explorer.ts` | 侦察：定位"东西在哪里、现状是什么" | openrouter/moonshotai/kimi-k2.5 |
 | **3-docs-helper** | `librarian.ts` | 查证：把"应该怎么做"变成可引用依据 | openrouter/moonshotai/kimi-k2.5 |
 | **4-architecture-advisor** | `oracle.ts` | 决策：方案选择、风险评估、验证策略 | openrouter/moonshotai/kimi-k2.5 |
@@ -1407,8 +1416,12 @@ interface MiyaNode {
 
 **当前状态**：无通道集成
 
+**实施边界（与 0.0 决策一致）**：
+- 主线只做 QQ/微信 UI 自动化外发链路（含桌面控制 + 证据包 + 风控 + allowlist）。
+- Telegram/Slack/Discord 等 Inbound-only 适配器归入后置可选能力，不阻塞主里程碑验收。
+
 **待实现**：
-- [ ] **Inbound-only适配器**：Telegram Bot（只读模式）、Slack监听、Discord监听
+- [ ] **Inbound-only适配器（后置可选）**：Telegram Bot（只读模式）、Slack监听、Discord监听
 - [ ] **Outbound-allowlist实现**：QQ/微信桌面自动化（UI控制，非API）
 - [ ] **通道分类硬约束**：Inbound-only通道在代码层禁止write/send方法
 - [ ] **路由规则**：基于来源/内容的消息分发，Inbound-only消息只能触发查询类工具
@@ -1418,7 +1431,7 @@ interface MiyaNode {
 miya-src/src/channel/
 ├── index.ts          # 通道工具导出
 ├── types.ts          # 统一消息类型
-├── inbound/          # Inbound-only适配器
+├── inbound/          # Inbound-only适配器（后置可选）
 │   ├── telegram.ts   # Telegram Bot只读适配器
 │   ├── slack.ts      # Slack监听适配器
 │   └── discord.ts    # Discord监听适配器
@@ -1683,20 +1696,19 @@ miya-src/src/router/
 
 ---
 
-```
-
 ## **7. 功能优先级矩阵**
 
 | 功能模块 | 优先级 | 预计工作量 | 依赖关系 | 源码基础 |
 |----------|--------|------------|----------|----------|
 | 节点管理系统 | P0 | 2周 | Gateway | 有Gateway基础 |
-| Ralph Loop完整实现 | P2 | 2周 | 开源范式验证后 | 复用oh-my-opencode |
+| Ralph Loop完整实现 | P0 | 2周 | Task Manager + 验证分层 | 已有loop-guard与编排基础 |
+| QQ/微信桌面外发主链路（含证据包） | P0 | 2-3周 | desktop_control + outbound_send + Arch Advisor | 有Gateway/风控基础 |
 | Autopilot模式 | P0 | 1周 | Task Manager | 有编排基础 |
 | SOUL.md人格 | P1 | 1周 | 无 | 无 |
 | Ultrawork并行编排 | P2 | 2周 | 开源范式验证后 | 复用oh-my-opencode已验证模式 |
 | 智能路由 | P1 | 1周 | Agent分类 | 有代理分类 |
-| 外部通道分类 | P1 | 3周 | 节点管理 | 无 | 明确Inbound-only/Outbound-allowlist硬规则 |
-| 多模态交互 | P2 | 2周 | 无 | 有voice基础 |
+| 外部通道分类 | P1 | 3周 | 节点管理 | 无（QQ/微信主链路优先，其他Inbound-only后置） |
+| 多模态交互 | P1 | 2周 | 本地模型/训练链路 | 有voice基础 |
 | MCP原生增强 | P2 | 1周 | MCP集成 | 有MCP基础 |
 | 极简架构优化 | P3 | 持续 | 无 | 代码结构清晰 |
 
@@ -1726,13 +1738,15 @@ miya-src/src/router/
 - 完善Gateway事件拦截与路由（核心痛点）
 - 集成OpenCode原生permission配置（优先于Self-Approval）
 - 完成节点管理系统基础
+- 完成 Ralph Loop 主链路（进展驱动 + 上限约束，非固定轮数）
+- 完成 QQ/微信 外发主链路最小闭环（desktop_control + outbound_send + 证据包）
 - 修复所有测试失败
 
 ### **M2: 节点与通道（4周）**
 - 完成节点管理系统
-- 完成Inbound-only通道集成（Telegram Bot只读、Slack监听）
-- 完成Outbound-allowlist实现（QQ/微信桌面自动化）
+- 完成Outbound-allowlist增强（QQ/微信桌面自动化稳定性、误触发防护、回执验证）
 - 完成SOUL.md人格系统
+- Inbound-only通道集成（Telegram/Slack/Discord）列为后置可选，不阻塞M2验收
 
 ### **M3: 并行与多模态（6周）**
 - 完成Ultrawork并行编排
