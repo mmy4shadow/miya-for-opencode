@@ -77,6 +77,10 @@
 **补充（开机自启动，随 OpenCode 起落）**：
 - Miya 在 Gateway 提供“开机自启动 OpenCode”选项；启用后由系统启动项/计划任务拉起 OpenCode（从而拉起 Miya）。
 - 设计原则：不让 daemon 变成“脱离 OpenCode 的对话入口”；即使后台有作业队列，**所有对话与文本推理仍只发生在 OpenCode**。
+- **补充（物理路径：轻量 OS Service/计划任务）**：
+  - 增加一个极轻量的 `miya-launcher`（Windows Service 或计划任务均可实现）：常驻后台但 **不做推理、不做训练、不做桌面控制**，仅负责监听时间触发器/开机事件，然后拉起 OpenCode 进程。
+  - 设计边界：`miya-launcher` 只负责“叫醒 OpenCode”，真正的 Miya daemon 仍坚持“随 OpenCode 起落”；避免引入一个长期常驻的“全功能 daemon”扩大风险面与资源占用。
+  - 失败策略：拉起失败只在本机弹通知/写本地日志，不尝试外发；并且不得绕过 OpenCode 的 permission/ask 体系。
 ### **0.2 女友=助理，不分人格体、不新增 agent**
 - 不新增"女友代理"。仍是定义的 6 大 Agent
 - 所谓"女友感"是 **一份共享人格层（Persona Layer）** 注入到全部 6 个 Agent 的提示词中，保持一致的称呼、语气、边界与陪伴感
@@ -115,6 +119,12 @@
   - 读取 GPU 可用显存（并保留安全余量），计算可行的 batch/分辨率/精度/梯度检查点策略
   - 若预计超限：自动降级到更轻方案，**绝不硬顶 OOM**
   - 训练过程中若触发 OOM：立刻停止当前策略 → 自动回退到更轻策略重新开跑，并记录审计（不得反复重试同一策略刷爆系统）
+- **训练独立进程 + 互斥锁（强制）**：
+  - daemon 启动训练 job 时必须 `spawn` 独立子进程（或独立 worker）；训练进程 OOM/崩溃不得带崩 daemon（daemon 必须能向 OpenCode 汇报“训练失败/已降级/可重试窗口”）。
+  - 训练与本地推理（含“快眼”视觉模型）必须有 GPU 互斥锁/配额：训练启动前必须确认不会挤爆 OpenCode 正在使用的本地小模型；否则只允许进入更轻档位或延后到 idle 窗口。
+- **Reference-first（建议默认）**：
+  - 向导完成后优先走“reference set / IP-Adapter 或等价参考适配器”这类 **低显存、零训练/少训练** 的一致性方案。
+  - 只有在用户 idle 且显存充裕时，才允许后台慢速跑 LoRA/adapter（可暂停、可取消、可回滚）。
 - 训练源码必须存在于 miya 插件仓库内（daemon/插件工具都能直接调用），不是"手动跑脚本"
 -一开始就根据模型特点，官方说明和设备限制确定好训练的各种信息（这是在设计和编写源码时就已经确定好），到时候在miya后台直接根据我发的材料训练，要在GATEWAY上有进度提示，不影响正常使用opencode和其他功能。
 #### **0.3.5 消灭"双口径风险"（Single Source of Truth）**
@@ -639,6 +649,26 @@ Miya 通过随 OpenCode 启动/退出的轻量 daemon 获得“精简版 OpenCla
 - 全员同人格：6 个 Agent 的 prompt 均包含同一份 persona_companion.md
 - 人格不越权：人格层必须明确写入"执行类动作必须遵循闸门/证据/回滚/kill-switch；send 必须风控"
 - 可热更新：人格文本与关系设定可通过"聊天向导"更新并立即影响所有 Agent
+
+#### **4.3.1 “人格注入”与“编程能力”的上下文对抗（防 Context Contamination）**
+> 问题定义：同一套 LLM 既要“严谨写 TypeScript/做架构推理”，又要“女友式陪伴输出”。如果不做隔离，容易出现：思维风格污染、专业输出变味、循环修复带着厚 persona 造成 token 浪费。
+
+**核心策略：动态人格挂载（Dynamic Persona Mounting）**：
+- **Mode Router 决定注入强度**：当判定为 `work` 模式时，卸载大部分情感/剧情/长段设定，只保留极简“称呼习惯 + 边界条款 + 安全铁律”；当判定为 `chat` 模式时，才全量加载 SOUL.md。
+- **Persona 必须模块化**：将 persona 拆分为 `persona_min.md`（短）与 `persona_full.md`（长，SOUL.md/恋爱设定/口头禅等）；由 Context Manager 在每次 agent 运行前拼装，不允许把 full persona 永久塞进所有 agent 的 system prompt。
+
+**分 Agent 规则（不新增 agent，但允许不同注入配方）**：
+- **Code Fixer 必须“性冷淡/无情感层”**：默认不挂载 full persona；只挂载工程约束（代码风格/测试策略/风险闸门/证据要求）。输出必须“像代码审查机器人”，禁止撒娇、段子、长解释污染 diff。
+- **Docs Helper / Code Search**：只挂载 `persona_min`（防止检索摘要被“人设文风”污染导致证据不严谨）。
+- **Arch Advisor / Task Manager / UI Designer**：在 `work` 模式也可保留 `persona_min` 以维持一致称呼；最终对外回复由 Task Manager/UI Designer 做 **Tone Re-writing**（语气人格化润色），而不是让 Code Fixer 自带人设写代码。
+
+**Token 预算与污染门禁（硬规则）**：
+- **每轮 Ralph Loop 禁止携带 full persona**：循环修复的每轮 prompt 必须只包含“本轮必要上下文 + 错误证据 + 约束”，full persona 仅允许在最终回复阶段使用。
+- **人格文本不得进入代码产物**：严禁把 persona 语料写进注释/README/commit message（除非你明确要求），避免“人格泄露”进入仓库历史。
+
+**待确认问题（影响实现取舍）**：
+- Mode Router 的 `work/chat` 判定你更偏向“严格”还是“温柔”？（例如：默认 work，遇到明确闲聊才切 chat）
+- 你是否接受：`work` 模式里只保留极短称呼（比如“亲爱的”）但其余恋爱设定完全卸载？
 
 ---
 
@@ -1368,11 +1398,31 @@ type IntakeScope =
 **源码实现**：`hooks/loop-guard.ts`
 
 **设计理念**：
-参考oh-my-opencode已验证的Ralph Loop范式，取消固定的"最多3轮"限制，采用"直到完成"的持续循环模式。通过进展检测和停滞保护机制防止无限循环，而非硬性限制迭代次数。
+参考 oh-my-opencode 已验证的 Ralph Loop 范式，取消固定的"最多3轮"限制，采用"直到完成"的持续循环模式；但必须把“进展”工程化定义，并用 Hash 环检测防止 A↔B 来回横跳。
+
+**进展定义（建议最小可行口径）**：
+- **强进展**：测试全绿/目标命令成功/质量门禁通过。
+- **弱进展**：失败用例数量减少，或同一失败用例的错误更接近根因（可用“错误栈帧/错误代码位置稳定且更具体”作为启发式）。
+- **非进展**：错误类型变化但失败用例数量不变或增加、编译从能过变成不能过、或出现明显回退（例如引入 SyntaxError）。
+
+**Hash 环检测（强制）**：
+- 记录最近 N=5 次迭代的 `iterationFingerprint`，建议至少由以下字段组成并稳定哈希：
+  - `testSummaryHash`（失败用例/错误摘要）
+  - `stderrHash`（关键错误片段）
+  - `diffHash`（本轮改动的 git diff 摘要）
+  - `toolPlanHash`（本轮采取的动作类型/策略）
+- 若 `iterationFingerprint` 命中历史（出现环）→ 立即终止循环并 `load_work` 回滚到最近一次可用检查点，输出“环检测命中”的证据包与建议下一步（通常需要换策略/缩小范围/请求你提供更多信息）。
 
 ```typescript
 // 取消固定轮数限制，采用进展驱动模式
 // 参考oh-my-opencode的Ralph Loop实现
+
+// Hash 环检测：避免 A -> B -> A -> B
+if (historyFingerprints.includes(currentFingerprint)) {
+  MIYA_LOOP_STALLED = true;
+  load_work({ checkpoint: lastKnownGood });
+  cancel_work('loop_cycle_detected');
+}
 
 // 进展约束：检测是否持续无进展
 if (consecutiveNoProgress >= MAX_STALL_COUNT) {
