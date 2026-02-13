@@ -12,17 +12,19 @@ function tempProjectDir(): string {
 }
 
 describe('multimodal', () => {
-  test('generates image metadata asset', () => {
+  test('generates image metadata asset', async () => {
     const projectDir = tempProjectDir();
-    const result = generateImage(projectDir, {
+    const result = await generateImage(projectDir, {
       prompt: 'a portrait photo',
       model: 'local:test-model',
     });
     expect(result.media.kind).toBe('image');
     expect(result.model).toBe('local:test-model');
+    expect(result.media.localPath).toBeDefined();
+    expect(fs.existsSync(result.media.localPath as string)).toBe(true);
   });
 
-  test('ingests voice input and generates voice output asset', () => {
+  test('ingests voice input and generates voice output asset', async () => {
     const projectDir = tempProjectDir();
     const input = ingestVoiceInput(projectDir, {
       text: '你好',
@@ -30,15 +32,17 @@ describe('multimodal', () => {
     });
     expect(input.text).toBe('你好');
 
-    const output = synthesizeVoiceOutput(projectDir, {
+    const output = await synthesizeVoiceOutput(projectDir, {
       text: '测试语音输出',
       format: 'mp3',
     });
     expect(output.media.kind).toBe('audio');
     expect(output.format).toBe('mp3');
+    expect(output.media.localPath).toBeDefined();
+    expect(fs.existsSync(output.media.localPath as string)).toBe(true);
   });
 
-  test('analyzes vision from image metadata', () => {
+  test('analyzes vision from image metadata', async () => {
     const projectDir = tempProjectDir();
     const media = ingestMedia(projectDir, {
       source: 'test',
@@ -50,10 +54,9 @@ describe('multimodal', () => {
         tags: ['workspace', 'coding'],
       },
     });
-    const result = analyzeVision(projectDir, { mediaID: media.id });
+    const result = await analyzeVision(projectDir, { mediaID: media.id });
     expect(result.mediaID).toBe(media.id);
     expect(result.summary.includes('desk')).toBe(true);
     expect(getMediaItem(projectDir, media.id)?.kind).toBe('image');
   });
 });
-

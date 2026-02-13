@@ -156,6 +156,10 @@ export declare class BackgroundTaskManager {
      */
     cancel(taskId?: string): number;
     /**
+     * Return a snapshot of tracked tasks for observability surfaces (Gateway/HUD).
+     */
+    listTasks(limit?: number): BackgroundTask[];
+    /**
      * Clean up all tasks.
      */
     cleanup(): void;

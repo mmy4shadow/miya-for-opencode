@@ -1,0 +1,33 @@
+import type { ResourceRequest, ResourceTaskKind } from '../resource-scheduler';
+
+export type DaemonJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+export interface DaemonJobRequest {
+  kind: ResourceTaskKind;
+  resource?: Omit<ResourceRequest, 'kind'>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DaemonJobRecord {
+  id: string;
+  kind: ResourceTaskKind;
+  status: DaemonJobStatus;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DaemonRuntimeState {
+  status: 'running' | 'stopped';
+  pid: number;
+  startedAt: string;
+  updatedAt: string;
+  sessionID: string;
+}
+
+export interface DaemonRunResult<T> {
+  job: DaemonJobRecord;
+  result: T;
+}

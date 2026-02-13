@@ -47,13 +47,14 @@ export const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]> = {
 };
 
 // Default models for each agent
+// Using openrouter providers as default
 export const DEFAULT_MODELS: Record<AgentName, string> = {
-  '1-task-manager': 'kimi-for-coding/k2p5',
-  '2-code-search': 'openai/gpt-5.1-codex-mini',
-  '3-docs-helper': 'openai/gpt-5.1-codex-mini',
-  '4-architecture-advisor': 'openai/gpt-5.2-codex',
-  '5-code-fixer': 'openai/gpt-5.1-codex-mini',
-  '6-ui-designer': 'kimi-for-coding/k2p5',
+  '1-task-manager': 'openrouter/moonshotai/kimi-k2.5',
+  '2-code-search': 'openrouter/moonshotai/kimi-k2.5',
+  '3-docs-helper': 'openrouter/moonshotai/kimi-k2.5',
+  '4-architecture-advisor': 'openrouter/moonshotai/kimi-k2.5',
+  '5-code-fixer': 'openrouter/z-ai/glm-5',
+  '6-ui-designer': 'openrouter/minimax/z-ai/glm-5',
 };
 
 // Polling configuration
@@ -68,3 +69,11 @@ export const FALLBACK_FAILOVER_TIMEOUT_MS = 15_000;
 
 // Polling stability
 export const STABLE_POLLS_THRESHOLD = 3;
+
+// Miya security/runtime guardrails
+export const MIYA_SECURITY_CONSTANTS = {
+  INPUT_MUTEX_TIMEOUT_MS: 20_000, // 20 seconds patience threshold
+  DECAY_STRATEGY: 'EXPONENTIAL',
+  DEFAULT_LAMBDA: 0.05,
+  WHITESPACE_PROTECTION: true, // physical input mutex protection
+} as const;

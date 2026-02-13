@@ -14,6 +14,7 @@ import {
   startGatewayWithLog,
 } from './gateway';
 import { createIntakeTools } from './intake';
+import { getMiyaDaemonService } from './daemon';
 import {
   createLoopGuardHook,
   createPhaseReminderHook,
@@ -70,6 +71,8 @@ const MiyaPlugin: Plugin = async (ctx) => {
   }
 
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
+  const daemonService = getMiyaDaemonService(ctx.directory);
+  daemonService.start();
   const automationService = new MiyaAutomationService(ctx.directory);
   automationService.start();
   registerGatewayDependencies(ctx.directory, {

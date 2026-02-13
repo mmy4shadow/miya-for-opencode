@@ -15,6 +15,11 @@ function mockPlatform(platform: NodeJS.Platform) {
 }
 
 function mockEnv(env: Partial<Record<string, string>>) {
+  delete process.env.LOCALAPPDATA;
+  delete process.env.APPDATA;
+  delete process.env.USERPROFILE;
+  delete process.env.XDG_DATA_HOME;
+  delete process.env.HOME;
   Object.assign(process.env, env);
 }
 

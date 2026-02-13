@@ -1,3 +1,4 @@
+import { getMiyaDaemonService } from '../daemon';
 import { getMediaItem } from '../media/store';
 import type { VisionAnalyzeInput, VisionAnalyzeResult } from './types';
 
@@ -18,27 +19,45 @@ function summarizeFromMetadata(metadata: Record<string, unknown> | undefined): s
   return 'Image metadata found but no caption/tags were provided.';
 }
 
-export function analyzeVision(
+export async function analyzeVision(
   projectDir: string,
   input: VisionAnalyzeInput,
-): VisionAnalyzeResult {
-  const media = getMediaItem(projectDir, input.mediaID);
-  if (!media) throw new Error('media_not_found');
-  if (media.kind !== 'image') throw new Error('invalid_vision_media_kind');
-
-  const summary = summarizeFromMetadata(media.metadata);
-  return {
-    mediaID: media.id,
-    summary:
-      input.question && input.question.trim()
-        ? `${summary} | question: ${input.question.trim()}`
-        : summary,
-    details: {
-      fileName: media.fileName,
-      mimeType: media.mimeType,
-      localPath: media.localPath,
-      metadata: media.metadata ?? {},
+): Promise<VisionAnalyzeResult> {
+  const daemon = getMiyaDaemonService(projectDir);
+  const { result } = await daemon.runTask(
+    {
+      kind: 'vision.analyze',
+      resource: {
+        priority: 90,
+        vramMB: 768,
+        modelID: 'local:qwen3-vl-4b',
+        modelVramMB: 1536,
+      },
+      metadata: {
+        stage: 'multimodal.vision.analyze',
+        mediaID: input.mediaID,
+      },
     },
-  };
-}
+    async () => {
+      const media = getMediaItem(projectDir, input.mediaID);
+      if (!media) throw new Error('media_not_found');
+      if (media.kind !== 'image') throw new Error('invalid_vision_media_kind');
 
+      const summary = summarizeFromMetadata(media.metadata);
+      return {
+        mediaID: media.id,
+        summary:
+          input.question && input.question.trim()
+            ? `${summary} | question: ${input.question.trim()}`
+            : summary,
+        details: {
+          fileName: media.fileName,
+          mimeType: media.mimeType,
+          localPath: media.localPath,
+          metadata: media.metadata ?? {},
+        },
+      };
+    },
+  );
+  return result;
+}

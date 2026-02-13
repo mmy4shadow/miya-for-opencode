@@ -5,8 +5,14 @@ import { join } from 'node:path';
 mock.module('fs', () => ({
   existsSync: mock(() => false),
 }));
+mock.module('node:fs', () => ({
+  existsSync: mock(() => false),
+}));
 
 mock.module('os', () => ({
+  homedir: () => '/home/user',
+}));
+mock.module('node:os', () => ({
   homedir: () => '/home/user',
 }));
 
@@ -35,10 +41,12 @@ describe('config', () => {
 
     test('should detect server in PATH', () => {
       const originalPath = process.env.PATH;
-      process.env.PATH = '/usr/local/bin:/usr/bin';
+      const separator = process.platform === 'win32' ? ';' : ':';
+      process.env.PATH = ['/usr/local/bin', '/usr/bin'].join(separator);
 
       (existsSync as any).mockImplementation(
         (path: string) =>
+          path === join('/usr/local/bin', 'typescript-language-server') ||
           path === join('/usr/bin', 'typescript-language-server'),
       );
 

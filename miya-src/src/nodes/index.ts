@@ -1,16 +1,33 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
+
+export type NodeType = 'cli' | 'desktop' | 'mobile' | 'browser';
+export type NodeStatus = 'online' | 'offline' | 'error';
+
+export interface NodePermissions {
+  screenRecording: boolean;
+  accessibility: boolean;
+  filesystem: 'none' | 'read' | 'full';
+  network: boolean;
+}
 
 export interface NodeRecord {
   nodeID: string;
   deviceID: string;
+  type: NodeType;
   role: 'node';
   platform: string;
+  permissions: NodePermissions;
   capabilities: string[];
   connected: boolean;
   paired: boolean;
+  status: NodeStatus;
+  tokenHash?: string;
+  tokenIssuedAt?: string;
+  tokenLastUsedAt?: string;
+  lastHeartbeatAt: string;
   lastSeenAt: string;
   createdAt: string;
   updatedAt: string;
@@ -52,8 +69,111 @@ interface NodeStore {
   invokes: Record<string, NodeInvokeRequest>;
 }
 
+const HEARTBEAT_STALE_MS = 2 * 60 * 1000;
+
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function defaultNodePermissions(): NodePermissions {
+  return {
+    screenRecording: false,
+    accessibility: false,
+    filesystem: 'none',
+    network: false,
+  };
+}
+
+function inferPermissionsFromCapabilities(
+  capabilities: string[],
+  base?: Partial<NodePermissions>,
+): NodePermissions {
+  const inferred = defaultNodePermissions();
+  for (const capability of capabilities) {
+    if (capability === 'perm.screenRecording') inferred.screenRecording = true;
+    if (capability === 'perm.accessibility') inferred.accessibility = true;
+    if (capability === 'perm.network') inferred.network = true;
+    if (capability.startsWith('perm.filesystem.')) {
+      const suffix = capability.slice('perm.filesystem.'.length);
+      if (suffix === 'none' || suffix === 'read' || suffix === 'full') {
+        inferred.filesystem = suffix;
+      }
+    }
+  }
+  return {
+    ...inferred,
+    ...(base ?? {}),
+  };
+}
+
+function normalizeNodeRecord(partial: Partial<NodeRecord>): NodeRecord {
+  const capabilityList = Array.isArray(partial.capabilities)
+    ? partial.capabilities
+        .map((item) => String(item))
+        .filter(Boolean)
+        .sort()
+    : [];
+  const fallbackHeartbeat = String(partial.lastSeenAt ?? nowIso());
+  const permissions = inferPermissionsFromCapabilities(capabilityList, partial.permissions);
+  const status: NodeStatus = partial.connected ? 'online' : 'offline';
+  return {
+    nodeID: String(partial.nodeID ?? ''),
+    deviceID: String(partial.deviceID ?? ''),
+    type:
+      partial.type === 'cli' ||
+      partial.type === 'desktop' ||
+      partial.type === 'mobile' ||
+      partial.type === 'browser'
+        ? partial.type
+        : 'cli',
+    role: 'node',
+    platform: String(partial.platform ?? process.platform),
+    permissions,
+    capabilities: capabilityList,
+    connected: Boolean(partial.connected),
+    paired: Boolean(partial.paired),
+    status:
+      partial.status === 'online' ||
+      partial.status === 'offline' ||
+      partial.status === 'error'
+        ? partial.status
+        : status,
+    tokenHash: typeof partial.tokenHash === 'string' ? partial.tokenHash : undefined,
+    tokenIssuedAt:
+      typeof partial.tokenIssuedAt === 'string' ? partial.tokenIssuedAt : undefined,
+    tokenLastUsedAt:
+      typeof partial.tokenLastUsedAt === 'string'
+        ? partial.tokenLastUsedAt
+        : undefined,
+    lastHeartbeatAt:
+      typeof partial.lastHeartbeatAt === 'string'
+        ? partial.lastHeartbeatAt
+        : fallbackHeartbeat,
+    lastSeenAt: String(partial.lastSeenAt ?? fallbackHeartbeat),
+    createdAt: String(partial.createdAt ?? nowIso()),
+    updatedAt: String(partial.updatedAt ?? nowIso()),
+  };
+}
+
+function applyHeartbeatHealth(store: NodeStore): boolean {
+  const now = Date.now();
+  let changed = false;
+  for (const node of Object.values(store.nodes)) {
+    const heartbeatAt = Date.parse(node.lastHeartbeatAt || node.lastSeenAt);
+    if (Number.isNaN(heartbeatAt)) continue;
+    const stale = now - heartbeatAt > HEARTBEAT_STALE_MS;
+    if (stale && (node.connected || node.status === 'online')) {
+      node.connected = false;
+      node.status = 'offline';
+      node.updatedAt = nowIso();
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function filePath(projectDir: string): string {
@@ -76,8 +196,18 @@ function readStore(projectDir: string): NodeStore {
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<NodeStore>;
+    const rawNodes = parsed.nodes ?? {};
+    const nodes: Record<string, NodeRecord> = {};
+    for (const [nodeID, node] of Object.entries(rawNodes)) {
+      const normalized = normalizeNodeRecord({
+        ...(node as Partial<NodeRecord>),
+        nodeID: nodeID || (node as Partial<NodeRecord>)?.nodeID,
+      });
+      if (!normalized.nodeID) continue;
+      nodes[normalized.nodeID] = normalized;
+    }
     return {
-      nodes: parsed.nodes ?? {},
+      nodes,
       devices: parsed.devices ?? {},
       pairs: Array.isArray(parsed.pairs) ? parsed.pairs : [],
       invokes: parsed.invokes ?? {},
@@ -98,28 +228,67 @@ function writeStore(projectDir: string, store: NodeStore): void {
   fs.writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
 }
 
+function readStoreWithHealth(projectDir: string): NodeStore {
+  const store = readStore(projectDir);
+  if (applyHeartbeatHealth(store)) {
+    writeStore(projectDir, store);
+  }
+  return store;
+}
+
+function verifyNodeToken(node: NodeRecord, token?: string): boolean {
+  if (!node.tokenHash) return true;
+  if (!token) return false;
+  const expected = Buffer.from(node.tokenHash, 'hex');
+  const actual = Buffer.from(hashToken(token), 'hex');
+  if (expected.length !== actual.length) return false;
+  return timingSafeEqual(expected, actual);
+}
+
 export function registerNode(
   projectDir: string,
   input: {
     nodeID: string;
     deviceID: string;
+    type?: NodeType;
     platform: string;
     capabilities: string[];
+    permissions?: Partial<NodePermissions>;
+    token?: string;
   },
 ): NodeRecord {
-  const store = readStore(projectDir);
+  const store = readStoreWithHealth(projectDir);
+  const existing = store.nodes[input.nodeID];
+  if (existing && !verifyNodeToken(existing, input.token)) {
+    throw new Error('node_token_invalid');
+  }
+
+  const nextCapabilities = [...new Set(input.capabilities)].sort();
+  const now = nowIso();
   const createdAt = store.nodes[input.nodeID]?.createdAt ?? nowIso();
+  const lastHeartbeatAt = now;
+  const tokenLastUsedAt = existing?.tokenHash ? now : existing?.tokenLastUsedAt;
   const node: NodeRecord = {
     nodeID: input.nodeID,
     deviceID: input.deviceID,
+    type: input.type ?? existing?.type ?? 'cli',
     role: 'node',
     platform: input.platform,
-    capabilities: [...new Set(input.capabilities)].sort(),
+    permissions: inferPermissionsFromCapabilities(nextCapabilities, {
+      ...existing?.permissions,
+      ...(input.permissions ?? {}),
+    }),
+    capabilities: nextCapabilities,
     connected: true,
-    paired: store.nodes[input.nodeID]?.paired ?? false,
-    lastSeenAt: nowIso(),
+    paired: existing?.paired ?? false,
+    status: 'online',
+    tokenHash: existing?.tokenHash,
+    tokenIssuedAt: existing?.tokenIssuedAt,
+    tokenLastUsedAt,
+    lastHeartbeatAt,
+    lastSeenAt: now,
     createdAt,
-    updatedAt: nowIso(),
+    updatedAt: now,
   };
   store.nodes[input.nodeID] = node;
 
@@ -127,11 +296,25 @@ export function registerNode(
     deviceID: input.deviceID,
     label: store.devices[input.deviceID]?.label,
     approved: store.devices[input.deviceID]?.approved ?? false,
-    createdAt: store.devices[input.deviceID]?.createdAt ?? nowIso(),
-    updatedAt: nowIso(),
+    createdAt: store.devices[input.deviceID]?.createdAt ?? now,
+    updatedAt: now,
   };
   store.devices[input.deviceID] = device;
 
+  writeStore(projectDir, store);
+  return node;
+}
+
+export function touchNodeHeartbeat(projectDir: string, nodeID: string): NodeRecord | null {
+  const store = readStore(projectDir);
+  const node = store.nodes[nodeID];
+  if (!node) return null;
+  const now = nowIso();
+  node.connected = true;
+  node.status = 'online';
+  node.lastHeartbeatAt = now;
+  node.lastSeenAt = now;
+  node.updatedAt = now;
   writeStore(projectDir, store);
   return node;
 }
@@ -141,27 +324,47 @@ export function markNodeDisconnected(projectDir: string, nodeID: string): void {
   const node = store.nodes[nodeID];
   if (!node) return;
   node.connected = false;
+  node.status = 'offline';
   node.updatedAt = nowIso();
   writeStore(projectDir, store);
 }
 
 export function listNodes(projectDir: string): NodeRecord[] {
-  const store = readStore(projectDir);
+  const store = readStoreWithHealth(projectDir);
   return Object.values(store.nodes).sort(
     (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
   );
 }
 
 export function listDevices(projectDir: string): DeviceRecord[] {
-  const store = readStore(projectDir);
+  const store = readStoreWithHealth(projectDir);
   return Object.values(store.devices).sort(
     (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
   );
 }
 
 export function describeNode(projectDir: string, nodeID: string): NodeRecord | null {
-  const store = readStore(projectDir);
+  const store = readStoreWithHealth(projectDir);
   return store.nodes[nodeID] ?? null;
+}
+
+export function issueNodeToken(
+  projectDir: string,
+  nodeID: string,
+): { nodeID: string; token: string; issuedAt: string } | null {
+  const store = readStoreWithHealth(projectDir);
+  const node = store.nodes[nodeID];
+  if (!node) return null;
+
+  const token = `nkt_${randomBytes(24).toString('hex')}`;
+  const issuedAt = nowIso();
+  node.tokenHash = hashToken(token);
+  node.tokenIssuedAt = issuedAt;
+  node.tokenLastUsedAt = issuedAt;
+  node.updatedAt = issuedAt;
+  store.nodes[nodeID] = node;
+  writeStore(projectDir, store);
+  return { nodeID, token, issuedAt };
 }
 
 export function createNodePairRequest(

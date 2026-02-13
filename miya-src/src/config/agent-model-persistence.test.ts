@@ -82,7 +82,7 @@ describe('agent-model-persistence', () => {
       properties: {
         info: {
           role: 'user',
-          agent: 'designer',
+          agent: '6-ui-designer',
           model: { providerID: 'openai', modelID: 'gpt-5.2-codex' },
         },
       },
@@ -91,6 +91,7 @@ describe('agent-model-persistence', () => {
     expect(extracted).toEqual({
       agentName: '6-ui-designer',
       model: 'openai/gpt-5.2-codex',
+      source: 'message',
     });
 
     expect(

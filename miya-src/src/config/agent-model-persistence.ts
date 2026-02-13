@@ -133,22 +133,58 @@ export function applyPersistedAgentModelOverrides(
 
 export function extractAgentModelSelectionFromEvent(
   event: unknown,
-): { agentName: string; model: string } | null {
-  if (!isObject(event) || event.type !== 'message.updated') {
-    return null;
-  }
+): { agentName: string; model: string; source: string } | null {
+  if (!isObject(event)) return null;
+  
+  const eventType = String(event.type ?? '');
   const properties = event.properties;
   if (!isObject(properties)) return null;
-  const info = properties.info;
-  if (!isObject(info) || info.role !== 'user') {
-    return null;
+  
+  // Priority 1: Message events (user sends message)
+  if (eventType === 'message.updated') {
+    const info = properties.info;
+    if (!isObject(info) || info.role !== 'user') {
+      return null;
+    }
+    const agentName = normalizeAgentName(String(info.agent ?? ''));
+    const model = normalizeModelRef(info.model);
+    if (!agentName || !model) return null;
+    return { agentName, model, source: 'message' };
   }
-
-  const agentName = normalizeAgentName(String(info.agent ?? ''));
-  const model = normalizeModelRef(info.model);
-  if (!agentName || !model) {
-    return null;
+  
+  // Priority 2: Agent switch events (TAB switch without message)
+  if (['agent.selected', 'agent.changed', 'session.agent.changed'].includes(eventType)) {
+    const agentName = normalizeAgentName(
+      String(properties.agent ?? properties.agentName ?? properties.newAgent ?? '')
+    );
+    const model = normalizeModelRef(
+      properties.model ?? properties.agentModel ?? properties.selectedModel
+    );
+    if (!agentName || !model) return null;
+    return { agentName, model, source: 'agent_switch' };
   }
-
-  return { agentName, model };
+  
+  // Priority 3: Session events (configuration changes)
+  if (['session.created', 'session.updated', 'config.updated'].includes(eventType)) {
+    const info = properties.info;
+    let agentName: string | null = null;
+    let model: string | null = null;
+    
+    if (isObject(info)) {
+      agentName = normalizeAgentName(String(info.agent ?? ''));
+      model = normalizeModelRef(info.model);
+    }
+    
+    if (!agentName) {
+      agentName = normalizeAgentName(String(properties.agent ?? properties.currentAgent ?? ''));
+    }
+    if (!model) {
+      model = normalizeModelRef(properties.model ?? properties.currentModel);
+    }
+    
+    if (!agentName || !model) return null;
+    return { agentName, model, source: 'session' };
+  }
+  
+  return null;
 }

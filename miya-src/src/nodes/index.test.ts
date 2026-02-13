@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import {
   createInvokeRequest,
   createNodePairRequest,
+  issueNodeToken,
   listInvokeRequests,
   listNodePairs,
   markInvokeSent,
@@ -67,5 +68,38 @@ describe('nodes store', () => {
 
     const all = listInvokeRequests(projectDir, 10);
     expect(all[0]?.id).toBe(invoke.id);
+  });
+
+  test('enforces node token after issue', () => {
+    const projectDir = tempProjectDir();
+    registerNode(projectDir, {
+      nodeID: 'node-secure',
+      deviceID: 'device-secure',
+      platform: 'linux',
+      capabilities: ['system.info'],
+    });
+
+    const issued = issueNodeToken(projectDir, 'node-secure');
+    expect(issued).not.toBeNull();
+    if (!issued) return;
+
+    expect(() =>
+      registerNode(projectDir, {
+        nodeID: 'node-secure',
+        deviceID: 'device-secure',
+        platform: 'linux',
+        capabilities: ['system.info'],
+      }),
+    ).toThrow(/node_token_invalid/);
+
+    const ok = registerNode(projectDir, {
+      nodeID: 'node-secure',
+      deviceID: 'device-secure',
+      platform: 'linux',
+      token: issued.token,
+      capabilities: ['system.info'],
+    });
+    expect(ok.connected).toBe(true);
+    expect(ok.status).toBe('online');
   });
 });

@@ -13,7 +13,7 @@ export function createMultimodalTools(
 ): Record<string, ToolDefinition> {
   const miya_generate_image = tool({
     description:
-      'Generate an image asset (local multimodal pipeline stub) and persist metadata.',
+      'Generate an image asset with local multimodal pipeline and persist metadata.',
     args: {
       prompt: z.string().describe('Image prompt'),
       reference_media_ids: z
@@ -28,7 +28,7 @@ export function createMultimodalTools(
         .describe('Also add generated image into companion assets'),
     },
     async execute(args) {
-      const result = generateImage(projectDir, {
+      const result = await generateImage(projectDir, {
         prompt: String(args.prompt),
         referenceMediaIDs: Array.isArray(args.reference_media_ids)
           ? args.reference_media_ids.map(String)
@@ -73,7 +73,7 @@ export function createMultimodalTools(
 
   const miya_voice_output = tool({
     description:
-      'Generate TTS voice output asset (local multimodal pipeline stub) and persist metadata.',
+      'Generate TTS voice output asset with local multimodal pipeline and persist metadata.',
     args: {
       text: z.string().describe('Text to synthesize'),
       voice: z.string().optional().describe('Voice profile id or name'),
@@ -85,7 +85,7 @@ export function createMultimodalTools(
         .describe('Also add generated voice into companion assets'),
     },
     async execute(args) {
-      const result = synthesizeVoiceOutput(projectDir, {
+      const result = await synthesizeVoiceOutput(projectDir, {
         text: String(args.text),
         voice: args.voice ? String(args.voice) : undefined,
         model: args.model ? String(args.model) : undefined,
@@ -110,7 +110,7 @@ export function createMultimodalTools(
       question: z.string().optional().describe('Optional analysis question'),
     },
     async execute(args) {
-      const result = analyzeVision(projectDir, {
+      const result = await analyzeVision(projectDir, {
         mediaID: String(args.media_id),
         question: args.question ? String(args.question) : undefined,
       });
@@ -129,4 +129,3 @@ export function createMultimodalTools(
     miya_vision_analyze,
   };
 }
-

@@ -176,10 +176,10 @@ describe('config-io', () => {
         preset: 'openai',
         presets: {
           openai: {
-            orchestrator: { model: 'openai/gpt-4' },
-            oracle: { model: 'anthropic/claude-opus-4-6' },
-            explorer: { model: 'github-copilot/grok-code-fast-1' },
-            librarian: { model: 'zai-coding-plan/glm-4.7' },
+            '1-task-manager': { model: 'openai/gpt-4' },
+            '4-architecture-advisor': { model: 'anthropic/claude-opus-4-6' },
+            '2-code-search': { model: 'github-copilot/grok-code-fast-1' },
+            '3-docs-helper': { model: 'zai-coding-plan/glm-4.7' },
           },
         },
         tmux: { enabled: true },
@@ -211,7 +211,7 @@ describe('config-io', () => {
         preset: 'chutes',
         presets: {
           chutes: {
-            orchestrator: { model: 'chutes/kimi-k2.5' },
+            '1-task-manager': { model: 'chutes/kimi-k2.5' },
           },
         },
       }),

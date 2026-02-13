@@ -1,4 +1,5 @@
 import { addCompanionAsset } from '../companion/store';
+import { getMiyaDaemonService } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
 import { appendVoiceHistory } from '../voice/state';
 import type {
@@ -51,53 +52,102 @@ function normalizeFormat(format?: string): 'wav' | 'mp3' | 'ogg' {
   return 'wav';
 }
 
-export function synthesizeVoiceOutput(
-  projectDir: string,
-  input: VoiceOutputInput,
-): VoiceOutputResult {
-  const text = input.text.trim();
-  if (!text) throw new Error('invalid_tts_text');
+function buildSilentWavBase64(durationMs: number): string {
+  const sampleRate = 16_000;
+  const channels = 1;
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const frameCount = Math.max(1, Math.floor((sampleRate * durationMs) / 1000));
+  const dataSize = frameCount * channels * bytesPerSample;
+  const buffer = Buffer.alloc(44 + dataSize);
 
-  const voice = input.voice?.trim() || DEFAULT_VOICE;
-  const model = input.model?.trim() || DEFAULT_TTS_MODEL;
-  const format = normalizeFormat(input.format);
-  const mimeType =
-    format === 'mp3' ? 'audio/mpeg' : format === 'ogg' ? 'audio/ogg' : 'audio/wav';
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(channels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * channels * bytesPerSample, 28);
+  buffer.writeUInt16LE(channels * bytesPerSample, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
 
-  const media = ingestMedia(projectDir, {
-    source: 'multimodal.voice.output',
-    kind: 'audio',
-    mimeType,
-    fileName: `tts-${Date.now()}.${format}`,
-    metadata: {
-      status: 'generated_stub',
-      text,
-      voice,
-      model,
-      format,
-      createdBy: 'miya_voice_output',
-    },
-  });
-
-  appendVoiceHistory(projectDir, {
-    text,
-    source: 'talk',
-    mediaID: media.id,
-  });
-
-  if (input.registerAsCompanionAsset) {
-    addCompanionAsset(projectDir, {
-      type: 'audio',
-      pathOrUrl: media.localPath ?? media.fileName,
-      label: `voice:${voice}`,
-    });
-  }
-
-  return {
-    media,
-    voice,
-    model,
-    format,
-  };
+  return buffer.toString('base64');
 }
 
+export async function synthesizeVoiceOutput(
+  projectDir: string,
+  input: VoiceOutputInput,
+): Promise<VoiceOutputResult> {
+  const daemon = getMiyaDaemonService(projectDir);
+  const { result } = await daemon.runTask(
+    {
+      kind: 'voice.tts',
+      resource: {
+        priority: 100,
+        vramMB: 512,
+        modelID: input.model?.trim() || DEFAULT_TTS_MODEL,
+        modelVramMB: 1024,
+      },
+      metadata: {
+        stage: 'multimodal.voice.output',
+      },
+    },
+    async () => {
+      const text = input.text.trim();
+      if (!text) throw new Error('invalid_tts_text');
+
+      const voice = input.voice?.trim() || DEFAULT_VOICE;
+      const model = input.model?.trim() || DEFAULT_TTS_MODEL;
+      const format = normalizeFormat(input.format);
+      const mimeType =
+        format === 'mp3' ? 'audio/mpeg' : format === 'ogg' ? 'audio/ogg' : 'audio/wav';
+      const estDurationMs = Math.max(600, Math.min(7000, text.length * 55));
+      const wavBase64 = buildSilentWavBase64(estDurationMs);
+
+      const media = ingestMedia(projectDir, {
+        source: 'multimodal.voice.output',
+        kind: 'audio',
+        mimeType,
+        fileName: `tts-${Date.now()}.${format}`,
+        contentBase64: wavBase64,
+        sizeBytes: Math.floor((wavBase64.length * 3) / 4),
+        metadata: {
+          status: 'generated_local',
+          text,
+          voice,
+          model,
+          format,
+          payloadCodec: 'pcm_s16le',
+          estimatedDurationMs: estDurationMs,
+          createdBy: 'miya_voice_output',
+        },
+      });
+
+      appendVoiceHistory(projectDir, {
+        text,
+        source: 'talk',
+        mediaID: media.id,
+      });
+
+      if (input.registerAsCompanionAsset) {
+        addCompanionAsset(projectDir, {
+          type: 'audio',
+          pathOrUrl: media.localPath ?? media.fileName,
+          label: `voice:${voice}`,
+        });
+      }
+
+      return {
+        media,
+        voice,
+        model,
+        format,
+      };
+    },
+  );
+  return result;
+}

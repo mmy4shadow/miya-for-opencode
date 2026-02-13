@@ -13,6 +13,7 @@ import {
   generateLiteConfig,
   getOpenCodeVersion,
   isOpenCodeInstalled,
+  isTmuxInstalled,
   pickBestCodingChutesModel,
   pickBestCodingOpenCodeModel,
   pickSupportChutesModel,
@@ -278,10 +279,8 @@ async function runInteractiveMode(
     input: process.stdin,
     output: process.stdout,
   });
-  // TODO: tmux has a bug, disabled for now
-  // const tmuxInstalled = await isTmuxInstalled()
-  // const totalQuestions = tmuxInstalled ? 3 : 2
-  const totalQuestions = 8;
+  const tmuxInstalled = await isTmuxInstalled();
+  const totalQuestions = tmuxInstalled ? 9 : 8;
 
   try {
     console.log(`${BOLD}Question 1/${totalQuestions}:${RESET}`);
@@ -443,15 +442,19 @@ async function runInteractiveMode(
       }
     }
 
-    // TODO: tmux has a bug, disabled for now
-    // let tmux: BooleanArg = "no"
-    // if (tmuxInstalled) {
-    //   console.log(`${BOLD}Question 3/3:${RESET}`)
-    //   printInfo(`${BOLD}Tmux detected!${RESET} We can enable tmux integration for you.`)
-    //   printInfo("This will spawn new panes for sub-agents, letting you watch them work in real-time.")
-    //   tmux = await askYesNo(rl, "Enable tmux integration?", detected.hasTmux ? "yes" : "no")
-    //   console.log()
-    // }
+    let tmux: BooleanArg = 'no';
+    if (tmuxInstalled) {
+      console.log(`${BOLD}Question 9/${totalQuestions}:${RESET}`);
+      printInfo(
+        `${BOLD}Tmux detected!${RESET} We can enable tmux integration for sub-agent panes.`,
+      );
+      tmux = await askYesNo(
+        rl,
+        'Enable tmux integration?',
+        detected.hasTmux ? 'yes' : 'no',
+      );
+      console.log();
+    }
 
     // Skills prompt
     console.log(`${BOLD}Recommended Skills:${RESET}`);
@@ -492,7 +495,7 @@ async function runInteractiveMode(
       selectedChutesPrimaryModel,
       selectedChutesSecondaryModel,
       availableChutesFreeModels,
-      hasTmux: false,
+      hasTmux: tmux === 'yes',
       installSkills: skills === 'yes',
       installCustomSkills: customSkills === 'yes',
     };
@@ -825,15 +828,14 @@ async function runInstall(config: InstallConfig): Promise<number> {
     console.log();
   }
 
-  // TODO: tmux has a bug, disabled for now
-  // if (config.hasTmux) {
-  //   console.log(`  ${nextStep++}. Run OpenCode inside tmux:`)
-  //   console.log(`     ${BLUE}$ tmux${RESET}`)
-  //   console.log(`     ${BLUE}$ opencode${RESET}`)
-  // } else {
-  console.log(`  ${nextStep++}. Start OpenCode:`);
-  console.log(`     ${BLUE}$ opencode${RESET}`);
-  // }
+  if (resolvedConfig.hasTmux) {
+    console.log(`  ${nextStep++}. Run OpenCode inside tmux:`);
+    console.log(`     ${BLUE}$ tmux${RESET}`);
+    console.log(`     ${BLUE}$ opencode${RESET}`);
+  } else {
+    console.log(`  ${nextStep++}. Start OpenCode:`);
+    console.log(`     ${BLUE}$ opencode${RESET}`);
+  }
   console.log();
 
   return 0;

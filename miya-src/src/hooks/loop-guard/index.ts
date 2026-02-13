@@ -5,6 +5,7 @@ import {
   setSessionState,
   shouldEnableStrictQualityGate,
 } from '../../workflow';
+import { ALL_AGENT_NAMES, ORCHESTRATOR_NAME } from '../../config/constants';
 
 interface MessageInfo {
   role: string;
@@ -22,6 +23,8 @@ interface MessageWithParts {
   info: MessageInfo;
   parts: MessagePart[];
 }
+
+const SUBAGENT_NAMES = ALL_AGENT_NAMES.filter(name => name !== ORCHESTRATOR_NAME);
 
 function getAllText(message: MessageWithParts): string {
   return message.parts
@@ -67,6 +70,11 @@ function findTextPartIndex(parts: MessagePart[]): number {
   return parts.findIndex((part) => part.type === 'text' && part.text !== undefined);
 }
 
+function isDirectAgentSelection(agent: string | undefined): boolean {
+  if (!agent) return false;
+  return SUBAGENT_NAMES.includes(agent as typeof SUBAGENT_NAMES[number]);
+}
+
 export function createLoopGuardHook(projectDir: string) {
   return {
     'experimental.chat.messages.transform': async (
@@ -77,25 +85,45 @@ export function createLoopGuardHook(projectDir: string) {
       if (!lastUser) return;
 
       const agent = lastUser.message.info.agent;
-      if (agent && agent !== '1-task-manager') {
-        return;
-      }
-
-      const textPartIndex = findTextPartIndex(lastUser.message.parts);
-      if (textPartIndex === -1) {
-        return;
-      }
-
       const sessionID = lastUser.message.info.sessionID ?? 'main';
+      const textPartIndex = findTextPartIndex(lastUser.message.parts);
+      if (textPartIndex === -1) return;
+
       const originalText = lastUser.message.parts[textPartIndex].text ?? '';
       const normalizedText = originalText.trim();
-
       const state = getSessionState(projectDir, sessionID);
 
       // Explicit cancel command resets loop state immediately.
       if (isNegativeConfirmation(normalizedText) || normalizedText === 'cancel-work') {
         resetSessionState(projectDir, sessionID);
         lastUser.message.parts[textPartIndex].text = `[MIYA LOOP CANCELED]\nOutput a concise final status only:\n<loop_report>\n- done: completed work\n- missing: remaining required work\n- unresolved: still broken/risky parts\n</loop_report>`;
+        return;
+      }
+
+      // DIRECT AGENT MODE: User directly selected a subagent (not task-manager)
+      // In this mode, the agent executes immediately without full 6-step workflow
+      if (isDirectAgentSelection(agent)) {
+        // Check loop limit (don't increment here - let miya_iteration_done handle counting)
+        const window = Math.max(0, state.iterationCompleted - state.windowStartIteration);
+        
+        if (state.loopEnabled && window >= state.maxIterationsPerWindow) {
+          // Loop limit reached - output report and stop
+          lastUser.message.parts[textPartIndex].text = `[MIYA DIRECT MODE - LOOP LIMIT REACHED]\nThis is iteration ${state.iterationCompleted} (limit: ${state.maxIterationsPerWindow}).\n\n<loop_report>\n- done: ${state.lastDone.join(', ') || '(none recorded)'}\n- missing: ${state.lastMissing.join(', ') || '(none recorded)'}\n- unresolved: ${state.lastUnresolved.join(', ') || '(none recorded)'}\n</loop_report>\n\n${originalText}`;
+          return;
+        }
+
+        // Add direct mode indicator but don't block execution
+        if (!originalText.includes('[MIYA DIRECT MODE]')) {
+          lastUser.message.parts[textPartIndex].text = `[MIYA DIRECT MODE: ${agent}]\n你正在使用直接模式 - 立即使用你的专业能力执行，无需等待完整6步工作流。\n当前循环: ${state.iterationCompleted}/${state.maxIterationsPerWindow}。\n\n${originalText}`;
+        }
+        
+        // Note: We DON'T increment iteration here - that's handled by miya_iteration_done tool
+        // This prevents double-counting
+        return;
+      }
+
+      // Standard mode: only process for task-manager
+      if (agent && agent !== ORCHESTRATOR_NAME) {
         return;
       }
 

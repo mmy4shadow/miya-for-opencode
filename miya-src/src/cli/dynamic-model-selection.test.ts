@@ -76,16 +76,18 @@ describe('dynamic-model-selection', () => {
     const chains = plan?.chains ?? {};
 
     expect(Object.keys(agents).sort()).toEqual([
-      'designer',
-      'explorer',
-      'fixer',
-      'librarian',
-      'oracle',
-      'orchestrator',
+      '1-task-manager',
+      '2-code-search',
+      '3-docs-helper',
+      '4-architecture-advisor',
+      '5-code-fixer',
+      '6-ui-designer',
     ]);
-    expect(chains.oracle).toContain('openai/gpt-5.3-codex');
-    expect(chains.orchestrator).toContain('chutes/kimi-k2.5');
-    expect(chains.explorer).toContain('opencode/gpt-5-nano');
-    expect(chains.fixer[chains.fixer.length - 1]).toBe('opencode/big-pickle');
+    expect(chains['4-architecture-advisor']).toContain('openai/gpt-5.3-codex');
+    expect(chains['1-task-manager']).toContain('chutes/kimi-k2.5');
+    expect(chains['2-code-search']).toContain('opencode/gpt-5-nano');
+    expect(
+      chains['5-code-fixer'][chains['5-code-fixer'].length - 1],
+    ).toBe('opencode/big-pickle');
   });
 });

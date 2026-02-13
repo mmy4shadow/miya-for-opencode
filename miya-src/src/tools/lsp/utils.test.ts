@@ -8,6 +8,13 @@ mock.module('fs', () => ({
   existsSync: mock(() => true),
   statSync: mock(() => ({ isDirectory: () => false })),
 }));
+mock.module('node:fs', () => ({
+  readFileSync: mock(() => ''),
+  writeFileSync: mock(),
+  unlinkSync: mock(),
+  existsSync: mock(() => true),
+  statSync: mock(() => ({ isDirectory: () => false })),
+}));
 
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import {
@@ -21,6 +28,13 @@ import {
 } from './utils';
 
 describe('utils', () => {
+  function fileUri(name: string): string {
+    if (process.platform === 'win32') {
+      return `file:///C:/tmp/${name}`;
+    }
+    return `file:///tmp/${name}`;
+  }
+
   beforeEach(() => {
     (readFileSync as any).mockClear();
     (writeFileSync as any).mockClear();
@@ -29,9 +43,8 @@ describe('utils', () => {
 
   describe('uriToPath', () => {
     test('should convert file URI to path', () => {
-      const uri = 'file:///home/user/project/file.ts';
+      const uri = fileUri('file.ts');
       const path = uriToPath(uri);
-      expect(path).toContain('home');
       expect(path).toContain('file.ts');
     });
   });
@@ -39,7 +52,7 @@ describe('utils', () => {
   describe('formatLocation', () => {
     test('should format Location object', () => {
       const loc = {
-        uri: 'file:///home/user/test.ts',
+        uri: fileUri('test.ts'),
         range: {
           start: { line: 9, character: 5 },
           end: { line: 9, character: 10 },
@@ -94,7 +107,7 @@ describe('utils', () => {
 
   describe('applyWorkspaceEdit', () => {
     test('should apply single file edit', () => {
-      const uri = 'file:///test.ts';
+      const uri = fileUri('test.ts');
       const filePath = uriToPath(uri);
       (readFileSync as any).mockReturnValue('line1\nline2\nline3');
 
@@ -119,7 +132,7 @@ describe('utils', () => {
     });
 
     test('should handle overlapping edits by sorting them in reverse order', () => {
-      const uri = 'file:///test.ts';
+      const uri = fileUri('test.ts');
       (readFileSync as any).mockReturnValue('abcde');
 
       const edit = {
@@ -151,21 +164,21 @@ describe('utils', () => {
 
     test('should handle create file operation', () => {
       const edit = {
-        documentChanges: [{ kind: 'create', uri: 'file:///new.ts' }],
+        documentChanges: [{ kind: 'create', uri: fileUri('new.ts') }],
       };
 
       const result = applyWorkspaceEdit(edit as any);
       expect(result.success).toBe(true);
       expect(writeFileSync).toHaveBeenCalledWith(
-        uriToPath('file:///new.ts'),
+        uriToPath(fileUri('new.ts')),
         '',
         'utf-8',
       );
     });
 
     test('should handle rename file operation', () => {
-      const oldUri = 'file:///old.ts';
-      const newUri = 'file:///new.ts';
+      const oldUri = fileUri('old.ts');
+      const newUri = fileUri('new.ts');
       (readFileSync as any).mockReturnValue('some content');
 
       const edit = {
@@ -183,7 +196,7 @@ describe('utils', () => {
     });
 
     test('should handle delete file operation', () => {
-      const uri = 'file:///delete.ts';
+      const uri = fileUri('delete.ts');
       const edit = {
         documentChanges: [{ kind: 'delete', uri }],
       };
