@@ -14,6 +14,7 @@ import {
   upsertChannelState,
 } from './pairing-store';
 import { getMiyaRuntimeDir } from '../workflow';
+import { readPolicy } from '../policy';
 
 export interface ChannelInboundMessage {
   channel: ChannelName;
@@ -461,9 +462,10 @@ export class ChannelRuntime {
   private checkThrottle(channel: ChannelName, destination: string): string | null {
     const now = Date.now();
     const key = `${channel}:${destination}`;
-    const windowMs = 60 * 1000;
-    const minIntervalMs = 4000;
-    const burstLimit = 3;
+    const policy = readPolicy(this.projectDir);
+    const windowMs = Math.max(1000, Number(policy.outbound.burstWindowMs || 60000));
+    const minIntervalMs = Math.max(500, Number(policy.outbound.minIntervalMs || 4000));
+    const burstLimit = Math.max(1, Number(policy.outbound.burstLimit || 3));
     const list = (this.outboundThrottle.get(key) ?? []).filter(
       (ts) => now - ts <= windowMs,
     );
@@ -486,7 +488,11 @@ export class ChannelRuntime {
     text: string,
   ): string | null {
     const now = Date.now();
-    const duplicateWindowMs = 60 * 1000;
+    const policy = readPolicy(this.projectDir);
+    const duplicateWindowMs = Math.max(
+      1000,
+      Number(policy.outbound.duplicateWindowMs || 60000),
+    );
     const key = `${channel}:${destination}`;
     const payloadHash = createHash('sha256').update(text).digest('hex').slice(0, 24);
     const recent = (this.outboundPayloadHistory.get(key) ?? []).filter(

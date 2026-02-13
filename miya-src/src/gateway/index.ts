@@ -23,6 +23,7 @@ import {
   readKillSwitch,
 } from '../safety/store';
 import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
+import { assertPolicyHash, currentPolicyHash, readPolicy } from '../policy';
 import {
   createInvokeRequest,
   createNodePairRequest,
@@ -1405,7 +1406,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const text = parseText(params.text);
     const idempotencyKey = parseText(params.idempotencyKey);
     const sessionID = parseText(params.sessionID) || 'main';
+    const policyHash = parseText(params.policyHash) || undefined;
     if (!channel || !destination || !text) throw new Error('invalid_channels_send_args');
+    const policyGuard = assertPolicyHash(projectDir, policyHash);
+    if (!policyGuard.ok) {
+      throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
+    }
     const outboundCheckRaw =
       params.outboundCheck && typeof params.outboundCheck === 'object'
         ? (params.outboundCheck as Record<string, unknown>)
@@ -1464,6 +1470,14 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       }
     }
     return result;
+  });
+
+  methods.register('policy.get', async () => {
+    const policy = readPolicy(projectDir);
+    return {
+      policy,
+      hash: currentPolicyHash(projectDir),
+    };
   });
 
   methods.register('nodes.register', async (params, context) => {
