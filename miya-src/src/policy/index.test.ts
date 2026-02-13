@@ -2,7 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { assertPolicyHash, currentPolicyHash, readPolicy, writePolicy } from './index';
+import {
+  assertPolicyHash,
+  currentPolicyHash,
+  isDomainRunning,
+  readPolicy,
+  writePolicy,
+} from './index';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-policy-test-'));
@@ -32,5 +38,17 @@ describe('policy hash guard', () => {
     if (stale.ok) return;
     expect(stale.reason).toBe('policy_hash_mismatch');
   });
-});
 
+  test('supports domain pause and resume state', () => {
+    const projectDir = tempProjectDir();
+    expect(isDomainRunning(projectDir, 'outbound_send')).toBe(true);
+
+    writePolicy(projectDir, {
+      domains: {
+        ...readPolicy(projectDir).domains,
+        outbound_send: 'paused',
+      },
+    });
+    expect(isDomainRunning(projectDir, 'outbound_send')).toBe(false);
+  });
+});

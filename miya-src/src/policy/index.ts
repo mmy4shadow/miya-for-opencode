@@ -6,6 +6,10 @@ import { getMiyaRuntimeDir } from '../workflow';
 export interface MiyaPolicy {
   version: number;
   updatedAt: string;
+  domains: {
+    outbound_send: 'running' | 'paused';
+    desktop_control: 'running' | 'paused';
+  };
   outbound: {
     allowedChannels: Array<'qq' | 'wechat'>;
     requireArchAdvisorApproval: boolean;
@@ -29,6 +33,10 @@ function defaultPolicy(): MiyaPolicy {
   return {
     version: 1,
     updatedAt: nowIso(),
+    domains: {
+      outbound_send: 'running',
+      desktop_control: 'running',
+    },
     outbound: {
       allowedChannels: ['qq', 'wechat'],
       requireArchAdvisorApproval: true,
@@ -93,6 +101,7 @@ export function hashPolicy(policy: MiyaPolicy): string {
     .update(
       JSON.stringify({
         version: policy.version,
+        domains: policy.domains,
         outbound: policy.outbound,
       }),
     )
@@ -115,4 +124,12 @@ export function assertPolicyHash(
     return { ok: false, hash, reason: 'policy_hash_mismatch' };
   }
   return { ok: true, hash };
+}
+
+export function isDomainRunning(
+  projectDir: string,
+  domain: keyof MiyaPolicy['domains'],
+): boolean {
+  const policy = readPolicy(projectDir);
+  return policy.domains[domain] === 'running';
 }

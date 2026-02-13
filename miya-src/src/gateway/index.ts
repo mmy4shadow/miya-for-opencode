@@ -24,7 +24,13 @@ import {
   readKillSwitch,
 } from '../safety/store';
 import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
-import { assertPolicyHash, currentPolicyHash, readPolicy } from '../policy';
+import {
+  assertPolicyHash,
+  currentPolicyHash,
+  isDomainRunning,
+  readPolicy,
+  writePolicy,
+} from '../policy';
 import {
   createInvokeRequest,
   createNodePairRequest,
@@ -1433,6 +1439,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!policyGuard.ok) {
       throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
     }
+    if (!isDomainRunning(projectDir, 'outbound_send')) {
+      throw new Error('domain_paused:outbound_send');
+    }
     const outboundCheckRaw =
       params.outboundCheck && typeof params.outboundCheck === 'object'
         ? (params.outboundCheck as Record<string, unknown>)
@@ -1507,6 +1516,40 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const policy = readPolicy(projectDir);
     return {
       policy,
+      hash: currentPolicyHash(projectDir),
+    };
+  });
+  methods.register('policy.domain.pause', async (params) => {
+    const domain = parseText(params.domain);
+    if (domain !== 'outbound_send' && domain !== 'desktop_control') {
+      throw new Error('invalid_policy_domain');
+    }
+    const policy = writePolicy(projectDir, {
+      domains: {
+        ...readPolicy(projectDir).domains,
+        [domain]: 'paused',
+      },
+    });
+    return {
+      domain,
+      status: policy.domains[domain],
+      hash: currentPolicyHash(projectDir),
+    };
+  });
+  methods.register('policy.domain.resume', async (params) => {
+    const domain = parseText(params.domain);
+    if (domain !== 'outbound_send' && domain !== 'desktop_control') {
+      throw new Error('invalid_policy_domain');
+    }
+    const policy = writePolicy(projectDir, {
+      domains: {
+        ...readPolicy(projectDir).domains,
+        [domain]: 'running',
+      },
+    });
+    return {
+      domain,
+      status: policy.domains[domain],
       hash: currentPolicyHash(projectDir),
     };
   });
@@ -1628,6 +1671,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const policyGuard = assertPolicyHash(projectDir, policyHash);
     if (!policyGuard.ok) {
       throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
+    }
+    if (!isDomainRunning(projectDir, 'desktop_control')) {
+      throw new Error('domain_paused:desktop_control');
     }
 
     const token = enforceToken({
