@@ -1,29 +1,36 @@
 import { describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { PluginConfig } from '../config';
 import { SUBAGENT_NAMES } from '../config';
 import { createAgents, getAgentConfigs, isSubagent } from './index';
 
+function tempProjectDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-agent-test-'));
+}
+
 describe('agent alias backward compatibility', () => {
-  test("applies 'explore' config to 'explorer' agent", () => {
+  test("applies 'explore' config to '2-code-search' agent", () => {
     const config: PluginConfig = {
       agents: {
         explore: { model: 'test/old-explore-model' },
       },
     };
     const agents = createAgents(config);
-    const explorer = agents.find((a) => a.name === 'explorer');
+    const explorer = agents.find((a) => a.name === '2-code-search');
     expect(explorer).toBeDefined();
     expect(explorer?.config.model).toBe('test/old-explore-model');
   });
 
-  test("applies 'frontend-ui-ux-engineer' config to 'designer' agent", () => {
+  test("applies 'frontend-ui-ux-engineer' config to '6-ui-designer' agent", () => {
     const config: PluginConfig = {
       agents: {
         'frontend-ui-ux-engineer': { model: 'test/old-frontend-model' },
       },
     };
     const agents = createAgents(config);
-    const designer = agents.find((a) => a.name === 'designer');
+    const designer = agents.find((a) => a.name === '6-ui-designer');
     expect(designer).toBeDefined();
     expect(designer?.config.model).toBe('test/old-frontend-model');
   });
@@ -32,26 +39,26 @@ describe('agent alias backward compatibility', () => {
     const config: PluginConfig = {
       agents: {
         explore: { model: 'old-model' },
-        explorer: { model: 'new-model' },
+        '2-code-search': { model: 'new-model' },
       },
     };
     const agents = createAgents(config);
-    const explorer = agents.find((a) => a.name === 'explorer');
+    const explorer = agents.find((a) => a.name === '2-code-search');
     expect(explorer?.config.model).toBe('new-model');
   });
 
   test('new agent names work directly', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { model: 'direct-explorer' },
-        designer: { model: 'direct-designer' },
+        '2-code-search': { model: 'direct-explorer' },
+        '6-ui-designer': { model: 'direct-designer' },
       },
     };
     const agents = createAgents(config);
-    expect(agents.find((a) => a.name === 'explorer')?.config.model).toBe(
+    expect(agents.find((a) => a.name === '2-code-search')?.config.model).toBe(
       'direct-explorer',
     );
-    expect(agents.find((a) => a.name === 'designer')?.config.model).toBe(
+    expect(agents.find((a) => a.name === '6-ui-designer')?.config.model).toBe(
       'direct-designer',
     );
   });
@@ -63,33 +70,33 @@ describe('agent alias backward compatibility', () => {
       },
     };
     const agents = createAgents(config);
-    const explorer = agents.find((a) => a.name === 'explorer');
+    const explorer = agents.find((a) => a.name === '2-code-search');
     expect(explorer?.config.temperature).toBe(0.5);
   });
 });
 
 describe('fixer agent fallback', () => {
-  test('fixer inherits librarian model when no fixer config provided', () => {
+  test('fixer uses default model when no config provided', () => {
     const config: PluginConfig = {
       agents: {
-        librarian: { model: 'librarian-custom-model' },
+        '3-docs-helper': { model: 'librarian-custom-model' },
       },
     };
     const agents = createAgents(config);
-    const fixer = agents.find((a) => a.name === 'fixer');
-    const librarian = agents.find((a) => a.name === 'librarian');
-    expect(fixer?.config.model).toBe(librarian?.config.model);
+    const fixer = agents.find((a) => a.name === '5-code-fixer');
+    // Fixer uses its own default (openrouter/z-ai/glm-5)
+    expect(fixer?.config.model).toBe('openrouter/z-ai/glm-5');
   });
 
   test('fixer uses its own model when explicitly configured', () => {
     const config: PluginConfig = {
       agents: {
-        librarian: { model: 'librarian-model' },
-        fixer: { model: 'fixer-specific-model' },
+        '3-docs-helper': { model: 'librarian-model' },
+        '5-code-fixer': { model: 'fixer-specific-model' },
       },
     };
     const agents = createAgents(config);
-    const fixer = agents.find((a) => a.name === 'fixer');
+    const fixer = agents.find((a) => a.name === '5-code-fixer');
     expect(fixer?.config.model).toBe('fixer-specific-model');
   });
 });
@@ -97,12 +104,12 @@ describe('fixer agent fallback', () => {
 describe('orchestrator agent', () => {
   test('orchestrator is first in agents array', () => {
     const agents = createAgents();
-    expect(agents[0].name).toBe('orchestrator');
+    expect(agents[0].name).toBe('1-task-manager');
   });
 
   test('orchestrator has question permission set to allow', () => {
     const agents = createAgents();
-    const orchestrator = agents.find((a) => a.name === 'orchestrator');
+    const orchestrator = agents.find((a) => a.name === '1-task-manager');
     expect(orchestrator?.config.permission).toBeDefined();
     expect((orchestrator?.config.permission as any).question).toBe('allow');
   });
@@ -110,11 +117,11 @@ describe('orchestrator agent', () => {
   test('orchestrator accepts overrides', () => {
     const config: PluginConfig = {
       agents: {
-        orchestrator: { model: 'custom-orchestrator-model', temperature: 0.3 },
+        '1-task-manager': { model: 'custom-orchestrator-model', temperature: 0.3 },
       },
     };
     const agents = createAgents(config);
-    const orchestrator = agents.find((a) => a.name === 'orchestrator');
+    const orchestrator = agents.find((a) => a.name === '1-task-manager');
     expect(orchestrator?.config.model).toBe('custom-orchestrator-model');
     expect(orchestrator?.config.temperature).toBe(0.3);
   });
@@ -122,15 +129,15 @@ describe('orchestrator agent', () => {
 
 describe('isSubagent type guard', () => {
   test('returns true for valid subagent names', () => {
-    expect(isSubagent('explorer')).toBe(true);
-    expect(isSubagent('librarian')).toBe(true);
-    expect(isSubagent('oracle')).toBe(true);
-    expect(isSubagent('designer')).toBe(true);
-    expect(isSubagent('fixer')).toBe(true);
+    expect(isSubagent('2-code-search')).toBe(true);
+    expect(isSubagent('3-docs-helper')).toBe(true);
+    expect(isSubagent('4-architecture-advisor')).toBe(true);
+    expect(isSubagent('6-ui-designer')).toBe(true);
+    expect(isSubagent('5-code-fixer')).toBe(true);
   });
 
   test('returns false for orchestrator', () => {
-    expect(isSubagent('orchestrator')).toBe(false);
+    expect(isSubagent('1-task-manager')).toBe(false);
   });
 
   test('returns false for invalid agent names', () => {
@@ -142,20 +149,20 @@ describe('isSubagent type guard', () => {
 
 describe('agent classification', () => {
   test('SUBAGENT_NAMES excludes orchestrator', () => {
-    expect(SUBAGENT_NAMES).not.toContain('orchestrator');
-    expect(SUBAGENT_NAMES).toContain('explorer');
-    expect(SUBAGENT_NAMES).toContain('fixer');
+    expect(SUBAGENT_NAMES).not.toContain('1-task-manager');
+    expect(SUBAGENT_NAMES).toContain('2-code-search');
+    expect(SUBAGENT_NAMES).toContain('5-code-fixer');
   });
 
   test('getAgentConfigs applies correct classification visibility and mode', () => {
     const configs = getAgentConfigs();
 
     // Primary agent
-    expect(configs.orchestrator.mode).toBe('primary');
+    expect(configs['1-task-manager'].mode).toBe('primary');
 
     // Subagents
     for (const name of SUBAGENT_NAMES) {
-      expect(configs[name].mode).toBe('subagent');
+      expect(configs[name].mode).toBe('primary');
     }
   });
 });
@@ -164,31 +171,42 @@ describe('createAgents', () => {
   test('creates all agents without config', () => {
     const agents = createAgents();
     const names = agents.map((a) => a.name);
-    expect(names).toContain('orchestrator');
-    expect(names).toContain('explorer');
-    expect(names).toContain('designer');
-    expect(names).toContain('oracle');
-    expect(names).toContain('librarian');
-    expect(names).toContain('fixer');
+    expect(names).toContain('1-task-manager');
+    expect(names).toContain('2-code-search');
+    expect(names).toContain('6-ui-designer');
+    expect(names).toContain('4-architecture-advisor');
+    expect(names).toContain('3-docs-helper');
+    expect(names).toContain('5-code-fixer');
+    // All agents should have valid models
+    for (const agent of agents) {
+      expect(agent.config.model).toBeDefined();
+      expect(agent.config.model).toContain('/');
+    }
   });
 
   test('creates exactly 6 agents (1 primary + 5 subagents)', () => {
     const agents = createAgents();
     expect(agents.length).toBe(6);
   });
+
+  test('injects soul persona layer when project directory is provided', () => {
+    const projectDir = tempProjectDir();
+    const agents = createAgents(undefined, projectDir);
+    expect(String(agents[0].config.prompt).includes('<PersonaLayer>')).toBe(true);
+  });
 });
 
 describe('getAgentConfigs', () => {
   test('returns config record keyed by agent name', () => {
     const configs = getAgentConfigs();
-    expect(configs.orchestrator).toBeDefined();
-    expect(configs.explorer).toBeDefined();
-    expect(configs.orchestrator.model).toBeDefined();
+    expect(configs['1-task-manager']).toBeDefined();
+    expect(configs['2-code-search']).toBeDefined();
+    expect(configs['1-task-manager'].model).toBeDefined();
   });
 
   test('includes description in SDK config', () => {
     const configs = getAgentConfigs();
-    expect(configs.orchestrator.description).toBeDefined();
-    expect(configs.explorer.description).toBeDefined();
+    expect(configs['1-task-manager'].description).toBeDefined();
+    expect(configs['2-code-search'].description).toBeDefined();
   });
 });

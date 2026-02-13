@@ -30,8 +30,12 @@ import {
   createAutopilotTools,
   createBackgroundTools,
   createMultimodalTools,
+  createMcpTools,
   createNodeTools,
   createRalphTools,
+  createRouterTools,
+  createSoulTools,
+  createUltraworkTools,
   grep,
   lsp_diagnostics,
   lsp_find_references,
@@ -45,7 +49,7 @@ import { log } from './utils/logger';
 
 const MiyaPlugin: Plugin = async (ctx) => {
   const config = loadPluginConfig(ctx.directory);
-  const agents = getAgentConfigs(config);
+  const agents = getAgentConfigs(config, ctx.directory);
 
   // Parse tmux config with defaults
   const tmuxConfig: TmuxConfig = {
@@ -88,6 +92,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const ralphTools = createRalphTools();
   const nodeTools = createNodeTools(ctx.directory);
   const multimodalTools = createMultimodalTools(ctx.directory);
+  const soulTools = createSoulTools(ctx.directory);
+  const ultraworkTools = createUltraworkTools(ctx, backgroundManager);
+  const routerTools = createRouterTools(ctx.directory);
+  const mcpTools = createMcpTools();
   const safetyTools = createSafetyTools(ctx);
   const configTools = createConfigTools(ctx);
   const intakeTools = createIntakeTools(ctx);
@@ -126,6 +134,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ...ralphTools,
       ...nodeTools,
       ...multimodalTools,
+      ...soulTools,
+      ...ultraworkTools,
+      ...routerTools,
+      ...mcpTools,
       ...safetyTools,
       ...configTools,
       ...intakeTools,

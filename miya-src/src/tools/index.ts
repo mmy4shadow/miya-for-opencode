@@ -5,6 +5,10 @@ export { createNodeTools } from './nodes';
 export { createRalphTools } from './ralph';
 export { createAutopilotTools } from './autopilot';
 export { createMultimodalTools } from './multimodal';
+export { createSoulTools } from './soul';
+export { createUltraworkTools } from './ultrawork';
+export { createRouterTools } from './router';
+export { createMcpTools } from './mcp';
 
 // Grep tool (ripgrep-based)
 export { grep } from './grep';

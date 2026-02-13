@@ -11,4 +11,8 @@ export const websearch: RemoteMcpConfig = {
     ? { 'x-api-key': process.env.EXA_API_KEY }
     : undefined,
   oauth: false,
+  capabilities: {
+    sampling: false,
+    mcpUi: false,
+  },
 };

@@ -27,12 +27,12 @@ interface MiyaLoopStateFile {
 const DEFAULT_STATE: MiyaSessionState = {
   loopEnabled: true,
   autoContinue: true,
-  maxIterationsPerWindow: 3,
+  maxIterationsPerWindow: 8,
 
   iterationCompleted: 0,
   windowStartIteration: 0,
   awaitingConfirmation: false,
-  strictQualityGate: true,
+  strictQualityGate: false, // Changed: default to false for smoother experience
   lastDone: [],
   lastMissing: [],
   lastUnresolved: [],

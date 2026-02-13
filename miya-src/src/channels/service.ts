@@ -590,6 +590,9 @@ export class ChannelRuntime {
     channel: ChannelName,
     destination: string,
   ): Promise<void> {
+    if (channel !== 'qq' && channel !== 'wechat') {
+      return;
+    }
     const pairingText =
       'Miya security: your account is not paired yet. Ask admin to approve pairing in Miya control panel.';
     await this.sendMessage({

@@ -11,6 +11,7 @@ import {
   SUBAGENT_NAMES,
 } from '../config';
 import { getAgentMcpList } from '../config/agent-mcps';
+import { soulPersonaLayer } from '../soul';
 
 import { createDesignerAgent } from './designer';
 import { createExplorerAgent } from './explorer';
@@ -37,15 +38,11 @@ function applyOverrides(
   agent: AgentDefinition,
   override: AgentOverrideConfig,
 ): void {
-  if (override.model) {
-    const candidates = [override.model, agent.config.model].filter(
-      (model): model is string => typeof model === 'string' && model.length > 0,
-    );
-    const selected = pickBestAvailableModel(candidates);
-    if (selected) {
-      agent.config.model = selected;
-    }
+  // Apply model override directly - user config takes priority
+  if (override.model && override.model.trim().length > 0) {
+    agent.config.model = override.model.trim();
   }
+  // Apply temperature override
   if (override.temperature !== undefined)
     agent.config.temperature = override.temperature;
 }
@@ -120,6 +117,9 @@ function getFallbackChain(config: PluginConfig | undefined, agentName: string): 
   return [];
 }
 
+// Ultimate fallback model - always available
+const ULTIMATE_FALLBACK_MODEL = 'openrouter/z-ai/glm-5';
+
 function resolveAgentModel(
   config: PluginConfig | undefined,
   agentName: string,
@@ -132,9 +132,10 @@ function resolveAgentModel(
     ...(overrideModel ? [overrideModel] : []),
     ...fallbackChain,
     ...defaults,
+    ULTIMATE_FALLBACK_MODEL, // Always add ultimate fallback
   ];
 
-  return pickBestAvailableModel(candidates) ?? defaults[0];
+  return pickBestAvailableModel(candidates) ?? ULTIMATE_FALLBACK_MODEL;
 }
 
 /**
@@ -144,7 +145,7 @@ function resolveAgentModel(
  * @param config - Optional plugin configuration with agent overrides
  * @returns Array of agent definitions (orchestrator first, then subagents)
  */
-export function createAgents(config?: PluginConfig): AgentDefinition[] {
+export function createAgents(config?: PluginConfig, projectDir?: string): AgentDefinition[] {
   const getModelForAgent = (name: SubagentName): string => {
     if (name === '5-code-fixer') {
       return resolveAgentModel(config, name, [
@@ -175,6 +176,9 @@ export function createAgents(config?: PluginConfig): AgentDefinition[] {
       applyOverrides(agent, override);
     }
     applyDefaultPermissions(agent, override?.skills);
+    if (projectDir) {
+      agent.config.prompt = `${soulPersonaLayer(projectDir)}\n\n${String(agent.config.prompt ?? '')}`;
+    }
     return agent;
   });
 
@@ -195,6 +199,9 @@ export function createAgents(config?: PluginConfig): AgentDefinition[] {
   if (oOverride) {
     applyOverrides(orchestrator, oOverride);
   }
+  if (projectDir) {
+    orchestrator.config.prompt = `${soulPersonaLayer(projectDir)}\n\n${String(orchestrator.config.prompt ?? '')}`;
+  }
 
   return [orchestrator, ...allSubAgents];
 }
@@ -208,8 +215,9 @@ export function createAgents(config?: PluginConfig): AgentDefinition[] {
  */
 export function getAgentConfigs(
   config?: PluginConfig,
+  projectDir?: string,
 ): Record<string, SDKAgentConfig> {
-  const agents = createAgents(config);
+  const agents = createAgents(config, projectDir);
   return Object.fromEntries(
     agents.map((a) => {
       const sdkConfig: SDKAgentConfig & { mcps?: string[] } = {

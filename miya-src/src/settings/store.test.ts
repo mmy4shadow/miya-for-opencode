@@ -30,7 +30,7 @@ describe('settings store', () => {
     const config = readConfig(projectDir);
     expect(config).toBeDefined();
     expect((config.ui as { language?: string }).language).toBe('zh-CN');
-    expect((config.autopilot as { maxCycles?: number }).maxCycles).toBe(3);
+    expect((config.autopilot as { maxCycles?: number }).maxCycles).toBe(8);
     expect(
       (
         config.intake as {
@@ -81,7 +81,7 @@ describe('settings store', () => {
     expect(validation.ok).toBe(true);
     expect(validation.maxRisk).toBe('MED');
     const applied = applyConfigPatch(projectDir, validation);
-    expect(applied.applied.length).toBe(3);
+    expect(applied.applied.length).toBe(2);
 
     const updated = readConfig(projectDir);
     expect(

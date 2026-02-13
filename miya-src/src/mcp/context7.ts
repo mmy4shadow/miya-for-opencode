@@ -11,4 +11,8 @@ export const context7: RemoteMcpConfig = {
     ? { CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY }
     : undefined,
   oauth: false,
+  capabilities: {
+    sampling: false,
+    mcpUi: false,
+  },
 };

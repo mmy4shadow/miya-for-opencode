@@ -1,7 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
-import type { ChannelName, ChannelPairRequest, ChannelState, ChannelStore } from './types';
+import {
+  CHANNEL_NAMES,
+  type ChannelName,
+  type ChannelPairRequest,
+  type ChannelState,
+  type ChannelStore,
+} from './types';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -26,14 +32,11 @@ function defaultChannelState(name: ChannelName): ChannelState {
 }
 
 function defaultStore(): ChannelStore {
-  return {
-    channels: {
-      telegram: defaultChannelState('telegram'),
-      slack: defaultChannelState('slack'),
-      webchat: defaultChannelState('webchat'),
-    },
-    pairs: [],
-  };
+  const channels = {} as Record<ChannelName, ChannelState>;
+  for (const name of CHANNEL_NAMES) {
+    channels[name] = defaultChannelState(name);
+  }
+  return { channels, pairs: [] };
 }
 
 export function readChannelStore(projectDir: string): ChannelStore {
@@ -45,21 +48,15 @@ export function readChannelStore(projectDir: string): ChannelStore {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ChannelStore>;
     const fallback = defaultStore();
+    const mergedChannels = {} as Record<ChannelName, ChannelState>;
+    for (const name of CHANNEL_NAMES) {
+      mergedChannels[name] = {
+        ...fallback.channels[name],
+        ...(parsed.channels?.[name] ?? {}),
+      };
+    }
     return {
-      channels: {
-        telegram: {
-          ...fallback.channels.telegram,
-          ...(parsed.channels?.telegram ?? {}),
-        },
-        slack: {
-          ...fallback.channels.slack,
-          ...(parsed.channels?.slack ?? {}),
-        },
-        webchat: {
-          ...fallback.channels.webchat,
-          ...(parsed.channels?.webchat ?? {}),
-        },
-      },
+      channels: mergedChannels,
       pairs: Array.isArray(parsed.pairs) ? parsed.pairs : [],
     };
   } catch {
