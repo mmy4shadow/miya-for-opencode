@@ -863,7 +863,7 @@ interface WizardSession {
 ├── companion/                    # 女友人格资产根目录
 │   ├── current/                  # 当前激活的人格
 │   │   ├── metadata.json         # 人格元数据
-│   │   ├── photos/               # 参考照片（1-5张）
+│   │   ├── photos/               # 参考照片索引（指向 miya/model/tu pian/chang qi）
 │   │   │   ├── 01_original.jpg
 │   │   │   ├── 02_original.jpg
 │   │   │   └── ...
@@ -871,9 +871,8 @@ interface WizardSession {
 │   │   │   └── face_embedding.pt
 │   │   ├── lora/                 # LoRA权重（中方案，可选）
 │   │   │   └── lora_weights.safetensors
-│   │   ├── voice/                # 语音资产
+│   │   ├── voice/                # 语音索引与派生产物（不重复存模型本体）
 │   │   │   ├── original_sample.wav
-│   │   │   ├── gpt_sovits_model/ # GPT-SoVITS模型
 │   │   │   └── speaker_embed.pt  # 声纹embedding
 │   │   └── persona.json          # 生成的persona配置
 │   └── history/                  # 历史人格（可切换/回滚）
@@ -881,6 +880,8 @@ interface WizardSession {
 │       └── 2026-02-10-002/
 └── work/                         # 工作记忆（与companion隔离）
 ```
+
+- 统一约束：`profiles/**` 允许保存索引、embedding、元数据；模型本体与大文件媒体统一存放在 `miya/model/**`，禁止双份落盘。
 
 **metadata.json 结构**：
 ```json
@@ -1082,6 +1083,29 @@ interface CheckTrainingProgressOutput {
 - 硬约束：不得变更本地已部署模型目录结构（`miya/model/**`），只能在配置层做路径映射与版本指向，不做迁移/改名。
 - 每次 job 启动时必须把“解析后的路径/版本/哈希/训练档位”写入审计记录，避免“跑的是哪个模型不清楚”的口径风险。
 
+**补充（统一文件结构口径，Single Source of Truth）**：
+- 下列目录树是全文唯一口径；其他章节出现的路径都必须从该树派生，不允许再定义平行目录。
+- `miya/model/**` 负责“模型本体 + 生成产物分层（lin shi/chang qi）”；`.opencode/miya/profiles/**` 只负责“画像元数据与索引”，不重复保存大体积原始媒体。
+
+```text
+G:\pythonG\py\yun\.opencode\miya\
+├── automation\
+└── model\
+    ├── shi jue\
+    │   ├── Qwen3VL-4B-Instruct-Q4_K_M\
+    │   ├── lin shi\      # 视觉临时截图（短期）
+    │   └── chang qi\     # 视觉长期证据图（有意义图片）
+    ├── tu pian\
+    │   ├── FLUX.1 schnell\
+    │   ├── FLUX.2 [klein] 4B（Apache-2.0）\
+    │   ├── lin shi\      # Miya 生成图临时区（6个月清理）
+    │   └── chang qi\     # 用户提供长期素材 + 晋升保留图
+    └── sheng yin\
+        ├── GPT-SoVITS-v2pro-20250604\
+        ├── lin shi\      # Miya 生成语音临时区（7天清理）
+        └── chang qi\     # 用户提供长期音色素材
+```
+
 **补充（训练.5：training_preset=0.5，默认档位）**：
 - 约束：在满足“显存硬顶禁止”前提下，选择**更稳**的训练/推理参数集，而不是追求极致画质/极致拟真。
 - 建议把 `training_preset` 作为一个统一旋钮（0.0~1.0）：
@@ -1089,6 +1113,14 @@ interface CheckTrainingProgressOutput {
   - `0.5`：默认（允许 LoRA/adapter，但必须通过预算与稳定性门槛；失败自动回退）
   - `1.0`：高质量（更高步数/分辨率/更重策略；但仍必须预算通过）
 - 图像/语音两个模态必须各自给出“preset=0.5 的固定参数表”（分辨率上限、步数区间、batch、精度、缓存策略、回退链、checkpoint 策略）。
+
+**补充（图片资产分层存储与清理，拍板草案）**：
+- 用户提供的长期素材（训练参考图）固定落盘：`G:\pythonG\py\yun\.opencode\miya\model\tu pian\chang qi`。
+- Miya 生成图片默认落盘：`G:\pythonG\py\yun\.opencode\miya\model\tu pian\lin shi`。
+- `tu pian/lin shi` 采用定时清理策略：默认每 6 个月执行一次过期清理（按文件 `mtime` 判定）。
+- 批判性约束：`lin shi` 采用固定 20GB 硬上限（默认值，可配置）；超上限时按 LRU 提前清理，并保留审计记录。
+- 磁盘水位熔断：若 `tu pian/lin shi` 所在磁盘剩余空间 `< 10GB`，立即触发强制清理（不等待 6 个月周期，也不等待达到 20GB），优先保障 OpenCode/Miya 运行稳定性。
+- 例外晋升机制：若图片被证据链引用（发送证据/故障复盘/记忆物证），允许从 `lin shi` 晋升到长期区并补写元数据（来源任务、hash、触发原因、保留理由）。
 
 **补充（miya-daemon 训练策略矩阵，建议落地为配置中心 JSON）**：
 ```json
@@ -1131,6 +1163,16 @@ interface CheckTrainingProgressOutput {
 - 默认本地 Whisper（small/medium），显存吃紧自动降级到 small/base
 - 默认设备优先级：`NPU > GPU > CPU`；当 GPU 被 LoRA/FLUX 占用时，ASR 仍应保持可用（可降级模型，不可阻塞）。
 - ASR 任务最大排队阈值建议 `<= 200ms`；超过阈值必须触发设备回退，避免“听觉失联”。
+
+#### **4.7.4 语音资产存储策略（GPT-SoVITS 相关）**
+- 用户提供的长期音色材料固定落盘：`G:\pythonG\py\yun\.opencode\miya\model\sheng yin\chang qi`。
+- Miya 生成语音默认落盘：`G:\pythonG\py\yun\.opencode\miya\model\sheng yin\lin shi`。
+- `sheng yin/lin shi` 自动清理周期：每 7 天清理一次（按文件 `mtime` 与发送状态联合判定）。
+- 业务口径：语音一旦“成功外发并回执确认”，即视为完成使命，仅保留短期可追溯窗口（7 天）后删除。
+- 发送失败文件口径（Context Hard Limit）：发送失败或回执不确定的语音任务，设置 `TTL=10分钟`。
+- TTL 内策略：优先重试发送原文件（网络/UI 失败视为同一任务，不重生成语音）。
+- TTL 到期策略：若 10 分钟仍未发出，直接标记任务失败并删除该语音文件，不做盲目重试。
+- 重生成边界：仅当 Arch Advisor 判定“原话术已过时/意图变更”时，才创建新文本与新语音，并按新任务处理（例如“早安”过期后改为“午安”）。
 
 ---
 
@@ -1185,6 +1227,26 @@ interface CheckTrainingProgressOutput {
   - 本地“快眼”（小型视觉模型）负责快速定位关键控件（例如 QQ/微信 的搜索框、发送按钮、附件按钮等），降低延迟与误触。
   - 视觉给出候选坐标后，优先用 UIA 做 hit-test/可点击性校验；若命中可点击元素，则对齐到元素中心点；若无法校验则标记为“纯视觉定位（更高风险）”，提高证据要求并缩小动作集合。
   - 本地视觉模型建议路径（可配置示例）：`G:\\pythonG\\py\\yun\\.opencode\\miya\\model\\shi jue\\Qwen3VL-4B-Instruct-Q4_K_M`（仅使用截图输入，不接触进程内数据）。
+- **哨兵模式联锁（Activity Interlock，分级触发）**：
+  - **Active 状态（用户在用电脑）**：默认不启动微信/OpenCode 进程事件监听与高频截图链路；仅保留低功耗唤醒词监听（`miya`）。
+  - **唤醒对话协议（Active）**：
+    - 触发词：识别到“miya”后，不再使用固定回声词（拒绝机械 `hallo`）；改为本地缓存短语池随机确认（如：`我在`、`嗯？`、`来了`、`Hallo`、`说吧`），随后进入短时指令窗口（建议 8-12 秒，可配置）。
+    - 本地短语池：在初始化 Wizard 阶段预生成并缓存 5-10 条短语及对应 `.wav`（目录建议：`miya/model/sheng yin/cache`）；实时触发只做本地加权随机播放，避免每次唤醒调用 GPT-SoVITS 造成延迟。
+    - 核心清单：短语元数据统一写入 `wake_words.json`（字段至少含 `path/text/weight/tags`），作为实时反射循环唯一输入。
+    - 直接命令：若一次语句包含“miya，帮我……”则跳过二次确认，直接进入执行编排，并可并行发起陪伴对话。
+    - 防抖：要求 VAD + 关键词双命中，且 2 秒内不重复触发，避免环境噪声误唤醒。
+  - **Idle 状态（离开电脑）**：启用双阶触发机制，目标是“秒级响应 + GPU 常态休眠”：
+    - 异步进化循环（Evolution Loop，Idle）：检测到系统 Idle 且存在新记忆/对话时，OpenCode LLM 基于 `memory/chats + user_preference` 重新打分短语池；可筛除不合适短语、生成新短语，并在空闲时调用本地 GPT-SoVITS 生成新 `.wav` 与更新 `wake_words.json`。
+    - 同步反射循环（Reflex Loop，Realtime）：检测到唤醒词后加载 `wake_words.json`，按环境因子二级过滤（如 `Environment=Work` 时过滤 `tags=["intimate"]`），再按 `weight` 加权随机播放。
+    - 低功耗阶（Pixel Diff）：每 5 秒对动态双 ROI（任务栏微信图标 + QQ 图标）执行像素差分；ROI 由 UIA 在进入 Idle 瞬间扫描任务栏并定位当前坐标矩形 `(x,y,w,h)`；仅 CPU 执行，不占 GPU。
+    - 任务栏自动隐藏降级：若检测到任务栏自动隐藏导致 ROI 不可见/屏外，自动降级为系统 UIA NotificationEvent 监听，暂停视觉监控；任务栏恢复可见后再恢复 Pixel Diff。
+    - 高功耗阶（Qwen-VL 确认）：仅当 Pixel Diff 命中阈值（建议连续 2 次命中）后，才调用 `Qwen3VL-4B-Instruct-Q4_K_M` 做截图语义确认。
+    - 互斥约束：只要 `Activity_Score` 回升到 Active 阈值，立即取消高功耗阶，回到唤醒词模式。
+  - **视觉截图存储策略（shi jue）**：
+    - 临时截图目录：`G:\pythonG\py\yun\.opencode\miya\model\shi jue\lin shi`，短期保存并及时删除。
+    - 长期截图目录：`G:\pythonG\py\yun\.opencode\miya\model\shi jue\chang qi`，仅保留“有意义图片”。
+    - “有意义图片”判定（仅以下三类）：1) 触发任务跳转并成功执行；2) 记录 Kill-Switch 或自愈失败现场；3) 包含需写入事实记忆的关键信息。
+    - 批判性约束：进入长期区前必须脱敏（窗口标题/路径/账号号段）并附 `auditId + semantic_summary`，避免长期库存储隐私原文。
 - **强制“不干扰模式”（Human-Mutex，强制）**：
   - 触发条件：检测到用户活跃（例如过去 3 秒内存在物理键鼠输入、或前台窗口/焦点高速变化）→ **绝对禁止尝试控制鼠标/键盘**。
   - 行为：将本次外发意图压入 `pending_queue`（包含 recipient、payload 摘要、预期动作、过期时间、所需能力域 `desktop_control/outbound_send`、风险等级与证据要求）。
@@ -1428,16 +1490,22 @@ miya-src/src/
     ├── logger.ts         # 日志
     ├── tmux.ts           # Tmux工具
     └── agent-variant.ts  # 代理变体
-miya
-├── automation             
-└── model
-    ├──shi jue
-    │      └── Qwen3VL-4B-Instruct-Q4_K_M       #用于控制电脑的视觉模型，注意是GGUF，
-    ├── sheng yin         
-    │      └── GPT-SoVITS-v2pro-20250604        #用于克隆声音的模型
-    └── tu pian         
-           ├── FLUX.1 schnell                   #用于即时生图的模型
-           └── FLUX.2 [klein] 4B（Apache-2.0）   #用于精细化生图的模型，这个模型训练要压缩所需显存到8g以内。
+miya/
+├── automation/
+└── model/
+    ├── shi jue/
+    │   ├── Qwen3VL-4B-Instruct-Q4_K_M          # 控制电脑视觉模型（GGUF）
+    │   ├── lin shi/                            # 临时截图
+    │   └── chang qi/                           # 长期证据截图
+    ├── sheng yin/
+    │   ├── GPT-SoVITS-v2pro-20250604          # 声音克隆模型
+    │   ├── lin shi/                            # 临时语音（7天清理）
+    │   └── chang qi/                           # 长期音色素材
+    └── tu pian/
+        ├── FLUX.1 schnell                      # 即时生图模型
+        ├── FLUX.2 [klein] 4B（Apache-2.0）      # 精细化生图模型（需控制显存占用）
+        ├── lin shi/                            # 临时图片（6个月清理）
+        └── chang qi/                           # 长期图片素材/保留图
 
 ```
 
