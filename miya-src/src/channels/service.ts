@@ -1,3 +1,8 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { sendQqDesktopMessage } from '../channel/outbound/qq';
+import { sendWechatDesktopMessage } from '../channel/outbound/wechat';
 import type { ChannelName } from './types';
 import { assertChannelCanSend } from './policy';
 import {
@@ -8,6 +13,7 @@ import {
   resolvePairRequest,
   upsertChannelState,
 } from './pairing-store';
+import { getMiyaRuntimeDir } from '../workflow';
 
 export interface ChannelInboundMessage {
   channel: ChannelName;
@@ -33,6 +39,63 @@ function parseEnvList(input: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function outboundAuditFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'channels-outbound.jsonl');
+}
+
+function appendOutboundAudit(
+  projectDir: string,
+  row: Record<string, unknown> | ChannelOutboundAudit,
+): void {
+  const file = outboundAuditFile(projectDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${JSON.stringify(row)}\n`, 'utf-8');
+}
+
+export interface ChannelOutboundAudit {
+  id: string;
+  at: string;
+  channel: ChannelName;
+  destination: string;
+  textPreview: string;
+  sent: boolean;
+  message: string;
+  reason?:
+    | 'sent'
+    | 'channel_blocked'
+    | 'arch_advisor_denied'
+    | 'allowlist_denied'
+    | 'throttled'
+    | 'duplicate_payload'
+    | 'desktop_send_failed';
+  riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+  archAdvisorApproved?: boolean;
+  targetInAllowlist?: boolean;
+}
+
+export function listOutboundAudit(
+  projectDir: string,
+  limit = 50,
+): ChannelOutboundAudit[] {
+  const file = outboundAuditFile(projectDir);
+  if (!fs.existsSync(file)) return [];
+  const rows = fs
+    .readFileSync(file, 'utf-8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as ChannelOutboundAudit;
+      } catch {
+        return null;
+      }
+    })
+    .filter((row): row is ChannelOutboundAudit => Boolean(row));
+  return rows
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    .slice(0, Math.max(1, limit));
+}
+
 export class ChannelRuntime {
   private readonly projectDir: string;
   private readonly callbacks: ChannelRuntimeCallbacks;
@@ -41,6 +104,8 @@ export class ChannelRuntime {
   private slackSocketModeRunning = false;
   private slackSocket?: WebSocket;
   private slackReconnectTimer?: ReturnType<typeof setTimeout>;
+  private readonly outboundThrottle = new Map<string, number[]>();
+  private readonly outboundPayloadHistory = new Map<string, Array<{ at: number; hash: string }>>();
 
   constructor(projectDir: string, callbacks: ChannelRuntimeCallbacks) {
     this.projectDir = projectDir;
@@ -373,217 +438,216 @@ export class ChannelRuntime {
     await this.callbacks.onInbound(message);
   }
 
+  private recordOutboundAttempt(
+    row: Omit<ChannelOutboundAudit, 'id' | 'at'> & { id?: string; at?: string },
+  ): ChannelOutboundAudit {
+    const payload: ChannelOutboundAudit = {
+      id: row.id ?? `out_${randomUUID()}`,
+      at: row.at ?? new Date().toISOString(),
+      channel: row.channel,
+      destination: row.destination,
+      textPreview: row.textPreview,
+      sent: row.sent,
+      message: row.message,
+      reason: row.reason,
+      riskLevel: row.riskLevel,
+      archAdvisorApproved: row.archAdvisorApproved,
+      targetInAllowlist: row.targetInAllowlist,
+    };
+    appendOutboundAudit(this.projectDir, payload);
+    return payload;
+  }
+
+  private checkThrottle(channel: ChannelName, destination: string): string | null {
+    const now = Date.now();
+    const key = `${channel}:${destination}`;
+    const windowMs = 60 * 1000;
+    const minIntervalMs = 4000;
+    const burstLimit = 3;
+    const list = (this.outboundThrottle.get(key) ?? []).filter(
+      (ts) => now - ts <= windowMs,
+    );
+    if (list.length > 0 && now - list[list.length - 1] < minIntervalMs) {
+      this.outboundThrottle.set(key, list);
+      return `throttled:min_interval_${minIntervalMs}ms`;
+    }
+    if (list.length >= burstLimit) {
+      this.outboundThrottle.set(key, list);
+      return `throttled:burst_limit_${burstLimit}_per_${windowMs}ms`;
+    }
+    list.push(now);
+    this.outboundThrottle.set(key, list);
+    return null;
+  }
+
+  private checkDuplicatePayload(
+    channel: ChannelName,
+    destination: string,
+    text: string,
+  ): string | null {
+    const now = Date.now();
+    const duplicateWindowMs = 60 * 1000;
+    const key = `${channel}:${destination}`;
+    const payloadHash = createHash('sha256').update(text).digest('hex').slice(0, 24);
+    const recent = (this.outboundPayloadHistory.get(key) ?? []).filter(
+      (item) => now - item.at <= duplicateWindowMs,
+    );
+    const duplicated = recent.some((item) => item.hash === payloadHash);
+    if (!duplicated) {
+      recent.push({ at: now, hash: payloadHash });
+      this.outboundPayloadHistory.set(key, recent);
+      return null;
+    }
+    this.outboundPayloadHistory.set(key, recent);
+    return `duplicate_payload_within_${duplicateWindowMs}ms`;
+  }
+
   async sendMessage(input: {
     channel: ChannelName;
     destination: string;
     text: string;
-  }): Promise<{ sent: boolean; message: string }> {
+    outboundCheck?: {
+      archAdvisorApproved?: boolean;
+      riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+      bypassAllowlist?: boolean;
+      bypassThrottle?: boolean;
+      bypassDuplicateGuard?: boolean;
+    };
+  }): Promise<{ sent: boolean; message: string; auditID?: string }> {
     try {
       assertChannelCanSend(input.channel);
     } catch (error) {
-      return {
+      const audit = this.recordOutboundAttempt({
+        channel: input.channel,
+        destination: input.destination,
+        textPreview: input.text.slice(0, 200),
         sent: false,
         message: error instanceof Error ? error.message : String(error),
+        reason: 'channel_blocked',
+      });
+      return {
+        sent: false,
+        message: audit.message,
+        auditID: audit.id,
       };
+    }
+
+    const archAdvisorApproved = Boolean(input.outboundCheck?.archAdvisorApproved);
+    const riskLevel = input.outboundCheck?.riskLevel ?? 'HIGH';
+    if (!archAdvisorApproved) {
+      const audit = this.recordOutboundAttempt({
+        channel: input.channel,
+        destination: input.destination,
+        textPreview: input.text.slice(0, 200),
+        sent: false,
+        message: 'outbound_blocked:arch_advisor_denied',
+        reason: 'arch_advisor_denied',
+        archAdvisorApproved,
+        riskLevel,
+      });
+      return { sent: false, message: audit.message, auditID: audit.id };
+    }
+
+    const targetInAllowlist =
+      input.outboundCheck?.bypassAllowlist === true
+        ? true
+        : isSenderAllowed(this.projectDir, input.channel, input.destination);
+    if (!targetInAllowlist) {
+      const audit = this.recordOutboundAttempt({
+        channel: input.channel,
+        destination: input.destination,
+        textPreview: input.text.slice(0, 200),
+        sent: false,
+        message: `outbound_blocked:target_not_in_allowlist:${input.channel}`,
+        reason: 'allowlist_denied',
+        archAdvisorApproved,
+        targetInAllowlist,
+        riskLevel,
+      });
+      return { sent: false, message: audit.message, auditID: audit.id };
+    }
+
+    if (input.outboundCheck?.bypassThrottle !== true) {
+      const throttle = this.checkThrottle(input.channel, input.destination);
+      if (throttle) {
+        const audit = this.recordOutboundAttempt({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: input.text.slice(0, 200),
+          sent: false,
+          message: `outbound_blocked:${throttle}`,
+          reason: 'throttled',
+          archAdvisorApproved,
+          targetInAllowlist,
+          riskLevel,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+    }
+
+    if (input.outboundCheck?.bypassDuplicateGuard !== true) {
+      const duplicate = this.checkDuplicatePayload(
+        input.channel,
+        input.destination,
+        input.text,
+      );
+      if (duplicate) {
+        const audit = this.recordOutboundAttempt({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: input.text.slice(0, 200),
+          sent: false,
+          message: `outbound_blocked:${duplicate}`,
+          reason: 'duplicate_payload',
+          archAdvisorApproved,
+          targetInAllowlist,
+          riskLevel,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
     }
 
     if (input.channel === 'qq') {
-      return {
-        sent: false,
-        message: 'qq_ui_automation_not_implemented',
-      };
+      const result = sendQqDesktopMessage({
+        destination: input.destination,
+        text: input.text,
+      });
+      const audit = this.recordOutboundAttempt({
+        channel: 'qq',
+        destination: input.destination,
+        textPreview: input.text.slice(0, 200),
+        sent: result.sent,
+        message: result.message,
+        reason: result.sent ? 'sent' : 'desktop_send_failed',
+        archAdvisorApproved,
+        targetInAllowlist,
+        riskLevel,
+      });
+      return { ...result, auditID: audit.id };
     }
 
     if (input.channel === 'wechat') {
-      return {
-        sent: false,
-        message: 'wechat_ui_automation_not_implemented',
-      };
-    }
-
-    if (input.channel === 'telegram') {
-      const token = process.env.MIYA_TELEGRAM_BOT_TOKEN;
-      if (!token) {
-        return { sent: false, message: 'Missing MIYA_TELEGRAM_BOT_TOKEN' };
-      }
-      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          chat_id: input.destination,
-          text: input.text,
-        }),
+      const result = sendWechatDesktopMessage({
+        destination: input.destination,
+        text: input.text,
       });
-      if (!response.ok) {
-        return { sent: false, message: `telegram_http_${response.status}` };
-      }
-      return { sent: true, message: 'telegram_sent' };
-    }
-
-    if (input.channel === 'slack') {
-      const slackToken = process.env.MIYA_SLACK_BOT_TOKEN;
-      if (!slackToken) {
-        return { sent: false, message: 'Missing MIYA_SLACK_BOT_TOKEN' };
-      }
-
-      const response = await fetch('https://slack.com/api/chat.postMessage', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${slackToken}`,
-        },
-        body: JSON.stringify({
-          channel: input.destination,
-          text: input.text,
-        }),
+      const audit = this.recordOutboundAttempt({
+        channel: 'wechat',
+        destination: input.destination,
+        textPreview: input.text.slice(0, 200),
+        sent: result.sent,
+        message: result.message,
+        reason: result.sent ? 'sent' : 'desktop_send_failed',
+        archAdvisorApproved,
+        targetInAllowlist,
+        riskLevel,
       });
-
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!body.ok) {
-        return {
-          sent: false,
-          message: body.error ?? `slack_http_${response.status}`,
-        };
-      }
-
-      return { sent: true, message: 'slack_sent' };
+      return { ...result, auditID: audit.id };
     }
-
-    if (input.channel === 'discord') {
-      const token = process.env.MIYA_DISCORD_BOT_TOKEN;
-      if (!token) return { sent: false, message: 'Missing MIYA_DISCORD_BOT_TOKEN' };
-      const response = await fetch(
-        `https://discord.com/api/v10/channels/${encodeURIComponent(input.destination)}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            authorization: `Bot ${token}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({ content: input.text }),
-        },
-      );
-      if (!response.ok) {
-        return { sent: false, message: `discord_http_${response.status}` };
-      }
-      return { sent: true, message: 'discord_sent' };
-    }
-
-    if (input.channel === 'whatsapp') {
-      const token = process.env.MIYA_WHATSAPP_TOKEN;
-      const phoneNumberID = process.env.MIYA_WHATSAPP_PHONE_NUMBER_ID;
-      if (!token || !phoneNumberID) {
-        return {
-          sent: false,
-          message: 'Missing MIYA_WHATSAPP_TOKEN or MIYA_WHATSAPP_PHONE_NUMBER_ID',
-        };
-      }
-      const response = await fetch(
-        `https://graph.facebook.com/v19.0/${encodeURIComponent(phoneNumberID)}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${token}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: input.destination,
-            type: 'text',
-            text: { body: input.text },
-          }),
-        },
-      );
-      if (!response.ok) {
-        return { sent: false, message: `whatsapp_http_${response.status}` };
-      }
-      return { sent: true, message: 'whatsapp_sent' };
-    }
-
-    if (input.channel === 'google_chat') {
-      const webhookUrl = process.env.MIYA_GOOGLE_CHAT_WEBHOOK_URL;
-      if (!webhookUrl) return { sent: false, message: 'Missing MIYA_GOOGLE_CHAT_WEBHOOK_URL' };
-      const targetUrl = input.destination.startsWith('http') ? input.destination : webhookUrl;
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: input.text }),
-      });
-      if (!response.ok) {
-        return { sent: false, message: `google_chat_http_${response.status}` };
-      }
-      return { sent: true, message: 'google_chat_sent' };
-    }
-
-    if (input.channel === 'signal') {
-      const signalUrl = process.env.MIYA_SIGNAL_REST_URL;
-      const sourceNumber = process.env.MIYA_SIGNAL_SOURCE_NUMBER;
-      if (!signalUrl || !sourceNumber) {
-        return {
-          sent: false,
-          message: 'Missing MIYA_SIGNAL_REST_URL or MIYA_SIGNAL_SOURCE_NUMBER',
-        };
-      }
-      const response = await fetch(`${signalUrl.replace(/\/$/, '')}/v2/send`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          message: input.text,
-          number: sourceNumber,
-          recipients: [input.destination],
-        }),
-      });
-      if (!response.ok) {
-        return { sent: false, message: `signal_http_${response.status}` };
-      }
-      return { sent: true, message: 'signal_sent' };
-    }
-
-    if (input.channel === 'imessage') {
-      const apiUrl = process.env.MIYA_BLUEBUBBLES_URL;
-      const password = process.env.MIYA_BLUEBUBBLES_PASSWORD;
-      if (!apiUrl) return { sent: false, message: 'Missing MIYA_BLUEBUBBLES_URL' };
-      const endpoint = `${apiUrl.replace(/\/$/, '')}/api/v1/message/text`;
-      const headers: Record<string, string> = {
-        'content-type': 'application/json',
-      };
-      if (password) {
-        headers.authorization = password;
-      }
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          chatGuid: input.destination,
-          message: input.text,
-        }),
-      });
-      if (!response.ok) {
-        return { sent: false, message: `imessage_http_${response.status}` };
-      }
-      return { sent: true, message: 'imessage_sent' };
-    }
-
-    if (input.channel === 'teams') {
-      const webhookUrl = process.env.MIYA_TEAMS_WEBHOOK_URL;
-      if (!webhookUrl) return { sent: false, message: 'Missing MIYA_TEAMS_WEBHOOK_URL' };
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          type: 'message',
-          text: input.text,
-        }),
-      });
-      if (!response.ok) {
-        return { sent: false, message: `teams_http_${response.status}` };
-      }
-      return { sent: true, message: 'teams_sent' };
-    }
-
-    return { sent: false, message: `unsupported_channel:${input.channel}` };
+    return {
+      sent: false,
+      message: `channel_send_blocked:${input.channel}:INBOUND_ONLY channels are receive-only`,
+    };
   }
 
   private async sendPairingMessage(
@@ -599,6 +663,13 @@ export class ChannelRuntime {
       channel,
       destination,
       text: pairingText,
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+        bypassAllowlist: true,
+        bypassThrottle: true,
+        bypassDuplicateGuard: true,
+      },
     });
   }
 }
