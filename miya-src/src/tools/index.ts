@@ -1,6 +1,9 @@
 // AST-grep tools
 export { ast_grep_replace, ast_grep_search } from './ast-grep';
 export { createBackgroundTools } from './background';
+export { createNodeTools } from './nodes';
+export { createRalphTools } from './ralph';
+export { createAutopilotTools } from './autopilot';
 
 // Grep tool (ripgrep-based)
 export { grep } from './grep';

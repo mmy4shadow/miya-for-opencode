@@ -14,7 +14,6 @@ import {
   startGatewayWithLog,
 } from './gateway';
 import { createIntakeTools } from './intake';
-import { autoStartMiyaDock } from './dock/autostart';
 import {
   createLoopGuardHook,
   createPhaseReminderHook,
@@ -28,7 +27,10 @@ import {
   ast_grep_replace,
   ast_grep_search,
   createAutomationTools,
+  createAutopilotTools,
   createBackgroundTools,
+  createNodeTools,
+  createRalphTools,
   grep,
   lsp_diagnostics,
   lsp_find_references,
@@ -72,7 +74,6 @@ const MiyaPlugin: Plugin = async (ctx) => {
     extraSkillDirs: [],
   });
   startGatewayWithLog(ctx.directory);
-  autoStartMiyaDock(ctx.directory, { enabled: config.dock?.autostart ?? true });
 
   const backgroundTools = createBackgroundTools(
     ctx,
@@ -82,6 +83,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
   );
   const automationTools = createAutomationTools(automationService);
   const workflowTools = createWorkflowTools(ctx.directory);
+  const autopilotTools = createAutopilotTools(ctx.directory);
+  const ralphTools = createRalphTools();
+  const nodeTools = createNodeTools(ctx.directory);
   const safetyTools = createSafetyTools(ctx);
   const configTools = createConfigTools(ctx);
   const intakeTools = createIntakeTools(ctx);
@@ -116,6 +120,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ...backgroundTools,
       ...automationTools,
       ...workflowTools,
+      ...autopilotTools,
+      ...ralphTools,
+      ...nodeTools,
       ...safetyTools,
       ...configTools,
       ...intakeTools,
@@ -197,11 +204,20 @@ const MiyaPlugin: Plugin = async (ctx) => {
       }
 
       commandConfig['miya-gateway-start'] = {
-        description: 'Start Miya Gateway and print runtime URL for Dock clients',
+        description: 'Start Miya Gateway and print runtime URL',
         agent: '1-task-manager',
         template:
           'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
       };
+
+      if (!commandConfig['miya-gateway-shutdown']) {
+        commandConfig['miya-gateway-shutdown'] = {
+          description: 'Stop Miya Gateway runtime',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_gateway_shutdown` exactly once. Return only tool output.',
+        };
+      }
 
       if (!commandConfig['miya-ui-open']) {
         commandConfig['miya-ui-open'] = {
@@ -252,12 +268,25 @@ const MiyaPlugin: Plugin = async (ctx) => {
       if (!commandConfig.miya_gateway_start) {
         commandConfig.miya_gateway_start = { ...commandConfig['miya-gateway-start'] };
       }
+      if (!commandConfig.miya_gateway_shutdown) {
+        commandConfig.miya_gateway_shutdown = {
+          ...commandConfig['miya-gateway-shutdown'],
+        };
+      }
       if (!commandConfig['miya.gateway.start']) {
         commandConfig['miya.gateway.start'] = {
           description: 'Alias of miya-gateway-start',
           agent: '1-task-manager',
           template:
             'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
+        };
+      }
+      if (!commandConfig['miya.gateway.shutdown']) {
+        commandConfig['miya.gateway.shutdown'] = {
+          description: 'Alias of miya-gateway-shutdown',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_gateway_shutdown` exactly once. Return only tool output.',
         };
       }
 
@@ -321,6 +350,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
 
     event: async (input) => {
+      // Handle model persistence from all event types (message, agent switch, session)
       const modelSelection = extractAgentModelSelectionFromEvent(input.event);
       if (modelSelection) {
         const changed = persistAgentModelSelection(
@@ -329,7 +359,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
           modelSelection.model,
         );
         if (changed) {
-          log('[model-persistence] updated', {
+          log(`[model-persistence] updated from ${modelSelection.source}`, {
             agent: modelSelection.agentName,
             model: modelSelection.model,
           });

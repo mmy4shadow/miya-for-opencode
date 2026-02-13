@@ -1,4 +1,5 @@
 import type { ChannelName } from './types';
+import { assertChannelCanSend } from './policy';
 import {
   ensurePairRequest,
   isSenderAllowed,
@@ -37,6 +38,9 @@ export class ChannelRuntime {
   private readonly callbacks: ChannelRuntimeCallbacks;
   private telegramPolling = false;
   private telegramOffset = 0;
+  private slackSocketModeRunning = false;
+  private slackSocket?: WebSocket;
+  private slackReconnectTimer?: ReturnType<typeof setTimeout>;
 
   constructor(projectDir: string, callbacks: ChannelRuntimeCallbacks) {
     this.projectDir = projectDir;
@@ -66,15 +70,188 @@ export class ChannelRuntime {
   async start(): Promise<void> {
     upsertChannelState(this.projectDir, 'webchat', { enabled: true, connected: true });
     await this.startTelegramPolling();
-    this.syncSlackConfigState();
+    this.syncPassiveChannelStates();
+    await this.startSlackSocketMode();
   }
 
-  private syncSlackConfigState(): void {
+  private syncPassiveChannelStates(): void {
+    upsertChannelState(this.projectDir, 'qq', {
+      enabled: false,
+      connected: false,
+      lastError: 'QQ outbound requires desktop UI automation runtime',
+    });
+
+    upsertChannelState(this.projectDir, 'wechat', {
+      enabled: false,
+      connected: false,
+      lastError: 'WeChat outbound requires desktop UI automation runtime',
+    });
+
     const hasSlack = !!process.env.MIYA_SLACK_BOT_TOKEN;
     upsertChannelState(this.projectDir, 'slack', {
       enabled: hasSlack,
       connected: hasSlack,
       lastError: hasSlack ? undefined : 'Missing MIYA_SLACK_BOT_TOKEN',
+    });
+
+    const hasDiscord = !!process.env.MIYA_DISCORD_BOT_TOKEN;
+    upsertChannelState(this.projectDir, 'discord', {
+      enabled: hasDiscord,
+      connected: hasDiscord,
+      lastError: hasDiscord ? undefined : 'Missing MIYA_DISCORD_BOT_TOKEN',
+    });
+
+    const hasWhatsApp =
+      !!process.env.MIYA_WHATSAPP_TOKEN &&
+      !!process.env.MIYA_WHATSAPP_PHONE_NUMBER_ID;
+    upsertChannelState(this.projectDir, 'whatsapp', {
+      enabled: hasWhatsApp,
+      connected: hasWhatsApp,
+      lastError: hasWhatsApp
+        ? undefined
+        : 'Missing MIYA_WHATSAPP_TOKEN or MIYA_WHATSAPP_PHONE_NUMBER_ID',
+    });
+
+    const hasGoogleChat = !!process.env.MIYA_GOOGLE_CHAT_WEBHOOK_URL;
+    upsertChannelState(this.projectDir, 'google_chat', {
+      enabled: hasGoogleChat,
+      connected: hasGoogleChat,
+      lastError: hasGoogleChat ? undefined : 'Missing MIYA_GOOGLE_CHAT_WEBHOOK_URL',
+    });
+
+    const hasSignal = !!process.env.MIYA_SIGNAL_REST_URL;
+    upsertChannelState(this.projectDir, 'signal', {
+      enabled: hasSignal,
+      connected: hasSignal,
+      lastError: hasSignal ? undefined : 'Missing MIYA_SIGNAL_REST_URL',
+    });
+
+    const hasIMessage = !!process.env.MIYA_BLUEBUBBLES_URL;
+    upsertChannelState(this.projectDir, 'imessage', {
+      enabled: hasIMessage,
+      connected: hasIMessage,
+      lastError: hasIMessage ? undefined : 'Missing MIYA_BLUEBUBBLES_URL',
+    });
+
+    const hasTeams = !!process.env.MIYA_TEAMS_WEBHOOK_URL;
+    upsertChannelState(this.projectDir, 'teams', {
+      enabled: hasTeams,
+      connected: hasTeams,
+      lastError: hasTeams ? undefined : 'Missing MIYA_TEAMS_WEBHOOK_URL',
+    });
+  }
+
+  private async startSlackSocketMode(): Promise<void> {
+    const appToken = process.env.MIYA_SLACK_APP_TOKEN;
+    const botToken = process.env.MIYA_SLACK_BOT_TOKEN;
+    if (!appToken || !botToken || this.slackSocketModeRunning) return;
+    this.slackSocketModeRunning = true;
+
+    const connect = async (): Promise<void> => {
+      if (!this.slackSocketModeRunning) return;
+
+      try {
+        const openRes = await fetch('https://slack.com/api/apps.connections.open', {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${appToken}`,
+            'content-type': 'application/json',
+          },
+          body: '{}',
+        });
+        const openBody = (await openRes.json()) as {
+          ok?: boolean;
+          url?: string;
+          error?: string;
+        };
+        if (!openBody.ok || !openBody.url) {
+          throw new Error(openBody.error ?? 'slack_socket_open_failed');
+        }
+
+        const socket = new WebSocket(openBody.url);
+        this.slackSocket = socket;
+
+        socket.onopen = () => {
+          upsertChannelState(this.projectDir, 'slack', {
+            enabled: true,
+            connected: true,
+            lastError: undefined,
+          });
+        };
+
+        socket.onmessage = (event) => {
+          void this.handleSlackSocketMessage(String(event.data));
+        };
+
+        socket.onerror = () => {
+          upsertChannelState(this.projectDir, 'slack', {
+            connected: false,
+            lastError: 'slack_socket_error',
+          });
+        };
+
+        socket.onclose = () => {
+          if (!this.slackSocketModeRunning) return;
+          upsertChannelState(this.projectDir, 'slack', {
+            connected: false,
+            lastError: 'slack_socket_closed',
+          });
+          this.scheduleSlackReconnect(connect);
+        };
+      } catch (error) {
+        upsertChannelState(this.projectDir, 'slack', {
+          connected: false,
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+        this.scheduleSlackReconnect(connect);
+      }
+    };
+
+    await connect();
+  }
+
+  private scheduleSlackReconnect(connect: () => Promise<void>): void {
+    if (!this.slackSocketModeRunning) return;
+    if (this.slackReconnectTimer) clearTimeout(this.slackReconnectTimer);
+    this.slackReconnectTimer = setTimeout(() => {
+      void connect();
+    }, 3000);
+  }
+
+  private async handleSlackSocketMessage(messageText: string): Promise<void> {
+    if (!messageText.trim()) return;
+    const payload = JSON.parse(messageText) as {
+      envelope_id?: string;
+      type?: string;
+      payload?: {
+        event?: {
+          type?: string;
+          user?: string;
+          text?: string;
+          channel?: string;
+          bot_id?: string;
+        };
+      };
+    };
+
+    if (payload.envelope_id && this.slackSocket?.readyState === WebSocket.OPEN) {
+      this.slackSocket.send(JSON.stringify({ envelope_id: payload.envelope_id }));
+    }
+
+    if (payload.type !== 'events_api') return;
+    const event = payload.payload?.event;
+    if (!event) return;
+    if (event.type !== 'message') return;
+    if (!event.user || !event.text || !event.channel) return;
+    if (event.bot_id) return;
+
+    await this.handleInbound({
+      channel: 'slack',
+      senderID: event.user,
+      displayName: event.user,
+      conversationID: event.channel,
+      text: event.text,
+      raw: payload,
     });
   }
 
@@ -161,6 +338,17 @@ export class ChannelRuntime {
 
   stop(): void {
     this.telegramPolling = false;
+    this.slackSocketModeRunning = false;
+    if (this.slackReconnectTimer) {
+      clearTimeout(this.slackReconnectTimer);
+      this.slackReconnectTimer = undefined;
+    }
+    if (this.slackSocket) {
+      try {
+        this.slackSocket.close();
+      } catch {}
+      this.slackSocket = undefined;
+    }
   }
 
   async handleInbound(message: ChannelInboundMessage): Promise<void> {
@@ -190,10 +378,26 @@ export class ChannelRuntime {
     destination: string;
     text: string;
   }): Promise<{ sent: boolean; message: string }> {
-    if (input.channel === 'webchat') {
+    try {
+      assertChannelCanSend(input.channel);
+    } catch (error) {
       return {
-        sent: true,
-        message: 'webchat_echo',
+        sent: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    if (input.channel === 'qq') {
+      return {
+        sent: false,
+        message: 'qq_ui_automation_not_implemented',
+      };
+    }
+
+    if (input.channel === 'wechat') {
+      return {
+        sent: false,
+        message: 'wechat_ui_automation_not_implemented',
       };
     }
 
@@ -218,32 +422,168 @@ export class ChannelRuntime {
       return { sent: true, message: 'telegram_sent' };
     }
 
-    const slackToken = process.env.MIYA_SLACK_BOT_TOKEN;
-    if (!slackToken) {
-      return { sent: false, message: 'Missing MIYA_SLACK_BOT_TOKEN' };
+    if (input.channel === 'slack') {
+      const slackToken = process.env.MIYA_SLACK_BOT_TOKEN;
+      if (!slackToken) {
+        return { sent: false, message: 'Missing MIYA_SLACK_BOT_TOKEN' };
+      }
+
+      const response = await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${slackToken}`,
+        },
+        body: JSON.stringify({
+          channel: input.destination,
+          text: input.text,
+        }),
+      });
+
+      const body = (await response.json()) as { ok?: boolean; error?: string };
+      if (!body.ok) {
+        return {
+          sent: false,
+          message: body.error ?? `slack_http_${response.status}`,
+        };
+      }
+
+      return { sent: true, message: 'slack_sent' };
     }
 
-    const response = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: {
+    if (input.channel === 'discord') {
+      const token = process.env.MIYA_DISCORD_BOT_TOKEN;
+      if (!token) return { sent: false, message: 'Missing MIYA_DISCORD_BOT_TOKEN' };
+      const response = await fetch(
+        `https://discord.com/api/v10/channels/${encodeURIComponent(input.destination)}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bot ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ content: input.text }),
+        },
+      );
+      if (!response.ok) {
+        return { sent: false, message: `discord_http_${response.status}` };
+      }
+      return { sent: true, message: 'discord_sent' };
+    }
+
+    if (input.channel === 'whatsapp') {
+      const token = process.env.MIYA_WHATSAPP_TOKEN;
+      const phoneNumberID = process.env.MIYA_WHATSAPP_PHONE_NUMBER_ID;
+      if (!token || !phoneNumberID) {
+        return {
+          sent: false,
+          message: 'Missing MIYA_WHATSAPP_TOKEN or MIYA_WHATSAPP_PHONE_NUMBER_ID',
+        };
+      }
+      const response = await fetch(
+        `https://graph.facebook.com/v19.0/${encodeURIComponent(phoneNumberID)}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: input.destination,
+            type: 'text',
+            text: { body: input.text },
+          }),
+        },
+      );
+      if (!response.ok) {
+        return { sent: false, message: `whatsapp_http_${response.status}` };
+      }
+      return { sent: true, message: 'whatsapp_sent' };
+    }
+
+    if (input.channel === 'google_chat') {
+      const webhookUrl = process.env.MIYA_GOOGLE_CHAT_WEBHOOK_URL;
+      if (!webhookUrl) return { sent: false, message: 'Missing MIYA_GOOGLE_CHAT_WEBHOOK_URL' };
+      const targetUrl = input.destination.startsWith('http') ? input.destination : webhookUrl;
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: input.text }),
+      });
+      if (!response.ok) {
+        return { sent: false, message: `google_chat_http_${response.status}` };
+      }
+      return { sent: true, message: 'google_chat_sent' };
+    }
+
+    if (input.channel === 'signal') {
+      const signalUrl = process.env.MIYA_SIGNAL_REST_URL;
+      const sourceNumber = process.env.MIYA_SIGNAL_SOURCE_NUMBER;
+      if (!signalUrl || !sourceNumber) {
+        return {
+          sent: false,
+          message: 'Missing MIYA_SIGNAL_REST_URL or MIYA_SIGNAL_SOURCE_NUMBER',
+        };
+      }
+      const response = await fetch(`${signalUrl.replace(/\/$/, '')}/v2/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: input.text,
+          number: sourceNumber,
+          recipients: [input.destination],
+        }),
+      });
+      if (!response.ok) {
+        return { sent: false, message: `signal_http_${response.status}` };
+      }
+      return { sent: true, message: 'signal_sent' };
+    }
+
+    if (input.channel === 'imessage') {
+      const apiUrl = process.env.MIYA_BLUEBUBBLES_URL;
+      const password = process.env.MIYA_BLUEBUBBLES_PASSWORD;
+      if (!apiUrl) return { sent: false, message: 'Missing MIYA_BLUEBUBBLES_URL' };
+      const endpoint = `${apiUrl.replace(/\/$/, '')}/api/v1/message/text`;
+      const headers: Record<string, string> = {
         'content-type': 'application/json',
-        authorization: `Bearer ${slackToken}`,
-      },
-      body: JSON.stringify({
-        channel: input.destination,
-        text: input.text,
-      }),
-    });
-
-    const body = (await response.json()) as { ok?: boolean; error?: string };
-    if (!body.ok) {
-      return {
-        sent: false,
-        message: body.error ?? `slack_http_${response.status}`,
       };
+      if (password) {
+        headers.authorization = password;
+      }
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          chatGuid: input.destination,
+          message: input.text,
+        }),
+      });
+      if (!response.ok) {
+        return { sent: false, message: `imessage_http_${response.status}` };
+      }
+      return { sent: true, message: 'imessage_sent' };
     }
 
-    return { sent: true, message: 'slack_sent' };
+    if (input.channel === 'teams') {
+      const webhookUrl = process.env.MIYA_TEAMS_WEBHOOK_URL;
+      if (!webhookUrl) return { sent: false, message: 'Missing MIYA_TEAMS_WEBHOOK_URL' };
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'message',
+          text: input.text,
+        }),
+      });
+      if (!response.ok) {
+        return { sent: false, message: `teams_http_${response.status}` };
+      }
+      return { sent: true, message: 'teams_sent' };
+    }
+
+    return { sent: false, message: `unsupported_channel:${input.channel}` };
   }
 
   private async sendPairingMessage(
