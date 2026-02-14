@@ -53,7 +53,7 @@ import {
   touchNodeHeartbeat,
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
-import { getLauncherDaemonSnapshot } from '../daemon';
+import { getLauncherDaemonSnapshot, getMiyaDaemonService } from '../daemon';
 import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
 import {
   appendVoiceHistory,
@@ -82,10 +82,17 @@ import {
   searchCompanionMemoryVectors,
 } from '../companion/memory-vector';
 import {
+  getCompanionProfileCurrentDir,
+  getWizardJobById,
+  markTrainingJobFinished,
+  markTrainingJobRunning,
+  pickQueuedTrainingJob,
   readCompanionWizardState,
+  resetCompanionWizard,
   startCompanionWizard,
-  submitCompanionWizardInput,
-  tickCompanionTrainingJobs,
+  submitWizardPersonality,
+  submitWizardPhotos,
+  submitWizardVoice,
   wizardChecklist,
 } from '../companion/wizard';
 import { generateImage, synthesizeVoiceOutput, detectMultimodalIntent } from '../multimodal';
@@ -143,6 +150,7 @@ interface GatewayRuntime {
   nodeSockets: Map<string, Bun.ServerWebSocket<unknown>>;
   wsMeta: WeakMap<Bun.ServerWebSocket<unknown>, GatewayWsData>;
   wizardTickTimer?: ReturnType<typeof setInterval>;
+  wizardRunnerBusy?: boolean;
 }
 
 interface GatewayWsData {
@@ -859,6 +867,76 @@ function publishGatewayEvent(
   );
 }
 
+async function runWizardTrainingWorker(
+  projectDir: string,
+  runtime: GatewayRuntime,
+): Promise<void> {
+  if (runtime.wizardRunnerBusy) return;
+  const queued = pickQueuedTrainingJob(projectDir);
+  if (!queued) return;
+  runtime.wizardRunnerBusy = true;
+  try {
+    const runningState = markTrainingJobRunning(projectDir, queued.id);
+    publishGatewayEvent(runtime, 'companion.wizard.progress', {
+      jobID: queued.id,
+      type: queued.type,
+      status: 'training',
+      progress: 5,
+      step: runningState.state,
+    });
+    const daemon = getMiyaDaemonService(projectDir);
+    const profileDir = getCompanionProfileCurrentDir(projectDir);
+    if (queued.type === 'training.image') {
+      const photosDir = path.join(profileDir, 'photos');
+      const result = await daemon.runFluxTraining({
+        profileDir,
+        photosDir,
+        jobID: queued.id,
+      });
+      const done = markTrainingJobFinished(projectDir, {
+        jobID: queued.id,
+        status: result.status === 'failed' ? 'failed' : result.status,
+        message: result.message,
+        tier: result.tier,
+      });
+      publishGatewayEvent(runtime, 'companion.wizard.progress', {
+        jobID: queued.id,
+        type: queued.type,
+        status: result.status === 'failed' ? 'failed' : result.status,
+        progress: result.status === 'failed' ? 50 : 100,
+        currentTier: result.tier,
+        message: result.message,
+        step: done.state,
+      });
+      return;
+    }
+
+    const voiceSamplePath = path.join(profileDir, 'voice', 'original_sample.wav');
+    const result = await daemon.runSovitsTraining({
+      profileDir,
+      voiceSamplePath,
+      jobID: queued.id,
+    });
+    const done = markTrainingJobFinished(projectDir, {
+      jobID: queued.id,
+      status: result.status === 'failed' ? 'failed' : result.status,
+      message: result.message,
+      tier: result.tier,
+    });
+    publishGatewayEvent(runtime, 'companion.wizard.progress', {
+      jobID: queued.id,
+      type: queued.type,
+      status: result.status === 'failed' ? 'failed' : result.status,
+      progress: result.status === 'failed' ? 50 : 100,
+      currentTier: result.tier,
+      message: result.message,
+      step: done.state,
+    });
+  } finally {
+    runtime.wizardRunnerBusy = false;
+  }
+}
+
 function ensureWsData(
   runtime: GatewayRuntime,
   ws: Bun.ServerWebSocket<unknown>,
@@ -958,12 +1036,21 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const text = parseText(params.text);
     if (!sessionID || !text) throw new Error('invalid_sessions_send_args');
     if (text.trim() === '/start') {
-      const wizard = startCompanionWizard(projectDir);
+      const wizard = startCompanionWizard(projectDir, { sessionId: sessionID });
       return {
-        sessionID: wizard.sessionID,
+        sessionID: wizard.sessionId,
         wizard,
         checklist: wizardChecklist(wizard),
-        message: 'wizard_started: please send images, voice samples, then persona text.',
+        message: '给我展示我应该是什么样子。发送1到5张照片。',
+        instruction: '将照片拖拽到聊天中',
+      };
+    }
+    if (text.trim() === '/reset_personality') {
+      const wizard = resetCompanionWizard(projectDir);
+      return {
+        sessionID: wizard.sessionId,
+        wizard,
+        message: '已重置人格资产，请重新开始 /start',
       };
     }
     upsertSession(projectDir, {
@@ -1882,7 +1969,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
 
   methods.register('companion.status', async () => readCompanionProfile(projectDir));
-  methods.register('companion.wizard.start', async () => {
+  methods.register('companion.wizard.start', async (params) => {
     const session = upsertSession(projectDir, {
       id: 'wizard:companion',
       kind: 'wizard',
@@ -1892,12 +1979,18 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       agent: '1-task-manager',
     });
     const profile = readCompanionProfile(projectDir);
-    const wizard = startCompanionWizard(projectDir);
+    const wizard = startCompanionWizard(projectDir, {
+      sessionId: 'wizard:companion',
+      forceReset: Boolean(params.forceReset),
+    });
     return {
       session,
       profile,
       wizard,
       checklist: wizardChecklist(wizard),
+      state: wizard.state,
+      message: '给我展示我应该是什么样子。发送1到5张照片。',
+      instruction: '将照片拖拽到聊天中',
     };
   });
   methods.register('companion.wizard.status', async () => {
@@ -1907,35 +2000,103 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       checklist: wizardChecklist(wizard),
     };
   });
-  methods.register('companion.wizard.submit', async (params) => {
+  methods.register('companion.wizard.photos.submit', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
-    const imageMediaIDs = Array.isArray(params.imageMediaIDs)
-      ? params.imageMediaIDs.map(String)
-      : [];
-    const audioMediaIDs = Array.isArray(params.audioMediaIDs)
-      ? params.audioMediaIDs.map(String)
-      : [];
-    const wizard = submitCompanionWizardInput(projectDir, {
-      imageMediaIDs,
-      audioMediaIDs,
-      personaText: parseText(params.personaText),
+    const mediaIDs = Array.isArray(params.photoMediaIDs)
+      ? params.photoMediaIDs.map(String)
+      : Array.isArray(params.imageMediaIDs)
+        ? params.imageMediaIDs.map(String)
+        : [];
+    const { state, job } = submitWizardPhotos(projectDir, { mediaIDs });
+    return {
+      state: state.state,
+      message: '收到照片，开始训练图像模型...',
+      jobId: job.id,
+      estimatedTime: job.estimatedTime,
+      fallbackStrategy: job.fallbackStrategy,
+      checklist: wizardChecklist(state),
+    };
+  });
+  methods.register('companion.wizard.voice.submit', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const mediaID = parseText(params.mediaID) || parseText(params.audioMediaID);
+    if (!mediaID) throw new Error('invalid_voice_media_id');
+    const { state, job } = submitWizardVoice(projectDir, { mediaID });
+    return {
+      state: state.state,
+      message: '收到语音样本，开始训练声音模型...',
+      jobId: job.id,
+      estimatedTime: job.estimatedTime,
+      checklist: wizardChecklist(state),
+    };
+  });
+  methods.register('companion.wizard.personality.submit', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const personalityText = parseText(params.personalityText);
+    const wizard = submitWizardPersonality(projectDir, {
+      personalityText,
     });
     return {
-      wizard,
+      state: wizard.state,
+      message: '设置完成。你好，亲爱的！',
+      personaPreview: wizard.assets.personalityText.slice(0, 120),
       checklist: wizardChecklist(wizard),
     };
   });
-  methods.register('companion.wizard.tick', async () => {
-    const tick = tickCompanionTrainingJobs(projectDir);
-    if (tick.progressEvent) {
-      publishGatewayEvent(runtime, 'companion.wizard.progress', {
-        ...tick.progressEvent,
-        step: tick.state.step,
-      });
+  methods.register('companion.wizard.submit', async (params) => {
+    if (Array.isArray(params.photoMediaIDs) || Array.isArray(params.imageMediaIDs)) {
+      return runtime.methods.invoke(
+        'companion.wizard.photos.submit',
+        params as Record<string, unknown>,
+        { clientID: 'gateway', role: 'admin' },
+      );
     }
-    return tick;
+    if (typeof params.mediaID === 'string' || typeof params.audioMediaID === 'string') {
+      return runtime.methods.invoke(
+        'companion.wizard.voice.submit',
+        params as Record<string, unknown>,
+        { clientID: 'gateway', role: 'admin' },
+      );
+    }
+    if (typeof params.personalityText === 'string') {
+      return runtime.methods.invoke(
+        'companion.wizard.personality.submit',
+        params as Record<string, unknown>,
+        { clientID: 'gateway', role: 'admin' },
+      );
+    }
+    throw new Error('invalid_wizard_submit_payload');
+  });
+  methods.register('companion.wizard.tick', async () => {
+    await runWizardTrainingWorker(projectDir, runtime);
+    return {
+      wizard: readCompanionWizardState(projectDir),
+    };
+  });
+  methods.register('companion.wizard.progress.get', async (params) => {
+    const jobID = parseText(params.jobId) || parseText(params.jobID);
+    if (!jobID) throw new Error('invalid_job_id');
+    const job = getWizardJobById(projectDir, jobID);
+    if (!job) throw new Error('job_not_found');
+    const status: 'pending' | 'training' | 'completed' | 'failed' | 'degraded' =
+      job.status === 'queued' ? 'pending' : job.status;
+    const nextStep =
+      status === 'completed' || status === 'degraded'
+        ? readCompanionWizardState(projectDir).state
+        : undefined;
+    return {
+      status,
+      progress: job.progress,
+      currentTier: job.currentTier,
+      message: job.message ?? '',
+      nextStep,
+    }
   });
   methods.register('companion.profile.update', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
@@ -2008,7 +2169,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const policyHash = parseText(params.policyHash) || undefined;
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_delete');
-    return resetCompanionProfile(projectDir);
+    const profile = resetCompanionProfile(projectDir);
+    const wizard = resetCompanionWizard(projectDir);
+    return { profile, wizard };
   });
   methods.register('companion.intent.handle', async (params) => {
     const text = parseText(params.text);
@@ -2640,18 +2803,13 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     nodeSockets: new Map(),
     wsMeta: new WeakMap(),
     wizardTickTimer: undefined,
+    wizardRunnerBusy: false,
   };
 
   runtime.methods = createMethods(projectDir, runtime);
   runtimes.set(projectDir, runtime);
   runtime.wizardTickTimer = setInterval(() => {
-    const tick = tickCompanionTrainingJobs(projectDir);
-    if (tick.progressEvent) {
-      publishGatewayEvent(runtime, 'companion.wizard.progress', {
-        ...tick.progressEvent,
-        step: tick.state.step,
-      });
-    }
+    void runWizardTrainingWorker(projectDir, runtime);
   }, 1_200);
   void runtime.channelRuntime.start();
   return syncGatewayState(projectDir, runtime);

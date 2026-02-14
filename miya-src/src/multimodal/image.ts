@@ -1,6 +1,9 @@
 import { addCompanionAsset } from '../companion/store';
 import { getMiyaDaemonService } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
+import { getMiyaRuntimeDir } from '../workflow';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { GenerateImageInput, GenerateImageResult } from './types';
 
 const DEFAULT_IMAGE_MODEL = 'local:flux.1-schnell';
@@ -10,6 +13,15 @@ const BLANK_PNG_BASE64 =
 
 function sanitizePrompt(prompt: string): string {
   return prompt.trim().slice(0, 2000);
+}
+
+function toBase64FromFile(filePath: string): string | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return fs.readFileSync(filePath).toString('base64');
+  } catch {
+    return null;
+  }
 }
 
 export async function generateImage(
@@ -46,19 +58,39 @@ export async function generateImage(
           mimeType: item.mimeType,
           localPath: item.localPath,
         }));
+      const outputDir = path.join(getMiyaRuntimeDir(projectDir), 'model', 'tu pian', 'outputs');
+      const outputPath = path.join(outputDir, `flux-${Date.now()}.png`);
+      const profileDir = path.join(
+        getMiyaRuntimeDir(projectDir),
+        'profiles',
+        'companion',
+        'current',
+      );
+      const inference = await daemon.runFluxImageGenerate({
+        prompt,
+        outputPath,
+        profileDir,
+        references: references.map((item) => item.localPath).filter((item): item is string => Boolean(item)),
+        size,
+      });
+      const payloadBase64 =
+        toBase64FromFile(inference.outputPath) ?? BLANK_PNG_BASE64;
 
       const media = ingestMedia(projectDir, {
         source: 'multimodal.image.generate',
         kind: 'image',
         mimeType: 'image/png',
         fileName: `generated-${Date.now()}.png`,
-        contentBase64: BLANK_PNG_BASE64,
-        sizeBytes: Math.floor((BLANK_PNG_BASE64.length * 3) / 4),
+        contentBase64: payloadBase64,
+        sizeBytes: Math.floor((payloadBase64.length * 3) / 4),
         metadata: {
           status: 'generated_local',
           prompt,
           model,
           size,
+          tier: inference.tier,
+          degraded: inference.degraded,
+          engineMessage: inference.message,
           references,
           createdBy: 'miya_generate_image',
         },

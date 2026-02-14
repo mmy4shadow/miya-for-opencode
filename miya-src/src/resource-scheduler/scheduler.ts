@@ -58,9 +58,11 @@ export class ResourceScheduler {
 
   constructor(projectDir: string, options: ResourceSchedulerOptions = {}) {
     this.projectDir = projectDir;
-    this.totalVramMB =
+    this.totalVramMB = Math.min(
+      8192,
       options.totalVramMB ??
-      toNumber(process.env.MIYA_RESOURCE_TOTAL_VRAM_MB, 8192);
+        toNumber(process.env.MIYA_RESOURCE_TOTAL_VRAM_MB, 8192),
+    );
     this.safetyMarginMB =
       options.safetyMarginMB ??
       toNumber(process.env.MIYA_RESOURCE_SAFETY_MARGIN_MB, 768);
