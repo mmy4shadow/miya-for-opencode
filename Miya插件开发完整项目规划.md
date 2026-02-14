@@ -133,6 +133,10 @@
 - 插件与 daemon 间必须通过统一 WS 协议帧（req/res/event/ping/pong）通信；新增能力必须先增 RPC method 再接入调用方。
 - 崩溃恢复口径：插件重启后只恢复连接与状态，不自动重放“未知是否已执行成功”的副作用动作（防止双写/重复发送）。
 
+**当前基线差距（2026-02-14）**：
+- 进程拓扑已具备 launcher + host + client 主链路，但 `miya-src/src/daemon/index.ts` 仍导出 `MiyaDaemonService`，属于“可误用接口”，未达到“插件侧仅 RPC Client 可见”的最终封口标准。
+- 因此“严格隔离”状态定义为 **部分完成**：在移除插件侧可见的 service 导出、并完成全仓静态防回归检查前，不得标记为已完成。
+
 ### **0.2 女友=助理，不分人格体、不新增 agent**
 - 不新增"女友代理"。仍是定义的 6 大 Agent
 - 所谓"女友感"是 **一份共享人格层（Persona Layer）**，但采用**按角色动态挂载**：
@@ -1442,6 +1446,16 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
    - 必须实现 `heartbeat/ping-pong`（建议 10s 心跳，30s 超时）与指数退避重连。
    - OpenCode 插件重启后优先恢复会话态，再逐步恢复 job 订阅，避免重复执行。
    - daemon 检测到 WebSocket 断开后进入 60 秒自杀倒计时；若超时仍无重连则自动退出，防止僵尸进程长期占用 GPU。
+4. **通信背压（Backpressure，强制）**：
+   - gateway 与 daemon RPC 都必须是有界队列：`max_in_flight`、`max_queue`、`queue_timeout_ms` 三参数必须可配置且可观测。
+   - 当队列满或等待超时时必须显式拒绝（`gateway_backpressure_overloaded` / `daemon_backpressure_overloaded` / `gateway_backpressure_timeout`），禁止无界堆积导致内存失控。
+   - Daemon 忙于训练时，插件收到批量指令必须“排队或拒绝”，而不是阻塞 UI 线程或吃满内存。
+   - 监控面必须上报至少四个指标：`in_flight`、`queued`、`rejected`、`queue_wait_ms_p95`。
+
+**主线程零重算约束（冻结）**：
+- Plugin（Light）只允许做消息转发、状态渲染、轻量策略；禁止执行重 CV/OCR、训练调度、长时阻塞任务。
+- Daemon（Heavy）独占训练、视觉推理、桌控执行；任何重计算都必须迁移到 daemon/worker，不得回落到插件事件循环。
+- Kill-Switch 必须可抢占：即使训练/视觉任务执行中，也要保证 OpenCode 交互与停止指令可在可接受时延内响应。
 
 这种设计的优势在于它完全透明。用户感觉不到 Gateway 的存在，但它在后台默默地管理着上下文窗口，防止 irrelevant 的信息（例如 Docs-Helper 刚刚搜到的 5000 字文档）污染 Code Fixer 的上下文。Gateway 负责**上下文清洗（Context Sanitation）**，只传递关键信息。
 
@@ -1464,6 +1478,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 节点与设备管理 | 已完成（主路径） | `miya-src/src/node/service.ts`, `miya-src/src/nodes/index.ts`, `miya-src/src/nodes/client.ts` |
 | 自动化调度 | 已完成 | `miya-src/src/automation/service.ts`, `miya-src/src/tools/automation.ts` |
 | Web 控制台 | 已完成 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/gateway/control-ui-shared.ts` |
+| Plugin/Daemon 严格进程隔离 | 部分完成 | `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/client.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/daemon/index.ts` |
 
 ### **5.2 本轮关键修订（与代码一致）**
 
@@ -1474,6 +1489,9 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 回执 confirmed/uncertain 严格区分并可定位 | 已完成 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | 向导异常路径（失败/降级/取消/重试）一致性验证 | 已完成 | `miya-src/src/companion/wizard.ts`, `miya-src/src/companion/wizard.test.ts` |
 | 视觉链路替换占位实现（Remote VLM + Tesseract + fallback） | 部分完成 | `miya-src/src/multimodal/vision.ts` |
+| Gateway/Daemon 背压队列与超时拒绝 | 已完成 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts` |
+| 输入互斥三振冷却与证据语义化摘要 | 已完成 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/policy/semantic-tags.ts` |
+| Context Sanitation（执行链 Zero-Persona） | 部分完成 | `miya-src/src/agents/1-task-manager.ts`（规则已注入，需全链路回归） |
 
 ---
 
@@ -1490,6 +1508,8 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | P1-2 架构整理与文档回写 | 部分完成 | 文档已对齐真实基线；仍需跟随启动稳定性/代理配置闭环持续更新 | `Miya插件开发完整项目规划.md` |
 | P0-4 启动稳定性收口（owner/follower + gateway 自愈） | 部分完成 | 已有 owner/follower 与 UI/CLI 探活；需持续验证 20 次启动稳定性 | `miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts` |
 | P0-5 代理配置持久化主链路切换（agent-runtime） | 部分完成 | 已支持 revision/原子写/设置事件拦截；新增 legacy 迁移落盘，待全链路验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
+| P0-6 严格进程隔离封口（插件仅 RPC） | 部分完成 | 已具备 launcher/host/client；仍需移除 `MiyaDaemonService` 非必要导出并加静态防回归 | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/index.ts` |
+| P0-7 通信背压压测与拒绝语义稳定性 | 部分完成 | 背压实现已落地，待完成“10 指令并发 + daemon 训练中”稳定性压测与指标门限固化 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts` |
 | P1-3 Provider 层覆盖注入 | 部分完成 | 已支持 activeAgent provider 覆盖 + config provider merge；待请求日志端到端验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
 | P2 稳定性与体验优化（通道扩展/性能/可观测） | 持续 | 作为持续迭代，不阻塞当前验收 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/resource-scheduler/`, `miya-src/src/channel/` |
 
@@ -1498,6 +1518,10 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 项 | 状态 | 下一步 |
 |----|------|--------|
 | 视觉识别“真实场景”覆盖率 | 部分完成 | 增加真实聊天窗口截图集回归，形成固定基准集 |
+| OCR 脆弱场景策略（DPI/主题导致 `ui_style_mismatch`） | 部分完成 | 固化“自动重试 1 次 + 失败即降级草稿并输出语义结论”，补齐对抗样本 |
+| Input Mutex 对抗闭环 | 部分完成 | 增加“用户疯狂移动鼠标/输入”对抗测试，要求立即触发 `input_mutex_timeout` 并停止桌控 |
+| Context Contamination 收口 | 部分完成 | Arch/Fixer 强制 Zero-Persona；仅 Final Response 走 Tone Rewriter，并验证 Ralph Loop 不携带 full persona |
+| Ralph Loop 生产闭环 | 部分完成 | 统一 stderr 捕获、错误回注 prompt、`max_retries` 与分层验证，补齐 orchestrator 接入验收 |
 | MCP-UI/采样增强 | 未完成 | 按 P2 排期推进 |
 | Inbound-only 通道扩展（非主线） | 部分完成 | 主链路已可用，非主线保持后置 |
 
@@ -1580,6 +1604,13 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
   - `miya-src/src/index.ts`
   - `miya-src/src/cli/index.ts`
 
+### **M5：安全对抗验收（新增，进行中）**
+- 对抗 1（输入互斥）：Miya 试图桌控时人工持续键鼠扰动，必须在超时窗口内触发 `input_mutex_timeout`，并降级为草稿，不得继续抢占。
+- 对抗 2（视觉脆弱）：DPI/主题切换导致 OCR 失配时，必须走 `ui_style_mismatch` 语义标签；允许有限重试，失败后硬降级且证据包完整。
+- 对抗 3（通信背压）：daemon 忙于训练时连续下发 10 条指令，系统必须稳定排队/拒绝并保持 OpenCode UI 可响应中断。
+- 对抗 4（人格隔离）：Code Fixer/Arch Advisor 执行链路输出必须保持 Zero-Persona，不得把陪伴语料带入修复循环与代码产物。
+- 对抗 5（Ralph Loop）：验证失败时必须自动捕获 stderr 并进入下一轮修复，直到通过或达到 `max_retries`。
+
 ---
 
 
@@ -1625,6 +1656,18 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 9. `P0-6`：严格隔离拓扑落地（插件仅 RPC Client，daemon 独立进程执行业务）  
    - 检查：插件侧无 `MiyaDaemonService` 直调；`host.ts` 持有 method router；launcher 具备探活/心跳/重连/超时  
    - 路径：`miya-src/src/daemon/client.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts`, `miya-src/src/multimodal/*.ts`
+10. `P0-7`：输入互斥对抗测试通过  
+   - 场景：Miya 请求桌控期间，人工持续鼠标移动+键盘输入；必须触发 `input_mutex_timeout` 并立即停止桌控动作  
+   - 路径：`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`
+11. `P0-8`：视觉脆弱场景闭环  
+   - 场景：DPI/深浅色主题切换造成 OCR 失配；必须产出 `ui_style_mismatch`，并执行“有限重试 -> 失败降级草稿”  
+   - 路径：`miya-src/src/multimodal/vision.ts`, `miya-src/src/channels/service.ts`
+12. `P0-9`：背压与可中断性压测通过  
+   - 场景：daemon 正在训练时并发发送 10 个 RPC；必须出现可解释的排队/拒绝，不得出现 UI 卡死或 OOM  
+   - 路径：`miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`
+13. `P0-10`：Context Sanitation 与 Ralph Loop 联测通过  
+   - 场景：修复任务多轮失败重试时，执行链保持 Zero-Persona；每轮都基于上一轮 stderr 进入下一轮并受 `max_retries` 约束  
+   - 路径：`miya-src/src/agents/1-task-manager.ts`, `miya-src/src/ralph/loop.ts`, `miya-src/src/tools/ralph.ts`
 
 ---
 
