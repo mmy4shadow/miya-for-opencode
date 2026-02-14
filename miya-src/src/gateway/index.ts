@@ -2810,6 +2810,42 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const target = parseText(params.target);
     return daemon.applyModelUpdate(target || undefined);
   });
+  methods.register('daemon.model.update.wizard', async (params) => {
+    const daemon = getMiyaClient(projectDir);
+    const target = parseText(params.target);
+    const plan = (await daemon.getModelUpdatePlan(target || undefined)) as {
+      items?: Array<{ model?: string; ok?: boolean; reason?: string }>;
+      pending?: number;
+    };
+    const pending = Array.isArray(plan.items)
+      ? plan.items.filter((item) => item && item.ok === false)
+      : [];
+    const models = pending
+      .map((item) => String(item.model ?? '').trim())
+      .filter(Boolean);
+    return {
+      pending: typeof plan.pending === 'number' ? plan.pending : pending.length,
+      models,
+      blockers: pending.map((item) => ({
+        model: String(item.model ?? ''),
+        reason: String(item.reason ?? 'metadata_mismatch'),
+      })),
+      suggestedCommands: {
+        plan:
+          models.length > 0
+            ? models.map((model) => `daemon.model.update.plan target=${model}`)
+            : ['daemon.model.update.plan'],
+        apply:
+          models.length > 0
+            ? models.map((model) => `daemon.model.update.apply target=${model}`)
+            : ['daemon.model.update.apply'],
+      },
+      nextAction:
+        pending.length > 0
+          ? 'apply model update before inference/training'
+          : 'model metadata is synchronized',
+    };
+  });
   methods.register('policy.domains.list', async () => {
     const policy = readPolicy(projectDir);
     return {

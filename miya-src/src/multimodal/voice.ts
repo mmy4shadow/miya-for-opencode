@@ -97,6 +97,14 @@ function isRuntimeNotReadyError(error: unknown): boolean {
   return message.startsWith('python_runtime_not_ready:');
 }
 
+function parseModelUpdateTarget(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (!message.startsWith('model_update_required:')) return null;
+  const [, target] = message.split(':');
+  const normalized = String(target ?? '').trim();
+  return normalized || null;
+}
+
 function useMultimodalTestMode(projectDir: string): boolean {
   if (process.env.MIYA_MULTIMODAL_TEST_MODE === '1') return true;
   const config = readConfig(projectDir);
@@ -150,6 +158,19 @@ export async function synthesizeVoiceOutput(
         format,
       });
     } catch (error) {
+      const updateTarget = parseModelUpdateTarget(error);
+      if (updateTarget) {
+        let pending = 'unknown';
+        try {
+          const plan = (await daemon.getModelUpdatePlan(updateTarget)) as {
+            pending?: number;
+          };
+          if (typeof plan?.pending === 'number') pending = String(plan.pending);
+        } catch {}
+        throw new Error(
+          `model_metadata_mismatch_blocked:${updateTarget}:run daemon.model.update.plan + daemon.model.update.apply:pending=${pending}`,
+        );
+      }
       if (!isRuntimeNotReadyError(error)) throw error;
       tts = {
         outputPath,

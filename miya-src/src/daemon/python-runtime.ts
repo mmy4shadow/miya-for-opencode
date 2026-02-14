@@ -28,11 +28,27 @@ export interface PythonRuntimeRepairPlan {
   opencodeAssistPrompt?: string;
 }
 
+export type PythonBootstrapStage = 'venv' | 'pip' | 'check_env';
+
+export interface PythonRuntimeBootstrapState {
+  state: 'idle' | 'running' | 'ok' | 'failed';
+  stage: PythonBootstrapStage;
+  attempts: number;
+  history: Array<{
+    stage: PythonBootstrapStage;
+    ok: boolean;
+    at: string;
+    error?: string;
+  }>;
+  lastError?: string;
+}
+
 export interface PythonRuntimeStatus {
   ready: boolean;
   venvPath: string;
   pythonPath: string;
   diagnostics?: PythonRuntimeDiagnostics;
+  bootstrap?: PythonRuntimeBootstrapState;
   trainingDisabledReason?: 'no_gpu' | 'dependency_fault';
   repairPlan?: PythonRuntimeRepairPlan;
   updatedAt: string;
@@ -285,20 +301,62 @@ export function readPythonRuntimeStatus(projectDir: string): PythonRuntimeStatus
   return readStatus(projectDir);
 }
 
+function initBootstrap(): PythonRuntimeBootstrapState {
+  return {
+    state: 'running',
+    stage: 'venv',
+    attempts: 0,
+    history: [],
+  };
+}
+
+function recordBootstrap(
+  state: PythonRuntimeBootstrapState,
+  input: { stage: PythonBootstrapStage; ok: boolean; error?: string },
+): void {
+  state.stage = input.stage;
+  state.attempts += 1;
+  state.history.push({
+    stage: input.stage,
+    ok: input.ok,
+    at: nowIso(),
+    error: input.error,
+  });
+  if (state.history.length > 16) {
+    state.history.splice(0, state.history.length - 16);
+  }
+  if (!input.ok) {
+    state.state = 'failed';
+    state.lastError = input.error ?? `${input.stage}_failed`;
+    return;
+  }
+  if (input.stage === 'check_env') {
+    state.state = 'ok';
+    state.lastError = undefined;
+  }
+}
+
 export function ensurePythonRuntime(projectDir: string): PythonRuntimeStatus {
   const existing = readStatus(projectDir);
   const pythonPath = venvPythonPath(projectDir);
   if (existing?.ready && fs.existsSync(existing.pythonPath)) {
     return existing;
   }
+  const bootstrap = initBootstrap();
 
   const venv = ensureVenv(projectDir);
+  recordBootstrap(bootstrap, {
+    stage: 'venv',
+    ok: venv.ok,
+    error: venv.ok ? undefined : venv.message,
+  });
   if (!venv.ok) {
     const failed: PythonRuntimeStatus = {
       ready: false,
       venvPath: venvDir(projectDir),
       pythonPath,
       updatedAt: nowIso(),
+      bootstrap,
       diagnostics: { ok: false, issues: [venv.message ?? 'venv_create_failed'] },
       trainingDisabledReason: 'dependency_fault',
       repairPlan: buildRepairPlan({
@@ -312,12 +370,18 @@ export function ensurePythonRuntime(projectDir: string): PythonRuntimeStatus {
   }
 
   const deps = installRequirements(projectDir, pythonPath);
+  recordBootstrap(bootstrap, {
+    stage: 'pip',
+    ok: deps.ok,
+    error: deps.ok ? undefined : deps.message,
+  });
   if (!deps.ok) {
     const failed: PythonRuntimeStatus = {
       ready: false,
       venvPath: venvDir(projectDir),
       pythonPath,
       updatedAt: nowIso(),
+      bootstrap,
       diagnostics: { ok: false, issues: [deps.message ?? 'pip_install_failed'] },
       trainingDisabledReason: 'dependency_fault',
       repairPlan: buildRepairPlan({
@@ -331,11 +395,17 @@ export function ensurePythonRuntime(projectDir: string): PythonRuntimeStatus {
   }
 
   const diagnostics = runCheckEnv(projectDir, pythonPath);
+  recordBootstrap(bootstrap, {
+    stage: 'check_env',
+    ok: diagnostics.ok,
+    error: diagnostics.ok ? undefined : diagnostics.issues?.join(','),
+  });
   const status: PythonRuntimeStatus = {
     ready: diagnostics.ok,
     venvPath: venvDir(projectDir),
     pythonPath,
     diagnostics,
+    bootstrap,
     updatedAt: nowIso(),
     trainingDisabledReason: classifyTrainingCapability(diagnostics),
     repairPlan: buildRepairPlan({

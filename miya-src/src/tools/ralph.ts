@@ -81,6 +81,7 @@ export function createRalphTools(): Record<string, ToolDefinition> {
         `success=${result.success}`,
         `iterations=${result.iterations}`,
         `reason=${result.reason ?? 'unknown'}`,
+        `termination_reason=${result.reason ?? 'unknown'}`,
         `summary=${result.summary}`,
       ];
 
@@ -105,6 +106,14 @@ export function createRalphTools(): Record<string, ToolDefinition> {
             ]
               .filter(Boolean)
               .join(' | '),
+          );
+        }
+        const latestVerify = [...tailAttempts]
+          .reverse()
+          .find((attempt) => attempt.type === 'verify');
+        if (latestVerify?.result.stderr?.trim()) {
+          lines.push(
+            `stderr_tail=${latestVerify.result.stderr.trim().slice(0, 300).replace(/\s+/g, ' ')}`,
           );
         }
       }

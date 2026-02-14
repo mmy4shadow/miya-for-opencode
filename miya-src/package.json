@@ -38,8 +38,9 @@
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun --format esm && bun build src/cli/index.ts --outdir dist/cli --target bun --format esm && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
-    "test:integration": "bun test src/integration",
+    "test": "bun test --max-concurrency=1",
+    "test:integration": "bun test --max-concurrency=1 src/integration",
+    "test:integration:report": "bun run tools/run-integration-suite.ts",
     "lint": "biome lint .",
     "format": "biome format . --write",
     "check": "biome check --write .",

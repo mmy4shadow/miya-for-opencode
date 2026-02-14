@@ -29,6 +29,9 @@ describe('multimodal', () => {
       expect(String(result.media.metadata?.runtimeError ?? '')).toContain(
         'python_runtime_not_ready:',
       );
+      expect(result.media.metadata?.tier).toBe('reference');
+      expect(result.media.metadata?.degraded).toBe(true);
+      expect(String(result.media.metadata?.engineMessage ?? '')).toContain('test_mode');
     } finally {
       if (prev === undefined) delete process.env.MIYA_MULTIMODAL_TEST_MODE;
       else process.env.MIYA_MULTIMODAL_TEST_MODE = prev;
@@ -58,6 +61,9 @@ describe('multimodal', () => {
       expect(String(output.media.metadata?.runtimeError ?? '')).toContain(
         'python_runtime_not_ready:',
       );
+      expect(output.media.metadata?.tier).toBe('reference');
+      expect(output.media.metadata?.degraded).toBe(true);
+      expect(String(output.media.metadata?.engineMessage ?? '')).toContain('test_mode');
     } finally {
       if (prev === undefined) delete process.env.MIYA_MULTIMODAL_TEST_MODE;
       else process.env.MIYA_MULTIMODAL_TEST_MODE = prev;
