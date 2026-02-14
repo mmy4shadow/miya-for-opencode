@@ -237,13 +237,13 @@ export async function runUltraworkDag(input: {
     }
   }
 
-  const nodeResults = nodes.map((node) => {
+  const nodeResults: UltraworkDagNodeResult[] = nodes.map((node) => {
     const result = results.get(node.nodeID);
     return (
       result ?? {
         nodeID: node.nodeID,
         agent: node.agent,
-        status: 'blocked_dependency',
+        status: 'blocked_dependency' as const,
         retries: retries.get(node.nodeID) ?? 0,
         error: 'unknown_state',
       }

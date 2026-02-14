@@ -83,6 +83,16 @@ export const BackgroundTaskConfigSchema = z.object({
 
 export type BackgroundTaskConfig = z.infer<typeof BackgroundTaskConfigSchema>;
 
+export const UiConfigSchema = z.object({
+  dashboard: z
+    .object({
+      openOnStart: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+export type UiConfig = z.infer<typeof UiConfigSchema>;
+
 export const SlimCompatConfigSchema = z.object({
   enabled: z.boolean().default(false),
   useSlimOrchestratorPrompt: z.boolean().default(false),
@@ -108,6 +118,7 @@ export const PluginConfigSchema = z.object({
   provider: z.record(z.string(), z.unknown()).optional(),
   disabled_mcps: z.array(z.string()).optional(),
   tmux: TmuxConfigSchema.optional(),
+  ui: UiConfigSchema.optional(),
   background: BackgroundTaskConfigSchema.optional(),
   fallback: FailoverConfigSchema.optional(),
   slimCompat: SlimCompatConfigSchema.optional(),
