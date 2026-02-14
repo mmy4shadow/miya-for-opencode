@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { getMiyaRuntimeDir } from '../../workflow';
+import { getMiyaModelPath } from '../../model/paths';
 
 export interface DesktopOutboundResult {
   sent: boolean;
@@ -25,7 +24,7 @@ function safeValueFromSignal(signal: string, key: string): string | undefined {
 }
 
 function buildEvidenceDir(projectDir: string, channel: 'qq' | 'wechat'): string {
-  const root = path.join(getMiyaRuntimeDir(projectDir), 'model', 'shi jue', 'lin shi', channel);
+  const root = getMiyaModelPath(projectDir, 'shi jue', 'lin shi', channel);
   fs.mkdirSync(root, { recursive: true });
   return root;
 }

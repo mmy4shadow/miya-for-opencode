@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getResourceScheduler } from '../resource-scheduler';
 import type { ResourceTaskKind } from '../resource-scheduler';
+import { getMiyaModelPath, getMiyaModelRootDir } from '../model/paths';
 import { getMiyaRuntimeDir } from '../workflow';
 import {
   ensurePythonRuntime,
@@ -214,7 +215,7 @@ export class MiyaDaemonService {
   }
 
   getModelLockStatus(): Record<string, { expected: string; ok: boolean; reason?: string }> {
-    const root = path.join(getMiyaRuntimeDir(this.projectDir), 'model');
+    const root = getMiyaModelRootDir(this.projectDir);
     const fluxDir = path.join(root, 'tu pian', 'FLUX.1 schnell');
     const sovitsDir = path.join(root, 'sheng yin', 'GPT-SoVITS-v2pro-20250604');
     const checks: Array<{ key: ModelLockKey; dir: string }> = [
@@ -450,8 +451,9 @@ export class MiyaDaemonService {
       embeddingTaskVramMB: 768,
       embeddingModelVramMB: 2048,
     });
-    const modelDir = path.join(getMiyaRuntimeDir(this.projectDir), 'model', 'tu pian');
-    this.assertModelVersion('flux_schnell', path.join(modelDir, 'FLUX.1 schnell'));
+    const modelDir = getMiyaModelPath(this.projectDir, 'tu pian');
+    const fluxModelDir = path.join(modelDir, 'FLUX.1 schnell');
+    this.assertModelVersion('flux_schnell', fluxModelDir);
     fs.mkdirSync(path.dirname(input.outputPath), { recursive: true });
     fs.mkdirSync(modelDir, { recursive: true });
 
@@ -476,6 +478,7 @@ export class MiyaDaemonService {
         MIYA_FLUX_REFERENCES: JSON.stringify(input.references),
         MIYA_FLUX_SIZE: input.size,
         MIYA_FLUX_TIER: tier,
+        MIYA_FLUX_MODEL_DIR: fluxModelDir,
         MIYA_FLUX_LORA_PATH: path.join(input.profileDir, 'lora', 'lora_weights.safetensors'),
         MIYA_FLUX_EMBED_PATH: path.join(input.profileDir, 'embeddings', 'face_embedding.pt'),
       },
@@ -522,10 +525,12 @@ export class MiyaDaemonService {
       embeddingTaskVramMB: 384,
       embeddingModelVramMB: 1536,
     });
-    this.assertModelVersion(
-      'sovits_v2pro',
-      path.join(getMiyaRuntimeDir(this.projectDir), 'model', 'sheng yin', 'GPT-SoVITS-v2pro-20250604'),
+    const sovitsModelDir = getMiyaModelPath(
+      this.projectDir,
+      'sheng yin',
+      'GPT-SoVITS-v2pro-20250604',
     );
+    this.assertModelVersion('sovits_v2pro', sovitsModelDir);
     fs.mkdirSync(path.dirname(input.outputPath), { recursive: true });
     const proc = await this.runModelCommand({
       kind: 'voice.tts',
@@ -548,6 +553,7 @@ export class MiyaDaemonService {
         MIYA_SOVITS_VOICE: input.voice,
         MIYA_SOVITS_FORMAT: input.format,
         MIYA_SOVITS_TIER: tier,
+        MIYA_SOVITS_MODEL_DIR: sovitsModelDir,
         MIYA_SOVITS_SPEAKER_EMBED: path.join(input.profileDir, 'voice', 'speaker_embed.pt'),
       },
       metadata: { stage: 'daemon.sovits.tts', tier },
@@ -579,10 +585,8 @@ export class MiyaDaemonService {
   }): Promise<TrainingRunResult> {
     const runtime = this.assertPythonRuntimeReady();
     this.assertTrainingAllowed();
-    this.assertModelVersion(
-      'flux_schnell',
-      path.join(getMiyaRuntimeDir(this.projectDir), 'model', 'tu pian', 'FLUX.1 schnell'),
-    );
+    const fluxModelDir = getMiyaModelPath(this.projectDir, 'tu pian', 'FLUX.1 schnell');
+    this.assertModelVersion('flux_schnell', fluxModelDir);
     const preferred = this.resolveTierByBudget({
       kind: 'training.image',
       modelID: 'local:flux.1-schnell',
@@ -606,6 +610,7 @@ export class MiyaDaemonService {
       },
       envBase: {
         MIYA_FLUX_TRAIN_PHOTOS_DIR: input.photosDir,
+        MIYA_FLUX_MODEL_DIR: fluxModelDir,
       },
       checkpointPath: input.checkpointPath,
       resourceByTier: {
@@ -626,10 +631,12 @@ export class MiyaDaemonService {
   }): Promise<TrainingRunResult> {
     const runtime = this.assertPythonRuntimeReady();
     this.assertTrainingAllowed();
-    this.assertModelVersion(
-      'sovits_v2pro',
-      path.join(getMiyaRuntimeDir(this.projectDir), 'model', 'sheng yin', 'GPT-SoVITS-v2pro-20250604'),
+    const sovitsModelDir = getMiyaModelPath(
+      this.projectDir,
+      'sheng yin',
+      'GPT-SoVITS-v2pro-20250604',
     );
+    this.assertModelVersion('sovits_v2pro', sovitsModelDir);
     const preferred = this.resolveTierByBudget({
       kind: 'training.voice',
       modelID: 'local:gpt-sovits-v2pro',
@@ -653,6 +660,7 @@ export class MiyaDaemonService {
       },
       envBase: {
         MIYA_SOVITS_TRAIN_SAMPLE_PATH: input.voiceSamplePath,
+        MIYA_SOVITS_MODEL_DIR: sovitsModelDir,
       },
       checkpointPath: input.checkpointPath,
       resourceByTier: {

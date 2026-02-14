@@ -1,6 +1,7 @@
 import { addCompanionAsset } from '../companion/store';
 import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
+import { getMiyaModelPath } from '../model/paths';
 import { appendVoiceHistory } from '../voice/state';
 import { getMiyaRuntimeDir } from '../workflow';
 import * as fs from 'node:fs';
@@ -104,7 +105,7 @@ export async function synthesizeVoiceOutput(
   const mimeType =
     format === 'mp3' ? 'audio/mpeg' : format === 'ogg' ? 'audio/ogg' : 'audio/wav';
   const estDurationMs = Math.max(600, Math.min(7000, text.length * 55));
-  const outputDir = path.join(getMiyaRuntimeDir(projectDir), 'model', 'sheng yin', 'lin shi');
+  const outputDir = getMiyaModelPath(projectDir, 'sheng yin', 'lin shi');
   const outputPath = path.join(outputDir, `tts-${Date.now()}.${format}`);
   const profileDir = path.join(
     getMiyaRuntimeDir(projectDir),

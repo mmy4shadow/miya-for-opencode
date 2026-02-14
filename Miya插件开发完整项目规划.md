@@ -1512,7 +1512,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | P1-2 架构整理与文档回写 | 部分完成 | 文档已对齐真实基线；仍需跟随启动稳定性/代理配置闭环持续更新 | `Miya插件开发完整项目规划.md` |
 | P0-4 启动稳定性收口（owner/follower + gateway 自愈） | 部分完成 | 已有 owner/follower 与 UI/CLI 探活；需持续验证 20 次启动稳定性 | `miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts` |
 | P0-5 代理配置持久化主链路切换（agent-runtime） | 部分完成 | 已支持 revision/原子写/设置事件拦截；新增 legacy 迁移落盘，待全链路验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
-| P0-6 严格进程隔离封口（插件仅 RPC） | 部分完成 | 已具备 launcher/host/client；仍需移除 `MiyaDaemonService` 非必要导出并加静态防回归 | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/index.ts` |
+| P0-6 严格进程隔离封口（插件仅 RPC） | 已完成（2026-02-14） | 已收口为 launcher/host/client 主链路 + 新增静态防回归测试，禁止非 daemon 模块直接引用 `daemon/service` 或 `MiyaDaemonService`（测试：`bun test src/daemon/isolation-guard.test.ts src/daemon/service.test.ts`） | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/isolation-guard.test.ts`, `miya-src/src/daemon/service.test.ts` |
 | P0-7 通信背压压测与拒绝语义稳定性 | 部分完成 | 背压实现已落地，待完成“10 指令并发 + daemon 训练中”稳定性压测与指标门限固化 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts` |
 | P1-3 Provider 层覆盖注入 | 部分完成 | 已支持 activeAgent provider 覆盖 + config provider merge；待请求日志端到端验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
 | P2 稳定性与体验优化（通道扩展/性能/可观测） | 持续 | 作为持续迭代，不阻塞当前验收 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/resource-scheduler/`, `miya-src/src/channel/` |
@@ -1536,7 +1536,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 断裂点 | 规划补丁（新增硬约束） | 状态 |
 |----|----|----|
 | 依赖地狱（裸机 Python/CUDA 不一致） | 强制使用 `.opencode/miya/venv`：首次启动执行 `venv bootstrap`（创建虚拟环境、安装锁定依赖、写入环境诊断）；后续所有 Python Worker 一律使用 venv 解释器绝对路径，禁止读取系统 `PATH`。增加预检结果页（Python 版本、CUDA/NPU/CPU 可用性、关键包缺失）并支持“一键修复”。分流规则：先判定“无 GPU”还是“依赖故障”；无 GPU 仅告警并禁止训练路径（不做 CPU 降级训练），依赖故障走“依赖修复向导”，调用 OpenCode 已配置模型生成可执行依赖建议（版本、安装顺序、冲突说明）并给出修复命令。 | 待实现（P0） |
-| 升级断裂（代码与模型不一致） | 在 `miya/model/**` 每个可训练模型目录引入 `metadata.json`（`model_version`/`artifact_hash`/`schema_version`）；启动时对比代码内 `EXPECTED_MODEL_VERSION`，不匹配则阻断推理并触发“模型更新向导”。 | 待实现（P0） |
+| 升级断裂（代码与模型不一致） | 在 `miya/model/**` 每个可训练模型目录引入 `metadata.json`（`model_version`/`artifact_hash`/`schema_version`）；启动时对比代码内 `EXPECTED_MODEL_VERSION`，不匹配则阻断推理并触发“模型更新向导”。 | 部分完成（2026-02-14）：已完成 `miya/model/**` 路径统一解析、daemon 推理/训练调用强制透传模型目录、推理/训练前版本校验（测试：`bun test src/model/paths.test.ts src/daemon/service.test.ts`）；“模型更新向导”未完成 |
 | 后台黑盒（无实时反馈） | Daemon 统一广播 `job_progress` 事件：`jobId`/`phase`/`progress`/`etaSec`/`status`/`updatedAt`；Gateway/OpenCode 状态栏实时渲染进度条，完成/失败触发通知并落审计日志。 | 待实现（P1） |
 | 僵尸进程（OpenCode 退出后任务残留） | 建立“父子心跳 + 管道自杀 + PID 锁”三件套：插件 `ping` 10s、超时 30s；daemon 失联 30s 自杀；Python Worker 通过 stdin 管道监听 EOF 后立即退出；启动时校验 `.opencode/miya/daemon.pid`，发现存活旧进程先清理再拉起。 | 待实现（P0） |
 

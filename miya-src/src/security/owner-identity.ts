@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { getMiyaModelPath } from '../model/paths';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export type InteractionMode = 'owner' | 'guest' | 'unknown';
@@ -46,14 +47,14 @@ function hashSecret(input: string): string {
 function defaultVoiceprintModelPath(projectDir: string): string {
   return (
     process.env.MIYA_VOICEPRINT_MODEL_PATH ||
-    path.join(getMiyaRuntimeDir(projectDir), 'model', 'shi bie', 'eres2net')
+    getMiyaModelPath(projectDir, 'shi bie', 'eres2net')
   );
 }
 
 function defaultVoiceprintSampleDir(projectDir: string): string {
   return (
     process.env.MIYA_VOICEPRINT_SAMPLE_DIR ||
-    path.join(getMiyaRuntimeDir(projectDir), 'model', 'shi bie', 'ben ren')
+    getMiyaModelPath(projectDir, 'shi bie', 'ben ren')
   );
 }
 

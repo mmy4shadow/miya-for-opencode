@@ -1,6 +1,7 @@
 import { addCompanionAsset } from '../companion/store';
 import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
+import { getMiyaModelPath } from '../model/paths';
 import { getMiyaRuntimeDir } from '../workflow';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -44,7 +45,7 @@ export async function generateImage(
       mimeType: item.mimeType,
       localPath: item.localPath,
     }));
-  const outputDir = path.join(getMiyaRuntimeDir(projectDir), 'model', 'tu pian', 'lin shi');
+  const outputDir = getMiyaModelPath(projectDir, 'tu pian', 'lin shi');
   const outputPath = path.join(outputDir, `flux-${Date.now()}.png`);
   const profileDir = path.join(
     getMiyaRuntimeDir(projectDir),
