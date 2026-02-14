@@ -110,6 +110,29 @@
   - **权限高墙诊断（新增，Windows 必须）**：`miya-launcher` 启动后必须执行一次“完整性级别探测”（Miya/OpenCode/QQ/微信进程的 Medium/High/System），并上报 Gateway。
   - **提权策略（保守默认）**：默认不自动提权；若检测到 QQ/微信 运行级别高于 Miya（或处于 UAC Secure Desktop），则将 `desktop_control` 标记为 `blocked_by_privilege`，在 OpenCode/Gateway **提前预警**并阻止进入发送流程，等待你手动处理（例如以管理员重启同级进程）。
   - 失败策略：拉起失败只在本机弹通知/写本地日志，不尝试外发；并且不得绕过 OpenCode 的 permission/ask 体系。
+
+#### **0.1.1 严格隔离蓝图补丁（冻结，2026-02-14）**
+- **目标拓扑（真隔离）**：`[OpenCode 插件/UI] <-> [WebSocket RPC] <-> [Miya Daemon 独立进程(host.ts)] <-> [Python Workers]`。
+- **禁止旧拓扑（伪隔离）**：插件进程内直接实例化并调用 `MiyaDaemonService`（即使内部 `child_process.spawn` Python）一律视为未达标。
+
+**三步强制改造（与 OpenClaw/Nanobot 隔离口径对齐）**：
+1. **De-coupling（斩断 import）**  
+   - 插件侧只允许依赖 daemon 通信接口（如 `MiyaClient`/RPC schema），不允许依赖 `service.ts` 业务实现。  
+   - 插件侧调用语义统一为 `method + params` 请求，不得出现“本地函数直调 daemon 业务”的路径。
+2. **host.ts 升级为独立 Server（The Server）**  
+   - `host.ts` 必须作为独立 Node/Bun 入口运行，负责实例化 `MiyaDaemonService`、维护 job 生命周期、处理路由分发与响应。  
+   - 所有训练/推理/桌控/隔离进程执行都在 daemon 进程内落地。  
+   - 插件只拿结果与事件流，不承担 daemon 业务执行。
+3. **Launcher 生命周期点火（The Launcher）**  
+   - 插件启动时由 launcher 拉起 daemon 进程并建立 WS 连接；插件退出时按策略回收 daemon（或超时自杀）。  
+   - 必须实现启动探活、心跳、断线重连、请求超时、父进程锁联动，避免僵尸进程与重复执行。
+
+**验收硬标准（DoD）**：
+- 全仓 `miya-src/src` 范围内，插件侧（`index.ts`/`gateway`/`multimodal`/`nodes`）不得再出现 `getMiyaDaemonService(...)` 直调路径。
+- `host.ts` 必须存在且具备 RPC method router，至少覆盖：训练启动/取消、图像推理、语音推理、隔离进程执行、状态查询。
+- 插件与 daemon 间必须通过统一 WS 协议帧（req/res/event/ping/pong）通信；新增能力必须先增 RPC method 再接入调用方。
+- 崩溃恢复口径：插件重启后只恢复连接与状态，不自动重放“未知是否已执行成功”的副作用动作（防止双写/重复发送）。
+
 ### **0.2 女友=助理，不分人格体、不新增 agent**
 - 不新增"女友代理"。仍是定义的 6 大 Agent
 - 所谓"女友感"是 **一份共享人格层（Persona Layer）**，但采用**按角色动态挂载**：
@@ -1599,6 +1622,9 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
    - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`
 8. `P1-3`：active agent 的 provider apiKey/baseURL/options 覆盖优先于全局  
    - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts`
+9. `P0-6`：严格隔离拓扑落地（插件仅 RPC Client，daemon 独立进程执行业务）  
+   - 检查：插件侧无 `MiyaDaemonService` 直调；`host.ts` 持有 method router；launcher 具备探活/心跳/重连/超时  
+   - 路径：`miya-src/src/daemon/client.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts`, `miya-src/src/multimodal/*.ts`
 
 ---
 
@@ -1640,3 +1666,4 @@ Miya插件已经具备了坚实的架构基础：
 3.https://github.com/SumeLabs/clawra.git
 4.https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git
 5.https://github.com/code-yeongyu/oh-my-opencode.git
+我的源码地址：https://github.com/mmy4shadow/miya-for-opencode.git
