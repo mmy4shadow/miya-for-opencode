@@ -1149,6 +1149,12 @@ S_old = C_old * exp(-lambda * (t_now - t_old))
 
 ### **4.5.2 修订后的落地架构（Miya-MemOS v1.1）**
 
+**落实状态（持续更新）**：
+- ✅ **已完成（2026-02-14）**：`miya.memory.reflect` + `miya.memory.log.append` 已落地到 Gateway，支持短期日志归档与反思入库（pending）。
+- ✅ **已完成（2026-02-14）**：记忆结构已扩展 `confidence/tier/sourceMessageID/accessCount/isArchived` 字段，并接入检索打分与衰减归档。
+- ✅ **已完成（2026-02-14）**：自动反思双触发已落地（`User_Idle > 10min` + `Unprocessed_Logs >= 50`，含冷却窗口）。
+- ✅ **测试通过（2026-02-14）**：`bun test miya-src/src/companion/memory-vector.test.ts miya-src/src/companion/memory-reflect.test.ts`（6/6 通过）。
+
 #### **1）存储层：SQLite First（避免引入重图数据库）**
 - V1 不引入 Nebula/Neo4j，使用 SQLite 模拟图结构 + 向量表。
 
@@ -1662,8 +1668,8 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 |----|----|----|
 | 依赖地狱（裸机 Python/CUDA 不一致） | 强制使用 `.opencode/miya/venv`：首次启动执行 `venv bootstrap`（创建虚拟环境、安装锁定依赖、写入环境诊断）；后续所有 Python Worker 一律使用 venv 解释器绝对路径，禁止读取系统 `PATH`。增加预检结果页（Python 版本、CUDA/NPU/CPU 可用性、关键包缺失）并支持“一键修复”。分流规则：先判定“无 GPU”还是“依赖故障”；无 GPU 仅告警并禁止训练路径（不做 CPU 降级训练），依赖故障走“依赖修复向导”，调用 OpenCode 已配置模型生成可执行依赖建议（版本、安装顺序、冲突说明）并给出修复命令。 | 待实现（P0） |
 | 升级断裂（代码与模型不一致） | 在 `miya/model/**` 每个可训练模型目录引入 `metadata.json`（`model_version`/`artifact_hash`/`schema_version`）；启动时对比代码内 `EXPECTED_MODEL_VERSION`，不匹配则阻断推理并触发“模型更新向导”。 | 部分完成（2026-02-14）：已完成 `miya/model/**` 路径统一解析、daemon 推理/训练调用强制透传模型目录、推理/训练前版本校验（测试：`bun test src/model/paths.test.ts src/daemon/service.test.ts`）；“模型更新向导”未完成 |
-| 后台黑盒（无实时反馈） | Daemon 统一广播 `job_progress` 事件：`jobId`/`phase`/`progress`/`etaSec`/`status`/`updatedAt`；Gateway/OpenCode 状态栏实时渲染进度条，完成/失败触发通知并落审计日志。 | 待实现（P1） |
-| 僵尸进程（OpenCode 退出后任务残留） | 建立“父子心跳 + 管道自杀 + PID 锁”三件套：插件 `ping` 10s、超时 30s；daemon 失联 30s 自杀；Python Worker 通过 stdin 管道监听 EOF 后立即退出；启动时校验 `.opencode/miya/daemon.pid`，发现存活旧进程先清理再拉起。 | 待实现（P0） |
+| 后台黑盒（无实时反馈） | Daemon 统一广播 `job_progress` 事件：`jobId`/`phase`/`progress`/`etaSec`/`status`/`updatedAt`；Gateway/OpenCode 状态栏实时渲染进度条，完成/失败触发通知并落审计日志。 | 部分完成（2026-02-14）：已完成 daemon->launcher->gateway 实时事件透传、`daemon.job_progress`/`daemon.job_terminal` 广播、`daemon-job-progress.jsonl` 审计落盘、Gateway 状态页显示 active job 进度（测试：`bun test src/gateway/protocol.test.ts src/daemon/ws-protocol.test.ts`）；OpenCode 主界面通知整合待完成 |
+| 僵尸进程（OpenCode 退出后任务残留） | 建立“父子心跳 + 管道自杀 + PID 锁”三件套：插件 `ping` 10s、超时 30s；daemon 失联 30s 自杀；Python Worker 通过 stdin 管道监听 EOF 后立即退出；启动时校验 `.opencode/miya/daemon.pid`，发现存活旧进程先清理再拉起。 | 已完成（2026-02-14）：launcher/host/python worker 三层均已落地（PID 锁清理、父子心跳、stdin EOF 自杀）；新增守卫测试（`bun test src/daemon/lifecycle-guards.test.ts`） |
 
 #### **6.3.2 安全交互补丁（四层）**
 
@@ -1874,4 +1880,5 @@ Miya插件已经具备了坚实的架构基础：
 3.https://github.com/SumeLabs/clawra.git
 4.https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git
 5.https://github.com/code-yeongyu/oh-my-opencode.git
+6.https://github.com/MemTensor/MemOS.git
 我的源码地址：https://github.com/mmy4shadow/miya-for-opencode.git

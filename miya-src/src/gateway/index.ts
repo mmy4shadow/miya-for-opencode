@@ -54,7 +54,7 @@ import {
   touchNodeHeartbeat,
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
-import { getLauncherDaemonSnapshot, getMiyaClient } from '../daemon';
+import { getLauncherDaemonSnapshot, getMiyaClient, subscribeLauncherEvents } from '../daemon';
 import {
   appendGuestConversation,
   initOwnerIdentity,
@@ -104,6 +104,12 @@ import {
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
+import {
+  appendShortTermMemoryLog,
+  getMemoryReflectStatus,
+  maybeAutoReflectCompanionMemory,
+  reflectCompanionMemory,
+} from '../companion/memory-reflect';
 import {
   cancelCompanionWizardTraining,
   getCompanionProfileCurrentDir,
@@ -177,8 +183,10 @@ interface GatewayRuntime {
   wsMeta: WeakMap<Bun.ServerWebSocket<unknown>, GatewayWsData>;
   wizardTickTimer?: ReturnType<typeof setInterval>;
   ownerBeatTimer?: ReturnType<typeof setInterval>;
+  memoryReflectTimer?: ReturnType<typeof setInterval>;
   wizardRunnerBusy?: boolean;
   dependencyAssistHashes: Set<string>;
+  daemonLauncherUnsubscribe?: () => void;
 }
 
 interface GatewayWsData {
@@ -531,6 +539,14 @@ export function stopGateway(projectDir: string): {
   if (runtime.ownerBeatTimer) {
     clearInterval(runtime.ownerBeatTimer);
     runtime.ownerBeatTimer = undefined;
+  }
+  if (runtime.memoryReflectTimer) {
+    clearInterval(runtime.memoryReflectTimer);
+    runtime.memoryReflectTimer = undefined;
+  }
+  if (runtime.daemonLauncherUnsubscribe) {
+    runtime.daemonLauncherUnsubscribe();
+    runtime.daemonLauncherUnsubscribe = undefined;
   }
   try {
     runtime.channelRuntime.stop();
@@ -1592,6 +1608,28 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   };
 }
 
+function daemonProgressAuditFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'audit', 'daemon-job-progress.jsonl');
+}
+
+function appendDaemonProgressAudit(
+  projectDir: string,
+  input: {
+    type: 'daemon.ready' | 'daemon.disconnected' | 'job.progress';
+    at: string;
+    payload?: Record<string, unknown>;
+    snapshot: ReturnType<typeof getLauncherDaemonSnapshot>;
+  },
+): void {
+  const file = daemonProgressAuditFile(projectDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(
+    file,
+    `${JSON.stringify({ id: `dprogress_${randomUUID()}`, ...input })}\n`,
+    'utf-8',
+  );
+}
+
 async function routeSessionMessage(
   projectDir: string,
   input: {
@@ -1781,6 +1819,11 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
         const up = typeof state?.daemon?.uptimeSec === "number" ? state.daemon.uptimeSec + "s" : "--";
         return cpu + " | " + vu + "/" + vt + " MB | " + up;
       }, [state]);
+      const daemonJobLine = useMemo(() => {
+        const id = state?.daemon?.activeJobID || "--";
+        const progress = typeof state?.daemon?.activeJobProgress === "number" ? state.daemon.activeJobProgress + "%" : "--";
+        return id + " | " + progress;
+      }, [state]);
 
       const sendReq = (method, params) => {
         const ws = wsRef.current;
@@ -1863,7 +1906,8 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
         React.createElement("div", { className: "row" },
           React.createElement("div", { className: "card" },
             React.createElement("div", { className: "title" }, "Daemon CPU/VRAM/Uptime"),
-            React.createElement("div", { className: "value" }, daemonStats)),
+            React.createElement("div", { className: "value" }, daemonStats),
+            React.createElement("div", { className: "line" }, "Active Job: " + daemonJobLine)),
           React.createElement("div", { className: "card" },
             React.createElement("div", { className: "title" }, "Sessions"),
             React.createElement("div", { className: "value" }, String(state?.sessions?.active || 0) + "/" + String(state?.sessions?.total || 0))),
@@ -3397,6 +3441,43 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requireOwnerMode(projectDir);
     return listCompanionMemoryVectors(projectDir);
   });
+  methods.register('miya.memory.log.append', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    const text = parseText(params.text);
+    if (!text) throw new Error('invalid_memory_log_text');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const senderRaw = parseText(params.sender);
+    const sender: 'user' | 'assistant' | 'system' =
+      senderRaw === 'assistant' || senderRaw === 'system' ? senderRaw : 'user';
+    return appendShortTermMemoryLog(projectDir, {
+      sessionID: parseText(params.sessionID) || 'main',
+      sender,
+      text,
+      at: parseText(params.at) || undefined,
+      messageID: parseText(params.messageID) || undefined,
+    });
+  });
+  methods.register('miya.memory.reflect', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const force = typeof params.force === 'boolean' ? Boolean(params.force) : false;
+    const minLogs =
+      typeof params.minLogs === 'number' && params.minLogs > 0 ? Number(params.minLogs) : 1;
+    const maxLogs =
+      typeof params.maxLogs === 'number' && params.maxLogs > 0
+        ? Math.min(500, Number(params.maxLogs))
+        : 50;
+    const result = reflectCompanionMemory(projectDir, { force, minLogs, maxLogs });
+    const profile = syncCompanionProfileMemoryFacts(projectDir);
+    return {
+      ...result,
+      profile,
+    };
+  });
   methods.register('companion.asset.add', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
     const type = parseText(params.type);
@@ -4078,8 +4159,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     wsMeta: new WeakMap(),
     wizardTickTimer: undefined,
     ownerBeatTimer: undefined,
+    memoryReflectTimer: undefined,
     wizardRunnerBusy: false,
     dependencyAssistHashes: new Set(),
+    daemonLauncherUnsubscribe: undefined,
   };
 
   runtime.methods = createMethods(projectDir, runtime);
@@ -4090,6 +4173,36 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
   runtime.ownerBeatTimer = setInterval(() => {
     touchOwnerLock(projectDir);
   }, 5_000);
+  runtime.memoryReflectTimer = setInterval(() => {
+    const status = getMemoryReflectStatus(projectDir);
+    if (status.pendingLogs < 50) return;
+    const reflected = maybeAutoReflectCompanionMemory(projectDir, {
+      idleMinutes: 10,
+      minPendingLogs: 50,
+      cooldownMinutes: 3,
+      maxLogs: 100,
+    });
+    if (reflected) {
+      syncCompanionProfileMemoryFacts(projectDir);
+    }
+  }, 30_000);
+  runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
+    appendDaemonProgressAudit(projectDir, event);
+    if (event.type === 'job.progress') {
+      publishGatewayEvent(runtime, 'daemon.job_progress', event);
+      const status = String(event.payload?.status ?? '').trim().toLowerCase();
+      if (
+        status === 'completed' ||
+        status === 'failed' ||
+        status === 'degraded' ||
+        status === 'canceled'
+      ) {
+        publishGatewayEvent(runtime, 'daemon.job_terminal', event);
+      }
+      return;
+    }
+    publishGatewayEvent(runtime, event.type, event);
+  });
   void runtime.channelRuntime.start();
   return syncGatewayState(projectDir, runtime);
 }

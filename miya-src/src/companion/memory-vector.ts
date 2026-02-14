@@ -9,10 +9,15 @@ export interface CompanionMemoryVector {
   source: string;
   embedding: number[];
   score: number;
+  confidence: number;
+  tier: 'L1' | 'L2' | 'L3';
+  sourceMessageID?: string;
   status: 'pending' | 'active' | 'superseded';
   conflictKey?: string;
   conflictWizardID?: string;
   supersededBy?: string;
+  accessCount: number;
+  isArchived: boolean;
   createdAt: string;
   updatedAt: string;
   lastAccessedAt: string;
@@ -64,12 +69,26 @@ function readStore(projectDir: string): MemoryVectorStore {
       items: Array.isArray(parsed.items)
         ? parsed.items.map((item) => ({
             ...item,
+            confidence:
+              typeof item.confidence === 'number' && Number.isFinite(item.confidence)
+                ? Math.max(0, Math.min(1, item.confidence))
+                : 0.7,
+            tier: item.tier === 'L1' || item.tier === 'L2' || item.tier === 'L3' ? item.tier : 'L2',
+            sourceMessageID:
+              typeof item.sourceMessageID === 'string' && item.sourceMessageID.trim()
+                ? item.sourceMessageID
+                : undefined,
             status:
               item.status === 'active' ||
               item.status === 'pending' ||
               item.status === 'superseded'
                 ? item.status
                 : 'active',
+            accessCount:
+              typeof item.accessCount === 'number' && Number.isFinite(item.accessCount)
+                ? Math.max(0, Math.floor(item.accessCount))
+                : 0,
+            isArchived: typeof item.isArchived === 'boolean' ? item.isArchived : false,
           }))
         : [],
     };
@@ -157,6 +176,9 @@ export function decayCompanionMemoryVectors(
     const nextScore = Math.max(0.05, item.score * Math.exp(-lambda * ageDays));
     if (Math.abs(nextScore - item.score) > 0.0001) {
       item.score = Number(nextScore.toFixed(4));
+      if (item.score < 0.08) {
+        item.isArchived = true;
+      }
       item.updatedAt = nowIso();
       updated += 1;
     }
@@ -167,7 +189,14 @@ export function decayCompanionMemoryVectors(
 
 export function upsertCompanionMemoryVector(
   projectDir: string,
-  input: { text: string; source?: string; activate?: boolean },
+  input: {
+    text: string;
+    source?: string;
+    activate?: boolean;
+    confidence?: number;
+    tier?: 'L1' | 'L2' | 'L3';
+    sourceMessageID?: string;
+  },
 ): CompanionMemoryVector {
   const text = normalizeText(input.text);
   if (!text) throw new Error('invalid_memory_text');
@@ -186,6 +215,8 @@ export function upsertCompanionMemoryVector(
     .sort((a, b) => b.sim - a.sim)[0];
   if (near && near.sim >= 0.95) {
     near.item.score = Math.min(1.5, near.item.score + 0.15);
+    near.item.accessCount += 1;
+    near.item.isArchived = false;
     near.item.lastAccessedAt = now;
     near.item.updatedAt = now;
     writeStore(projectDir, store);
@@ -193,14 +224,29 @@ export function upsertCompanionMemoryVector(
   }
 
   const preference = extractConflictKey(text);
+  const confidenceInput =
+    typeof input.confidence === 'number' && Number.isFinite(input.confidence)
+      ? input.confidence
+      : input.tier === 'L1'
+        ? 1
+        : input.tier === 'L3'
+          ? 0.4
+          : 0.7;
+  const confidence = Math.max(0, Math.min(1, confidenceInput));
+
   const created: CompanionMemoryVector = {
     id: `mem_${randomUUID()}`,
     text,
     source: input.source?.trim() || 'manual',
     embedding,
     score: 1,
+    confidence,
+    tier: input.tier ?? (confidence >= 0.95 ? 'L1' : confidence >= 0.6 ? 'L2' : 'L3'),
+    sourceMessageID: input.sourceMessageID,
     status: input.activate ? 'active' : 'pending',
     conflictKey: preference.key,
+    accessCount: 0,
+    isArchived: false,
     createdAt: now,
     updatedAt: now,
     lastAccessedAt: now,
@@ -249,14 +295,21 @@ export function searchCompanionMemoryVectors(
   const qEmb = textToEmbedding(q);
   const store = readStore(projectDir);
   const results = store.items
-    .filter((item) => item.status === 'active')
+    .filter((item) => item.status === 'active' && !item.isArchived)
     .map((item) => {
       const similarity = cosine(item.embedding, qEmb);
-      const rankScore = similarity * item.score;
+      const rankScore = similarity * item.score * item.confidence;
       return { ...item, similarity, rankScore };
     })
     .sort((a, b) => b.rankScore - a.rankScore)
     .slice(0, Math.max(1, limit));
+  for (const item of results) {
+    const target = store.items.find((existing) => existing.id === item.id);
+    if (!target) continue;
+    target.accessCount += 1;
+    target.lastAccessedAt = nowIso();
+  }
+  writeStore(projectDir, store);
   return results;
 }
 
