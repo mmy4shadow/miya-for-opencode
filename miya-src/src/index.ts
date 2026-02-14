@@ -661,6 +661,12 @@ const MiyaPlugin: Plugin = async (ctx) => {
           properties?: { sessionID?: string; status?: { type: string } };
         },
       );
+      await tmuxSessionManager.onSessionDeleted(
+        input.event as {
+          type: string;
+          properties?: { sessionID?: string };
+        },
+      );
 
       // Drive scheduler ticks from plugin lifecycle events as backup to timer.
       // Use fire-and-forget to avoid delaying session event processing.

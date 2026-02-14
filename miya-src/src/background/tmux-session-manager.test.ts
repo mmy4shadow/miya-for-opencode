@@ -146,6 +146,23 @@ describe('TmuxSessionManager', () => {
 
       expect(mockCloseTmuxPane).not.toHaveBeenCalled();
     });
+
+    test('closes pane when session is deleted', async () => {
+      const ctx = createMockContext();
+      const manager = new TmuxSessionManager(ctx, defaultTmuxConfig);
+
+      await manager.onSessionCreated({
+        type: 'session.created',
+        properties: { info: { id: 'c-del', parentID: 'p-del' } },
+      });
+
+      await manager.onSessionDeleted({
+        type: 'session.deleted',
+        properties: { sessionID: 'c-del' },
+      });
+
+      expect(mockCloseTmuxPane).toHaveBeenCalled();
+    });
   });
 
   describe('cleanup', () => {
