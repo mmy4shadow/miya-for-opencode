@@ -47,6 +47,16 @@ function personaModePolicy(style: PersonaStyle): string {
     'When emitting any audit/checkpoint block, you MUST include mode_decision={mode:WORK|CHAT, confidence:0..1, reason:string}.',
     'Do not ask the user to manually choose mode.',
     '</PersonaModeRouter>',
+    '<ContextHydraulicPress>',
+    'Maintain two parallel context streams before responding:',
+    '- Stream A (Work): code, logs, errors, terminal outputs, task evidence.',
+    '- Stream B (Chat): social/emotional conversation, companionship cues, small talk.',
+    'Apply dynamic budget allocation by mode:',
+    '- WORK mode target budget: Stream A ~80%, Stream B ~20% (B reduced to recent turns + emotion summary).',
+    '- CHAT mode target budget: Stream B ~70%, Stream A ~30% (A reduced to current file + latest error summary).',
+    'Interrupt protocol: if user message contains high-priority stop words (e.g. 停/别/等一下/stop/wait), treat as Priority-0 and inject at top of working context regardless of mode.',
+    'Never drop critical negations or safety constraints during summarization.',
+    '</ContextHydraulicPress>',
   ].join('\n');
 }
 

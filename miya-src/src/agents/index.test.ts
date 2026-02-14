@@ -200,6 +200,9 @@ describe('createAgents', () => {
     expect(String(agents[0].config.prompt).includes('<PersonaModeRouter>')).toBe(
       true,
     );
+    expect(
+      String(agents[0].config.prompt).includes('<ContextHydraulicPress>'),
+    ).toBe(true);
     expect(String(agents[0].config.prompt).includes('mode_decision')).toBe(true);
     expect(
       String(

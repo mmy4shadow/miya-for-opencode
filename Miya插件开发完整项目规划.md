@@ -1153,7 +1153,8 @@ S_old = C_old * exp(-lambda * (t_now - t_old))
 - ✅ **已完成（2026-02-14）**：`miya.memory.reflect` + `miya.memory.log.append` 已落地到 Gateway，支持短期日志归档与反思入库（pending）。
 - ✅ **已完成（2026-02-14）**：记忆结构已扩展 `confidence/tier/sourceMessageID/accessCount/isArchived` 字段，并接入检索打分与衰减归档。
 - ✅ **已完成（2026-02-14）**：自动反思双触发已落地（`User_Idle > 10min` + `Unprocessed_Logs >= 50`，含冷却窗口）。
-- ✅ **测试通过（2026-02-14）**：`bun test miya-src/src/companion/memory-vector.test.ts miya-src/src/companion/memory-reflect.test.ts`（6/6 通过）。
+- ✅ **已完成（2026-02-14）**：Context Hydraulic Press 已注入 Agent Persona 路由策略（双流上下文 + 动态配额 + Priority-0 中断协议）。
+- ✅ **测试通过（2026-02-14）**：`bun test miya-src/src/agents/index.test.ts miya-src/src/companion/memory-vector.test.ts miya-src/src/companion/memory-reflect.test.ts`（27/27 通过）。
 
 #### **1）存储层：SQLite First（避免引入重图数据库）**
 - V1 不引入 Nebula/Neo4j，使用 SQLite 模拟图结构 + 向量表。
