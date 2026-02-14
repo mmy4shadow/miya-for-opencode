@@ -1,4 +1,5 @@
 import type { AgentDefinition } from './orchestrator';
+import { BaseAgent } from './base-agent';
 
 const EXPLORER_PROMPT = `You are 2-code-search - Reconnaissance/Locator Specialist (侦察/定位)
 
@@ -62,22 +63,12 @@ export function createExplorerAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
 ): AgentDefinition {
-  let prompt = EXPLORER_PROMPT;
-
-  if (customPrompt) {
-    prompt = customPrompt;
-  } else if (customAppendPrompt) {
-    prompt = `${EXPLORER_PROMPT}\n\n${customAppendPrompt}`;
-  }
-
-  return {
+  return new BaseAgent({
     name: '2-code-search',
     description:
       "Fast codebase search and pattern matching. Use for finding files, locating code patterns, and answering 'where is X?' questions.",
-    config: {
-      model,
-      temperature: 0.1,
-      prompt,
-    },
-  };
+    defaultTemperature: 0.1,
+    basePrompt: EXPLORER_PROMPT,
+    personaStyle: 'minimal',
+  }).create(model, customPrompt, customAppendPrompt);
 }

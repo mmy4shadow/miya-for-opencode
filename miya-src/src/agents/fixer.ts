@@ -1,4 +1,5 @@
 import type { AgentDefinition } from './orchestrator';
+import { BaseAgent } from './base-agent';
 
 const FIXER_PROMPT = `You are 5-code-fixer - Execution/Delivery Specialist (执行/落地)
 
@@ -62,22 +63,12 @@ export function createFixerAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
 ): AgentDefinition {
-  let prompt = FIXER_PROMPT;
-
-  if (customPrompt) {
-    prompt = customPrompt;
-  } else if (customAppendPrompt) {
-    prompt = `${FIXER_PROMPT}\n\n${customAppendPrompt}`;
-  }
-
-  return {
+  return new BaseAgent({
     name: '5-code-fixer',
     description:
       'Fast implementation specialist. Receives complete context and task spec, executes code changes efficiently.',
-    config: {
-      model,
-      temperature: 0.2,
-      prompt,
-    },
-  };
+    defaultTemperature: 0.2,
+    basePrompt: FIXER_PROMPT,
+    personaStyle: 'zero',
+  }).create(model, customPrompt, customAppendPrompt);
 }

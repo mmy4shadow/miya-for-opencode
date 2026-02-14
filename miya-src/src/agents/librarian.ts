@@ -1,4 +1,5 @@
 import type { AgentDefinition } from './orchestrator';
+import { BaseAgent } from './base-agent';
 
 const LIBRARIAN_PROMPT = `You are 3-docs-helper - Evidence/Verification Specialist (查证/证据)
 
@@ -62,22 +63,12 @@ export function createLibrarianAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
 ): AgentDefinition {
-  let prompt = LIBRARIAN_PROMPT;
-
-  if (customPrompt) {
-    prompt = customPrompt;
-  } else if (customAppendPrompt) {
-    prompt = `${LIBRARIAN_PROMPT}\n\n${customAppendPrompt}`;
-  }
-
-  return {
+  return new BaseAgent({
     name: '3-docs-helper',
     description:
       'External documentation and library research. Use for official docs lookup, GitHub examples, and understanding library internals.',
-    config: {
-      model,
-      temperature: 0.1,
-      prompt,
-    },
-  };
+    defaultTemperature: 0.1,
+    basePrompt: LIBRARIAN_PROMPT,
+    personaStyle: 'minimal',
+  }).create(model, customPrompt, customAppendPrompt);
 }

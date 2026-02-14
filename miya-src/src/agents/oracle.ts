@@ -1,4 +1,5 @@
 import type { AgentDefinition } from './orchestrator';
+import { BaseAgent } from './base-agent';
 
 const ORACLE_PROMPT = `You are 4-architecture-advisor - Decision/Risk Control Specialist (决策/风控)
 
@@ -69,22 +70,12 @@ export function createOracleAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
 ): AgentDefinition {
-  let prompt = ORACLE_PROMPT;
-
-  if (customPrompt) {
-    prompt = customPrompt;
-  } else if (customAppendPrompt) {
-    prompt = `${ORACLE_PROMPT}\n\n${customAppendPrompt}`;
-  }
-
-  return {
+  return new BaseAgent({
     name: '4-architecture-advisor',
     description:
       'Strategic technical advisor. Use for architecture decisions, complex debugging, code review, and engineering guidance.',
-    config: {
-      model,
-      temperature: 0.1,
-      prompt,
-    },
-  };
+    defaultTemperature: 0.1,
+    basePrompt: ORACLE_PROMPT,
+    personaStyle: 'zero',
+  }).create(model, customPrompt, customAppendPrompt);
 }

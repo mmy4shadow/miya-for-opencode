@@ -15,6 +15,10 @@ import {
 } from './gateway';
 import { createIntakeTools } from './intake';
 import {
+  shouldInterceptWriteAfterWebsearch,
+  trackWebsearchToolOutput,
+} from './intake/websearch-guard';
+import {
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
   getMiyaDaemonService,
@@ -127,7 +131,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const gatewayTools = createGatewayTools(ctx);
   // Stability-first default: keep plugin-hosted remote MCPs disabled unless explicitly enabled
   // by setting disabled_mcps in config (remove entries you want to use).
-  const defaultDisabledMcps = ['websearch', 'context7', 'grep_app'];
+  const defaultDisabledMcps: string[] = [];
   const disabledMcps = config.disabled_mcps ?? defaultDisabledMcps;
   const mcps = createBuiltinMcps(disabledMcps);
 
@@ -447,10 +451,26 @@ const MiyaPlugin: Plugin = async (ctx) => {
       await phaseReminderHook['experimental.chat.messages.transform'](input, output);
     },
 
-    // Nudge after file reads to encourage delegation
-    'tool.execute.after': postReadNudgeHook['tool.execute.after'],
+    // Nudge after file reads to encourage delegation + track websearch usage for intake gate
+    'tool.execute.after': async (input, output) => {
+      await postReadNudgeHook['tool.execute.after'](input, output);
+      trackWebsearchToolOutput(
+        typeof input.sessionID === 'string' ? input.sessionID : 'main',
+        String(input.tool ?? ''),
+        String(output.output ?? ''),
+      );
+    },
 
     'permission.ask': async (input, output) => {
+      const intakeGate = shouldInterceptWriteAfterWebsearch(ctx.directory, {
+        sessionID: String(input.sessionID ?? 'main'),
+        permission: String(input.type ?? ''),
+      });
+      if (intakeGate.intercept) {
+        output.status = 'ask';
+        return;
+      }
+
       const patterns = Array.isArray(input.pattern)
         ? input.pattern.map(String)
         : typeof input.pattern === 'string'

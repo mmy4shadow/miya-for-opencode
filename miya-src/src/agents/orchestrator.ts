@@ -1,4 +1,5 @@
 import type { AgentConfig } from '@opencode-ai/sdk';
+import { BaseAgent } from './base-agent';
 
 export interface AgentDefinition {
   name: string;
@@ -165,6 +166,17 @@ When the user expresses long-term preferences/defaults/limits (for example: ф╗ех
 - If risk is HIGH and patch is denied, stop and report kill-switch status
 </Workflow>
 
+<Stage1 Runtime Priorities>
+- Agent Factory + Persona mode router are mandatory. Auto classify each turn: Chat vs Work.
+- For Work requests that include "latest docs" or API uncertainty:
+  1) dispatch @3-docs-helper to run websearch/context7 evidence collection
+  2) use @2-code-search for rg/ast-grep code location
+  3) dispatch @5-code-fixer for implementation
+  4) run \`miya_ralph_loop\` with verification command for text-based self-repair
+- Respect Ralph hash cycle detection results. If cycle detected, stop same path and change strategy.
+- If websearch-derived content is about to drive file writes, trigger Intake Gate flow first.
+</Stage1 Runtime Priorities>
+
 <Communication>
 - Be concise, direct, and actionable
 - Ask questions only when truly blocked
@@ -177,22 +189,12 @@ export function createOrchestratorAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
 ): AgentDefinition {
-  let prompt = ORCHESTRATOR_PROMPT;
-
-  if (customPrompt) {
-    prompt = customPrompt;
-  } else if (customAppendPrompt) {
-    prompt = `${ORCHESTRATOR_PROMPT}\n\n${customAppendPrompt}`;
-  }
-
-  return {
+  return new BaseAgent({
     name: '1-task-manager',
     description:
       'AI coding orchestrator that delegates tasks to specialist agents for optimal quality, speed, and cost',
-    config: {
-      model,
-      temperature: 0.1,
-      prompt,
-    },
-  };
+    defaultTemperature: 0.1,
+    basePrompt: ORCHESTRATOR_PROMPT,
+    personaStyle: 'full',
+  }).create(model, customPrompt, customAppendPrompt);
 }

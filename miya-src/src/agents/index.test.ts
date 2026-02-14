@@ -194,6 +194,18 @@ describe('createAgents', () => {
     const agents = createAgents(undefined, projectDir);
     expect(String(agents[0].config.prompt).includes('<PersonaLayer>')).toBe(true);
   });
+
+  test('injects chat/work persona mode router into agent prompts', () => {
+    const agents = createAgents();
+    expect(String(agents[0].config.prompt).includes('<PersonaModeRouter>')).toBe(
+      true,
+    );
+    expect(
+      String(
+        agents.find((agent) => agent.name === '5-code-fixer')?.config.prompt,
+      ).includes('Persona style: ZERO'),
+    ).toBe(true);
+  });
 });
 
 describe('getAgentConfigs', () => {

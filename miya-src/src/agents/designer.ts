@@ -1,4 +1,5 @@
 import type { AgentDefinition } from './orchestrator';
+import { BaseAgent } from './base-agent';
 
 const DESIGNER_PROMPT = `You are 6-ui-designer - Presentation/Interaction Specialist (呈现/交互)
 
@@ -89,22 +90,12 @@ export function createDesignerAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
 ): AgentDefinition {
-  let prompt = DESIGNER_PROMPT;
-
-  if (customPrompt) {
-    prompt = customPrompt;
-  } else if (customAppendPrompt) {
-    prompt = `${DESIGNER_PROMPT}\n\n${customAppendPrompt}`;
-  }
-
-  return {
+  return new BaseAgent({
     name: '6-ui-designer',
     description:
       'UI/UX design and implementation. Use for styling, responsive design, component architecture and visual polish.',
-    config: {
-      model,
-      temperature: 0.7,
-      prompt,
-    },
-  };
+    defaultTemperature: 0.7,
+    basePrompt: DESIGNER_PROMPT,
+    personaStyle: 'full',
+  }).create(model, customPrompt, customAppendPrompt);
 }
