@@ -1,7 +1,9 @@
 import { MiyaDaemonService } from './service';
+import { MiyaClient, getMiyaClient } from './client';
 import {
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
+  daemonInvoke,
   stopMiyaLauncher,
   type DaemonConnectionSnapshot,
 } from './launcher';
@@ -13,18 +15,11 @@ import type {
   DaemonRuntimeState,
 } from './types';
 
-const daemons = new Map<string, MiyaDaemonService>();
-
-export function getMiyaDaemonService(projectDir: string): MiyaDaemonService {
-  const existing = daemons.get(projectDir);
-  if (existing) return existing;
-  const created = new MiyaDaemonService(projectDir);
-  daemons.set(projectDir, created);
-  return created;
-}
-
 export {
+  MiyaClient,
+  getMiyaClient,
   MiyaDaemonService,
+  daemonInvoke,
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
   stopMiyaLauncher,

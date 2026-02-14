@@ -1,7 +1,5 @@
-import { Buffer } from 'node:buffer';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { getMiyaDaemonService } from '../daemon';
 import { getMediaItem } from '../media/store';
 import { readOcrCoordinateCache, writeOcrCoordinateCache } from './ocr-cache';
 import type { VisionAnalyzeInput, VisionAnalyzeResult } from './types';
@@ -301,91 +299,72 @@ export async function analyzeVision(
     };
   }
 
-  const daemon = getMiyaDaemonService(projectDir);
-  const { result } = await daemon.runTask(
-    {
-      kind: 'vision.analyze',
-      resource: {
-        priority: 90,
-        vramMB: 768,
-        modelID: 'local:qwen3-vl-4b',
-        modelVramMB: 1536,
-      },
-      metadata: {
-        stage: 'multimodal.vision.analyze',
-        mediaID: input.mediaID,
-      },
+  const media = getMediaItem(projectDir, input.mediaID);
+  if (!media) throw new Error('media_not_found');
+  if (media.kind !== 'image') throw new Error('invalid_vision_media_kind');
+  const filePath = media.localPath && fs.existsSync(media.localPath) ? media.localPath : '';
+  const ocr: Awaited<ReturnType<typeof readTextFromImage>> = filePath
+    ? await readTextFromImage(filePath, input.question)
+    : { source: 'none', text: '' };
+  const metadataSummary = summarizeFromMetadata(media.metadata);
+  const summary = ocr.summary || ocr.text || metadataSummary;
+  const ocrLines = ocr.text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  const remoteBoxes =
+    Array.isArray(ocr.boxes) && ocr.boxes.length > 0
+      ? ocr.boxes
+          .map((item) => ({
+            x: Number(item.x ?? 0),
+            y: Number(item.y ?? 0),
+            width: Number(item.width ?? 0),
+            height: Number(item.height ?? 0),
+            text: String(item.text ?? '').trim(),
+          }))
+          .filter(
+            (item) =>
+              Number.isFinite(item.x) &&
+              Number.isFinite(item.y) &&
+              Number.isFinite(item.width) &&
+              Number.isFinite(item.height) &&
+              item.text.length > 0,
+          )
+      : [];
+  const ocrBoxes =
+    remoteBoxes.length > 0
+      ? remoteBoxes
+      : ocrLines.map((line, index) => ({
+          x: 16,
+          y: 24 + index * 24,
+          width: Math.min(720, 80 + line.length * 8),
+          height: 20,
+          text: line.slice(0, 240),
+        }));
+  const finalSummary =
+    input.question && input.question.trim()
+      ? `${summary} | question: ${input.question.trim()}`
+      : summary;
+  writeOcrCoordinateCache(projectDir, {
+    mediaID: media.id,
+    question: input.question,
+    boxes: ocrBoxes,
+    summary: finalSummary,
+  });
+  return {
+    mediaID: media.id,
+    summary: finalSummary,
+    details: {
+      cacheHit: false,
+      ocrBoxes,
+      inferenceSource: ocr.source,
+      ocrPreview: ocr.text.slice(0, 400),
+      fileName: media.fileName,
+      mimeType: media.mimeType,
+      localPath: media.localPath,
+      metadata: media.metadata ?? {},
+      host: os.hostname(),
     },
-    async () => {
-      const media = getMediaItem(projectDir, input.mediaID);
-      if (!media) throw new Error('media_not_found');
-      if (media.kind !== 'image') throw new Error('invalid_vision_media_kind');
-      const filePath = media.localPath && fs.existsSync(media.localPath) ? media.localPath : '';
-      const ocr: Awaited<ReturnType<typeof readTextFromImage>> = filePath
-        ? await readTextFromImage(filePath, input.question)
-        : { source: 'none', text: '' };
-      const metadataSummary = summarizeFromMetadata(media.metadata);
-      const summary = ocr.summary || ocr.text || metadataSummary;
-      const ocrLines = ocr.text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .slice(0, 6);
-      const remoteBoxes =
-        Array.isArray(ocr.boxes) && ocr.boxes.length > 0
-          ? ocr.boxes
-              .map((item) => ({
-                x: Number(item.x ?? 0),
-                y: Number(item.y ?? 0),
-                width: Number(item.width ?? 0),
-                height: Number(item.height ?? 0),
-                text: String(item.text ?? '').trim(),
-              }))
-              .filter(
-                (item) =>
-                  Number.isFinite(item.x) &&
-                  Number.isFinite(item.y) &&
-                  Number.isFinite(item.width) &&
-                  Number.isFinite(item.height) &&
-                  item.text.length > 0,
-              )
-          : [];
-      const ocrBoxes =
-        remoteBoxes.length > 0
-          ? remoteBoxes
-          : ocrLines.map((line, index) => ({
-              x: 16,
-              y: 24 + index * 24,
-              width: Math.min(720, 80 + line.length * 8),
-              height: 20,
-              text: line.slice(0, 240),
-            }));
-      const finalSummary =
-        input.question && input.question.trim()
-          ? `${summary} | question: ${input.question.trim()}`
-          : summary;
-      writeOcrCoordinateCache(projectDir, {
-        mediaID: media.id,
-        question: input.question,
-        boxes: ocrBoxes,
-        summary: finalSummary,
-      });
-      return {
-        mediaID: media.id,
-        summary: finalSummary,
-        details: {
-          cacheHit: false,
-          ocrBoxes,
-          inferenceSource: ocr.source,
-          ocrPreview: ocr.text.slice(0, 400),
-          fileName: media.fileName,
-          mimeType: media.mimeType,
-          localPath: media.localPath,
-          metadata: media.metadata ?? {},
-          host: os.hostname(),
-        },
-      };
-    },
-  );
-  return result;
+  };
 }

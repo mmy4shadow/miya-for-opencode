@@ -210,6 +210,7 @@ function daemonRequest(
   runtime: LauncherRuntime,
   method: string,
   params: Record<string, unknown>,
+  timeoutMs = 8_000,
 ): Promise<unknown> {
   if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) {
     return Promise.reject(new Error('daemon_ws_not_open'));
@@ -233,7 +234,7 @@ function daemonRequest(
     const timeout = setTimeout(() => {
       runtime.pending.delete(id);
       reject(new Error('daemon_request_timeout'));
-    }, 8_000);
+    }, Math.max(1_000, timeoutMs));
     runtime.pending.set(id, { resolve, reject, timeout });
     runtime.ws?.send(JSON.stringify(frame));
   });
@@ -398,6 +399,33 @@ export function stopMiyaLauncher(projectDir: string): void {
     fs.rmSync(runtime.parentLockFile, { force: true });
   } catch {}
   runtimes.delete(projectDir);
+}
+
+async function waitForDaemonConnection(
+  runtime: LauncherRuntime,
+  timeoutMs: number,
+): Promise<void> {
+  if (runtime.ws?.readyState === WebSocket.OPEN && runtime.connected) return;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    ensureDaemonLaunched(runtime);
+    if (runtime.ws?.readyState === WebSocket.OPEN && runtime.connected) return;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error('daemon_connect_timeout');
+}
+
+export async function daemonInvoke(
+  projectDir: string,
+  method: string,
+  params: Record<string, unknown>,
+  timeoutMs = 60_000,
+): Promise<unknown> {
+  ensureMiyaLauncher(projectDir);
+  const runtime = runtimes.get(projectDir);
+  if (!runtime) throw new Error('daemon_runtime_missing');
+  await waitForDaemonConnection(runtime, Math.min(timeoutMs, 15_000));
+  return daemonRequest(runtime, method, params, timeoutMs);
 }
 
 process.on('exit', () => {

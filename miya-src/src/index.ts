@@ -23,7 +23,6 @@ import {
 import {
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
-  getMiyaDaemonService,
 } from './daemon';
 import {
   createLoopGuardHook,
@@ -101,7 +100,6 @@ const MiyaPlugin: Plugin = async (ctx) => {
   }
 
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
-  const daemonService = getMiyaDaemonService(ctx.directory);
   startGatewayWithLog(ctx.directory);
   const gatewayOwner = isGatewayOwner(ctx.directory);
   if (gatewayOwner) {
@@ -123,7 +121,6 @@ const MiyaPlugin: Plugin = async (ctx) => {
         });
       } catch {}
     }, 4000);
-    daemonService.start();
   } else {
     log('[miya] follower instance detected; skip daemon bootstrap/toast', {
       directory: ctx.directory,

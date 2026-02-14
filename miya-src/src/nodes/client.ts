@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { getMiyaDaemonService } from '../daemon';
+import { getMiyaClient } from '../daemon';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export interface NodeHostOptions {
@@ -218,7 +218,7 @@ async function executeCapability(
         ? Number(payload.args.timeoutMs)
         : 120000;
     if (!command) return { ok: false, error: 'missing_command' };
-    const daemon = getMiyaDaemonService(projectDir);
+    const daemon = getMiyaClient(projectDir);
     const result = await daemon.runIsolatedProcess({
       kind: 'shell.exec',
       command: process.platform === 'win32' ? 'powershell' : 'sh',

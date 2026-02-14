@@ -54,7 +54,7 @@ import {
   touchNodeHeartbeat,
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
-import { getLauncherDaemonSnapshot, getMiyaDaemonService } from '../daemon';
+import { getLauncherDaemonSnapshot, getMiyaClient } from '../daemon';
 import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
 import {
   appendVoiceHistory,
@@ -1454,7 +1454,7 @@ async function runWizardTrainingWorker(
       progress: 5,
       step: runningState.state,
     });
-    const daemon = getMiyaDaemonService(projectDir);
+    const daemon = getMiyaClient(projectDir);
     const profileDir = getCompanionProfileCurrentDir(projectDir, queued.sessionId);
     if (queued.job.type === 'training.image') {
       const photosDir = path.join(profileDir, 'photos');
@@ -2493,12 +2493,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
     const sessionId = parseText(params.sessionID) || 'main';
-    const daemon = getMiyaDaemonService(projectDir);
+    const daemon = getMiyaClient(projectDir);
     const state = readCompanionWizardState(projectDir, sessionId);
+    const cancelRequests: Promise<void>[] = [];
     for (const job of state.jobs) {
       if (job.status === 'queued' || job.status === 'training') {
-        daemon.requestTrainingCancel(job.id);
+        cancelRequests.push(daemon.requestTrainingCancel(job.id));
       }
+    }
+    if (cancelRequests.length > 0) {
+      await Promise.allSettled(cancelRequests);
     }
     const canceled = cancelCompanionWizardTraining(projectDir, sessionId);
     return {

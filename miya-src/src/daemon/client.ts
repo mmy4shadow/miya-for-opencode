@@ -1,0 +1,141 @@
+import { daemonInvoke, ensureMiyaLauncher } from './launcher';
+import type { ResourceTaskKind } from '../resource-scheduler';
+
+interface IsolatedProcessInput {
+  kind: ResourceTaskKind;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  timeoutMs?: number;
+  resource?: {
+    priority?: number;
+    vramMB?: number;
+    modelID?: string;
+    modelVramMB?: number;
+    timeoutMs?: number;
+    metadata?: Record<string, unknown>;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+export class MiyaClient {
+  constructor(private readonly projectDir: string) {
+    ensureMiyaLauncher(projectDir);
+  }
+
+  async runFluxImageGenerate(input: {
+    prompt: string;
+    outputPath: string;
+    profileDir: string;
+    references: string[];
+    size: string;
+  }): Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.flux.generate',
+      input as unknown as Record<string, unknown>,
+      240_000,
+    ) as Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }>;
+  }
+
+  async runSovitsTts(input: {
+    text: string;
+    outputPath: string;
+    profileDir: string;
+    voice: string;
+    format: 'wav' | 'mp3' | 'ogg';
+  }): Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.sovits.tts',
+      input as unknown as Record<string, unknown>,
+      180_000,
+    ) as Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }>;
+  }
+
+  async runFluxTraining(input: {
+    profileDir: string;
+    photosDir: string;
+    jobID: string;
+    checkpointPath?: string;
+  }): Promise<{
+    status: 'completed' | 'degraded' | 'failed' | 'canceled';
+    tier: 'lora' | 'embedding' | 'reference';
+    message: string;
+    artifactPath?: string;
+    checkpointPath?: string;
+  }> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.training.flux',
+      input as unknown as Record<string, unknown>,
+      35 * 60_000,
+    ) as Promise<{
+      status: 'completed' | 'degraded' | 'failed' | 'canceled';
+      tier: 'lora' | 'embedding' | 'reference';
+      message: string;
+      artifactPath?: string;
+      checkpointPath?: string;
+    }>;
+  }
+
+  async runSovitsTraining(input: {
+    profileDir: string;
+    voiceSamplePath: string;
+    jobID: string;
+    checkpointPath?: string;
+  }): Promise<{
+    status: 'completed' | 'degraded' | 'failed' | 'canceled';
+    tier: 'lora' | 'embedding' | 'reference';
+    message: string;
+    artifactPath?: string;
+    checkpointPath?: string;
+  }> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.training.sovits',
+      input as unknown as Record<string, unknown>,
+      35 * 60_000,
+    ) as Promise<{
+      status: 'completed' | 'degraded' | 'failed' | 'canceled';
+      tier: 'lora' | 'embedding' | 'reference';
+      message: string;
+      artifactPath?: string;
+      checkpointPath?: string;
+    }>;
+  }
+
+  async requestTrainingCancel(jobID: string): Promise<void> {
+    await daemonInvoke(this.projectDir, 'daemon.training.cancel', { jobID }, 15_000);
+  }
+
+  async runIsolatedProcess(input: IsolatedProcessInput): Promise<{
+    exitCode: number | null;
+    stdout: string;
+    stderr: string;
+    timedOut: boolean;
+  }> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.process.run_isolated',
+      input as unknown as Record<string, unknown>,
+      Math.max(30_000, input.timeoutMs ?? 120_000) + 10_000,
+    ) as Promise<{
+      exitCode: number | null;
+      stdout: string;
+      stderr: string;
+      timedOut: boolean;
+    }>;
+  }
+}
+
+const clients = new Map<string, MiyaClient>();
+
+export function getMiyaClient(projectDir: string): MiyaClient {
+  const existing = clients.get(projectDir);
+  if (existing) return existing;
+  const created = new MiyaClient(projectDir);
+  clients.set(projectDir, created);
+  return created;
+}

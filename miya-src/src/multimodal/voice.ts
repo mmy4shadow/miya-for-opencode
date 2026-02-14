@@ -1,5 +1,5 @@
 import { addCompanionAsset } from '../companion/store';
-import { getMiyaDaemonService } from '../daemon';
+import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
 import { appendVoiceHistory } from '../voice/state';
 import { getMiyaRuntimeDir } from '../workflow';
@@ -94,91 +94,73 @@ export async function synthesizeVoiceOutput(
   projectDir: string,
   input: VoiceOutputInput,
 ): Promise<VoiceOutputResult> {
-  const daemon = getMiyaDaemonService(projectDir);
-  const { result } = await daemon.runTask(
-    {
-      kind: 'voice.tts',
-      resource: {
-        priority: 100,
-        vramMB: 512,
-        modelID: input.model?.trim() || DEFAULT_TTS_MODEL,
-        modelVramMB: 1024,
-      },
-      metadata: {
-        stage: 'multimodal.voice.output',
-      },
-    },
-    async () => {
-      const text = input.text.trim();
-      if (!text) throw new Error('invalid_tts_text');
+  const daemon = getMiyaClient(projectDir);
+  const text = input.text.trim();
+  if (!text) throw new Error('invalid_tts_text');
 
-      const voice = input.voice?.trim() || DEFAULT_VOICE;
-      const model = input.model?.trim() || DEFAULT_TTS_MODEL;
-      const format = normalizeFormat(input.format);
-      const mimeType =
-        format === 'mp3' ? 'audio/mpeg' : format === 'ogg' ? 'audio/ogg' : 'audio/wav';
-      const estDurationMs = Math.max(600, Math.min(7000, text.length * 55));
-      const outputDir = path.join(getMiyaRuntimeDir(projectDir), 'model', 'sheng yin', 'outputs');
-      const outputPath = path.join(outputDir, `tts-${Date.now()}.${format}`);
-      const profileDir = path.join(
-        getMiyaRuntimeDir(projectDir),
-        'profiles',
-        'companion',
-        'current',
-      );
-      const tts = await daemon.runSovitsTts({
-        text,
-        outputPath,
-        profileDir,
-        voice,
-        format,
-      });
-      const wavBase64 =
-        toBase64FromFile(tts.outputPath) ?? buildSilentWavBase64(estDurationMs);
-
-      const media = ingestMedia(projectDir, {
-        source: 'multimodal.voice.output',
-        kind: 'audio',
-        mimeType,
-        fileName: `tts-${Date.now()}.${format}`,
-        contentBase64: wavBase64,
-        sizeBytes: Math.floor((wavBase64.length * 3) / 4),
-        metadata: {
-          status: 'generated_local',
-          text,
-          voice,
-          model,
-          format,
-          tier: tts.tier,
-          degraded: tts.degraded,
-          engineMessage: tts.message,
-          payloadCodec: 'pcm_s16le',
-          estimatedDurationMs: estDurationMs,
-          createdBy: 'miya_voice_output',
-        },
-      });
-
-      appendVoiceHistory(projectDir, {
-        text,
-        source: 'talk',
-        mediaID: media.id,
-      });
-
-      if (input.registerAsCompanionAsset) {
-        addCompanionAsset(projectDir, {
-          type: 'audio',
-          pathOrUrl: media.localPath ?? media.fileName,
-          label: `voice:${voice}`,
-        });
-      }
-
-      return {
-        media,
-        voice,
-        model,
-        format,
-      };
-    },
+  const voice = input.voice?.trim() || DEFAULT_VOICE;
+  const model = input.model?.trim() || DEFAULT_TTS_MODEL;
+  const format = normalizeFormat(input.format);
+  const mimeType =
+    format === 'mp3' ? 'audio/mpeg' : format === 'ogg' ? 'audio/ogg' : 'audio/wav';
+  const estDurationMs = Math.max(600, Math.min(7000, text.length * 55));
+  const outputDir = path.join(getMiyaRuntimeDir(projectDir), 'model', 'sheng yin', 'outputs');
+  const outputPath = path.join(outputDir, `tts-${Date.now()}.${format}`);
+  const profileDir = path.join(
+    getMiyaRuntimeDir(projectDir),
+    'profiles',
+    'companion',
+    'current',
   );
-  return result;
+  const tts = await daemon.runSovitsTts({
+    text,
+    outputPath,
+    profileDir,
+    voice,
+    format,
+  });
+  const wavBase64 = toBase64FromFile(tts.outputPath) ?? buildSilentWavBase64(estDurationMs);
+
+  const media = ingestMedia(projectDir, {
+    source: 'multimodal.voice.output',
+    kind: 'audio',
+    mimeType,
+    fileName: `tts-${Date.now()}.${format}`,
+    contentBase64: wavBase64,
+    sizeBytes: Math.floor((wavBase64.length * 3) / 4),
+    metadata: {
+      status: 'generated_local',
+      text,
+      voice,
+      model,
+      format,
+      tier: tts.tier,
+      degraded: tts.degraded,
+      engineMessage: tts.message,
+      payloadCodec: 'pcm_s16le',
+      estimatedDurationMs: estDurationMs,
+      createdBy: 'miya_voice_output',
+    },
+  });
+
+  appendVoiceHistory(projectDir, {
+    text,
+    source: 'talk',
+    mediaID: media.id,
+  });
+
+  if (input.registerAsCompanionAsset) {
+    addCompanionAsset(projectDir, {
+      type: 'audio',
+      pathOrUrl: media.localPath ?? media.fileName,
+      label: `voice:${voice}`,
+    });
+  }
+
+  return {
+    media,
+    voice,
+    model,
+    format,
+  };
 }

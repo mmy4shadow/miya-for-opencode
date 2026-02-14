@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 import { getMiyaRuntimeDir } from '../workflow';
 import { readConfig, validateConfigPatch, applyConfigPatch } from '../settings';
 import { assertPolicyHash, currentPolicyHash } from '../policy';
+import { MiyaDaemonService } from './service';
+import type { ResourceTaskKind } from '../resource-scheduler';
 import {
   parseDaemonIncomingFrame,
   DaemonResponseFrameSchema,
@@ -119,6 +121,8 @@ function stableHash(input: unknown): string {
 
 const args = parseArgs(process.argv);
 ensureRuntimeDir(args.projectDir);
+const daemonService = new MiyaDaemonService(args.projectDir);
+daemonService.start();
 
 let wsConnected = false;
 let wsClientID = '';
@@ -183,7 +187,7 @@ const server = Bun.serve({
       wsConnected = false;
       wsClientID = '';
     },
-    message(ws, input) {
+    async message(ws, input) {
       const parsed = parseDaemonIncomingFrame(input);
       if (!parsed.frame) {
         ws.send(
@@ -316,6 +320,262 @@ const server = Bun.serve({
         return;
       }
 
+      if (frame.method === 'daemon.flux.generate') {
+        try {
+          const result = await daemonService.runFluxImageGenerate({
+            prompt: String(params.prompt ?? ''),
+            outputPath: String(params.outputPath ?? ''),
+            profileDir: String(params.profileDir ?? ''),
+            references: Array.isArray(params.references) ? params.references.map(String) : [],
+            size: String(params.size ?? '1024x1024'),
+          });
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'flux_generate_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (frame.method === 'daemon.sovits.tts') {
+        try {
+          const fmt = String(params.format ?? 'wav');
+          const format = fmt === 'mp3' || fmt === 'ogg' ? fmt : 'wav';
+          const result = await daemonService.runSovitsTts({
+            text: String(params.text ?? ''),
+            outputPath: String(params.outputPath ?? ''),
+            profileDir: String(params.profileDir ?? ''),
+            voice: String(params.voice ?? 'default'),
+            format,
+          });
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'sovits_tts_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (frame.method === 'daemon.training.flux') {
+        try {
+          const result = await daemonService.runFluxTraining({
+            profileDir: String(params.profileDir ?? ''),
+            photosDir: String(params.photosDir ?? ''),
+            jobID: String(params.jobID ?? ''),
+            checkpointPath:
+              typeof params.checkpointPath === 'string' ? params.checkpointPath : undefined,
+          });
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'flux_training_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (frame.method === 'daemon.training.sovits') {
+        try {
+          const result = await daemonService.runSovitsTraining({
+            profileDir: String(params.profileDir ?? ''),
+            voiceSamplePath: String(params.voiceSamplePath ?? ''),
+            jobID: String(params.jobID ?? ''),
+            checkpointPath:
+              typeof params.checkpointPath === 'string' ? params.checkpointPath : undefined,
+          });
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'sovits_training_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (frame.method === 'daemon.training.cancel') {
+        const jobID = String(params.jobID ?? '').trim();
+        if (!jobID) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'invalid_job_id',
+                  message: 'jobID_required',
+                },
+              }),
+            ),
+          );
+          return;
+        }
+        daemonService.requestTrainingCancel(jobID);
+        ws.send(
+          JSON.stringify(
+            DaemonResponseFrameSchema.parse({
+              type: 'response',
+              id: frame.id,
+              ok: true,
+              result: { canceled: true, jobID },
+            }),
+          ),
+        );
+        return;
+      }
+
+      if (frame.method === 'daemon.process.run_isolated') {
+        try {
+          const requestedKind = String(params.kind ?? 'generic');
+          const allowedKinds = new Set<ResourceTaskKind>([
+            'generic',
+            'training.image',
+            'training.voice',
+            'image.generate',
+            'voice.tts',
+            'vision.analyze',
+            'shell.exec',
+          ]);
+          const kind: ResourceTaskKind = allowedKinds.has(requestedKind as ResourceTaskKind)
+            ? (requestedKind as ResourceTaskKind)
+            : 'generic';
+          const rawInput = {
+            kind,
+            command: String(params.command ?? ''),
+            args: Array.isArray(params.args) ? params.args.map(String) : [],
+            cwd: typeof params.cwd === 'string' ? params.cwd : undefined,
+            env:
+              params.env && typeof params.env === 'object' && !Array.isArray(params.env)
+                ? (params.env as NodeJS.ProcessEnv)
+                : undefined,
+            timeoutMs:
+              typeof params.timeoutMs === 'number' ? Math.max(1_000, params.timeoutMs) : undefined,
+            resource:
+              params.resource && typeof params.resource === 'object' && !Array.isArray(params.resource)
+                ? (params.resource as {
+                    priority?: number;
+                    vramMB?: number;
+                    modelID?: string;
+                    modelVramMB?: number;
+                    timeoutMs?: number;
+                    metadata?: Record<string, unknown>;
+                  })
+                : undefined,
+            metadata:
+              params.metadata && typeof params.metadata === 'object' && !Array.isArray(params.metadata)
+                ? (params.metadata as Record<string, unknown>)
+                : undefined,
+          };
+          if (!rawInput.command) {
+            throw new Error('command_required');
+          }
+          const result = await daemonService.runIsolatedProcess(rawInput);
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'isolated_process_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
       ws.send(
         JSON.stringify(
           DaemonResponseFrameSchema.parse({
@@ -371,6 +631,7 @@ const parentWatchTimer = setInterval(() => {
 }, 5_000);
 
 function shutdown(code: number): void {
+  daemonService.stop();
   clearInterval(lockTimer);
   clearInterval(parentWatchTimer);
   clearInterval(telemetryTimer);
