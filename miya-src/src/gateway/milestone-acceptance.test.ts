@@ -145,4 +145,25 @@ describe('gateway milestone acceptance', () => {
       stopGateway(projectDir);
     }
   });
+
+  test('exposes provider override audit and mcp capabilities endpoints', async () => {
+    const projectDir = tempProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      const providerAudit = (await client.request('provider.override.audit.list', {
+        limit: 20,
+      })) as unknown[];
+      const capabilities = (await client.request('mcp.capabilities.list', {})) as {
+        mcps?: Array<{ name: string; sampling: boolean; mcpUi: boolean }>;
+      };
+      expect(Array.isArray(providerAudit)).toBe(true);
+      expect(Array.isArray(capabilities.mcps)).toBe(true);
+      expect(capabilities.mcps?.every((item) => typeof item.sampling === 'boolean')).toBe(true);
+      expect(capabilities.mcps?.every((item) => typeof item.mcpUi === 'boolean')).toBe(true);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
 });

@@ -145,7 +145,15 @@ type InputMutexLease = {
   release: () => void;
 };
 
-const INPUT_MUTEX_TIMEOUT_MS = 20_000;
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+const INPUT_MUTEX_TIMEOUT_MS = parsePositiveIntEnv('MIYA_INPUT_MUTEX_TIMEOUT_MS', 20_000);
 const INPUT_MUTEX_STRIKE_LIMIT = 3;
 const INPUT_MUTEX_COOLDOWN_MS = 15 * 60 * 1000;
 

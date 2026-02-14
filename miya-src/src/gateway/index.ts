@@ -85,6 +85,7 @@ import {
   readVoiceState,
 } from '../voice/state';
 import { readPersistedAgentRuntime } from '../config/agent-model-persistence';
+import { listProviderOverrideAudits } from '../config/provider-override-audit';
 import {
   closeCanvasDoc,
   getCanvasDoc,
@@ -2340,6 +2341,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     };
   });
   methods.register('config.center.get', async () => readConfig(projectDir));
+  methods.register('provider.override.audit.list', async (params) => {
+    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 50;
+    const limit = Math.max(1, Math.min(500, Math.floor(limitRaw)));
+    return listProviderOverrideAudits(projectDir, limit);
+  });
   methods.register('config.center.patch', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
     requirePolicyHash(projectDir, policyHash);

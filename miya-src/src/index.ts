@@ -23,7 +23,9 @@ import {
 import {
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
+  subscribeLauncherEvents,
 } from './daemon';
+import { appendProviderOverrideAudit } from './config/provider-override-audit';
 import {
   createLoopGuardHook,
   createPhaseReminderHook,
@@ -121,6 +123,35 @@ const MiyaPlugin: Plugin = async (ctx) => {
         });
       } catch {}
     }, 4000);
+    subscribeLauncherEvents(ctx.directory, (event) => {
+      if (event.type !== 'job.progress') return;
+      const status = String(event.payload?.status ?? '').trim().toLowerCase();
+      if (
+        status !== 'completed' &&
+        status !== 'failed' &&
+        status !== 'degraded' &&
+        status !== 'canceled'
+      ) {
+        return;
+      }
+      const jobID = String(event.payload?.jobID ?? event.snapshot.activeJobID ?? '').trim();
+      const phase = String(event.payload?.phase ?? '').trim();
+      const progress = Number(event.payload?.progress ?? 0);
+      const messageParts = [`job=${jobID || 'unknown'}`, `status=${status}`];
+      if (phase) messageParts.push(`phase=${phase}`);
+      if (Number.isFinite(progress)) messageParts.push(`progress=${Math.floor(progress)}%`);
+      void ctx.client.tui
+        .showToast({
+          query: { directory: ctx.directory },
+          body: {
+            title: 'Miya Job',
+            message: messageParts.join(' | '),
+            variant: status === 'completed' ? 'success' : status === 'failed' ? 'error' : 'info',
+            duration: 3500,
+          },
+        })
+        .catch(() => {});
+    });
   } else {
     log('[miya] follower instance detected; skip daemon bootstrap/toast', {
       directory: ctx.directory,
@@ -489,6 +520,36 @@ const MiyaPlugin: Plugin = async (ctx) => {
             agent: modelSelection.agentName,
             model: modelSelection.model,
           });
+          const optionKeys =
+            modelSelection.options &&
+            typeof modelSelection.options === 'object' &&
+            !Array.isArray(modelSelection.options)
+              ? Object.keys(modelSelection.options as Record<string, unknown>)
+              : [];
+          if (
+            optionKeys.length > 0 ||
+            (typeof modelSelection.providerID === 'string' &&
+              modelSelection.providerID.trim().length > 0) ||
+            (typeof modelSelection.apiKey === 'string' &&
+              modelSelection.apiKey.trim().length > 0) ||
+            (typeof modelSelection.baseURL === 'string' &&
+              modelSelection.baseURL.trim().length > 0)
+          ) {
+            appendProviderOverrideAudit(ctx.directory, {
+              source: modelSelection.source,
+              agentName: modelSelection.agentName,
+              model: modelSelection.model,
+              providerID: modelSelection.providerID,
+              activeAgentId: modelSelection.activeAgentId,
+              hasApiKey:
+                typeof modelSelection.apiKey === 'string' &&
+                modelSelection.apiKey.trim().length > 0,
+              hasBaseURL:
+                typeof modelSelection.baseURL === 'string' &&
+                modelSelection.baseURL.trim().length > 0,
+              optionKeys,
+            });
+          }
         }
       }
 

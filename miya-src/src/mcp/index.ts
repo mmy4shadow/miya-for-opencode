@@ -67,6 +67,7 @@ export function buildMcpServiceManifest(
       'gateway.status.get',
       'gateway.backpressure.stats',
       'daemon.backpressure.stats',
+      'provider.override.audit.list',
       'mcp.capabilities.list',
       'mcp.service.expose',
     ],

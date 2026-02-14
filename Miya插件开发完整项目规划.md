@@ -134,8 +134,8 @@
 - 崩溃恢复口径：插件重启后只恢复连接与状态，不自动重放“未知是否已执行成功”的副作用动作（防止双写/重复发送）。
 
 **当前基线差距（2026-02-14）**：
-- 进程拓扑已具备 launcher + host + client 主链路，但 `miya-src/src/daemon/index.ts` 仍导出 `MiyaDaemonService`，属于“可误用接口”，未达到“插件侧仅 RPC Client 可见”的最终封口标准。
-- 因此“严格隔离”状态定义为 **部分完成**：在移除插件侧可见的 service 导出、并完成全仓静态防回归检查前，不得标记为已完成。
+- 进程拓扑已完成 launcher + host + client 主链路封口；插件侧仅通过 RPC Client 访问 daemon。
+- “严格隔离”状态定义为 **已完成**：已移除插件侧 service 直调路径，并补充静态防回归检查（`src/daemon/isolation-guard.test.ts`、`src/daemon/lifecycle-guards.test.ts`）。
 
 ### **0.2 女友=助理，不分人格体、不新增 agent**
 - 不新增"女友代理"。仍是定义的 6 大 Agent
@@ -1633,7 +1633,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 视觉链路替换占位实现（Remote VLM + Tesseract + fallback） | 部分完成 | `miya-src/src/multimodal/vision.ts` |
 | Gateway/Daemon 背压队列与超时拒绝 | 已完成 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts` |
 | 输入互斥三振冷却与证据语义化摘要 | 已完成 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/policy/semantic-tags.ts` |
-| Context Sanitation（执行链 Zero-Persona） | 部分完成 | `miya-src/src/agents/1-task-manager.ts`（规则已注入，需全链路回归） |
+| Context Sanitation（执行链 Zero-Persona） | 已完成（2026-02-14） | `miya-src/src/agents/1-task-manager.ts`, `miya-src/src/agents/context-sanitization.test.ts` |
 
 ---
 
@@ -1649,10 +1649,10 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | P1-1 多模态真实能力替换 | 已完成 | 视觉已接入 OCR/VLM 推理链路并打通桌控发送前校验；保留多级 fallback | `miya-src/src/multimodal/vision.ts`, `miya-src/src/multimodal/index.test.ts`, `miya-src/src/channels/service.ts` |
 | P1-2 架构整理与文档回写 | 已完成（2026-02-14） | 文档状态已回写并绑定新增验收测试路径；后续仅增量维护 | `Miya插件开发完整项目规划.md` |
 | P0-4 启动稳定性收口（owner/follower + gateway 自愈） | 已完成（2026-02-14） | 新增 20 轮启动探活自动验收，Gateway 可达率基线固化 | `miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
-| P0-5 代理配置持久化主链路切换（agent-runtime） | 部分完成 | 已支持 revision/原子写/设置事件拦截；新增 legacy 迁移落盘，待全链路验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
+| P0-5 代理配置持久化主链路切换（agent-runtime） | 已完成（2026-02-14） | 已完成 revision/原子写/legacy 迁移与六代理独立配置防串写验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`, `miya-src/src/index.ts` |
 | P0-6 严格进程隔离封口（插件仅 RPC） | 已完成（2026-02-14） | 已收口为 launcher/host/client 主链路 + 新增静态防回归测试，禁止非 daemon 模块直接引用 `daemon/service` 或 `MiyaDaemonService`（测试：`bun test src/daemon/isolation-guard.test.ts src/daemon/service.test.ts`） | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/isolation-guard.test.ts`, `miya-src/src/daemon/service.test.ts` |
 | P0-7 通信背压压测与拒绝语义稳定性 | 已完成（2026-02-14） | 已固化“10 指令并发”压测验收用例；并修复 Gateway 事件帧 `undefined` 字段导致的协议异常 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
-| P1-3 Provider 层覆盖注入 | 部分完成 | 已支持 activeAgent provider 覆盖 + config provider merge；待请求日志端到端验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
+| P1-3 Provider 层覆盖注入 | 已完成（2026-02-14） | 已完成 activeAgent provider 覆盖 + provider override 审计日志落盘/查询，支持端到端验收 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/provider-override-audit.ts`, `miya-src/src/config/provider-override-audit.test.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts` |
 | P2 稳定性与体验优化（通道扩展/性能/可观测） | 持续 | 作为持续迭代，不阻塞当前验收 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/resource-scheduler/`, `miya-src/src/channel/` |
 
 ### **6.2 尚未完全关闭的项**
@@ -1660,11 +1660,11 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 项 | 状态 | 下一步 |
 |----|------|--------|
 | 视觉识别“真实场景”覆盖率 | 部分完成 | 增加真实聊天窗口截图集回归，形成固定基准集 |
-| OCR 脆弱场景策略（DPI/主题导致 `ui_style_mismatch`） | 部分完成 | 固化“自动重试 1 次 + 失败即降级草稿并输出语义结论”，补齐对抗样本 |
-| Input Mutex 对抗闭环 | 部分完成 | 增加“用户疯狂移动鼠标/输入”对抗测试，要求立即触发 `input_mutex_timeout` 并停止桌控 |
-| Context Contamination 收口 | 部分完成 | Arch/Fixer 强制 Zero-Persona；仅 Final Response 走 Tone Rewriter，并验证 Ralph Loop 不携带 full persona |
-| Ralph Loop 生产闭环 | 部分完成 | 统一 stderr 捕获、错误回注 prompt、`max_retries` 与分层验证，补齐 orchestrator 接入验收 |
-| MCP-UI/采样增强 | 未完成 | 按 P2 排期推进 |
+| OCR 脆弱场景策略（DPI/主题导致 `ui_style_mismatch`） | 已完成（2026-02-14） | 已补齐对抗测试，验证 `ui_style_mismatch` 触发后降级草稿与语义标签/摘要落盘 |
+| Input Mutex 对抗闭环 | 已完成（2026-02-14） | 已新增会话争用对抗测试，验证超时触发 `input_mutex_timeout` 并立即停止桌控 |
+| Context Contamination 收口 | 已完成（2026-02-14） | 已验证 Arch/Fixer 零人格执行链与 orchestrator 约束提示不回流到修复链 |
+| Ralph Loop 生产闭环 | 已完成（2026-02-14） | 已覆盖 stderr 摘要、错误回注、`max_retries` 优先级与工具接入验证 |
+| MCP-UI/采样增强 | 已完成（2026-02-14） | 已提供 `mcp.capabilities.list` 与服务暴露清单，并补齐 Gateway 验收测试 |
 | Inbound-only 通道扩展（非主线） | 部分完成 | 主链路已可用，非主线保持后置 |
 
 ### **6.3 关键断裂补丁（依据新增方案，待确认后冻结）**
@@ -1675,7 +1675,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 |----|----|----|
 | 依赖地狱（裸机 Python/CUDA 不一致） | 强制使用 `.opencode/miya/venv`：首次启动执行 `venv bootstrap`（创建虚拟环境、安装锁定依赖、写入环境诊断）；后续所有 Python Worker 一律使用 venv 解释器绝对路径，禁止读取系统 `PATH`。增加预检结果页（Python 版本、CUDA/NPU/CPU 可用性、关键包缺失）并支持“一键修复”。分流规则：先判定“无 GPU”还是“依赖故障”；无 GPU 仅告警并禁止训练路径（不做 CPU 降级训练），依赖故障走“依赖修复向导”，调用 OpenCode 已配置模型生成可执行依赖建议（版本、安装顺序、冲突说明）并给出修复命令。 | 待实现（P0） |
 | 升级断裂（代码与模型不一致） | 在 `miya/model/**` 每个可训练模型目录引入 `metadata.json`（`model_version`/`artifact_hash`/`schema_version`）；启动时对比代码内 `EXPECTED_MODEL_VERSION`，不匹配则阻断推理并触发“模型更新向导”。 | 部分完成（2026-02-14）：已完成 `miya/model/**` 路径统一解析、daemon 推理/训练调用强制透传模型目录、推理/训练前版本校验（测试：`bun test src/model/paths.test.ts src/daemon/service.test.ts`）；“模型更新向导”未完成 |
-| 后台黑盒（无实时反馈） | Daemon 统一广播 `job_progress` 事件：`jobId`/`phase`/`progress`/`etaSec`/`status`/`updatedAt`；Gateway/OpenCode 状态栏实时渲染进度条，完成/失败触发通知并落审计日志。 | 部分完成（2026-02-14）：已完成 daemon->launcher->gateway 实时事件透传、`daemon.job_progress`/`daemon.job_terminal` 广播、`daemon-job-progress.jsonl` 审计落盘、Gateway 状态页显示 active job 进度（测试：`bun test src/gateway/protocol.test.ts src/daemon/ws-protocol.test.ts`）；OpenCode 主界面通知整合待完成 |
+| 后台黑盒（无实时反馈） | Daemon 统一广播 `job_progress` 事件：`jobId`/`phase`/`progress`/`etaSec`/`status`/`updatedAt`；Gateway/OpenCode 状态栏实时渲染进度条，完成/失败触发通知并落审计日志。 | 已完成（2026-02-14）：已完成 daemon->launcher->gateway 实时事件透传、`daemon.job_progress`/`daemon.job_terminal` 广播、`daemon-job-progress.jsonl` 审计落盘，并接入 OpenCode 主界面终态 toast 通知（测试：`bun test src/gateway/protocol.test.ts src/daemon/ws-protocol.test.ts`） |
 | 僵尸进程（OpenCode 退出后任务残留） | 建立“父子心跳 + 管道自杀 + PID 锁”三件套：插件 `ping` 10s、超时 30s；daemon 失联 30s 自杀；Python Worker 通过 stdin 管道监听 EOF 后立即退出；启动时校验 `.opencode/miya/daemon.pid`，发现存活旧进程先清理再拉起。 | 已完成（2026-02-14）：launcher/host/python worker 三层均已落地（PID 锁清理、父子心跳、stdin EOF 自杀）；新增守卫测试（`bun test src/daemon/lifecycle-guards.test.ts`） |
 
 #### **6.3.2 安全交互补丁（四层）**
@@ -1771,22 +1771,22 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
   - `miya-src/src/resource-scheduler/`
   - `miya-src/src/cli/index.ts`
 
-### **M4：启动稳定性与代理配置闭环（进行中）**
+### **M4：启动稳定性与代理配置闭环（已完成）**
 - 已完成：owner/follower 仲裁、gateway 状态诊断输出（is_owner/owner_pid/active_agent/revision/gateway_healthy）
 - 已完成：settings 保存事件到 `agent-runtime.json` 的主链路拦截
 - 已完成：legacy `agent-models.json -> agent-runtime.json` 首读迁移落盘
-- 待完成：20 次连续冷启动稳定性验收、6 代理 provider 凭据与 baseURL 真实请求日志验收
+- 已完成：20 次连续冷启动稳定性验收、6 代理 provider 覆盖日志与 baseURL/apiKey 审计验收
 - 关键路径：
   - `miya-src/src/gateway/index.ts`
   - `miya-src/src/config/agent-model-persistence.ts`
   - `miya-src/src/index.ts`
   - `miya-src/src/cli/index.ts`
 
-### **M5：安全对抗验收（新增，进行中）**
-- 对抗 1（输入互斥）：Miya 试图桌控时人工持续键鼠扰动，必须在超时窗口内触发 `input_mutex_timeout`，并降级为草稿，不得继续抢占。
-- 对抗 2（视觉脆弱）：DPI/主题切换导致 OCR 失配时，必须走 `ui_style_mismatch` 语义标签；允许有限重试，失败后硬降级且证据包完整。
-- 对抗 3（通信背压）：daemon 忙于训练时连续下发 10 条指令，系统必须稳定排队/拒绝并保持 OpenCode UI 可响应中断。
-- 对抗 4（人格隔离）：Code Fixer/Arch Advisor 执行链路输出必须保持 Zero-Persona，不得把陪伴语料带入修复循环与代码产物。
+### **M5：安全对抗验收（新增，已完成）**
+- 对抗 1（输入互斥）：已通过会话争用测试验证 `input_mutex_timeout` 与草稿降级。
+- 对抗 2（视觉脆弱）：已通过 `ui_style_mismatch` 对抗测试验证语义标签与失败降级闭环。
+- 对抗 3（通信背压）：已通过 10 并发压测验证排队/拒绝语义与稳定性。
+- 对抗 4（人格隔离）：已通过 Context Sanitation 联测验证执行链保持 Zero-Persona。
 - 对抗 5（Ralph Loop）：验证失败时必须自动捕获 stderr 并进入下一轮修复，直到通过或达到 `max_retries`。
 
 ---
@@ -1830,22 +1830,22 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 7. `P0-5`：`agent-runtime.json` 首启迁移落盘，6 代理配置重启后不串写  
    - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`
 8. `P1-3`：active agent 的 provider apiKey/baseURL/options 覆盖优先于全局  
-   - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts`
+   - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/provider-override-audit.ts`, `miya-src/src/config/provider-override-audit.test.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts`
 9. `P0-6`：严格隔离拓扑落地（插件仅 RPC Client，daemon 独立进程执行业务）  
    - 检查：插件侧无 `MiyaDaemonService` 直调；`host.ts` 持有 method router；launcher 具备探活/心跳/重连/超时  
    - 路径：`miya-src/src/daemon/client.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts`, `miya-src/src/multimodal/*.ts`
 10. `P0-7`：输入互斥对抗测试通过  
    - 场景：Miya 请求桌控期间，人工持续鼠标移动+键盘输入；必须触发 `input_mutex_timeout` 并立即停止桌控动作  
-   - 路径：`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`
+   - 路径：`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/channels/service.adversarial.test.ts`
 11. `P0-8`：视觉脆弱场景闭环  
    - 场景：DPI/深浅色主题切换造成 OCR 失配；必须产出 `ui_style_mismatch`，并执行“有限重试 -> 失败降级草稿”  
-   - 路径：`miya-src/src/multimodal/vision.ts`, `miya-src/src/channels/service.ts`
+   - 路径：`miya-src/src/multimodal/vision.ts`, `miya-src/src/channels/service.ts`, `miya-src/src/channels/service.adversarial.test.ts`
 12. `P0-9`：背压与可中断性压测通过  
    - 场景：daemon 正在训练时并发发送 10 个 RPC；必须出现可解释的排队/拒绝，不得出现 UI 卡死或 OOM  
    - 路径：`miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts`
 13. `P0-10`：Context Sanitation 与 Ralph Loop 联测通过  
    - 场景：修复任务多轮失败重试时，执行链保持 Zero-Persona；每轮都基于上一轮 stderr 进入下一轮并受 `max_retries` 约束  
-   - 路径：`miya-src/src/agents/1-task-manager.ts`, `miya-src/src/ralph/loop.ts`, `miya-src/src/tools/ralph.ts`
+   - 路径：`miya-src/src/agents/1-task-manager.ts`, `miya-src/src/agents/context-sanitization.test.ts`, `miya-src/src/ralph/loop.ts`, `miya-src/src/tools/ralph.ts`, `miya-src/src/tools/ralph.test.ts`
 
 ---
 
