@@ -1611,7 +1611,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 模块 | 状态 | 关键源码路径 |
 |------|------|--------------|
 | 六代理编排 | 已完成 | `miya-src/src/agents/index.ts`, `miya-src/src/agents/orchestrator.ts` |
-| Gateway 控制平面 | 部分完成（主路径已闭环） | `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/protocol.ts`, `miya-src/src/cli/index.ts` |
+| Gateway 控制平面 | 已完成（2026-02-14） | `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/protocol.ts`, `miya-src/src/cli/index.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
 | 外发通道运行时（QQ/微信） | 已完成（含安全收口） | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | 安全审批与 Kill-Switch | 已完成 | `miya-src/src/safety/index.ts`, `miya-src/src/safety/store.ts`, `miya-src/src/safety/state-machine.ts` |
 | 策略与事件审计 | 已完成 | `miya-src/src/policy/index.ts`, `miya-src/src/policy/incident.ts`, `miya-src/src/policy/semantic-tags.ts` |
@@ -1630,7 +1630,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 外发证据链补齐（payload hash/窗口指纹/收件人校验/前后截图/失败步骤） | 已完成 | `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/channels/service.ts` |
 | 回执 confirmed/uncertain 严格区分并可定位 | 已完成 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | 向导异常路径（失败/降级/取消/重试）一致性验证 | 已完成 | `miya-src/src/companion/wizard.ts`, `miya-src/src/companion/wizard.test.ts` |
-| 视觉链路替换占位实现（Remote VLM + Tesseract + fallback） | 部分完成 | `miya-src/src/multimodal/vision.ts` |
+| 视觉链路替换占位实现（Remote VLM + Tesseract + fallback） | 已完成（2026-02-14） | `miya-src/src/multimodal/vision.ts`, `miya-src/src/multimodal/index.test.ts`, `miya-src/src/channels/service.adversarial.test.ts` |
 | Gateway/Daemon 背压队列与超时拒绝 | 已完成 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts` |
 | 输入互斥三振冷却与证据语义化摘要 | 已完成 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/policy/semantic-tags.ts` |
 | Context Sanitation（执行链 Zero-Persona） | 已完成（2026-02-14） | `miya-src/src/agents/1-task-manager.ts`, `miya-src/src/agents/context-sanitization.test.ts` |
@@ -1673,8 +1673,8 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 
 | 断裂点 | 规划补丁（新增硬约束） | 状态 |
 |----|----|----|
-| 依赖地狱（裸机 Python/CUDA 不一致） | 强制使用 `.opencode/miya/venv`：首次启动执行 `venv bootstrap`（创建虚拟环境、安装锁定依赖、写入环境诊断）；后续所有 Python Worker 一律使用 venv 解释器绝对路径，禁止读取系统 `PATH`。增加预检结果页（Python 版本、CUDA/NPU/CPU 可用性、关键包缺失）并支持“一键修复”。分流规则：先判定“无 GPU”还是“依赖故障”；无 GPU 仅告警并禁止训练路径（不做 CPU 降级训练），依赖故障走“依赖修复向导”，调用 OpenCode 已配置模型生成可执行依赖建议（版本、安装顺序、冲突说明）并给出修复命令。 | 待实现（P0） |
-| 升级断裂（代码与模型不一致） | 在 `miya/model/**` 每个可训练模型目录引入 `metadata.json`（`model_version`/`artifact_hash`/`schema_version`）；启动时对比代码内 `EXPECTED_MODEL_VERSION`，不匹配则阻断推理并触发“模型更新向导”。 | 部分完成（2026-02-14）：已完成 `miya/model/**` 路径统一解析、daemon 推理/训练调用强制透传模型目录、推理/训练前版本校验（测试：`bun test src/model/paths.test.ts src/daemon/service.test.ts`）；“模型更新向导”未完成 |
+| 依赖地狱（裸机 Python/CUDA 不一致） | 强制使用 `.opencode/miya/venv`：首次启动执行 `venv bootstrap`（创建虚拟环境、安装锁定依赖、写入环境诊断）；后续所有 Python Worker 一律使用 venv 解释器绝对路径，禁止读取系统 `PATH`。增加预检结果页（Python 版本、CUDA/NPU/CPU 可用性、关键包缺失）并支持“一键修复”。分流规则：先判定“无 GPU”还是“依赖故障”；无 GPU 仅告警并禁止训练路径（不做 CPU 降级训练），依赖故障走“依赖修复向导”，调用 OpenCode 已配置模型生成可执行依赖建议（版本、安装顺序、冲突说明）并给出修复命令。 | 已完成（2026-02-14）：`venv bootstrap`、环境诊断、故障分流、修复建议与 one-shot 修复命令已落地（`daemon.python.env.status`/`daemon.python.env.repair.plan`） |
+| 升级断裂（代码与模型不一致） | 在 `miya/model/**` 每个可训练模型目录引入 `metadata.json`（`model_version`/`artifact_hash`/`schema_version`）；启动时对比代码内 `EXPECTED_MODEL_VERSION`，不匹配则阻断推理并触发“模型更新向导”。 | 已完成（2026-02-14）：已完成模型版本校验 + `daemon.model.update.plan/apply` 更新向导链路（测试：`bun test src/model/paths.test.ts src/daemon/service.test.ts src/gateway/milestone-acceptance.test.ts`） |
 | 后台黑盒（无实时反馈） | Daemon 统一广播 `job_progress` 事件：`jobId`/`phase`/`progress`/`etaSec`/`status`/`updatedAt`；Gateway/OpenCode 状态栏实时渲染进度条，完成/失败触发通知并落审计日志。 | 已完成（2026-02-14）：已完成 daemon->launcher->gateway 实时事件透传、`daemon.job_progress`/`daemon.job_terminal` 广播、`daemon-job-progress.jsonl` 审计落盘，并接入 OpenCode 主界面终态 toast 通知（测试：`bun test src/gateway/protocol.test.ts src/daemon/ws-protocol.test.ts`） |
 | 僵尸进程（OpenCode 退出后任务残留） | 建立“父子心跳 + 管道自杀 + PID 锁”三件套：插件 `ping` 10s、超时 30s；daemon 失联 30s 自杀；Python Worker 通过 stdin 管道监听 EOF 后立即退出；启动时校验 `.opencode/miya/daemon.pid`，发现存活旧进程先清理再拉起。 | 已完成（2026-02-14）：launcher/host/python worker 三层均已落地（PID 锁清理、父子心跳、stdin EOF 自杀）；新增守卫测试（`bun test src/daemon/lifecycle-guards.test.ts`） |
 
