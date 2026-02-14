@@ -35,6 +35,19 @@ function Test-GatewayUrl {
   }
 }
 
+function Test-PidAlive {
+  param([int]$ProcessId)
+  if ($ProcessId -le 0) {
+    return $false
+  }
+  try {
+    $null = Get-Process -Id $ProcessId -ErrorAction Stop
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 function Try-StartGatewayViaOpenCode {
   param([string]$WorkingDirectory)
   $opencode = Get-Command opencode -ErrorAction SilentlyContinue
@@ -89,7 +102,20 @@ if (-not (Test-Path -LiteralPath $DockScript)) {
 $gateway = Read-GatewayState -Path $GatewayFile
 $ready = $false
 if ($gateway -and $gateway.url) {
-  $ready = Test-GatewayUrl -Url $gateway.url
+  $gatewayPid = 0
+  try {
+    $gatewayPid = [int]$gateway.pid
+  } catch {
+    $gatewayPid = 0
+  }
+  $pidAlive = Test-PidAlive -Pid $gatewayPid
+  if (-not $pidAlive) {
+    Write-Host "[miya-dock] stale gateway.json detected (pid=$($gateway.pid) not alive), removing stale state."
+    Remove-Item -LiteralPath $GatewayFile -Force -ErrorAction SilentlyContinue
+    $gateway = $null
+  } else {
+    $ready = Test-GatewayUrl -Url $gateway.url
+  }
 }
 
 if (-not $ready -and $TryStartGateway) {
