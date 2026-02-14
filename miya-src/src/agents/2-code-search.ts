@@ -1,4 +1,4 @@
-import type { AgentDefinition } from './orchestrator';
+import type { AgentDefinition } from './1-task-manager';
 import { BaseAgent } from './base-agent';
 
 const EXPLORER_PROMPT = `You are 2-code-search - Reconnaissance/Locator Specialist (侦察/定位)

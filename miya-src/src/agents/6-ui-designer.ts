@@ -1,4 +1,4 @@
-import type { AgentDefinition } from './orchestrator';
+import type { AgentDefinition } from './1-task-manager';
 import { BaseAgent } from './base-agent';
 
 const DESIGNER_PROMPT = `You are 6-ui-designer - Presentation/Interaction Specialist (呈现/交互)

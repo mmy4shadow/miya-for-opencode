@@ -65,6 +65,13 @@ interface AgentPatchDraft {
   activeAgentId?: unknown;
 }
 
+interface ProviderPatchDraft {
+  providerID: string;
+  options?: Record<string, unknown>;
+  apiKey?: string;
+  baseURL?: string;
+}
+
 interface NormalizedAgentRuntime {
   version: number;
   revision: number;
@@ -225,7 +232,17 @@ function normalizeRuntimeState(
 function readRuntimeState(projectDir: string): NormalizedAgentRuntime {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) {
-    return normalizeRuntimeState(projectDir, null);
+    const migrated = normalizeRuntimeState(projectDir, null);
+    if (Object.keys(migrated.agents).length > 0 || fs.existsSync(legacyFilePath(projectDir))) {
+      const runtimeToWrite: NormalizedAgentRuntime = {
+        ...migrated,
+        revision: migrated.revision > 0 ? migrated.revision : 1,
+        updatedAt: new Date().toISOString(),
+      };
+      writeRuntimeStateAtomic(projectDir, runtimeToWrite);
+      return runtimeToWrite;
+    }
+    return migrated;
   }
   try {
     const raw = fs.readFileSync(file, 'utf-8');
@@ -485,8 +502,10 @@ function normalizeSelectionFromDraft(
 function parseAgentPatchSet(
   setMap: Record<string, unknown>,
   source: string,
+  activeAgentHint?: string,
 ): AgentModelSelectionFromEvent[] {
   const drafts = new Map<string, AgentPatchDraft>();
+  const providerDrafts = new Map<string, ProviderPatchDraft>();
   let defaultAgentFromPatch: string | undefined;
   for (const [rawKey, value] of Object.entries(setMap)) {
     const key = rawKey.trim();
@@ -496,25 +515,76 @@ function parseAgentPatchSet(
       defaultAgentFromPatch = value;
       continue;
     }
-    if (parts[0] !== 'agent' || parts.length < 3) continue;
-    const agentNameRaw = parts[1] ?? '';
-    const field = parts.slice(2).join('.');
-    const draft = drafts.get(agentNameRaw) ?? {
-      agentName: agentNameRaw,
-    };
-    if (field === 'model') draft.model = value;
-    if (field === 'variant') draft.variant = value;
-    if (field === 'providerID') draft.providerID = value;
-    if (field === 'options') draft.options = value;
-    if (field === 'apiKey') draft.apiKey = value;
-    if (field === 'baseURL') draft.baseURL = value;
-    drafts.set(agentNameRaw, draft);
+    if (parts[0] === 'agent') {
+      if (parts.length < 3) continue;
+      const agentNameRaw = parts[1] ?? '';
+      const field = parts.slice(2).join('.');
+      const draft = drafts.get(agentNameRaw) ?? {
+        agentName: agentNameRaw,
+      };
+      if (field === 'model') draft.model = value;
+      if (field === 'variant') draft.variant = value;
+      if (field === 'providerID') draft.providerID = value;
+      if (field === 'options') draft.options = value;
+      if (field === 'apiKey') draft.apiKey = value;
+      if (field === 'baseURL') draft.baseURL = value;
+      drafts.set(agentNameRaw, draft);
+      continue;
+    }
+    if (parts[0] === 'provider' && parts.length >= 3) {
+      const providerID = String(parts[1] ?? '').trim();
+      if (!providerID) continue;
+      const field = parts.slice(2).join('.');
+      const draft = providerDrafts.get(providerID) ?? {
+        providerID,
+      };
+      if (field === 'options' && isObject(value)) {
+        draft.options = normalizeOptions(value);
+      }
+      if (field === 'options.apiKey' || field === 'apiKey') {
+        draft.apiKey = normalizeStringValue(value);
+      }
+      if (field === 'options.baseURL' || field === 'baseURL') {
+        draft.baseURL = normalizeStringValue(value);
+      }
+      providerDrafts.set(providerID, draft);
+      continue;
+    }
+  }
+
+  const activeAgentFromHint =
+    normalizeAgentName(String(defaultAgentFromPatch ?? activeAgentHint ?? '')) ?? undefined;
+  if (providerDrafts.size > 0) {
+    for (const providerPatch of providerDrafts.values()) {
+      let targetDraft: AgentPatchDraft | undefined;
+      for (const draft of drafts.values()) {
+        const modelProvider = normalizeModelRef(draft.model)?.split('/')[0];
+        const explicitProvider = normalizeProviderID(draft.providerID);
+        if (modelProvider === providerPatch.providerID || explicitProvider === providerPatch.providerID) {
+          targetDraft = draft;
+          break;
+        }
+      }
+      if (!targetDraft && activeAgentFromHint) {
+        targetDraft =
+          drafts.get(activeAgentFromHint) ??
+          ({
+            agentName: activeAgentFromHint,
+          } as AgentPatchDraft);
+      }
+      if (!targetDraft) continue;
+      targetDraft.providerID = targetDraft.providerID ?? providerPatch.providerID;
+      if (providerPatch.options) targetDraft.options = providerPatch.options;
+      if (providerPatch.apiKey) targetDraft.apiKey = providerPatch.apiKey;
+      if (providerPatch.baseURL) targetDraft.baseURL = providerPatch.baseURL;
+      drafts.set(String(targetDraft.agentName), targetDraft);
+    }
   }
 
   const normalized: AgentModelSelectionFromEvent[] = [];
   for (const draft of drafts.values()) {
-    if (defaultAgentFromPatch) {
-      draft.activeAgentId = defaultAgentFromPatch;
+    if (activeAgentFromHint) {
+      draft.activeAgentId = activeAgentFromHint;
     }
     const item = normalizeSelectionFromDraft(draft, source);
     if (item) normalized.push(item);
@@ -610,13 +680,16 @@ export function extractAgentModelSelectionsFromEvent(
       'agent.config.saved',
     ].includes(eventType)
   ) {
+    const activeAgentHint = String(
+      properties.activeAgent ?? properties.currentAgent ?? properties.agent ?? properties.default_agent ?? '',
+    );
     const patchRaw = properties.patch;
     if (isObject(patchRaw) && isObject(patchRaw.set)) {
-      const parsed = parseAgentPatchSet(patchRaw.set, 'settings_save_patch');
+      const parsed = parseAgentPatchSet(patchRaw.set, 'settings_save_patch', activeAgentHint);
       if (parsed.length > 0) return parsed;
     }
     if (isObject(properties.set)) {
-      const parsed = parseAgentPatchSet(properties.set, 'settings_save_set');
+      const parsed = parseAgentPatchSet(properties.set, 'settings_save_set', activeAgentHint);
       if (parsed.length > 0) return parsed;
     }
   }

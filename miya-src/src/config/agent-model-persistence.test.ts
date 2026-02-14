@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { getMiyaRuntimeDir } from '../workflow';
 import {
   applyPersistedAgentModelOverrides,
   extractAgentModelSelectionFromEvent,
@@ -180,5 +181,79 @@ describe('agent-model-persistence', () => {
     expect(byAgent['2-code-search']?.activeAgentId).toBe('6-ui-designer');
     expect(byAgent['6-ui-designer']?.baseURL).toBe('https://example.local/v1');
     expect(byAgent['6-ui-designer']?.source).toBe('settings_save_patch');
+  });
+
+  test('migrates legacy agent-models file to agent-runtime file on first read', () => {
+    const runtimeDir = getMiyaRuntimeDir(tempDir);
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    const legacyFile = path.join(runtimeDir, 'agent-models.json');
+    fs.writeFileSync(
+      legacyFile,
+      JSON.stringify(
+        {
+          updatedAt: '2026-02-14T00:00:00.000Z',
+          agents: {
+            orchestrator: 'openai/gpt-5.3-codex',
+          },
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
+    const runtime = readPersistedAgentRuntime(tempDir);
+    const runtimeFile = path.join(runtimeDir, 'agent-runtime.json');
+    expect(fs.existsSync(runtimeFile)).toBe(true);
+    expect(runtime.revision).toBeGreaterThanOrEqual(1);
+    expect(runtime.agents['1-task-manager']?.model).toBe('openai/gpt-5.3-codex');
+  });
+
+  test('extracts provider patch into active agent runtime selection', () => {
+    const extracted = extractAgentModelSelectionsFromEvent({
+      type: 'settings.saved',
+      properties: {
+        activeAgent: '6-ui-designer',
+        patch: {
+          set: {
+            'provider.openai.options.baseURL': 'https://regional.example/v1',
+            'provider.openai.options.apiKey': '{env:OPENAI_AGENT6_KEY}',
+          },
+        },
+      },
+    });
+
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0]?.agentName).toBe('6-ui-designer');
+    expect(extracted[0]?.providerID).toBe('openai');
+    expect(extracted[0]?.baseURL).toBe('https://regional.example/v1');
+    expect(extracted[0]?.apiKey).toBe('{env:OPENAI_AGENT6_KEY}');
+  });
+
+  test('persists six agent configs independently without overwriting each other', () => {
+    const entries = [
+      ['1-task-manager', 'openai/gpt-5.3-codex'],
+      ['2-code-search', 'openai/gpt-5.1-codex-mini'],
+      ['3-docs-helper', 'openrouter/moonshotai/kimi-k2.5'],
+      ['4-architecture-advisor', 'openai/gpt-5.2-codex'],
+      ['5-code-fixer', 'openrouter/z-ai/glm-5'],
+      ['6-ui-designer', 'google/gemini-2.5-pro'],
+    ] as const;
+
+    for (const [agentName, model] of entries) {
+      const changed = persistAgentRuntimeSelection(tempDir, {
+        agentName,
+        model,
+        providerID: model.split('/')[0],
+        activeAgentId: agentName,
+      });
+      expect(changed).toBe(true);
+    }
+
+    const runtime = readPersistedAgentRuntime(tempDir);
+    for (const [agentName, model] of entries) {
+      expect(runtime.agents[agentName]?.model).toBe(model);
+      expect(runtime.agents[agentName]?.providerID).toBe(model.split('/')[0]);
+    }
   });
 });

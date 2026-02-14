@@ -6,6 +6,7 @@ import { loadPluginConfig, type TmuxConfig } from './config';
 import {
   extractAgentModelSelectionsFromEvent,
   persistAgentRuntimeSelection,
+  readPersistedAgentRuntime,
 } from './config/agent-model-persistence';
 import { parseList } from './config/agent-mcps';
 import {
@@ -56,6 +57,26 @@ import {
 import { mergePluginAgentConfigs } from './config/runtime-merge';
 import { startTmuxCheck } from './utils';
 import { log } from './utils/logger';
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function deepMergeObject(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, overrideValue] of Object.entries(override)) {
+    const baseValue = result[key];
+    if (isPlainObject(baseValue) && isPlainObject(overrideValue)) {
+      result[key] = deepMergeObject(baseValue, overrideValue);
+      continue;
+    }
+    result[key] = overrideValue;
+  }
+  return result;
+}
 
 const MiyaPlugin: Plugin = async (ctx) => {
   const config = loadPluginConfig(ctx.directory);
@@ -193,8 +214,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
     mcp: mcps,
 
     config: async (opencodeConfig: Record<string, unknown>) => {
+      const persistedRuntime = readPersistedAgentRuntime(ctx.directory);
       (opencodeConfig as { default_agent?: string }).default_agent =
-        '1-task-manager';
+        persistedRuntime.activeAgentId ?? '1-task-manager';
 
       // Register Miya control-plane commands in the command palette.
       const commandConfig = (opencodeConfig.command ?? {}) as Record<
@@ -350,6 +372,15 @@ const MiyaPlugin: Plugin = async (ctx) => {
         agents as Record<string, Record<string, unknown>>,
       );
       const configAgent = opencodeConfig.agent as Record<string, unknown>;
+
+      // Merge provider configs with runtime overrides (active-agent provider has highest priority).
+      const existingProvider = isPlainObject(opencodeConfig.provider)
+        ? (opencodeConfig.provider as Record<string, unknown>)
+        : {};
+      const pluginProvider = isPlainObject(config.provider)
+        ? (config.provider as Record<string, unknown>)
+        : {};
+      opencodeConfig.provider = deepMergeObject(existingProvider, pluginProvider);
 
       // Merge MCP configs
       const configMcp = opencodeConfig.mcp as

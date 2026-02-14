@@ -1,7 +1,7 @@
 import type { AgentConfig as SDKAgentConfig } from '@opencode-ai/sdk';
 import { type PluginConfig, SUBAGENT_NAMES } from '../config';
-import { type AgentDefinition } from './orchestrator';
-export type { AgentDefinition } from './orchestrator';
+import { type AgentDefinition } from './1-task-manager';
+export type { AgentDefinition } from './1-task-manager';
 export type SubagentName = (typeof SUBAGENT_NAMES)[number];
 export declare function isSubagent(name: string): name is SubagentName;
 /**

@@ -1,12 +1,12 @@
 import { getSkillPermissionsForAgent } from '../cli/skills';
 import { AGENT_ALIASES, DEFAULT_MODELS, getAgentOverride, pickBestAvailableModel, loadAgentPrompt, SUBAGENT_NAMES, } from '../config';
 import { getAgentMcpList } from '../config/agent-mcps';
-import { createDesignerAgent } from './designer';
-import { createExplorerAgent } from './explorer';
-import { createFixerAgent } from './fixer';
-import { createLibrarianAgent } from './librarian';
-import { createOracleAgent } from './oracle';
-import { createOrchestratorAgent } from './orchestrator';
+import { createDesignerAgent } from './6-ui-designer';
+import { createExplorerAgent } from './2-code-search';
+import { createFixerAgent } from './5-code-fixer';
+import { createLibrarianAgent } from './3-docs-helper';
+import { createOracleAgent } from './4-architecture-advisor';
+import { createOrchestratorAgent } from './1-task-manager';
 // Agent Configuration Helpers
 /**
  * Apply user-provided overrides to an agent's configuration.

@@ -13,14 +13,14 @@ import {
 import { getAgentMcpList } from '../config/agent-mcps';
 import { soulPersonaLayer } from '../soul';
 
-import { createDesignerAgent } from './designer';
-import { createExplorerAgent } from './explorer';
-import { createFixerAgent } from './fixer';
-import { createLibrarianAgent } from './librarian';
-import { createOracleAgent } from './oracle';
-import { type AgentDefinition, createOrchestratorAgent } from './orchestrator';
+import { createDesignerAgent } from './6-ui-designer';
+import { createExplorerAgent } from './2-code-search';
+import { createFixerAgent } from './5-code-fixer';
+import { createLibrarianAgent } from './3-docs-helper';
+import { createOracleAgent } from './4-architecture-advisor';
+import { type AgentDefinition, createOrchestratorAgent } from './1-task-manager';
 
-export type { AgentDefinition } from './orchestrator';
+export type { AgentDefinition } from './1-task-manager';
 
 type AgentFactory = (
   model: string,

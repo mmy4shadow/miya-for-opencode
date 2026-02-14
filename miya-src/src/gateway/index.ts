@@ -3088,6 +3088,9 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
   const owner = acquireGatewayOwner(projectDir);
   if (!owner.owned) {
     const state = readGatewayStateFile(projectDir);
+    if (state && owner.owner && state.pid !== owner.owner.pid) {
+      clearGatewayStateFile(projectDir);
+    }
     if (state && isProcessAlive(state.pid)) {
       return state;
     }

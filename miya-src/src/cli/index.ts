@@ -71,6 +71,12 @@ function runtimeGatewayFile(cwd: string): string {
   return path.join(cwd, '.opencode', 'miya', 'gateway.json');
 }
 
+function clearGatewayStateFile(cwd: string): void {
+  try {
+    fs.unlinkSync(runtimeGatewayFile(cwd));
+  } catch {}
+}
+
 function readGatewayUrl(cwd: string): string | null {
   const file = runtimeGatewayFile(cwd);
   if (!fs.existsSync(file)) return null;
@@ -161,11 +167,26 @@ async function callGatewayMethod(
 
 async function ensureGatewayUrl(cwd: string, autoStart = true): Promise<string> {
   let url = readGatewayUrl(cwd);
-  if (url) return url;
+  if (url) {
+    try {
+      await callGatewayMethod(url, 'gateway.status.get', {});
+      return url;
+    } catch {
+      clearGatewayStateFile(cwd);
+      url = null;
+    }
+  }
 
   if (autoStart && runGatewayStart(cwd)) {
     url = readGatewayUrl(cwd);
-    if (url) return url;
+    if (url) {
+      try {
+        await callGatewayMethod(url, 'gateway.status.get', {});
+        return url;
+      } catch {
+        clearGatewayStateFile(cwd);
+      }
+    }
   }
 
   throw new Error('gateway_unavailable');

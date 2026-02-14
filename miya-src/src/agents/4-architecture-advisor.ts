@@ -1,4 +1,4 @@
-import type { AgentDefinition } from './orchestrator';
+import type { AgentDefinition } from './1-task-manager';
 import { BaseAgent } from './base-agent';
 
 const ORACLE_PROMPT = `You are 4-architecture-advisor - Decision/Risk Control Specialist (决策/风控)

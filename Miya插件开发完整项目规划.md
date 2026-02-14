@@ -1432,7 +1432,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 模块 | 状态 | 关键源码路径 |
 |------|------|--------------|
 | 六代理编排 | 已完成 | `miya-src/src/agents/index.ts`, `miya-src/src/agents/orchestrator.ts` |
-| Gateway 控制平面 | 已完成 | `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/protocol.ts` |
+| Gateway 控制平面 | 部分完成（主路径已闭环） | `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/protocol.ts`, `miya-src/src/cli/index.ts` |
 | 外发通道运行时（QQ/微信） | 已完成（含安全收口） | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | 安全审批与 Kill-Switch | 已完成 | `miya-src/src/safety/index.ts`, `miya-src/src/safety/store.ts`, `miya-src/src/safety/state-machine.ts` |
 | 策略与事件审计 | 已完成 | `miya-src/src/policy/index.ts`, `miya-src/src/policy/incident.ts`, `miya-src/src/policy/semantic-tags.ts` |
@@ -1464,7 +1464,10 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | P0-2 外发证据链强化：发送前后证据可回放 | 已完成 | `channels-outbound.jsonl` 增加 payloadHash、窗口指纹、截图、收件人校验、失败步骤、OCR摘要 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | P0-3 向导与训练闭环硬化 | 已完成 | 增强失败/降级/取消/重试迁移覆盖，四路径端到端已覆盖 | `miya-src/src/companion/wizard.ts`, `miya-src/src/companion/wizard.test.ts`, `miya-src/src/gateway/index.ts` |
 | P1-1 多模态真实能力替换 | 已完成 | 视觉已接入 OCR/VLM 推理链路并打通桌控发送前校验；保留多级 fallback | `miya-src/src/multimodal/vision.ts`, `miya-src/src/multimodal/index.test.ts`, `miya-src/src/channels/service.ts` |
-| P1-2 架构整理与文档回写 | 已完成 | 本文第 5/6/9/10 章改为“真实基线+状态表+源码路径” | `Miya插件开发完整项目规划.md` |
+| P1-2 架构整理与文档回写 | 部分完成 | 文档已对齐真实基线；仍需跟随启动稳定性/代理配置闭环持续更新 | `Miya插件开发完整项目规划.md` |
+| P0-4 启动稳定性收口（owner/follower + gateway 自愈） | 部分完成 | 已有 owner/follower 与 UI/CLI 探活；需持续验证 20 次启动稳定性 | `miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts` |
+| P0-5 代理配置持久化主链路切换（agent-runtime） | 部分完成 | 已支持 revision/原子写/设置事件拦截；新增 legacy 迁移落盘，待全链路验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
+| P1-3 Provider 层覆盖注入 | 部分完成 | 已支持 activeAgent provider 覆盖 + config provider merge；待请求日志端到端验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
 | P2 稳定性与体验优化（通道扩展/性能/可观测） | 持续 | 作为持续迭代，不阻塞当前验收 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/resource-scheduler/`, `miya-src/src/channel/` |
 
 ### **6.2 尚未完全关闭的项**
@@ -1541,6 +1544,18 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
   - `miya-src/src/gateway/control-ui.ts`
   - `miya-src/src/gateway/index.ts`
   - `miya-src/src/resource-scheduler/`
+  - `miya-src/src/cli/index.ts`
+
+### **M4：启动稳定性与代理配置闭环（进行中）**
+- 已完成：owner/follower 仲裁、gateway 状态诊断输出（is_owner/owner_pid/active_agent/revision/gateway_healthy）
+- 已完成：settings 保存事件到 `agent-runtime.json` 的主链路拦截
+- 已完成：legacy `agent-models.json -> agent-runtime.json` 首读迁移落盘
+- 待完成：20 次连续冷启动稳定性验收、6 代理 provider 凭据与 baseURL 真实请求日志验收
+- 关键路径：
+  - `miya-src/src/gateway/index.ts`
+  - `miya-src/src/config/agent-model-persistence.ts`
+  - `miya-src/src/index.ts`
+  - `miya-src/src/cli/index.ts`
 
 ---
 
@@ -1578,6 +1593,12 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
    - 路径：`miya-src/src/multimodal/vision.ts`, `miya-src/src/channels/service.ts`
 5. `P1-2`：规划文档与代码基线一致，状态标记为已完成/部分完成/未完成并绑定源码路径  
    - 路径：`Miya插件开发完整项目规划.md`
+6. `P0-4`：连续 20 次启动无重复 toast，`miya_ui_open` 可达率 100%  
+   - 路径：`miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts`
+7. `P0-5`：`agent-runtime.json` 首启迁移落盘，6 代理配置重启后不串写  
+   - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`
+8. `P1-3`：active agent 的 provider apiKey/baseURL/options 覆盖优先于全局  
+   - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts`
 
 ---
 

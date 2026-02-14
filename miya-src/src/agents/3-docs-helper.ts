@@ -1,4 +1,4 @@
-import type { AgentDefinition } from './orchestrator';
+import type { AgentDefinition } from './1-task-manager';
 import { BaseAgent } from './base-agent';
 
 const LIBRARIAN_PROMPT = `You are 3-docs-helper - Evidence/Verification Specialist (查证/证据)

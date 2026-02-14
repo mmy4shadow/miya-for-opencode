@@ -1,4 +1,4 @@
-import type { AgentDefinition } from './orchestrator';
+import type { AgentDefinition } from './1-task-manager';
 import { BaseAgent } from './base-agent';
 
 const FIXER_PROMPT = `You are 5-code-fixer - Execution/Delivery Specialist (执行/落地)
