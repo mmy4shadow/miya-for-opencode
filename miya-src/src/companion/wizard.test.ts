@@ -9,6 +9,7 @@ import {
   isCompanionWizardEmpty,
   markTrainingJobFinished,
   markTrainingJobRunning,
+  requeueTrainingJob,
   readCompanionWizardState,
   startCompanionWizard,
   submitWizardPersonality,
@@ -127,5 +128,70 @@ describe('companion wizard', () => {
     const canceled = cancelCompanionWizardTraining(projectDir, 'cancel_case');
     expect(canceled.jobs.some((job) => job.status === 'canceled')).toBe(true);
     expect(isCompanionWizardEmpty(projectDir, 'cancel_case')).toBe(false);
+  });
+
+  test('covers failed/degraded/retry paths for training jobs', () => {
+    const projectDir = tempProjectDir();
+    startCompanionWizard(projectDir, { sessionId: 'retry_case', forceReset: true });
+    const imageMedia = ingestMedia(projectDir, {
+      source: 'test',
+      kind: 'image',
+      mimeType: 'image/png',
+      fileName: 'p.png',
+      contentBase64: ONE_PIXEL_BASE64,
+    });
+
+    const photos = submitWizardPhotos(projectDir, {
+      sessionId: 'retry_case',
+      mediaIDs: [imageMedia.id],
+    });
+    markTrainingJobRunning(projectDir, photos.job.id, 'retry_case');
+    const failedImage = markTrainingJobFinished(projectDir, {
+      sessionId: 'retry_case',
+      jobID: photos.job.id,
+      status: 'failed',
+      message: 'oom',
+      tier: 'reference',
+    });
+    expect(failedImage.state).toBe('training_image');
+
+    const requeued = requeueTrainingJob(projectDir, {
+      sessionId: 'retry_case',
+      jobID: photos.job.id,
+      message: 'retry_from_checkpoint',
+      checkpointPath: 'checkpoint/image-ref.safetensors',
+    });
+    expect(requeued.jobs.find((job) => job.id === photos.job.id)?.status).toBe('queued');
+
+    markTrainingJobRunning(projectDir, photos.job.id, 'retry_case');
+    const degradedImage = markTrainingJobFinished(projectDir, {
+      sessionId: 'retry_case',
+      jobID: photos.job.id,
+      status: 'degraded',
+      message: 'fallback_embedding',
+      tier: 'embedding',
+    });
+    expect(degradedImage.state).toBe('awaiting_voice');
+
+    const audioMedia = ingestMedia(projectDir, {
+      source: 'test',
+      kind: 'audio',
+      mimeType: 'audio/wav',
+      fileName: 'v.wav',
+      contentBase64: ONE_PIXEL_BASE64,
+    });
+    const voice = submitWizardVoice(projectDir, {
+      sessionId: 'retry_case',
+      mediaID: audioMedia.id,
+    });
+    markTrainingJobRunning(projectDir, voice.job.id, 'retry_case');
+    const failedVoice = markTrainingJobFinished(projectDir, {
+      sessionId: 'retry_case',
+      jobID: voice.job.id,
+      status: 'failed',
+      message: 'voice_train_failed',
+      tier: 'reference',
+    });
+    expect(failedVoice.state).toBe('training_voice');
   });
 });

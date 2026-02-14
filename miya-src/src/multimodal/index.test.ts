@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getMediaItem, ingestMedia } from '../media/store';
-import { analyzeVision } from './vision';
+import { analyzeVision, parseDesktopOcrSignals } from './vision';
 import { generateImage } from './image';
 import { ingestVoiceInput, synthesizeVoiceOutput } from './voice';
 
@@ -58,5 +58,22 @@ describe('multimodal', () => {
     expect(result.mediaID).toBe(media.id);
     expect(result.summary.includes('desk')).toBe(true);
     expect(getMediaItem(projectDir, media.id)?.kind).toBe('image');
+  });
+
+  test('detects recipient and sent status from OCR text', () => {
+    const signals = parseDesktopOcrSignals('聊天对象: 小明\\n消息已发送', '小明');
+    expect(signals.recipientMatch).toBe('matched');
+    expect(signals.sendStatusDetected).toBe('sent');
+  });
+
+  test('detects recipient mismatch from OCR text', () => {
+    const signals = parseDesktopOcrSignals('聊天对象: 李雷\\n消息已发送', '小明');
+    expect(signals.recipientMatch).toBe('mismatch');
+  });
+
+  test('detects uncertain send status when no signal exists', () => {
+    const signals = parseDesktopOcrSignals('聊天对象: 小明\\n输入中', '小明');
+    expect(signals.recipientMatch).toBe('matched');
+    expect(signals.sendStatusDetected).toBe('uncertain');
   });
 });

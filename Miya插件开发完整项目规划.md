@@ -1425,689 +1425,55 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 ---
 
 
-## **5. 现有源码架构分析（已实现）**
+## **5. 现有源码架构分析（真实基线，2026-02-14）**
 
-### **5.1 源码目录结构**
+### **5.1 核心模块与源码路径**
 
-```
-miya-src/src/
-├── index.ts              # 插件入口，注册agents/tools/mcps/hooks
-├── agents/               # 六代理定义
-│   ├── index.ts          # 代理工厂与配置
-│   ├── orchestrator.ts   # 1-task-manager（指挥）
-│   ├── explorer.ts       # 2-code-search（侦察）
-│   ├── librarian.ts      # 3-docs-helper（查证）
-│   ├── oracle.ts         # 4-architecture-advisor（决策）
-│   ├── fixer.ts          # 5-code-fixer（执行）
-│   └── designer.ts       # 6-ui-designer（呈现）
-├── safety/               # 安全与自我审批
-│   ├── index.ts          # Self-Approval工具
-│   ├── risk.ts           # 风险评估
-│   ├── tier.ts           # 验证分层（LIGHT/STANDARD/THOROUGH）
-│   ├── verifier.ts       # 验证器
-│   ├── evidence.ts       # 证据收集
-│   └── store.ts          # 状态持久化
-├── intake/               # 信息闸门
-│   ├── index.ts          # Intake工具
-│   ├── service.ts        # 闸门服务
-│   ├── store.ts          # 白名单/黑名单存储
-│   └── types.ts          # 类型定义
-├── automation/           # 自动化任务
-│   ├── service.ts        # 调度服务
-│   └── types.ts          # 任务类型
-├── gateway/              # Gateway控制平面
-│   ├── index.ts          # Gateway启动
-│   └── protocol.ts       # WebSocket协议
-├── tools/                # 工具集
-│   ├── lsp/              # LSP工具（定义跳转、引用查找、重命名）
-│   ├── grep/             # ripgrep工具
-│   ├── background.ts     # 后台任务管理
-│   ├── automation.ts     # 自动化工具
-│   └── workflow.ts       # 工作流工具
-├── hooks/                # 生命周期钩子
-│   ├── index.ts          # 钩子导出
-│   ├── loop-guard.ts     # 循环守卫（迁移为进展驱动 + 上限约束）
-│   ├── phase-reminder.ts # 阶段提醒
-│   └── post-read-nudge.ts# 读后提示
-├── config/               # 配置管理
-│   ├── loader.ts         # 配置加载
-│   ├── schema.ts         # 配置模式
-│   ├── constants.ts      # 常量定义
-│   ├── agent-model-persistence.ts # 模型持久化
-│   └── agent-mcps.ts     # MCP权限
-├── mcp/                  # MCP集成
-│   ├── index.ts          # MCP工厂
-│   ├── websearch.ts      # 网页搜索
-│   ├── context7.ts       # Context7
-│   └── grep-app.ts       # Grep App
-├── background/           # 后台管理
-│   ├── index.ts          # 后台任务管理器
-│   └── process-manager.ts # 跨平台进程管理（Windows原生支持，非tmux依赖）
-├── workflow/             # 工作流
-│   ├── state.ts          # 状态管理
-│   └── saves.ts          # 检查点保存
-├── voice/                # 语音模块
-│   └── state.ts          # 语音状态
-├── companion/            # 陪伴模块
-│   └── store.ts          # 陪伴存储
-├── settings/             # 设置模块
-│   └── index.ts          # 配置工具
-└── utils/                # 工具函数
-    ├── logger.ts         # 日志
-    ├── tmux.ts           # Tmux工具
-    └── agent-variant.ts  # 代理变体
-miya/
-├── automation/
-└── model/
-    ├── shi jue/
-    │   ├── Qwen3VL-4B-Instruct-Q4_K_M          # 控制电脑视觉模型（GGUF）
-    │   ├── lin shi/                            # 临时截图
-    │   └── chang qi/                           # 长期证据截图
-    ├── sheng yin/
-    │   ├── GPT-SoVITS-v2pro-20250604          # 声音克隆模型
-    │   ├── lin shi/                            # 临时语音（7天清理）
-    │   └── chang qi/                           # 长期音色素材
-    └── tu pian/
-        ├── FLUX.1 schnell                      # 即时生图模型
-        ├── FLUX.2 [klein] 4B（Apache-2.0）      # 精细化生图模型（需控制显存占用）
-        ├── lin shi/                            # 临时图片（6个月清理）
-        └── chang qi/                           # 长期图片素材/保留图
+| 模块 | 状态 | 关键源码路径 |
+|------|------|--------------|
+| 六代理编排 | 已完成 | `miya-src/src/agents/index.ts`, `miya-src/src/agents/orchestrator.ts` |
+| Gateway 控制平面 | 已完成 | `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/protocol.ts` |
+| 外发通道运行时（QQ/微信） | 已完成（含安全收口） | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
+| 安全审批与 Kill-Switch | 已完成 | `miya-src/src/safety/index.ts`, `miya-src/src/safety/store.ts`, `miya-src/src/safety/state-machine.ts` |
+| 策略与事件审计 | 已完成 | `miya-src/src/policy/index.ts`, `miya-src/src/policy/incident.ts`, `miya-src/src/policy/semantic-tags.ts` |
+| 向导与训练状态机 | 已完成 | `miya-src/src/companion/wizard.ts`, `miya-src/src/gateway/index.ts` |
+| 多模态（图像/语音/视觉） | 已完成 | `miya-src/src/multimodal/image.ts`, `miya-src/src/multimodal/voice.ts`, `miya-src/src/multimodal/vision.ts` |
+| 节点与设备管理 | 已完成（主路径） | `miya-src/src/node/service.ts`, `miya-src/src/nodes/index.ts`, `miya-src/src/nodes/client.ts` |
+| 自动化调度 | 已完成 | `miya-src/src/automation/service.ts`, `miya-src/src/tools/automation.ts` |
+| Web 控制台 | 已完成 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/gateway/control-ui-shared.ts` |
 
-```
+### **5.2 本轮关键修订（与代码一致）**
 
-### **5.2 已实现功能清单**
-
-#### **5.2.1 六代理职责分层 ✅**
-
-| Agent | 源码文件 | 职责定位 | 默认模型 |
-|-------|----------|----------|----------|
-| **1-task-manager** | `orchestrator.ts` | 指挥：任务分解、并发派工、合并结果、循环控制（进展驱动 + 上限约束） | openrouter/moonshotai/kimi-k2.5 |
-| **2-code-search** | `explorer.ts` | 侦察：定位"东西在哪里、现状是什么" | openrouter/moonshotai/kimi-k2.5 |
-| **3-docs-helper** | `librarian.ts` | 查证：把"应该怎么做"变成可引用依据 | openrouter/moonshotai/kimi-k2.5 |
-| **4-architecture-advisor** | `oracle.ts` | 决策：方案选择、风险评估、验证策略 | openrouter/moonshotai/kimi-k2.5 |
-| **5-code-fixer** | `fixer.ts` | 执行：写代码、改配置、跑命令 | openrouter/z-ai/glm-5 |
-| **6-ui-designer** | `designer.ts` | 呈现：控制台/流程/状态页 | openrouter/minimax/z-ai/glm-5 |
-
-**源码实现**：
-```typescript
-// agents/index.ts
-const SUBAGENT_FACTORIES: Record<SubagentName, AgentFactory> = {
-  '2-code-search': createExplorerAgent,
-  '3-docs-helper': createLibrarianAgent,
-  '4-architecture-advisor': createOracleAgent,
-  '5-code-fixer': createFixerAgent,
-  '6-ui-designer': createDesignerAgent,
-};
-```
-
-#### **5.2.2 权限与安全体系 ✅**
-
-**第一层：OpenCode原生Permission（优先）**
-- 使用OpenCode内置的`allow/ask/deny`权限体系
-- 通过.opencode配置文件精细控制：bash/edit/webfetch/websearch/skill等命令权限
-- **doom_loop与loop-guard交互策略**：
-  - OpenCode原生的`doom_loop`默认在同工具同输入重复3次时触发熔断
-  - **硬规则**：Ralph Loop/循环修复期间，每轮必须改变输入hash（追加迭代标识/时间戳/随机盐）
-  - 或为Ralph Loop子流程单独配置权限规则（在`.opencode`中设置`doom_loop = allow`仅对ralph类型工具）
-  - 优先使用输入hash变化策略，避免放开doom_loop导致真死循环风险
-
-**第二层：Self-Approval增强（补充）**
-对于OpenCode permission未覆盖的复杂场景，提供Self-Approval联锁：
-
-**源码实现**：`safety/index.ts`
-
-```typescript
-// 硬规则实现
-export async function handlePermissionAsk(
-  projectDir: string,
-  input: PermissionAskInput,
-): Promise<{ status: 'allow' | 'deny'; reason: string }> {
-  // 1. Kill-Switch检查
-  if (kill.active) {
-    return { status: 'deny', reason: 'kill_switch_active' };
-  }
-  
-  // 2. 证据Token验证
-  const token = findApprovalToken(projectDir, sessionID, hashes, requiredTier);
-  if (!token) {
-    activateKillSwitch(projectDir, 'missing_evidence', traceID);
-    return { status: 'deny', reason: 'missing_evidence' };
-  }
-  
-  // 3. 验证通过
-  return { status: 'allow', reason: 'token_validated' };
-}
-```
-
-**工具列表**：
-- `miya_self_approve` - 自我审批，生成短期Token
-- `miya_kill_activate` - 激活Kill-Switch
-- `miya_kill_release` - 释放Kill-Switch
-- `miya_kill_status` - 查看Kill-Switch状态
-
-#### **5.2.3 验证分层（Verification Tiers）✅**
-
-**源码实现**：`safety/tier.ts`
-
-```typescript
-export type SafetyTier = 'LIGHT' | 'STANDARD' | 'THOROUGH';
-
-export function tierAtLeast(a: SafetyTier, b: SafetyTier): boolean {
-  const order = { LIGHT: 0, STANDARD: 1, THOROUGH: 2 };
-  return order[a] >= order[b];
-}
-```
-
-| Tier | 适用场景 | 验证要求 |
-|------|----------|----------|
-| **LIGHT** | 低风险操作（读取、查询） | 基本语法检查 |
-| **STANDARD** | 中等风险操作（修改、创建） | 语法检查 + 类型检查 |
-| **THOROUGH** | 高风险操作（删除、发送、push） | 完整测试套件 + 回滚预案 |
-
-#### **5.2.4 信息闸门（Intake Gate）✅**
-
-**源码实现**：`intake/index.ts`
-
-**工具列表**：
-- `miya_intake_propose` - 创建闸门提案
-- `miya_intake_decide` - 决定提案（approve/reject/trial）
-- `miya_intake_stats` - 来源质量统计
-- `miya_intake_list` - 列出白名单/黑名单/待处理
-
-**闸门触发类型**：
-```typescript
-type IntakeTrigger =
-  | 'config_change'           // 配置变更
-  | 'skill_or_toolchain_change' // 技能/工具链变更
-  | 'high_risk_action'        // 高风险动作
-  | 'directive_content'       // 指令型内容
-  | 'manual';                 // 手动触发
-```
-
-**白名单/黑名单粒度**：
-```typescript
-type IntakeScope =
-  | 'CONTENT_FINGERPRINT'  // 内容哈希
-  | 'PAGE'                 // 页面URL
-  | 'PATH_PREFIX'          // 路径前缀
-  | 'DOMAIN';              // 域名
-```
-
-#### **5.2.5 自动化任务调度 ✅**
-
-**源码实现**：`automation/service.ts`
-
-**工具列表**：
-- `miya_schedule_daily_command` - 创建每日定时任务
-- `miya_list_jobs` - 列出所有任务
-- `miya_delete_job` - 删除任务
-- `miya_set_job_enabled` - 启用/禁用任务
-- `miya_run_job_now` - 立即运行任务
-- `miya_list_approvals` - 列出待审批
-- `miya_approve_job_run` - 批准任务运行
-- `miya_reject_job_run` - 拒绝任务运行
-- `miya_job_history` - 执行历史
-- `miya_schedule_from_text` - 自然语言创建任务
-
-#### **5.2.6 Gateway控制平面 ✅**
-
-**源码实现**：`gateway/index.ts`
-
-**工具列表**：
-- `miya_gateway_start` - 启动Gateway
-- `miya_gateway_status` - 查看状态
-- `miya_gateway_doctor` - 健康检查
-- `miya_gateway_shutdown` - 关闭Gateway
-- `miya_ui_open` - 打开Web控制台
-
-**状态持久化**：`.opencode/miya/gateway.json`
-
-#### **5.2.7 循环守卫与工作流 ✅**
-
-**源码实现**：`hooks/loop-guard.ts`
-
-**设计理念**：
-参考 oh-my-opencode 已验证的 Ralph Loop 范式，取消固定的"最多3轮"限制，采用"直到完成"的持续循环模式；但必须把“进展”工程化定义，并用 Hash 环检测防止 A↔B 来回横跳。
-
-**进展定义（建议最小可行口径）**：
-- **强进展**：测试全绿/目标命令成功/质量门禁通过。
-- **弱进展**：失败用例数量减少，或同一失败用例的错误更接近根因（可用“错误栈帧/错误代码位置稳定且更具体”作为启发式）。
-- **非进展**：错误类型变化但失败用例数量不变或增加、编译从能过变成不能过、或出现明显回退（例如引入 SyntaxError）。
-
-**Hash 环检测（强制）**：
-- 记录最近 N=5 次迭代的 `iterationFingerprint`，建议至少由以下字段组成并稳定哈希：
-  - `testSummaryHash`（失败用例/错误摘要）
-  - `stderrHash`（关键错误片段）
-  - `diffHash`（本轮改动的 git diff 摘要）
-  - `toolPlanHash`（本轮采取的动作类型/策略）
-- 若 `iterationFingerprint` 命中历史（出现环）→ 立即终止循环并 `load_work` 回滚到最近一次可用检查点，输出“环检测命中”的证据包与建议下一步（通常需要换策略/缩小范围/请求你提供更多信息）。
-- **错误相似度判定（强制）**：
-  - 连续 3 次 `stderr` 文本相似度 > 90%（建议 Levenshtein 或等价算法）视为“高概率原地打转”。
-  - 命中后必须切换策略（缩小范围/更换验证命令/回滚检查点），不得继续同路径硬试。
-- **文件反复横跳判定（强制）**：
-  - 同一文件同一行附近（建议 +/-3 行窗口）被重复修改超过 5 次，视为循环抖动并触发停机或升级人工介入。
-
-```typescript
-// 取消固定轮数限制，采用进展驱动模式
-// 参考oh-my-opencode的Ralph Loop实现
-
-// Hash 环检测：避免 A -> B -> A -> B
-if (historyFingerprints.includes(currentFingerprint)) {
-  MIYA_LOOP_STALLED = true;
-  load_work({ checkpoint: lastKnownGood });
-  cancel_work('loop_cycle_detected');
-}
-
-// 进展约束：检测是否持续无进展
-if (consecutiveNoProgress >= MAX_STALL_COUNT) {
-  MIYA_LOOP_STALLED = true;
-  // 触发人工介入或回滚，而非简单停止
-}
-
-// 支持用户主动取消循环
-cancel_work(reason?: string)
-```
-
-**工作流工具**：
-- `save_work` - 保存检查点
-- `load_work` - 加载检查点
-- `check_work` - 检查完成状态
-- `quality_gate` - 质量门禁
-- `cancel_work` - 取消循环
-- `loop_state` - 循环状态
-- `miya_iteration_done` - 迭代完成
-
-#### **5.2.8 LSP工具集成 ✅**
-
-**源码实现**：`tools/lsp/`
-
-**工具列表**：
-- `lsp_goto_definition` - 跳转到定义
-- `lsp_find_references` - 查找所有引用
-- `lsp_diagnostics` - 获取诊断信息
-- `lsp_rename` - 重命名符号
-
-#### **5.2.9 AST-grep工具 ✅**
-
-**源码实现**：`tools/grep/`
-
-**工具列表**：
-- `ast_grep_search` - AST模式搜索
-- `ast_grep_replace` - AST模式替换
-
-支持25种语言：bash, c, cpp, csharp, css, elixir, go, haskell, html, java, javascript, json, kotlin, lua, nix, php, python, ruby, rust, scala, solidity, swift, typescript, tsx, yaml
-
-#### **5.2.10 模型持久化 ✅**
-
-**源码实现**：`config/agent-model-persistence.ts`
-
-```typescript
-// 保存位置
-const path = '.opencode/miya/agent-models.json';
-
-// 功能
-- 发送消息时保存模型选择
-- 切换代理时保存模型选择
-- 重启后自动恢复
-```
-
-#### **5.2.11 MCP集成 ✅**
-
-**源码实现**：`mcp/index.ts`
-
-**内置MCP**：
-- `websearch` - 网页搜索
-- `context7` - Context7文档
-- `grep_app` - Grep App
+| 项 | 状态 | 关键实现 |
+|----|------|----------|
+| 统一外发入口，禁止 gateway 直调 runtime 发送 | 已完成 | `miya-src/src/gateway/index.ts`（`sendChannelMessageGuarded`） |
+| 外发证据链补齐（payload hash/窗口指纹/收件人校验/前后截图/失败步骤） | 已完成 | `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/channels/service.ts` |
+| 回执 confirmed/uncertain 严格区分并可定位 | 已完成 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
+| 向导异常路径（失败/降级/取消/重试）一致性验证 | 已完成 | `miya-src/src/companion/wizard.ts`, `miya-src/src/companion/wizard.test.ts` |
+| 视觉链路替换占位实现（Remote VLM + Tesseract + fallback） | 部分完成 | `miya-src/src/multimodal/vision.ts` |
 
 ---
 
-
-## **6. 待实现功能规划（参考开源项目）**
-
-### **6.1 阶段一：OpenClaw核心功能融合（优先级：P0）**
-
-#### **6.1.1 节点管理系统**
-
-**目标**：实现OpenClaw的节点体系，把"设备能力"作为role: node接入网关
-
-**当前状态**：Gateway已有基础架构，缺少节点注册与管理
-
-**待实现**：
-- [ ] **节点注册接口**：`miya_node_register`
-- [ ] **节点状态查询**：`miya_node_status`
-- [ ] **权限映射显示**：screenRecording、accessibility、filesystem
-- [ ] **节点心跳检测**：定期健康检查
-- [ ] **节点Token管理**：本地存储node token
-
-**新增文件**：
-```
-miya-src/src/node/
-├── index.ts      # 节点工具导出
-├── service.ts    # 节点服务
-├── store.ts      # 节点状态存储
-└── types.ts      # 类型定义
-```
-
-**数据结构**：
-```typescript
-interface MiyaNode {
-  id: string;
-  type: 'cli' | 'desktop' | 'mobile' | 'browser';
-  platform: 'macos' | 'windows' | 'linux' | 'ios' | 'android';
-  permissions: {
-    screenRecording: boolean;
-    accessibility: boolean;
-    filesystem: 'none' | 'read' | 'full';
-    network: boolean;
-  };
-  lastHeartbeat: Date;
-  status: 'online' | 'offline' | 'error';
-  token?: string;
-}
-```
-
-#### **6.1.2 外部通道分类与硬规则**
-
-**硬规则：通道分为两类，绝不混淆**
-
-**A) Inbound-only（只进不出）**
-- **功能**：允许接入做触发/浏览/检索，但**默认禁止发送消息**
-- **适用通道**：Telegram（Bot只读）、Slack（仅监听）、Discord（仅监听）、网页/API（仅GET）
-- **实现方式**：MCP工具或daemon的只读适配器
-- **用途**：接收指令触发、浏览网页获取信息、检索外部数据
-- **禁止行为**：发送消息、发布内容、自动回复、提交表单
-
-**B) Outbound-allowlist（允许外发）**
-- **唯一允许外发的通道**：本机已登录的 **QQ/微信**
-- **实现方式**：桌面UI自动化（像人类一样控制已登录账号），**不是Bot API**
-- **强制校验**：
-  - Arch Advisor风控评估（一票否决权）
-  - 目标在allowlist（本人档/朋友档分档机制）
-  - 速率限制+误触发保护+二次确认
-- **用途**：向你汇报进度、发送草稿等待确认、接收你的指令
-
-**当前状态**：无通道集成
-
-**实施边界（与 0.0 决策一致）**：
-- 主线只做 QQ/微信 UI 自动化外发链路（含桌面控制 + 证据包 + 风控 + allowlist）。
-- Telegram/Slack/Discord 等 Inbound-only 适配器归入后置可选能力，不阻塞主里程碑验收。
-
-**待实现**：
-- [ ] **Inbound-only适配器（后置可选）**：Telegram Bot（只读模式）、Slack监听、Discord监听
-- [ ] **Outbound-allowlist实现**：QQ/微信桌面自动化（UI控制，非API）
-- [ ] **通道分类硬约束**：Inbound-only通道在代码层禁止write/send方法
-- [ ] **路由规则**：基于来源/内容的消息分发，Inbound-only消息只能触发查询类工具
-
-**新增文件**：
-```
-miya-src/src/channel/
-├── index.ts          # 通道工具导出
-├── types.ts          # 统一消息类型
-├── inbound/          # Inbound-only适配器（后置可选）
-│   ├── telegram.ts   # Telegram Bot只读适配器
-│   ├── slack.ts      # Slack监听适配器
-│   └── discord.ts    # Discord监听适配器
-├── outbound/         # Outbound-allowlist实现
-│   ├── qq.ts         # QQ桌面自动化（UI控制）
-│   └── wechat.ts     # 微信桌面自动化（UI控制）
-└── router.ts         # 消息路由（带方向硬约束）
-```
-
-**数据结构**：
-```typescript
-// 通道方向硬约束
-type ChannelDirection = 'INBOUND_ONLY' | 'OUTBOUND_ALLOWLIST';
-
-interface ChannelConfig {
-  id: string;
-  type: 'telegram' | 'slack' | 'discord' | 'qq' | 'wechat';
-  direction: ChannelDirection;  // 硬约束
-  allowSend: boolean;           // INBOUND_ONLY = false
-  allowReceive: boolean;        // OUTBOUND_ALLOWLIST = false（QQ/微信不走Inbound）
-}
-
-interface UnifiedMessage {
-  id: string;
-  channel: ChannelConfig;
-  direction: 'inbound' | 'outbound';
-  sender: { id: string; name: string; };
-  content: { type: 'text' | 'image' | 'file'; data: any; };
-  timestamp: Date;
-  // 发送前强制校验字段
-  outboundCheck?: {
-    archAdvisorApproved: boolean;  // Arch Advisor一票否决
-    targetInAllowlist: boolean;    // 目标在本人档/朋友档
-    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
-    auditId: string;
-  };
-}
-```
-
-**硬约束实现**：
-```typescript
-// 在代码层强制执行
-function sendMessage(msg: UnifiedMessage) {
-  if (msg.channel.direction === 'INBOUND_ONLY') {
-    throw new Error('INBOUND_ONLY通道禁止发送消息');
-  }
-  if (!msg.outboundCheck?.archAdvisorApproved) {
-    throw new Error('Outbound消息必须通过Arch Advisor风控');
-  }
-  if (!msg.outboundCheck?.targetInAllowlist) {
-    throw new Error('目标不在allowlist，禁止发送');
-  }
-  // 实际发送...
-}
-```
-
-### **6.2 阶段二：Oh-my-claudecode核心功能融合（优先级：P0）**
-
-#### **6.2.1 Ralph Loop完整实现**
-
-**目标**：实现完整的自修正闭环机制
-
-**当前状态**：有循环守卫，缺少Ralph Loop专用工具
-
-**待实现**：
-- [ ] **Ralph Loop工具**：`miya_ralph_loop`
-- [ ] **错误捕获**：自动捕获stderr/stdout
-- [ ] **智能重试**：基于错误类型选择修复策略
-- [ ] **验证命令**：支持自定义验证命令
-- [ ] **停机判定**：基于“进展驱动 + 相似错误 + 文件抖动 + 风险上限”的组合策略（替代固定轮数）
-
-**新增文件**：
-```
-miya-src/src/ralph/
-├── index.ts      # Ralph工具导出
-├── loop.ts       # 循环执行器
-├── error-analyzer.ts # 错误分析
-└── types.ts      # 类型定义
-```
-
-**工具定义**：
-```typescript
-const miya_ralph_loop = tool({
-  description: 'Execute task with self-correction loop',
-  args: {
-    task_description: z.string(),
-    verification_command: z.string(),
-    stall_window: z.number().default(3),
-    error_similarity_threshold: z.number().default(0.9),
-    same_line_touch_limit: z.number().default(5),
-    timeout_ms: z.number().default(60000),
-  },
-  async execute(args, ctx) {
-    // 1. 执行任务
-    // 2. 运行验证命令
-    // 3. 分析错误
-    // 4. 智能重试
-    // 5. 返回结果
-  },
-});
-```
-
-#### **6.2.2 Autopilot模式增强**
-
-**目标**：实现完整的自主执行模式
-
-**当前状态**：有Task Manager编排，缺少Autopilot专用工具
-
-**待实现**：
-- [ ] **Autopilot工具**：`miya_autopilot`
-- [ ] **目标解析**：从自然语言提取可执行目标
-- [ ] **计划生成**：自动生成执行计划
-- [ ] **自主执行**：无需人工干预的完整执行
-- [ ] **结果验证**：自动验证执行结果
-
-**新增文件**：
-```
-miya-src/src/autopilot/
-├── index.ts      # Autopilot工具导出
-├── planner.ts    # 计划生成器
-├── executor.ts   # 自主执行器
-└── verifier.ts   # 结果验证器
-```
-
-### **6.3 阶段三：Clawra/Girl-agent核心功能融合（优先级：P1）**
-
-#### **6.3.1 SOUL.md人格系统**
-
-**目标**：实现可定制的人格系统
-
-**当前状态**：无人格系统
-
-**待实现**：
-- [ ] **人格加载器**：读取SOUL.md
-- [ ] **人格模板**：提供多种预设人格模板
-- [ ] **人格编辑器**：可视化编辑SOUL.md
-- [ ] **人格切换**：运行时动态切换人格
-- [ ] **人格持久化**：保存用户定制的人格
-
-**新增文件**：
-```
-miya-src/src/soul/
-├── index.ts      # 人格工具导出
-├── loader.ts     # 人格加载器
-├── templates.ts  # 预设模板
-└── types.ts      # 类型定义
-```
-
-**SOUL.md结构**：
-```markdown
-# SOUL.md
-
-## 身份
-- 名称：Miya
-- 角色：私人AI助手
-- 语气：专业但友好
-
-## 价值观
-- 用户隐私优先
-- 证据驱动决策
-- 主动但不越界
-
-## 行为准则
-- 每次回答必须称呼用户
-- 使用中文回复
-- 修改代码后更新文档
-
-## 禁止事项
-- 不执行未经验证的命令
-- 不泄露敏感信息
-- 不绕过安全检查
-
-```
-#### **6.3.2 多模态交互**
-
-**目标**：支持视觉生成和语音交互
-
-**当前状态**：有voice/state.ts基础，缺少完整实现
-
-**待实现**：
-- [ ] **图像生成工具**：`miya_generate_image`
-- [ ] **语音输入工具**：`miya_voice_input`
-- [ ] **语音输出工具**：`miya_voice_output`
-- [ ] **视觉理解工具**：`miya_vision_analyze`
-
-**新增文件**：
-```
-miya-src/src/multimodal/
-├── index.ts      # 多模态工具导出
-├── image.ts      # 图像生成
-├── voice.ts      # 语音处理
-└── vision.ts     # 视觉理解
-```
-
-### **6.4 阶段四：Oh-my-opencode核心功能融合（优先级：P1）**
-
-#### **6.4.1 Ultrawork并行编排**
-
-**目标**：实现最大并行度的任务执行
-
-**当前状态**：有BackgroundTaskManager，缺少Ultrawork专用工具
-
-**待实现**：
-- [ ] **Ultrawork工具**：`miya_ultrawork`
-- [ ] **任务分解**：自动识别可并行任务
-- [ ] **并行调度**：同时启动多个Agent
-- [ ] **结果合并**：智能合并并行结果
-- [ ] **资源管理**：控制并行度
-
-**新增文件**：
-```
-miya-src/src/ultrawork/
-├── index.ts      # Ultrawork工具导出
-├── scheduler.ts  # 并行调度器
-├── merger.ts     # 结果合并器
-└── types.ts      # 类型定义
-```
-
-#### **6.4.2 智能路由增强**
-
-**目标**：实现更精准的任务路由
-
-**当前状态**：有Agent分类，缺少智能路由
-
-**待实现**：
-- [ ] **意图分类器**：基于语义的任务分类
-- [ ] **历史学习**：从历史交互中学习路由偏好
-- [ ] **动态调整**：根据Agent负载动态调整路由
-- [ ] **回退机制**：路由失败时的智能回退
-
-**新增文件**：
-```
-miya-src/src/router/
-├── index.ts      # 路由工具导出
-├── classifier.ts # 意图分类器
-├── learner.ts    # 历史学习
-└── fallback.ts   # 回退机制
-```
-
-### **6.5 阶段五：Nanobot核心功能融合（优先级：P2）**
-
-#### **6.5.1 极简架构优化**
-
-**目标**：保持代码精简，避免臃肿
-
-**当前状态**：代码结构清晰，需要持续优化
-
-**待实现**：
-- [ ] **代码审计工具**：定期审计代码复杂度
-- [ ] **模块化重构**：将功能模块化
-- [ ] **依赖清理**：移除不必要的依赖
-- [ ] **性能优化**：优化启动和响应速度
-
-#### **6.5.2 MCP原生增强**
-
-**目标**：充分利用MCP协议能力
-
-**当前状态**：有基础MCP集成
-
-**待实现**：
-- [ ] **MCP-UI支持**：支持MCP-UI规范
-- [ ] **MCP采样**：支持MCP采样能力
-- [ ] **MCP服务暴露**：将Miya能力暴露为MCP服务
+## **6. 待实现功能规划（按真实状态重排）**
+
+### **6.1 P0/P1/P2 看板（截至 2026-02-14）**
+
+| 任务 | 状态 | 说明 | 绑定源码路径 |
+|------|------|------|--------------|
+| P0-1 安全收口：统一外发入口 + 禁止绕过 | 已完成 | Gateway 所有外发路径统一收敛，新增防回归测试 | `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/outbound-guard.test.ts` |
+| P0-2 外发证据链强化：发送前后证据可回放 | 已完成 | `channels-outbound.jsonl` 增加 payloadHash、窗口指纹、截图、收件人校验、失败步骤、OCR摘要 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
+| P0-3 向导与训练闭环硬化 | 已完成 | 增强失败/降级/取消/重试迁移覆盖，四路径端到端已覆盖 | `miya-src/src/companion/wizard.ts`, `miya-src/src/companion/wizard.test.ts`, `miya-src/src/gateway/index.ts` |
+| P1-1 多模态真实能力替换 | 已完成 | 视觉已接入 OCR/VLM 推理链路并打通桌控发送前校验；保留多级 fallback | `miya-src/src/multimodal/vision.ts`, `miya-src/src/multimodal/index.test.ts`, `miya-src/src/channels/service.ts` |
+| P1-2 架构整理与文档回写 | 已完成 | 本文第 5/6/9/10 章改为“真实基线+状态表+源码路径” | `Miya插件开发完整项目规划.md` |
+| P2 稳定性与体验优化（通道扩展/性能/可观测） | 持续 | 作为持续迭代，不阻塞当前验收 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/resource-scheduler/`, `miya-src/src/channel/` |
+
+### **6.2 尚未完全关闭的项**
+
+| 项 | 状态 | 下一步 |
+|----|------|--------|
+| 视觉识别“真实场景”覆盖率 | 部分完成 | 增加真实聊天窗口截图集回归，形成固定基准集 |
+| MCP-UI/采样增强 | 未完成 | 按 P2 排期推进 |
+| Inbound-only 通道扩展（非主线） | 部分完成 | 主链路已可用，非主线保持后置 |
 
 ---
 
@@ -2149,29 +1515,32 @@ miya-src/src/router/
 
 ## **9. 里程碑规划**
 
-### **M1: 核心触发点与权限体系（2周）**
-- 完善Gateway事件拦截与路由（核心痛点）
-- 集成OpenCode原生permission配置（优先于Self-Approval）
-- 完成节点管理系统基础
-- 完成 Ralph Loop 主链路（进展驱动 + 上限约束，非固定轮数）
-- 完成 QQ/微信 外发主链路最小闭环（desktop_control + outbound_send + 证据包）
-- 修复所有测试失败
+### **M1：安全闭环（已完成）**
+- 已完成统一外发入口与绕过封堵（P0-1）
+- 已完成外发证据链增强与失败步骤可定位（P0-2）
+- 已完成向导异常路径硬化与四路径测试（P0-3）
+- 关键路径：
+  - `miya-src/src/gateway/index.ts`
+  - `miya-src/src/channels/service.ts`
+  - `miya-src/src/channel/outbound/shared.ts`
+  - `miya-src/src/companion/wizard.test.ts`
 
-### **M2: 节点与通道（4周）**
-- 完成节点管理系统
-- 完成Outbound-allowlist增强（QQ/微信桌面自动化稳定性、误触发防护、回执验证）
-- 完成SOUL.md人格系统
-- Inbound-only通道集成（Telegram/Slack/Discord）列为后置可选，不阻塞M2验收
+### **M2：多模态实战化（进行中）**
+- 视觉链路已从占位升级为可执行链路（Remote VLM / Tesseract / fallback）
+- 已打通桌控发送前证据校验（OCR + 收件人/发送状态判定）
+- 待收口：真实生产截图集上的识别精度与误判率控制
+- 关键路径：
+  - `miya-src/src/multimodal/vision.ts`
+  - `miya-src/src/multimodal/index.test.ts`
+  - `miya-src/src/channels/service.ts`
 
-### **M3: 并行与多模态（6周）**
-- 完成Ultrawork并行编排
-- 完成多模态交互基础
-- 完成智能路由增强
-
-### **M4: 稳定与优化（持续）**
-- 性能优化
-- 文档完善
-- 社区反馈整合
+### **M3：可观测与扩展（进行中）**
+- Web 控制台、诊断、状态快照已可用
+- 后续继续推进：通道扩展、性能、MCP-UI/采样能力
+- 关键路径：
+  - `miya-src/src/gateway/control-ui.ts`
+  - `miya-src/src/gateway/index.ts`
+  - `miya-src/src/resource-scheduler/`
 
 ---
 
@@ -2196,6 +1565,19 @@ miya-src/src/router/
 ✅ **电脑控制闭环**：一句话触发桌面动作/命令执行，返回证据链（截图/日志/diff）；风控可阻断、可回滚；且双闸门（插件 + daemon）都能拦住副作用动作。一定要以硬标准为主
 
 ✅ **外部通道硬约束**：除 QQ/微信 allowlist 外，其他渠道全部禁止外发；QQ/微信 的 send 必须先过 Arch Advisor 风控与 daemon 票据；并具备节流、误触发保护、可选二次确认
+
+### **10.1 本轮可执行验收条目（已对齐源码）**
+
+1. `P0-1`：源码 `grep` 无 `gateway` 直调 `channelRuntime.sendMessage`；防回归测试通过  
+   - 路径：`miya-src/src/gateway/outbound-guard.test.ts`
+2. `P0-2`：`channels-outbound.jsonl` 能回放关键证据（payload hash、截图路径、窗口指纹、收件人校验、失败步骤）  
+   - 路径：`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`
+3. `P0-3`：向导 E2E 覆盖成功/失败/降级/取消四路径  
+   - 路径：`miya-src/src/companion/wizard.test.ts`
+4. `P1-1`：视觉链路具备真实 OCR/VLM 推理入口，并与桌控发送校验打通  
+   - 路径：`miya-src/src/multimodal/vision.ts`, `miya-src/src/channels/service.ts`
+5. `P1-2`：规划文档与代码基线一致，状态标记为已完成/部分完成/未完成并绑定源码路径  
+   - 路径：`Miya插件开发完整项目规划.md`
 
 ---
 

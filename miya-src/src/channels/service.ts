@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { sendQqDesktopMessage } from '../channel/outbound/qq';
 import { sendWechatDesktopMessage } from '../channel/outbound/wechat';
+import { analyzeDesktopOutboundEvidence } from '../multimodal/vision';
 import type { ChannelName } from './types';
 import { assertChannelCanSend } from './policy';
 import {
@@ -93,6 +94,15 @@ export interface ChannelOutboundAudit {
   visualPostcheck?: string;
   receiptStatus?: 'confirmed' | 'uncertain';
   semanticTags?: SemanticTag[];
+  payloadHash?: string;
+  windowFingerprint?: string;
+  recipientTextCheck?: 'matched' | 'uncertain' | 'mismatch';
+  sendStatusCheck?: 'sent' | 'failed' | 'uncertain';
+  preSendScreenshotPath?: string;
+  postSendScreenshotPath?: string;
+  failureStep?: string;
+  ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
+  ocrPreview?: string;
 }
 
 function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
@@ -551,6 +561,15 @@ export class ChannelRuntime {
       visualPrecheck: row.visualPrecheck,
       visualPostcheck: row.visualPostcheck,
       receiptStatus: row.receiptStatus,
+      payloadHash: row.payloadHash,
+      windowFingerprint: row.windowFingerprint,
+      recipientTextCheck: row.recipientTextCheck,
+      sendStatusCheck: row.sendStatusCheck,
+      preSendScreenshotPath: row.preSendScreenshotPath,
+      postSendScreenshotPath: row.postSendScreenshotPath,
+      failureStep: row.failureStep,
+      ocrSource: row.ocrSource,
+      ocrPreview: row.ocrPreview,
       semanticTags,
     };
     appendOutboundAudit(this.projectDir, payload);
@@ -650,6 +669,7 @@ export class ChannelRuntime {
     mediaPath?: string;
     sessionID?: string;
     sendFingerprint?: string;
+    payloadHash?: string;
     approvalTickets?: {
       outboundSend: {
         traceID: string;
@@ -673,6 +693,9 @@ export class ChannelRuntime {
   }): Promise<{ sent: boolean; message: string; auditID?: string }> {
     const text = (input.text ?? '').trim();
     const mediaPath = (input.mediaPath ?? '').trim();
+    const payloadHash = (
+      input.payloadHash ?? createHash('sha256').update(`${text}||${mediaPath}`).digest('hex')
+    ).trim();
     if (!text && !mediaPath) {
       return { sent: false, message: 'invalid_outbound_payload_empty' };
     }
@@ -687,6 +710,7 @@ export class ChannelRuntime {
         sent: false,
         message: error instanceof Error ? error.message : String(error),
         reason: 'channel_blocked',
+        payloadHash,
       });
       return {
         sent: false,
@@ -728,6 +752,7 @@ export class ChannelRuntime {
         intent,
         containsSensitive,
         policyHash,
+        payloadHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
     }
@@ -750,6 +775,7 @@ export class ChannelRuntime {
         intent,
         containsSensitive,
         policyHash,
+        payloadHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
     }
@@ -774,6 +800,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -792,6 +819,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -814,6 +842,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -840,6 +869,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -864,6 +894,7 @@ export class ChannelRuntime {
           policyHash,
           sendFingerprint: input.sendFingerprint,
           ticketSummary,
+          payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -888,6 +919,7 @@ export class ChannelRuntime {
           policyHash,
           sendFingerprint: input.sendFingerprint,
           ticketSummary,
+          payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -911,6 +943,7 @@ export class ChannelRuntime {
           policyHash,
           sendFingerprint: input.sendFingerprint,
           ticketSummary,
+          payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
@@ -918,10 +951,28 @@ export class ChannelRuntime {
 
     if (input.channel === 'qq') {
       const result = sendQqDesktopMessage({
+        projectDir: this.projectDir,
         destination: input.destination,
         text,
         mediaPath,
       });
+      const visionCheck = await analyzeDesktopOutboundEvidence({
+        destination: input.destination,
+        preSendScreenshotPath: result.preSendScreenshotPath,
+        postSendScreenshotPath: result.postSendScreenshotPath,
+        visualPrecheck: result.visualPrecheck,
+        visualPostcheck: result.visualPostcheck,
+        receiptStatus: result.receiptStatus,
+        recipientTextCheck: result.recipientTextCheck,
+      });
+      if (visionCheck.recipientMatch === 'mismatch') {
+        result.sent = false;
+        result.message = 'outbound_blocked:recipient_text_mismatch';
+      }
+      if (visionCheck.sendStatusDetected === 'failed') {
+        result.sent = false;
+        result.message = 'outbound_blocked:receipt_uncertain';
+      }
       if (result.sent && result.receiptStatus !== 'confirmed') {
         result.sent = false;
         result.message = 'outbound_blocked:receipt_uncertain';
@@ -943,6 +994,18 @@ export class ChannelRuntime {
         policyHash,
         sendFingerprint: input.sendFingerprint,
         ticketSummary,
+        payloadHash: result.payloadHash ?? payloadHash,
+        windowFingerprint: result.windowFingerprint,
+        recipientTextCheck:
+          visionCheck.recipientMatch === 'matched' || visionCheck.recipientMatch === 'mismatch'
+            ? visionCheck.recipientMatch
+            : result.recipientTextCheck,
+        sendStatusCheck: visionCheck.sendStatusDetected,
+        preSendScreenshotPath: result.preSendScreenshotPath,
+        postSendScreenshotPath: result.postSendScreenshotPath,
+        failureStep: result.failureStep,
+        ocrSource: visionCheck.ocrSource,
+        ocrPreview: visionCheck.ocrPreview,
         visualPrecheck: result.visualPrecheck,
         visualPostcheck: result.visualPostcheck,
         receiptStatus: result.receiptStatus,
@@ -956,10 +1019,28 @@ export class ChannelRuntime {
 
     if (input.channel === 'wechat') {
       const result = sendWechatDesktopMessage({
+        projectDir: this.projectDir,
         destination: input.destination,
         text,
         mediaPath,
       });
+      const visionCheck = await analyzeDesktopOutboundEvidence({
+        destination: input.destination,
+        preSendScreenshotPath: result.preSendScreenshotPath,
+        postSendScreenshotPath: result.postSendScreenshotPath,
+        visualPrecheck: result.visualPrecheck,
+        visualPostcheck: result.visualPostcheck,
+        receiptStatus: result.receiptStatus,
+        recipientTextCheck: result.recipientTextCheck,
+      });
+      if (visionCheck.recipientMatch === 'mismatch') {
+        result.sent = false;
+        result.message = 'outbound_blocked:recipient_text_mismatch';
+      }
+      if (visionCheck.sendStatusDetected === 'failed') {
+        result.sent = false;
+        result.message = 'outbound_blocked:receipt_uncertain';
+      }
       if (result.sent && result.receiptStatus !== 'confirmed') {
         result.sent = false;
         result.message = 'outbound_blocked:receipt_uncertain';
@@ -981,6 +1062,18 @@ export class ChannelRuntime {
         policyHash,
         sendFingerprint: input.sendFingerprint,
         ticketSummary,
+        payloadHash: result.payloadHash ?? payloadHash,
+        windowFingerprint: result.windowFingerprint,
+        recipientTextCheck:
+          visionCheck.recipientMatch === 'matched' || visionCheck.recipientMatch === 'mismatch'
+            ? visionCheck.recipientMatch
+            : result.recipientTextCheck,
+        sendStatusCheck: visionCheck.sendStatusDetected,
+        preSendScreenshotPath: result.preSendScreenshotPath,
+        postSendScreenshotPath: result.postSendScreenshotPath,
+        failureStep: result.failureStep,
+        ocrSource: visionCheck.ocrSource,
+        ocrPreview: visionCheck.ocrPreview,
         visualPrecheck: result.visualPrecheck,
         visualPostcheck: result.visualPostcheck,
         receiptStatus: result.receiptStatus,

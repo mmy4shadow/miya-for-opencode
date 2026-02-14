@@ -65,11 +65,18 @@ describe('channel runtime send policy', () => {
       channel?: string;
       sent?: boolean;
       textPreview?: string;
+      payloadHash?: string;
+      receiptStatus?: string;
+      failureStep?: string;
     };
     expect(typeof first.id).toBe('string');
     expect(first.channel).toBe('qq');
     expect(first.sent).toBe(false);
     expect(first.textPreview).toBe('hello');
+    expect(typeof first.payloadHash).toBe('string');
+    expect(first.payloadHash?.length).toBe(64);
+    expect(first.receiptStatus).toBe('uncertain');
+    expect(typeof first.failureStep).toBe('string');
   });
 
   test('blocks outbound send when arch advisor has not approved', async () => {

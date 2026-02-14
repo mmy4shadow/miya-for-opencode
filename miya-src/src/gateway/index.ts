@@ -589,6 +589,7 @@ async function sendChannelMessageGuarded(
     mediaPath: mediaPath || undefined,
     sessionID: input.sessionID,
     sendFingerprint,
+    payloadHash,
     approvalTickets: {
       outboundSend: outboundTicket.ticket,
       desktopControl: desktopTicket.ticket,
