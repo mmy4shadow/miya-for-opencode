@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { install } from './install';
@@ -71,6 +71,14 @@ function runtimeGatewayFile(cwd: string): string {
   return path.join(cwd, '.opencode', 'miya', 'gateway.json');
 }
 
+function resolveWorkspaceDir(cwd: string): string {
+  const nested = path.join(cwd, 'miya-src');
+  if (fs.existsSync(path.join(nested, 'src', 'index.ts'))) {
+    return nested;
+  }
+  return cwd;
+}
+
 function clearGatewayStateFile(cwd: string): void {
   try {
     fs.unlinkSync(runtimeGatewayFile(cwd));
@@ -89,12 +97,77 @@ function readGatewayUrl(cwd: string): string | null {
   }
 }
 
-function runGatewayStart(cwd: string): boolean {
-  const proc = spawnSync('opencode', ['run', '--command', 'miya-gateway-start'], {
-    cwd,
-    stdio: 'inherit',
-  });
-  return proc.status === 0;
+function isPidAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readGatewayState(cwd: string): { url: string; pid: number } | null {
+  const file = runtimeGatewayFile(cwd);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      url?: unknown;
+      pid?: unknown;
+    };
+    const url = String(parsed.url ?? '').trim();
+    const pid = Number(parsed.pid);
+    if (!url || !Number.isFinite(pid)) return null;
+    return { url, pid };
+  } catch {
+    return null;
+  }
+}
+
+async function waitGatewayReady(cwd: string, timeoutMs = 15000): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const state = readGatewayState(cwd);
+    if (state && isPidAlive(state.pid)) {
+      try {
+        await callGatewayMethod(state.url, 'gateway.status.get', {});
+        return true;
+      } catch {}
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  return false;
+}
+
+async function runGatewayStart(cwd: string): Promise<boolean> {
+  const workspace = resolveWorkspaceDir(cwd);
+  const attempts: string[][] = [
+    [
+      'run',
+      '--model',
+      'openrouter/moonshotai/kimi-k2.5',
+      '--command',
+      'miya-gateway-start',
+      '--dir',
+      workspace,
+    ],
+    ['run', '--model', 'opencode/big-pickle', '--command', 'miya-gateway-start', '--dir', workspace],
+    ['run', '--command', 'miya-gateway-start', '--dir', workspace],
+  ];
+
+  for (const args of attempts) {
+    const proc = spawn('opencode', args, {
+      cwd: workspace,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    proc.unref();
+    if (await waitGatewayReady(workspace, 12000)) return true;
+    clearGatewayStateFile(workspace);
+  }
+
+  return false;
 }
 
 async function callGatewayMethod(
@@ -166,25 +239,26 @@ async function callGatewayMethod(
 }
 
 async function ensureGatewayUrl(cwd: string, autoStart = true): Promise<string> {
-  let url = readGatewayUrl(cwd);
+  const workspace = resolveWorkspaceDir(cwd);
+  let url = readGatewayUrl(workspace);
   if (url) {
     try {
       await callGatewayMethod(url, 'gateway.status.get', {});
       return url;
     } catch {
-      clearGatewayStateFile(cwd);
+      clearGatewayStateFile(workspace);
       url = null;
     }
   }
 
-  if (autoStart && runGatewayStart(cwd)) {
-    url = readGatewayUrl(cwd);
+  if (autoStart && (await runGatewayStart(workspace))) {
+    url = readGatewayUrl(workspace);
     if (url) {
       try {
         await callGatewayMethod(url, 'gateway.status.get', {});
         return url;
       } catch {
-        clearGatewayStateFile(cwd);
+        clearGatewayStateFile(workspace);
       }
     }
   }
@@ -196,7 +270,7 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
   const action = args[0] ?? 'status';
 
   if (action === 'start') {
-    const ok = runGatewayStart(cwd);
+    const ok = await runGatewayStart(cwd);
     return ok ? 0 : 1;
   }
 

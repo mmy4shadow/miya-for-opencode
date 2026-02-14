@@ -518,9 +518,24 @@ function gatewayPort(runtime: GatewayRuntime): number {
   return Number(runtime.server.port ?? 0);
 }
 
+function resolveGatewayListenOptions(projectDir: string): {
+  hostname: string;
+  port: number;
+} {
+  const config = readConfig(projectDir);
+  const gateway = (config.gateway as Record<string, unknown> | undefined) ?? {};
+  const rawHost = String(gateway.bindHost ?? '').trim();
+  const rawPort = Number(gateway.port);
+  const hostname = rawHost || '127.0.0.1';
+  const port =
+    Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? Math.floor(rawPort) : 0;
+  return { hostname, port };
+}
+
 function toGatewayState(projectDir: string, runtime: GatewayRuntime): GatewayState {
+  const host = String(runtime.server.hostname ?? '127.0.0.1') || '127.0.0.1';
   return {
-    url: `http://127.0.0.1:${gatewayPort(runtime)}`,
+    url: `http://${host}:${gatewayPort(runtime)}`,
     port: gatewayPort(runtime),
     pid: process.pid,
     startedAt: runtime.startedAt,
@@ -4153,9 +4168,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     },
   });
 
+  const listen = resolveGatewayListenOptions(projectDir);
   const server = Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
+    hostname: listen.hostname,
+    port: listen.port,
     fetch(request, currentServer) {
       const url = new URL(request.url);
       if (url.pathname === '/ws') {

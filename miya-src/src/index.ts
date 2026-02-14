@@ -157,10 +157,14 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
   startGatewayWithLog(ctx.directory);
   const gatewayOwner = isGatewayOwner(ctx.directory);
+  const autoOpenEnabled =
+    ((config.ui as Record<string, unknown> | undefined)?.dashboard as
+      | Record<string, unknown>
+      | undefined)?.openOnStart !== false;
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);
     log('[miya-launcher] daemon bootstrap', daemonLaunch);
-    if (shouldAutoOpenUi(ctx.directory)) {
+    if (autoOpenEnabled && shouldAutoOpenUi(ctx.directory)) {
       setTimeout(async () => {
         try {
           const state = ensureGatewayRunning(ctx.directory);

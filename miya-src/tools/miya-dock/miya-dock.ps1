@@ -6,13 +6,26 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$GatewayFile = Join-Path $ProjectRoot ".opencode\miya\gateway.json"
+$GatewayPrimary = Join-Path $ProjectRoot ".opencode\miya\gateway.json"
+$GatewayAlternate = Join-Path $ProjectRoot "miya-src\.opencode\miya\gateway.json"
 $DockScript = Join-Path $PSScriptRoot "miya-dock.ahk"
 $PidFile = Join-Path $PSScriptRoot "miya-dock.pid"
 
+function Resolve-GatewayFile {
+  param([string]$Primary, [string]$Alternate)
+  $candidates = @($Primary, $Alternate) | Where-Object { Test-Path -LiteralPath $_ }
+  if ($candidates.Count -eq 0) {
+    return $Primary
+  }
+  if ($candidates.Count -eq 1) {
+    return $candidates[0]
+  }
+  return ($candidates | Sort-Object { (Get-Item -LiteralPath $_).LastWriteTimeUtc } -Descending | Select-Object -First 1)
+}
+
 function Read-GatewayState {
   param([string]$Path)
-  if (-not (Test-Path -LiteralPath $Path)) {
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
     return $null
   }
   try {
@@ -95,6 +108,8 @@ function Resolve-AhkExecutable {
   return $null
 }
 
+$GatewayFile = Resolve-GatewayFile -Primary $GatewayPrimary -Alternate $GatewayAlternate
+
 if (-not (Test-Path -LiteralPath $DockScript)) {
   throw "Dock script not found: $DockScript"
 }
@@ -113,6 +128,7 @@ if ($gateway -and $gateway.url) {
     Write-Host "[miya-dock] stale gateway.json detected (pid=$($gateway.pid) not alive), removing stale state."
     Remove-Item -LiteralPath $GatewayFile -Force -ErrorAction SilentlyContinue
     $gateway = $null
+    $GatewayFile = Resolve-GatewayFile -Primary $GatewayPrimary -Alternate $GatewayAlternate
   } else {
     $ready = Test-GatewayUrl -Url $gateway.url
   }
@@ -122,6 +138,7 @@ if (-not $ready -and $TryStartGateway) {
   Write-Host "[miya-dock] Gateway not ready, trying: opencode run --command miya-gateway-start"
   $null = Try-StartGatewayViaOpenCode -WorkingDirectory $ProjectRoot
   Start-Sleep -Milliseconds 800
+  $GatewayFile = Resolve-GatewayFile -Primary $GatewayPrimary -Alternate $GatewayAlternate
   $gateway = Read-GatewayState -Path $GatewayFile
   if ($gateway -and $gateway.url) {
     $ready = Test-GatewayUrl -Url $gateway.url
