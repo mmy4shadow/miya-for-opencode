@@ -104,10 +104,12 @@ import {
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
+import { getCompanionMemorySqliteStats } from '../companion/memory-sqlite';
 import {
   appendShortTermMemoryLog,
   getMemoryReflectStatus,
   maybeAutoReflectCompanionMemory,
+  maybeReflectOnSessionEnd,
   reflectCompanionMemory,
 } from '../companion/memory-reflect';
 import {
@@ -530,6 +532,11 @@ export function stopGateway(projectDir: string): {
 } {
   const runtime = runtimes.get(projectDir);
   if (!runtime) return { stopped: false };
+
+  maybeReflectOnSessionEnd(projectDir, {
+    minPendingLogs: 50,
+    maxLogs: 200,
+  });
 
   const previous = toGatewayState(projectDir, runtime);
   if (runtime.wizardTickTimer) {
@@ -1650,6 +1657,11 @@ async function routeSessionMessage(
   enforceInteractionModeIsolation(projectDir, interactionMode);
   const payload = buildSessionPayloadByMode(interactionMode, input.text);
   const safeText = payload.payload;
+  appendShortTermMemoryLog(projectDir, {
+    sessionID: input.sessionID,
+    sender: 'user',
+    text: safeText,
+  });
   if (interactionMode === 'guest') {
     appendGuestConversation(projectDir, {
       text: payload.redacted ? '[redacted_sensitive_guest_request]' : input.text,
@@ -3440,6 +3452,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('companion.memory.vector.list', async () => {
     requireOwnerMode(projectDir);
     return listCompanionMemoryVectors(projectDir);
+  });
+  methods.register('miya.memory.sqlite.stats', async () => {
+    requireOwnerMode(projectDir);
+    return getCompanionMemorySqliteStats(projectDir);
   });
   methods.register('miya.memory.log.append', async (params) => {
     requireOwnerMode(projectDir);

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
+import { syncCompanionMemoriesToSqlite } from './memory-sqlite';
 
 export interface CompanionMemoryVector {
   id: string;
@@ -123,6 +124,7 @@ function writeCorrectionStore(
 function writeStore(projectDir: string, store: MemoryVectorStore): MemoryVectorStore {
   ensureDir(projectDir);
   fs.writeFileSync(filePath(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  syncCompanionMemoriesToSqlite(projectDir, store.items);
   return store;
 }
 

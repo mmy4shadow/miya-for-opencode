@@ -295,3 +295,20 @@ export function maybeAutoReflectCompanionMemory(
     maxLogs: input?.maxLogs ?? 50,
   });
 }
+
+export function maybeReflectOnSessionEnd(
+  projectDir: string,
+  input?: {
+    minPendingLogs?: number;
+    maxLogs?: number;
+  },
+): ReflectResult | null {
+  const minPendingLogs = Math.max(1, input?.minPendingLogs ?? 50);
+  const status = getMemoryReflectStatus(projectDir);
+  if (status.pendingLogs < minPendingLogs) return null;
+  return reflectCompanionMemory(projectDir, {
+    force: true,
+    minLogs: minPendingLogs,
+    maxLogs: input?.maxLogs ?? 100,
+  });
+}

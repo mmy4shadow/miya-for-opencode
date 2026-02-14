@@ -6,6 +6,7 @@ import { listPendingCompanionMemoryVectors } from './memory-vector';
 import {
   appendShortTermMemoryLog,
   maybeAutoReflectCompanionMemory,
+  maybeReflectOnSessionEnd,
   reflectCompanionMemory,
 } from './memory-reflect';
 
@@ -84,5 +85,22 @@ describe('companion memory reflect', () => {
       cooldownMinutes: 10,
     });
     expect(blockedByCooldown).toBeNull();
+  });
+
+  test('session-end reflect triggers when pending logs reach threshold', () => {
+    const projectDir = tempProjectDir();
+    for (let i = 0; i < 50; i += 1) {
+      appendShortTermMemoryLog(projectDir, {
+        sessionID: 's3',
+        sender: 'user',
+        text: `我喜欢会话结束整理 ${i}`,
+      });
+    }
+    const reflected = maybeReflectOnSessionEnd(projectDir, {
+      minPendingLogs: 50,
+      maxLogs: 100,
+    });
+    expect(reflected).not.toBeNull();
+    expect(reflected?.processedLogs).toBe(50);
   });
 });
