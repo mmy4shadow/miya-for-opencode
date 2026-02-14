@@ -103,4 +103,37 @@ describe('companion memory reflect', () => {
     expect(reflected).not.toBeNull();
     expect(reflected?.processedLogs).toBe(50);
   });
+
+  test('manual reflect honors idempotency key and cooldown', () => {
+    const projectDir = tempProjectDir();
+    appendShortTermMemoryLog(projectDir, {
+      sessionID: 's4',
+      sender: 'user',
+      text: '我喜欢幂等反思',
+    });
+    const first = reflectCompanionMemory(projectDir, {
+      force: true,
+      idempotencyKey: 'idem-1',
+      cooldownMinutes: 5,
+    });
+    const second = reflectCompanionMemory(projectDir, {
+      force: true,
+      idempotencyKey: 'idem-1',
+      cooldownMinutes: 5,
+    });
+    expect(first.processedLogs).toBeGreaterThan(0);
+    expect(second.jobID).toBe(first.jobID);
+
+    appendShortTermMemoryLog(projectDir, {
+      sessionID: 's4',
+      sender: 'user',
+      text: '我喜欢冷却窗口',
+    });
+    const blocked = reflectCompanionMemory(projectDir, {
+      force: true,
+      idempotencyKey: 'idem-2',
+      cooldownMinutes: 5,
+    });
+    expect(blocked.processedLogs).toBe(0);
+  });
 });

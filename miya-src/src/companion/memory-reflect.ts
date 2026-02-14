@@ -34,6 +34,9 @@ export interface ReflectResult {
 interface ReflectState {
   lastLogAt?: string;
   lastReflectAt?: string;
+  lastReflectIdempotencyKey?: string;
+  lastReflectResult?: ReflectResult;
+  lastReflectReason?: string;
 }
 
 export interface ReflectStatus {
@@ -213,9 +216,34 @@ export function reflectCompanionMemory(
     force?: boolean;
     minLogs?: number;
     maxLogs?: number;
+    idempotencyKey?: string;
+    cooldownMinutes?: number;
   },
 ): ReflectResult {
   ensureDir(projectDir);
+  const state = readReflectState(projectDir);
+  const now = nowIso();
+  if (input?.idempotencyKey && state.lastReflectIdempotencyKey === input.idempotencyKey) {
+    if (state.lastReflectResult) return state.lastReflectResult;
+  }
+  const cooldownMinutes = Math.max(0, input?.cooldownMinutes ?? 0);
+  if (cooldownMinutes > 0 && state.lastReflectAt) {
+    const deltaMs = Date.now() - Date.parse(state.lastReflectAt);
+    if (Number.isFinite(deltaMs) && deltaMs < cooldownMinutes * 60 * 1000) {
+      const blocked: ReflectResult = {
+        jobID: `reflect_${randomUUID()}`,
+        processedLogs: 0,
+        generatedTriplets: 0,
+        createdMemories: [],
+        archivedLogs: 0,
+      };
+      writeReflectState(projectDir, {
+        lastReflectReason: `cooldown_blocked_${cooldownMinutes}m`,
+      });
+      return blocked;
+    }
+  }
+
   const rows = parseJsonlRows<MemoryShortTermLog>(shortTermLogPath(projectDir));
   const pending = rows.filter((row) => !row.processedAt);
   const minLogs = Math.max(1, input?.minLogs ?? 1);
@@ -260,7 +288,12 @@ export function reflectCompanionMemory(
     archivedLogs: moved.length,
   };
   fs.appendFileSync(reflectJobPath(projectDir), `${JSON.stringify({ ...result, at: processedAt })}\n`, 'utf-8');
-  writeReflectState(projectDir, { lastReflectAt: processedAt });
+  writeReflectState(projectDir, {
+    lastReflectAt: now,
+    lastReflectIdempotencyKey: input?.idempotencyKey,
+    lastReflectResult: result,
+    lastReflectReason: 'ok',
+  });
   return result;
 }
 

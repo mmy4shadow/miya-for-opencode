@@ -3436,7 +3436,18 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       typeof params.limit === 'number' && params.limit > 0
         ? Math.min(20, Number(params.limit))
         : 5;
-    return searchCompanionMemoryVectors(projectDir, query, limit);
+    const threshold =
+      typeof params.threshold === 'number' && params.threshold >= 0
+        ? Number(params.threshold)
+        : undefined;
+    const recencyHalfLifeDays =
+      typeof params.recencyHalfLifeDays === 'number' && params.recencyHalfLifeDays > 0
+        ? Number(params.recencyHalfLifeDays)
+        : undefined;
+    return searchCompanionMemoryVectors(projectDir, query, limit, {
+      threshold,
+      recencyHalfLifeDays,
+    });
   });
   methods.register('companion.memory.decay', async (params) => {
     requireOwnerMode(projectDir);
@@ -3487,7 +3498,18 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       typeof params.maxLogs === 'number' && params.maxLogs > 0
         ? Math.min(500, Number(params.maxLogs))
         : 50;
-    const result = reflectCompanionMemory(projectDir, { force, minLogs, maxLogs });
+    const cooldownMinutes =
+      typeof params.cooldownMinutes === 'number' && params.cooldownMinutes >= 0
+        ? Number(params.cooldownMinutes)
+        : 0;
+    const idempotencyKey = parseText(params.idempotencyKey) || undefined;
+    const result = reflectCompanionMemory(projectDir, {
+      force,
+      minLogs,
+      maxLogs,
+      cooldownMinutes,
+      idempotencyKey,
+    });
     const profile = syncCompanionProfileMemoryFacts(projectDir);
     return {
       ...result,

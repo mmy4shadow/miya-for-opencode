@@ -68,4 +68,21 @@ describe('companion memory vectors', () => {
     const decay = decayCompanionMemoryVectors(projectDir, 7);
     expect(decay.items.length).toBeGreaterThan(0);
   });
+
+  test('search supports dynamic pruning threshold', () => {
+    const projectDir = tempProjectDir();
+    upsertCompanionMemoryVector(projectDir, {
+      text: 'User likes TypeScript',
+      source: 'test',
+      activate: true,
+    });
+    const weak = searchCompanionMemoryVectors(projectDir, 'unrelated-query', 5, {
+      threshold: 0.95,
+    });
+    expect(weak.length).toBe(0);
+    const normal = searchCompanionMemoryVectors(projectDir, 'TypeScript', 5, {
+      threshold: 0.1,
+    });
+    expect(normal.length).toBeGreaterThan(0);
+  });
 });

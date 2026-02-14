@@ -291,18 +291,43 @@ export function searchCompanionMemoryVectors(
   projectDir: string,
   query: string,
   limit = 5,
+  options?: {
+    threshold?: number;
+    recencyHalfLifeDays?: number;
+    alpha?: number;
+    beta?: number;
+    gamma?: number;
+  },
 ): Array<CompanionMemoryVector & { similarity: number; rankScore: number }> {
   const q = normalizeText(query);
   if (!q) return [];
   const qEmb = textToEmbedding(q);
   const store = readStore(projectDir);
+  const nowMs = Date.now();
+  const recencyHalfLifeDays = Math.max(1, options?.recencyHalfLifeDays ?? 30);
+  const alpha = options?.alpha ?? 0.6;
+  const beta = options?.beta ?? 0.2;
+  const gamma = options?.gamma ?? 0.2;
+  const threshold = Math.max(0, options?.threshold ?? 0.15);
+
+  const importanceFromTier = (tier: 'L1' | 'L2' | 'L3'): number =>
+    tier === 'L1' ? 1 : tier === 'L2' ? 0.7 : 0.4;
+
+  const recency = (at: string): number => {
+    const deltaDays = Math.max(0, (nowMs - Date.parse(at)) / (24 * 3600 * 1000));
+    const lambda = Math.log(2) / recencyHalfLifeDays;
+    return Math.exp(-lambda * deltaDays);
+  };
+
   const results = store.items
     .filter((item) => item.status === 'active' && !item.isArchived)
     .map((item) => {
       const similarity = cosine(item.embedding, qEmb);
-      const rankScore = similarity * item.score * item.confidence;
+      const importance = importanceFromTier(item.tier) * item.score * item.confidence;
+      const rankScore = alpha * similarity + beta * recency(item.lastAccessedAt) + gamma * importance;
       return { ...item, similarity, rankScore };
     })
+    .filter((item) => item.rankScore >= threshold)
     .sort((a, b) => b.rankScore - a.rankScore)
     .slice(0, Math.max(1, limit));
   for (const item of results) {
