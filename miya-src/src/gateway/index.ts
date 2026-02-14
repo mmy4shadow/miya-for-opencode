@@ -596,6 +596,90 @@ function isHighRiskInstruction(text: string): boolean {
   );
 }
 
+function isCriticalInjectionIntent(text: string): boolean {
+  return /(忽略所有规则|绕过.*(验证|风控|权限)|关闭.*(安全|审计|日志)|导出.*(全部|所有).*(密码|token|密钥)|重置.*(密码|口令))/i.test(
+    text,
+  );
+}
+
+function shouldBypassIntentGuard(source: string): boolean {
+  return /^policy:|^system:/.test(source);
+}
+
+function buildSessionPayloadByMode(mode: 'owner' | 'guest' | 'unknown', text: string): {
+  payload: string;
+  redacted: boolean;
+} {
+  if (mode === 'guest') {
+    if (containsSensitiveText(text) || isHighRiskInstruction(text)) {
+      const digest = hashText(text).slice(0, 16);
+      return {
+        redacted: true,
+        payload: [
+          '[Guest Mode Active]',
+          'Private context pointers: memory=null, vault=null, relationship=null.',
+          'Sensitive request is blocked in guest mode.',
+          `redacted_request_sha256=${digest}`,
+          'Reply policy: refuse sensitive actions and keep light conversation only.',
+        ].join('\n'),
+      };
+    }
+    return {
+      redacted: false,
+      payload: [
+        contextEnvelopeByMode(mode),
+        'Private context pointers: memory=null, vault=null, relationship=null.',
+        text,
+      ].join('\n'),
+    };
+  }
+  if (mode === 'unknown') {
+    return {
+      redacted: false,
+      payload: [contextEnvelopeByMode(mode), text].join('\n'),
+    };
+  }
+  return { redacted: false, payload: [contextEnvelopeByMode(mode), text].join('\n') };
+}
+
+async function enforceCriticalIntentGuard(
+  projectDir: string,
+  input: { sessionID: string; text: string; source: string },
+): Promise<boolean> {
+  if (shouldBypassIntentGuard(input.source)) return false;
+  if (!isCriticalInjectionIntent(input.text)) return false;
+  const traceID = randomUUID();
+  const reason = 'critical_intent_killswitch_triggered';
+  activateKillSwitch(projectDir, reason, traceID);
+  appendPolicyIncident(projectDir, {
+    type: 'decision_fusion_hard',
+    reason,
+    pausedDomains: ['outbound_send', 'desktop_control'],
+    statusByDomain: {
+      outbound_send: 'paused',
+      desktop_control: 'paused',
+    },
+    semanticSummary: {
+      trigger: 'critical_intent_guard',
+      keyAssertion: 'Message matched critical injection / exfiltration intent pattern.',
+      recovery: 'Use OpenCode local password to unlock and manually resume domains.',
+    },
+    semanticTags: ['recipient_mismatch'],
+    details: {
+      source: input.source,
+      sessionID: input.sessionID,
+      textDigest: hashText(input.text).slice(0, 24),
+    },
+  });
+  await notifySafetyReport(projectDir, input.sessionID, [
+    'Miya 红色警报：已触发异常检测熔断（Kill-Switch）',
+    `原因: ${reason}`,
+    '检测到高危注入/越权意图，已暂停高危能力域。',
+    '恢复：请在 OpenCode 完成本地验证后手动恢复。',
+  ]);
+  return true;
+}
+
 interface GatewayDependencyRecommendation {
   package: string;
   recommendedVersion: string;
@@ -618,6 +702,95 @@ interface GatewayPythonRuntimeStatus {
     oneShotCommand?: string;
     opencodeAssistPrompt?: string;
   };
+}
+
+function parseExecSpec(raw: string): { command: string; args: string[] } | null {
+  const input = raw.trim();
+  if (!input) return null;
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i] ?? '';
+    if ((ch === '"' || ch === "'") && (!quote || quote === ch)) {
+      quote = quote ? null : (ch as '"' | "'");
+      continue;
+    }
+    if (!quote && /\s/.test(ch)) {
+      if (current) tokens.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current) tokens.push(current);
+  if (tokens.length === 0) return null;
+  return {
+    command: tokens[0] as string,
+    args: tokens.slice(1),
+  };
+}
+
+async function verifyVoiceprintWithLocalModel(
+  projectDir: string,
+  input: { mediaPath?: string; speakerHint?: string; speakerScore?: number },
+): Promise<{ mode: 'owner' | 'guest' | 'unknown'; score?: number; source: string }> {
+  const hintMode = resolveInteractionMode(projectDir, {
+    speakerHint: input.speakerHint,
+    speakerScore: input.speakerScore,
+  });
+  const audioPath = (input.mediaPath ?? '').trim();
+  const cmdRaw = String(process.env.MIYA_VOICEPRINT_VERIFY_CMD ?? '').trim();
+  if (!cmdRaw || !audioPath || !fs.existsSync(audioPath)) {
+    return {
+      mode: hintMode,
+      score: typeof input.speakerScore === 'number' ? input.speakerScore : undefined,
+      source: 'hint_fallback',
+    };
+  }
+  const spec = parseExecSpec(cmdRaw);
+  if (!spec) {
+    return {
+      mode: hintMode,
+      score: typeof input.speakerScore === 'number' ? input.speakerScore : undefined,
+      source: 'hint_fallback_invalid_cmd',
+    };
+  }
+  const state = readOwnerIdentityState(projectDir);
+  const daemon = getMiyaClient(projectDir);
+  const args = spec.args.map((item) =>
+    item
+      .replaceAll('{audio}', audioPath)
+      .replaceAll('{model}', state.voiceprintModelPath)
+      .replaceAll('{samples}', state.voiceprintSampleDir || '')
+      .replaceAll('{embedding}', state.voiceprintEmbeddingID ?? ''),
+  );
+  try {
+    const result = await daemon.runIsolatedProcess({
+      kind: 'voice.asr',
+      command: spec.command,
+      args,
+      timeoutMs: 45_000,
+      resource: { priority: 90, vramMB: 256, modelID: 'local:eres2net', modelVramMB: 512 },
+      metadata: { stage: 'security.voiceprint.verify', audioPath },
+    });
+    if (result.exitCode !== 0) {
+      return { mode: hintMode, score: input.speakerScore, source: 'hint_fallback_cmd_failed' };
+    }
+    const stdout = result.stdout.trim();
+    const parsed = JSON.parse(stdout) as {
+      speaker_score?: number;
+      mode?: 'owner' | 'guest' | 'unknown';
+    };
+    const score =
+      typeof parsed.speaker_score === 'number' ? Number(parsed.speaker_score) : input.speakerScore;
+    const mode = parsed.mode && ['owner', 'guest', 'unknown'].includes(parsed.mode)
+      ? parsed.mode
+      : resolveInteractionMode(projectDir, { speakerScore: score });
+    return { mode, score, source: 'voiceprint_cmd' };
+  } catch {
+    return { mode: hintMode, score: input.speakerScore, source: 'hint_fallback_cmd_error' };
+  }
 }
 
 function normalizeRuntimeDependencyRecommendations(
@@ -1264,11 +1437,19 @@ async function routeSessionMessage(
   },
 ): Promise<{ delivered: boolean; queued: boolean; reason?: string }> {
   const deps = depsOf(projectDir);
+  if (await enforceCriticalIntentGuard(projectDir, input)) {
+    return {
+      delivered: false,
+      queued: false,
+      reason: 'kill_switch_triggered_by_critical_intent',
+    };
+  }
   const interactionMode = readOwnerIdentityState(projectDir).mode;
-  const safeText = `${contextEnvelopeByMode(interactionMode)}\n${input.text}`;
+  const payload = buildSessionPayloadByMode(interactionMode, input.text);
+  const safeText = payload.payload;
   if (interactionMode === 'guest') {
     appendGuestConversation(projectDir, {
-      text: input.text,
+      text: payload.redacted ? '[redacted_sensitive_guest_request]' : input.text,
       source: input.source,
       sessionID: input.sessionID,
     });
@@ -2089,6 +2270,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       passphrase,
       voiceprintEmbeddingID: parseText(params.voiceprintEmbeddingID) || undefined,
       voiceprintModelPath: parseText(params.voiceprintModelPath) || undefined,
+      voiceprintSampleDir: parseText(params.voiceprintSampleDir) || undefined,
     });
     return {
       ...next,
@@ -2590,10 +2772,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const speakerHint = parseText(params.speakerHint) || undefined;
     const speakerScore =
       typeof params.speakerScore === 'number' ? Number(params.speakerScore) : undefined;
-    const mode = resolveInteractionMode(projectDir, {
+    const mediaPath = mediaID ? getMediaItem(projectDir, mediaID)?.localPath : undefined;
+    const voiceprint = await verifyVoiceprintWithLocalModel(projectDir, {
+      mediaPath,
       speakerHint,
       speakerScore,
     });
+    const mode = voiceprint.mode;
     setInteractionMode(projectDir, mode);
     if (mode !== 'owner') {
       transitionSafetyState(projectDir, {
@@ -2635,6 +2820,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           reason: 'guest_mode_restricted',
         },
         mode,
+        voiceprint,
         reply: guestReply,
         voice: readVoiceState(projectDir),
       };
@@ -2656,6 +2842,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       item,
       routed,
       mode,
+      voiceprint,
       voice: readVoiceState(projectDir),
     };
   });

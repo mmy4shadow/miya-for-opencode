@@ -10,6 +10,7 @@ export interface OwnerIdentityState {
   passwordHash?: string;
   passphraseHash?: string;
   voiceprintModelPath: string;
+  voiceprintSampleDir: string;
   voiceprintEmbeddingID?: string;
   mode: InteractionMode;
   lastSpeakerAt?: string;
@@ -33,6 +34,7 @@ function defaultState(): OwnerIdentityState {
     initialized: false,
     mode: 'unknown',
     voiceprintModelPath: '',
+    voiceprintSampleDir: '',
     updatedAt: nowIso(),
   };
 }
@@ -41,17 +43,27 @@ function hashSecret(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
+function defaultVoiceprintModelPath(projectDir: string): string {
+  return (
+    process.env.MIYA_VOICEPRINT_MODEL_PATH ||
+    path.join(getMiyaRuntimeDir(projectDir), 'model', 'shi bie', 'eres2net')
+  );
+}
+
+function defaultVoiceprintSampleDir(projectDir: string): string {
+  return (
+    process.env.MIYA_VOICEPRINT_SAMPLE_DIR ||
+    path.join(getMiyaRuntimeDir(projectDir), 'model', 'shi bie', 'ben ren')
+  );
+}
+
 export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) {
     return {
       ...defaultState(),
-      voiceprintModelPath: path.join(
-        getMiyaRuntimeDir(projectDir),
-        'model',
-        'shi bie',
-        'eres2net',
-      ),
+      voiceprintModelPath: defaultVoiceprintModelPath(projectDir),
+      voiceprintSampleDir: defaultVoiceprintSampleDir(projectDir),
     };
   }
   try {
@@ -62,13 +74,18 @@ export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
       voiceprintModelPath:
         typeof parsed.voiceprintModelPath === 'string'
           ? parsed.voiceprintModelPath
-          : path.join(getMiyaRuntimeDir(projectDir), 'model', 'shi bie', 'eres2net'),
+          : defaultVoiceprintModelPath(projectDir),
+      voiceprintSampleDir:
+        typeof parsed.voiceprintSampleDir === 'string'
+          ? parsed.voiceprintSampleDir
+          : defaultVoiceprintSampleDir(projectDir),
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : nowIso(),
     };
   } catch {
     return {
       ...defaultState(),
-      voiceprintModelPath: path.join(getMiyaRuntimeDir(projectDir), 'model', 'shi bie', 'eres2net'),
+      voiceprintModelPath: defaultVoiceprintModelPath(projectDir),
+      voiceprintSampleDir: defaultVoiceprintSampleDir(projectDir),
     };
   }
 }
@@ -88,6 +105,7 @@ export function initOwnerIdentity(
     passphrase: string;
     voiceprintEmbeddingID?: string;
     voiceprintModelPath?: string;
+    voiceprintSampleDir?: string;
   },
 ): OwnerIdentityState {
   const current = readOwnerIdentityState(projectDir);
@@ -100,7 +118,11 @@ export function initOwnerIdentity(
     voiceprintModelPath:
       input.voiceprintModelPath ||
       current.voiceprintModelPath ||
-      path.join(getMiyaRuntimeDir(projectDir), 'model', 'shi bie', 'eres2net'),
+      defaultVoiceprintModelPath(projectDir),
+    voiceprintSampleDir:
+      input.voiceprintSampleDir ||
+      current.voiceprintSampleDir ||
+      defaultVoiceprintSampleDir(projectDir),
     mode: 'owner',
     lastSpeakerAt: nowIso(),
     updatedAt: nowIso(),
