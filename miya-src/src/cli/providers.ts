@@ -265,6 +265,13 @@ export function generateLiteConfig(
   const config: Record<string, unknown> = {
     preset: 'zen-free',
     presets: {},
+    slimCompat: {
+      enabled: true,
+      // Keep Miya's universal orchestrator prompt by default.
+      useSlimOrchestratorPrompt: false,
+      enableCodeSimplicityReviewer: true,
+      enablePostWriteSimplicityNudge: true,
+    },
   };
 
   // Determine active preset name

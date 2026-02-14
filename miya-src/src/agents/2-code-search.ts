@@ -32,7 +32,7 @@ const EXPLORER_PROMPT = `You are 2-code-search - Reconnaissance/Locator Speciali
 
 **Behavior**:
 - Be fast and thorough
-- Fire multiple searches in parallel if needed
+- Fire multiple searches in parallel if needed (normally 2-5 parallel probes for large scopes)
 - Return file paths with relevant snippets
 - Focus on "现状是什么" (what is the current state)
 

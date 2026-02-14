@@ -1,4 +1,6 @@
 import * as readline from 'node:readline/promises';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   addAntigravityPlugin,
   addChutesProvider,
@@ -214,7 +216,16 @@ function argsToConfig(args: InstallArgs): InstallConfig {
     hasTmux: args.tmux === 'yes',
     installSkills: args.skills === 'yes',
     installCustomSkills: args.skills === 'yes', // Install custom skills when skills=yes
+    isolated: args.isolated === 'yes',
   };
+}
+
+function applyIsolatedConfigHomeIfNeeded(enable: boolean): string | null {
+  if (!enable) return null;
+  const isolatedHome = path.join(process.cwd(), '.opencode', 'miya-isolated-xdg');
+  fs.mkdirSync(isolatedHome, { recursive: true });
+  process.env.XDG_CONFIG_HOME = isolatedHome;
+  return isolatedHome;
 }
 
 async function askModelSelection(
@@ -842,6 +853,11 @@ async function runInstall(config: InstallConfig): Promise<number> {
 }
 
 export async function install(args: InstallArgs): Promise<number> {
+  const isolatedHome = applyIsolatedConfigHomeIfNeeded(args.isolated === 'yes');
+  if (isolatedHome) {
+    printInfo(`Isolated mode enabled: XDG_CONFIG_HOME=${isolatedHome}`);
+  }
+
   // Non-interactive mode: all args must be provided
   if (!args.tui) {
     const requiredArgs = [
@@ -868,7 +884,7 @@ export async function install(args: InstallArgs): Promise<number> {
       }
       console.log();
       printInfo(
-        'Usage: bunx miya install --no-tui --kimi=<yes|no> --openai=<yes|no> --anthropic=<yes|no> --copilot=<yes|no> --zai-plan=<yes|no> --antigravity=<yes|no> --chutes=<yes|no> --tmux=<yes|no>',
+        'Usage: bunx miya install --no-tui --kimi=<yes|no> --openai=<yes|no> --anthropic=<yes|no> --copilot=<yes|no> --zai-plan=<yes|no> --antigravity=<yes|no> --chutes=<yes|no> --tmux=<yes|no> [--isolated=<yes|no>]',
       );
       console.log();
       return 1;

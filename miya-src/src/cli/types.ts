@@ -13,6 +13,7 @@ export interface InstallArgs {
   skills?: BooleanArg;
   opencodeFree?: BooleanArg;
   opencodeFreeModel?: string;
+  isolated?: BooleanArg;
 }
 
 export interface OpenCodeFreeModel {
@@ -81,6 +82,7 @@ export interface InstallConfig {
   hasTmux: boolean;
   installSkills: boolean;
   installCustomSkills: boolean;
+  isolated?: boolean;
 }
 
 export interface ConfigMergeResult {

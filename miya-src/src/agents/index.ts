@@ -169,11 +169,13 @@ function resolveAgentModel(
  * @returns Array of agent definitions (orchestrator first, then subagents)
  */
 export function createAgents(config?: PluginConfig, projectDir?: string): AgentDefinition[] {
-  const slimCompatEnabled = config?.slimCompat?.enabled === true;
+  const slimCompatEnabled = config?.slimCompat?.enabled ?? true;
   const enableCodeSimplicityReviewer =
-    slimCompatEnabled && config?.slimCompat?.enableCodeSimplicityReviewer === true;
+    slimCompatEnabled &&
+    (config?.slimCompat?.enableCodeSimplicityReviewer ?? true);
   const useSlimOrchestratorPrompt =
-    slimCompatEnabled && config?.slimCompat?.useSlimOrchestratorPrompt === true;
+    slimCompatEnabled &&
+    (config?.slimCompat?.useSlimOrchestratorPrompt ?? false);
 
   const getModelForAgent = (name: SubagentName): string => {
     if (name === '5-code-fixer') {

@@ -287,9 +287,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
   // Initialize post-read nudge hook
   const postReadNudgeHook = createPostReadNudgeHook();
   const postWriteSimplicityHook = createPostWriteSimplicityHook();
+  const slimCompatEnabled = config.slimCompat?.enabled ?? true;
   const postWriteSimplicityEnabled =
-    config.slimCompat?.enabled === true &&
-    config.slimCompat?.enablePostWriteSimplicityNudge === true;
+    slimCompatEnabled &&
+    (config.slimCompat?.enablePostWriteSimplicityNudge ?? true);
 
   const onPermissionAsked = async (
     input: {

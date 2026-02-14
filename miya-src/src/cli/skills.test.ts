@@ -20,6 +20,7 @@ describe('skills permissions', () => {
     // Developer (1-task-manager) should have simplify allowed (and everything else via *)
     const orchPerms = getSkillPermissionsForAgent('1-task-manager');
     expect(orchPerms.simplify).toBe('allow');
+    expect(orchPerms.cartography).toBe('allow');
   });
 
   it('should honor explicit skill list overrides', () => {

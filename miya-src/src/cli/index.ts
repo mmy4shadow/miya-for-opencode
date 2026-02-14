@@ -36,6 +36,8 @@ function parseInstallArgs(args: string[]): InstallArgs {
       result.opencodeFree = arg.split('=')[1] as BooleanArg;
     } else if (arg.startsWith('--opencode-free-model=')) {
       result.opencodeFreeModel = arg.split('=')[1];
+    } else if (arg.startsWith('--isolated=')) {
+      result.isolated = arg.split('=')[1] as BooleanArg;
     }
   }
 
@@ -64,6 +66,7 @@ Examples:
   bunx miya channels send telegram 123456 "hi"
   bunx miya nodes invoke node-1 system.run '{"command":"pwd"}'
   bunx miya node-host --gateway http://127.0.0.1:17321
+  bunx miya install --no-tui --kimi=yes --openai=no --anthropic=no --copilot=no --zai-plan=no --antigravity=no --chutes=no --tmux=no --skills=yes --isolated=yes
 `);
 }
 

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { getCustomSkillPermissionsForAgent } from './custom-skills';
 
 /**
  * A recommended skill to install via `npx skills add`.
@@ -127,6 +128,10 @@ export function getSkillPermissionsForAgent(
     if (isAllowed) {
       permissions[skill.skillName] = 'allow';
     }
+  }
+  const customSkillPermissions = getCustomSkillPermissionsForAgent(agentName);
+  for (const [skillName, action] of Object.entries(customSkillPermissions)) {
+    permissions[skillName] = action;
   }
 
   return permissions;

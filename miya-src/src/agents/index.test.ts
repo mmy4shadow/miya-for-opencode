@@ -184,12 +184,12 @@ describe('createAgents', () => {
     }
   });
 
-  test('creates exactly 6 agents (1 primary + 5 subagents)', () => {
+  test('creates exactly 7 agents by default (includes simplicity reviewer)', () => {
     const agents = createAgents();
-    expect(agents.length).toBe(6);
+    expect(agents.length).toBe(7);
   });
 
-  test('does not enable slim prompt by default (backward compatible)', () => {
+  test('does not enable slim prompt by default (keeps universal prompt)', () => {
     const agents = createAgents();
     const prompt = String(agents[0].config.prompt ?? '');
     expect(prompt.includes('7-code-simplicity-reviewer')).toBe(false);
@@ -203,17 +203,17 @@ describe('createAgents', () => {
     expect(prompt.includes('7-code-simplicity-reviewer')).toBe(true);
   });
 
-  test('adds code-simplicity-reviewer only when enabled by slimCompat', () => {
-    const disabled = createAgents();
+  test('adds code-simplicity-reviewer by default and allows explicit disable', () => {
+    const enabledByDefault = createAgents();
+    expect(
+      enabledByDefault.some((a) => a.name === '7-code-simplicity-reviewer'),
+    ).toBe(true);
+
+    const disabled = createAgents({
+      slimCompat: { enabled: true, enableCodeSimplicityReviewer: false },
+    } as PluginConfig);
     expect(disabled.some((a) => a.name === '7-code-simplicity-reviewer')).toBe(
       false,
-    );
-
-    const enabled = createAgents({
-      slimCompat: { enabled: true, enableCodeSimplicityReviewer: true },
-    } as PluginConfig);
-    expect(enabled.some((a) => a.name === '7-code-simplicity-reviewer')).toBe(
-      true,
     );
   });
 

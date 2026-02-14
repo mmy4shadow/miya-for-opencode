@@ -31,16 +31,34 @@ export const CUSTOM_SKILLS: CustomSkill[] = [
   {
     name: 'cartography',
     description: 'Repository understanding and hierarchical codemap generation',
-    allowedAgents: ['orchestrator'],
+    allowedAgents: ['1-task-manager', 'orchestrator'],
     sourcePath: 'src/skills/cartography',
   },
 ];
+
+function getUserConfigDir(): string {
+  return process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+}
 
 /**
  * Get the target directory for custom skills installation.
  */
 export function getCustomSkillsDir(): string {
-  return join(homedir(), '.config', 'opencode', 'skills');
+  return join(getUserConfigDir(), 'opencode', 'skills');
+}
+
+export function getCustomSkillPermissionsForAgent(
+  agentName: string,
+): Record<string, 'allow' | 'deny'> {
+  const permissions: Record<string, 'allow' | 'deny'> = {};
+  for (const skill of CUSTOM_SKILLS) {
+    const isAllowed =
+      skill.allowedAgents.includes('*') || skill.allowedAgents.includes(agentName);
+    if (isAllowed) {
+      permissions[skill.name] = 'allow';
+    }
+  }
+  return permissions;
 }
 
 /**

@@ -29,6 +29,12 @@ describe('providers', () => {
     // Should NOT include other presets
     expect((config.presets as any).openai).toBeUndefined();
     expect((config.presets as any)['zen-free']).toBeUndefined();
+    expect((config.slimCompat as any).enabled).toBe(true);
+    expect((config.slimCompat as any).useSlimOrchestratorPrompt).toBe(false);
+    expect((config.slimCompat as any).enableCodeSimplicityReviewer).toBe(true);
+    expect((config.slimCompat as any).enablePostWriteSimplicityNudge).toBe(
+      true,
+    );
   });
 
   test('generateLiteConfig generates kimi-openai preset when both selected', () => {
