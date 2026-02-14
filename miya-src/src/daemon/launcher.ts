@@ -29,6 +29,8 @@ export interface DaemonConnectionSnapshot {
   vramUsedMB?: number;
   vramTotalMB?: number;
   lastSeenAt?: string;
+  activeJobID?: string;
+  activeJobProgress?: number;
   startedAt: string;
 }
 
@@ -66,6 +68,10 @@ function nowIso(): string {
 
 function daemonDir(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'daemon');
+}
+
+function daemonPidFile(projectDir: string): string {
+  return path.join(daemonDir(projectDir), 'daemon.pid');
 }
 
 function ensureDaemonDir(projectDir: string): void {
@@ -107,6 +113,7 @@ function resolveHostScriptPath(): string {
 }
 
 function spawnDaemon(runtime: LauncherRuntime): void {
+  cleanupExistingDaemon(runtime.projectDir);
   const bunBinary = Bun.which('bun') ?? process.execPath;
   const hostScript = resolveHostScriptPath();
   spawn(
@@ -127,6 +134,32 @@ function spawnDaemon(runtime: LauncherRuntime): void {
       windowsHide: true,
     },
   ).unref();
+}
+
+function readPidFile(projectDir: string): number | null {
+  const file = daemonPidFile(projectDir);
+  if (!fs.existsSync(file)) return null;
+  const raw = fs.readFileSync(file, 'utf-8').trim();
+  const pid = Number(raw);
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  return pid;
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cleanupExistingDaemon(projectDir: string): void {
+  const stalePid = readPidFile(projectDir);
+  if (!stalePid || !isPidAlive(stalePid)) return;
+  try {
+    process.kill(stalePid);
+  } catch {}
 }
 
 function writeParentLock(runtime: LauncherRuntime): void {
@@ -187,6 +220,23 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
     if (frame.type === 'event' && frame.event === 'daemon.ready') {
       runtime.snapshot.statusText = 'Miya Daemon Connected';
       runtime.snapshot.connected = true;
+      return;
+    }
+    if (frame.type === 'event' && frame.event === 'job.progress') {
+      const payload =
+        frame.payload && typeof frame.payload === 'object' && !Array.isArray(frame.payload)
+          ? (frame.payload as Record<string, unknown>)
+          : {};
+      runtime.snapshot.activeJobID =
+        typeof payload.jobID === 'string' ? payload.jobID : runtime.snapshot.activeJobID;
+      runtime.snapshot.activeJobProgress =
+        typeof payload.progress === 'number'
+          ? Math.floor(payload.progress)
+          : runtime.snapshot.activeJobProgress;
+      runtime.snapshot.statusText =
+        typeof payload.status === 'string' && payload.status
+          ? payload.status
+          : runtime.snapshot.statusText;
     }
   };
 

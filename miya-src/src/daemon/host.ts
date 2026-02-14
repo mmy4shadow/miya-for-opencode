@@ -58,6 +58,10 @@ function daemonLockFile(projectDir: string): string {
   return path.join(daemonDir(projectDir), 'daemon.lock.json');
 }
 
+function daemonPidFile(projectDir: string): string {
+  return path.join(daemonDir(projectDir), 'daemon.pid');
+}
+
 function ensureRuntimeDir(projectDir: string): void {
   fs.mkdirSync(daemonDir(projectDir), { recursive: true });
 }
@@ -121,7 +125,21 @@ function stableHash(input: unknown): string {
 
 const args = parseArgs(process.argv);
 ensureRuntimeDir(args.projectDir);
-const daemonService = new MiyaDaemonService(args.projectDir);
+const sockets = new Set<Bun.ServerWebSocket<unknown>>();
+const daemonService = new MiyaDaemonService(args.projectDir, {
+  onProgress: (event) => {
+    const frame = DaemonEventFrameSchema.parse({
+      type: 'event',
+      event: 'job.progress',
+      payload: event,
+    });
+    for (const ws of sockets) {
+      try {
+        ws.send(JSON.stringify(frame));
+      } catch {}
+    }
+  },
+});
 daemonService.start();
 
 let wsConnected = false;
@@ -179,13 +197,15 @@ const server = Bun.serve({
     return new Response('Not Found', { status: 404 });
   },
   websocket: {
-    open() {
+    open(ws) {
       wsConnected = true;
       lastSeenMs = Date.now();
+      sockets.add(ws);
     },
-    close() {
+    close(ws) {
       wsConnected = false;
       wsClientID = '';
+      sockets.delete(ws);
     },
     async message(ws, input) {
       const parsed = parseDaemonIncomingFrame(input);
@@ -249,6 +269,34 @@ const server = Bun.serve({
               id: frame.id,
               ok: true,
               result: baseStatus(),
+            }),
+          ),
+        );
+        return;
+      }
+
+      if (frame.method === 'daemon.python.env.get') {
+        ws.send(
+          JSON.stringify(
+            DaemonResponseFrameSchema.parse({
+              type: 'response',
+              id: frame.id,
+              ok: true,
+              result: daemonService.getPythonRuntimeStatus(),
+            }),
+          ),
+        );
+        return;
+      }
+
+      if (frame.method === 'daemon.model.locks.get') {
+        ws.send(
+          JSON.stringify(
+            DaemonResponseFrameSchema.parse({
+              type: 'response',
+              id: frame.id,
+              ok: true,
+              result: daemonService.getModelLockStatus(),
             }),
           ),
         );
@@ -601,6 +649,7 @@ const lockPayload = {
   updatedAt: nowIso(),
 };
 writeJson(daemonLockFile(args.projectDir), lockPayload);
+fs.writeFileSync(daemonPidFile(args.projectDir), `${process.pid}\n`, 'utf-8');
 
 const lockTimer = setInterval(() => {
   writeJson(daemonLockFile(args.projectDir), {
@@ -625,7 +674,14 @@ const parentWatchTimer = setInterval(() => {
     missingParentSince = Date.now();
     return;
   }
-  if (Date.now() - missingParentSince >= 60_000) {
+  if (Date.now() - missingParentSince >= 30_000) {
+    shutdown(0);
+  }
+}, 5_000);
+
+const heartbeatWatchTimer = setInterval(() => {
+  if (!wsConnected) return;
+  if (Date.now() - lastSeenMs >= 30_000) {
     shutdown(0);
   }
 }, 5_000);
@@ -634,12 +690,16 @@ function shutdown(code: number): void {
   daemonService.stop();
   clearInterval(lockTimer);
   clearInterval(parentWatchTimer);
+  clearInterval(heartbeatWatchTimer);
   clearInterval(telemetryTimer);
   try {
     server.stop(true);
   } catch {}
   try {
     fs.rmSync(daemonLockFile(args.projectDir), { force: true });
+  } catch {}
+  try {
+    fs.rmSync(daemonPidFile(args.projectDir), { force: true });
   } catch {}
   process.exit(code);
 }
@@ -649,6 +709,9 @@ process.on('SIGTERM', () => shutdown(0));
 process.on('exit', () => {
   try {
     fs.rmSync(daemonLockFile(args.projectDir), { force: true });
+  } catch {}
+  try {
+    fs.rmSync(daemonPidFile(args.projectDir), { force: true });
   } catch {}
 });
 

@@ -55,6 +55,15 @@ import {
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
 import { getLauncherDaemonSnapshot, getMiyaClient } from '../daemon';
+import {
+  appendGuestConversation,
+  initOwnerIdentity,
+  readOwnerIdentityState,
+  resolveInteractionMode,
+  rotateOwnerSecrets,
+  setInteractionMode,
+  verifyOwnerSecrets,
+} from '../security/owner-identity';
 import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
 import {
   appendVoiceHistory,
@@ -249,6 +258,9 @@ interface GatewaySnapshot {
     events: ReturnType<typeof readCanvasState>['events'];
   };
   companion: ReturnType<typeof readCompanionProfile>;
+  security: {
+    ownerIdentity: ReturnType<typeof readOwnerIdentityState>;
+  };
   doctor: {
     issues: DoctorIssue[];
   };
@@ -549,6 +561,21 @@ function wizardPromptByState(state: string): string {
   return '';
 }
 
+function contextEnvelopeByMode(mode: 'owner' | 'guest' | 'unknown'): string {
+  if (mode === 'guest') {
+    return [
+      '[Guest Mode Active]',
+      'Only use public persona.',
+      'Do not access memory/vault/relationship private context.',
+      'Refuse desktop control, outbound actions, and sensitive data requests.',
+    ].join('\n');
+  }
+  if (mode === 'unknown') {
+    return '[Unknown Speaker] Safety-first mode: avoid sensitive actions until owner verification.';
+  }
+  return '[Owner Mode Active] Full private context is available.';
+}
+
 function containsSensitiveText(text: string): boolean {
   const sensitivePattern =
     /(密码|验证码|银行卡|身份证|私钥|seed|助记词|token|secret|api[_-]?key|wallet|汇款|转账|打款|otp|password)/i;
@@ -559,6 +586,12 @@ function inferIntentSuspicious(text: string): boolean {
   const suspiciousPattern =
     /(立刻发|马上发|偷偷发|别告诉|绕过|伪装|冒充|代发|紧急转账|秘密|隐私文件|内部资料|账号|凭据)/i;
   return suspiciousPattern.test(text);
+}
+
+function isHighRiskInstruction(text: string): boolean {
+  return /(忽略所有规则|批量发送|发送所有|删除所有|格式化|重置密码|导出全部|泄露|转账|付款|发给客户群)/i.test(
+    text,
+  );
 }
 
 function deriveRiskLevel(input: {
@@ -598,6 +631,13 @@ function requireDomainRunning(projectDir: string, domain: PolicyDomain): void {
   }
 }
 
+function requireOwnerMode(projectDir: string): void {
+  const state = readOwnerIdentityState(projectDir);
+  if (state.mode !== 'owner') {
+    throw new Error(`owner_mode_required:current=${state.mode}`);
+  }
+}
+
 interface GuardedOutboundCheckInput {
   archAdvisorApproved?: boolean;
   intent?: string;
@@ -613,6 +653,11 @@ interface GuardedOutboundSendInput {
   sessionID: string;
   policyHash?: string;
   outboundCheck?: GuardedOutboundCheckInput;
+  confirmation?: {
+    physicalConfirmed?: boolean;
+    password?: string;
+    passphrase?: string;
+  };
 }
 
 type GuardedOutboundSendResult = Record<string, unknown> & {
@@ -628,6 +673,14 @@ async function sendChannelMessageGuarded(
   const resolvedPolicyHash = requirePolicyHash(projectDir, input.policyHash);
   requireDomainRunning(projectDir, 'outbound_send');
   requireDomainRunning(projectDir, 'desktop_control');
+  const identity = readOwnerIdentityState(projectDir);
+  if (identity.mode === 'guest') {
+    return {
+      sent: false,
+      message: 'outbound_blocked:guest_mode',
+      policyHash: currentPolicyHash(projectDir),
+    };
+  }
 
   const mediaPath = (input.mediaPath ?? '').trim();
   const archAdvisorApproved = Boolean(input.outboundCheck?.archAdvisorApproved);
@@ -645,6 +698,21 @@ async function sendChannelMessageGuarded(
     factorIntentSuspicious,
     factorRecipientIsMe,
   });
+  if (isHighRiskInstruction(input.text)) {
+    const physicalConfirmed = Boolean(input.confirmation?.physicalConfirmed);
+    const secretVerified = verifyOwnerSecrets(projectDir, {
+      password: input.confirmation?.password,
+      passphrase: input.confirmation?.passphrase,
+    });
+    if (!physicalConfirmed || !secretVerified) {
+      return {
+        sent: false,
+        message: 'outbound_blocked:high_risk_confirmation_required',
+        requiresConfirmation: true,
+        policyHash: currentPolicyHash(projectDir),
+      };
+    }
+  }
 
   if (input.idempotencyKey) {
     const key = `channels.send:${input.idempotencyKey}`;
@@ -997,6 +1065,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const voice = readVoiceState(projectDir);
   const canvas = readCanvasState(projectDir);
   const companion = readCompanionProfile(projectDir);
+  const ownerIdentity = readOwnerIdentityState(projectDir);
   const persistedRuntime = readPersistedAgentRuntime(projectDir);
   const owner = ownerSummary(projectDir);
 
@@ -1060,6 +1129,13 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       events: canvas.events.slice(0, 100),
     },
     companion,
+    security: {
+      ownerIdentity: {
+        ...ownerIdentity,
+        passwordHash: ownerIdentity.passwordHash ? '***' : undefined,
+        passphraseHash: ownerIdentity.passphraseHash ? '***' : undefined,
+      },
+    },
   };
 
   return {
@@ -1079,6 +1155,15 @@ async function routeSessionMessage(
   },
 ): Promise<{ delivered: boolean; queued: boolean; reason?: string }> {
   const deps = depsOf(projectDir);
+  const interactionMode = readOwnerIdentityState(projectDir).mode;
+  const safeText = `${contextEnvelopeByMode(interactionMode)}\n${input.text}`;
+  if (interactionMode === 'guest') {
+    appendGuestConversation(projectDir, {
+      text: input.text,
+      source: input.source,
+      sessionID: input.sessionID,
+    });
+  }
   const session =
     getSession(projectDir, input.sessionID) ??
     upsertSession(projectDir, {
@@ -1091,7 +1176,7 @@ async function routeSessionMessage(
 
   if (session.policy.activation !== 'active' || session.policy.reply !== 'auto') {
     enqueueSessionMessage(projectDir, input.sessionID, {
-      text: input.text,
+      text: safeText,
       source: input.source,
     });
     return {
@@ -1104,7 +1189,7 @@ async function routeSessionMessage(
   const client = deps.client;
   if (!client) {
     enqueueSessionMessage(projectDir, input.sessionID, {
-      text: input.text,
+      text: safeText,
       source: input.source,
     });
     return {
@@ -1119,7 +1204,7 @@ async function routeSessionMessage(
       path: { id: session.routing.opencodeSessionID },
       body: {
         agent: session.routing.agent,
-        parts: [{ type: 'text', text: input.text }],
+        parts: [{ type: 'text', text: safeText }],
       },
       query: { directory: projectDir },
     });
@@ -1127,7 +1212,7 @@ async function routeSessionMessage(
     return { delivered: true, queued: false };
   } catch (error) {
     enqueueSessionMessage(projectDir, input.sessionID, {
-      text: input.text,
+      text: safeText,
       source: input.source,
     });
     return {
@@ -1847,6 +1932,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           ? Boolean(outboundCheckRaw.factorRecipientIsMe)
           : undefined,
     };
+    const confirmationRaw =
+      params.confirmation && typeof params.confirmation === 'object'
+        ? (params.confirmation as Record<string, unknown>)
+        : null;
     return sendChannelMessageGuarded(projectDir, runtime, {
       channel,
       destination,
@@ -1856,7 +1945,64 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       sessionID,
       policyHash,
       outboundCheck,
+      confirmation: {
+        physicalConfirmed:
+          confirmationRaw && typeof confirmationRaw.physicalConfirmed === 'boolean'
+            ? Boolean(confirmationRaw.physicalConfirmed)
+            : undefined,
+        password:
+          confirmationRaw && typeof confirmationRaw.password === 'string'
+            ? String(confirmationRaw.password)
+            : undefined,
+        passphrase:
+          confirmationRaw && typeof confirmationRaw.passphrase === 'string'
+            ? String(confirmationRaw.passphrase)
+            : undefined,
+      },
     });
+  });
+
+  methods.register('security.identity.status', async () => {
+    const state = readOwnerIdentityState(projectDir);
+    return {
+      ...state,
+      passwordHash: state.passwordHash ? '***' : undefined,
+      passphraseHash: state.passphraseHash ? '***' : undefined,
+    };
+  });
+
+  methods.register('security.identity.init', async (params) => {
+    const password = parseText(params.password);
+    const passphrase = parseText(params.passphrase);
+    if (!password || !passphrase) throw new Error('invalid_owner_secret_input');
+    const next = initOwnerIdentity(projectDir, {
+      password,
+      passphrase,
+      voiceprintEmbeddingID: parseText(params.voiceprintEmbeddingID) || undefined,
+      voiceprintModelPath: parseText(params.voiceprintModelPath) || undefined,
+    });
+    return {
+      ...next,
+      passwordHash: '***',
+      passphraseHash: '***',
+    };
+  });
+
+  methods.register('security.identity.rotate', async (params) => {
+    const newPassword = parseText(params.newPassword);
+    const newPassphrase = parseText(params.newPassphrase);
+    if (!newPassword || !newPassphrase) throw new Error('invalid_new_owner_secret');
+    const next = rotateOwnerSecrets(projectDir, {
+      currentPassword: parseText(params.currentPassword) || undefined,
+      currentPassphrase: parseText(params.currentPassphrase) || undefined,
+      newPassword,
+      newPassphrase,
+    });
+    return {
+      ...next,
+      passwordHash: '***',
+      passphraseHash: '***',
+    };
   });
 
   methods.register('policy.get', async () => {
@@ -1865,6 +2011,14 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       policy,
       hash: currentPolicyHash(projectDir),
     };
+  });
+  methods.register('daemon.python.env.status', async () => {
+    const daemon = getMiyaClient(projectDir);
+    return daemon.getPythonRuntimeStatus();
+  });
+  methods.register('daemon.model.lock.status', async () => {
+    const daemon = getMiyaClient(projectDir);
+    return daemon.getModelLockStatus();
   });
   methods.register('policy.domains.list', async () => {
     const policy = readPolicy(projectDir);
@@ -2292,6 +2446,24 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ? (parseText(params.source) as 'wake' | 'talk' | 'media')
         : 'manual';
     const language = parseText(params.language) || undefined;
+    const speakerHint = parseText(params.speakerHint) || undefined;
+    const speakerScore =
+      typeof params.speakerScore === 'number' ? Number(params.speakerScore) : undefined;
+    const mode = resolveInteractionMode(projectDir, {
+      speakerHint,
+      speakerScore,
+    });
+    setInteractionMode(projectDir, mode);
+    if (mode !== 'owner') {
+      transitionSafetyState(projectDir, {
+        source: 'speaker_gate',
+        reason: `speaker_mode_${mode}`,
+        domains: {
+          outbound_send: 'paused',
+          desktop_control: 'paused',
+        },
+      });
+    }
     let text = parseText(params.text);
     if (!text && mediaID) {
       const media = getMediaItem(projectDir, mediaID);
@@ -2302,6 +2474,30 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           : `[media:${mediaID}]`;
     }
     if (!text) throw new Error('invalid_voice_input');
+    if (mode === 'guest') {
+      const guestReply = '不好意思，我现在只能听主人的指令哦，但我可以陪你聊天。';
+      appendGuestConversation(projectDir, {
+        text,
+        source,
+        sessionID: parseText(params.sessionID) || 'main',
+      });
+      return {
+        item: appendVoiceHistory(projectDir, {
+          text,
+          source,
+          language,
+          mediaID,
+        }),
+        routed: {
+          delivered: false,
+          queued: false,
+          reason: 'guest_mode_restricted',
+        },
+        mode,
+        reply: guestReply,
+        voice: readVoiceState(projectDir),
+      };
+    }
     const item = appendVoiceHistory(projectDir, {
       text,
       source,
@@ -2318,6 +2514,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return {
       item,
       routed,
+      mode,
       voice: readVoiceState(projectDir),
     };
   });
@@ -2563,6 +2760,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     }
   });
   methods.register('companion.profile.update', async (params) => {
+    requireOwnerMode(projectDir);
     const policyHash = parseText(params.policyHash) || undefined;
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
@@ -2582,6 +2780,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
   });
   methods.register('companion.memory.add', async (params) => {
+    requireOwnerMode(projectDir);
     const policyHash = parseText(params.policyHash) || undefined;
     const fact = parseText(params.fact);
     if (!fact) throw new Error('invalid_memory_fact');
@@ -2603,16 +2802,20 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       profile,
     };
   });
-  methods.register('companion.memory.list', async () =>
-    readCompanionProfile(projectDir).memoryFacts,
-  );
-  methods.register('companion.memory.pending.list', async () =>
-    listPendingCompanionMemoryVectors(projectDir),
-  );
-  methods.register('companion.memory.corrections.list', async () =>
-    listCompanionMemoryCorrections(projectDir),
-  );
+  methods.register('companion.memory.list', async () => {
+    requireOwnerMode(projectDir);
+    return readCompanionProfile(projectDir).memoryFacts;
+  });
+  methods.register('companion.memory.pending.list', async () => {
+    requireOwnerMode(projectDir);
+    return listPendingCompanionMemoryVectors(projectDir);
+  });
+  methods.register('companion.memory.corrections.list', async () => {
+    requireOwnerMode(projectDir);
+    return listCompanionMemoryCorrections(projectDir);
+  });
   methods.register('companion.memory.confirm', async (params) => {
+    requireOwnerMode(projectDir);
     const policyHash = parseText(params.policyHash) || undefined;
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
@@ -2636,6 +2839,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     };
   });
   methods.register('companion.memory.search', async (params) => {
+    requireOwnerMode(projectDir);
     const query = parseText(params.query);
     if (!query) throw new Error('invalid_memory_query');
     const limit =
@@ -2645,6 +2849,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return searchCompanionMemoryVectors(projectDir, query, limit);
   });
   methods.register('companion.memory.decay', async (params) => {
+    requireOwnerMode(projectDir);
     const policyHash = parseText(params.policyHash) || undefined;
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
@@ -2654,9 +2859,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         : 30;
     return decayCompanionMemoryVectors(projectDir, halfLifeDays);
   });
-  methods.register('companion.memory.vector.list', async () =>
-    listCompanionMemoryVectors(projectDir),
-  );
+  methods.register('companion.memory.vector.list', async () => {
+    requireOwnerMode(projectDir);
+    return listCompanionMemoryVectors(projectDir);
+  });
   methods.register('companion.asset.add', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
     const type = parseText(params.type);

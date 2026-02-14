@@ -14,13 +14,31 @@ from typing import Optional
 STOP_EVENT = threading.Event()
 
 
+def _emit(payload: dict):
+    try:
+        print(json.dumps(payload), flush=True)
+    except BrokenPipeError:
+        STOP_EVENT.set()
+        raise SystemExit(86)
+
+
 def _on_signal(signum, _frame):
     STOP_EVENT.set()
-    print(json.dumps({"event": "signal", "signal": int(signum), "message": "interrupt_requested"}), flush=True)
+    _emit({"event": "signal", "signal": int(signum), "message": "interrupt_requested"})
 
 
 signal.signal(signal.SIGINT, _on_signal)
 signal.signal(signal.SIGTERM, _on_signal)
+
+
+def _stdin_parent_watchdog():
+    if os.getenv("MIYA_PARENT_STDIN_MONITOR") != "1":
+        return
+    while not STOP_EVENT.is_set():
+        chunk = sys.stdin.buffer.read(1)
+        if chunk == b"":
+            STOP_EVENT.set()
+            return
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -40,16 +58,13 @@ def _gpu_monitor(interval_s: float):
             free_b, total_b = torch.cuda.mem_get_info()
             free_mb = free_b / 1024 / 1024
             total_mb = total_b / 1024 / 1024
-            print(
-                json.dumps(
-                    {
-                        "event": "gpu",
-                        "total_mb": round(total_mb, 2),
-                        "used_mb": round(total_mb - free_mb, 2),
-                        "free_mb": round(free_mb, 2),
-                    }
-                ),
-                flush=True,
+            _emit(
+                {
+                    "event": "gpu",
+                    "total_mb": round(total_mb, 2),
+                    "used_mb": round(total_mb - free_mb, 2),
+                    "free_mb": round(free_mb, 2),
+                }
             )
         STOP_EVENT.wait(interval_s)
 
@@ -149,13 +164,14 @@ def _write_artifact(output_path: Path, payload: dict):
 
 def main() -> int:
     args = build_parser().parse_args()
+    threading.Thread(target=_stdin_parent_watchdog, daemon=True).start()
     if not args.output_path:
-        print(json.dumps({"event": "error", "message": "output_path_required"}), flush=True)
+        _emit({"event": "error", "message": "output_path_required"})
         return 2
 
     rows = _materialize_rows(args)
     if not rows:
-        print(json.dumps({"event": "error", "message": "no_training_samples"}), flush=True)
+        _emit({"event": "error", "message": "no_training_samples"})
         return 2
 
     output_path = Path(args.output_path)
@@ -164,18 +180,15 @@ def main() -> int:
     monitor = threading.Thread(target=_gpu_monitor, args=(max(1.0, args.gpu_log_interval),), daemon=True)
     monitor.start()
 
-    print(
-        json.dumps(
-            {
-                "event": "start",
-                "job_id": args.job_id,
-                "tier": args.tier,
-                "samples": len(rows),
-                "model_dir": args.model_dir,
-                "steps": args.steps,
-            }
-        ),
-        flush=True,
+    _emit(
+        {
+            "event": "start",
+            "job_id": args.job_id,
+            "tier": args.tier,
+            "samples": len(rows),
+            "model_dir": args.model_dir,
+            "steps": args.steps,
+        }
     )
 
     if args.dry_run:
@@ -183,7 +196,7 @@ def main() -> int:
             output_path,
             {"status": "dry_run", "jobID": args.job_id, "tier": args.tier, "samples": len(rows)},
         )
-        print(json.dumps({"event": "done", "status": "dry_run"}), flush=True)
+        _emit({"event": "done", "status": "dry_run"})
         STOP_EVENT.set()
         return 0
 
@@ -193,10 +206,10 @@ def main() -> int:
         if STOP_EVENT.is_set():
             if checkpoint_path:
                 _write_checkpoint(checkpoint_path, args, step)
-            print(json.dumps({"event": "canceled", "step": step}), flush=True)
+            _emit({"event": "canceled", "step": step})
             return 130
         if step % 10 == 0 or step == args.steps:
-            print(json.dumps({"event": "progress", "step": step, "total": args.steps}), flush=True)
+            _emit({"event": "progress", "step": step, "total": args.steps, "status": "Training voice..."})
         if checkpoint_path and (step % max(1, args.checkpoint_interval) == 0 or step == args.steps):
             _write_checkpoint(checkpoint_path, args, step)
         time.sleep(0.03)
@@ -213,7 +226,7 @@ def main() -> int:
             "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         },
     )
-    print(json.dumps({"event": "done", "status": "ok", "output_path": str(output_path)}), flush=True)
+    _emit({"event": "done", "status": "ok", "output_path": str(output_path)})
     STOP_EVENT.set()
     return 0
 

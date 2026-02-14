@@ -110,6 +110,14 @@ export class MiyaClient {
     await daemonInvoke(this.projectDir, 'daemon.training.cancel', { jobID }, 15_000);
   }
 
+  async getPythonRuntimeStatus(): Promise<unknown> {
+    return daemonInvoke(this.projectDir, 'daemon.python.env.get', {}, 15_000);
+  }
+
+  async getModelLockStatus(): Promise<unknown> {
+    return daemonInvoke(this.projectDir, 'daemon.model.locks.get', {}, 15_000);
+  }
+
   async runIsolatedProcess(input: IsolatedProcessInput): Promise<{
     exitCode: number | null;
     stdout: string;

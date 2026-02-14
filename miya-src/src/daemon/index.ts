@@ -1,4 +1,3 @@
-import { MiyaDaemonService } from './service';
 import { MiyaClient, getMiyaClient } from './client';
 import {
   ensureMiyaLauncher,
@@ -7,6 +6,7 @@ import {
   stopMiyaLauncher,
   type DaemonConnectionSnapshot,
 } from './launcher';
+import { readPythonRuntimeStatus } from './python-runtime';
 import type {
   DaemonJobRecord,
   DaemonJobRequest,
@@ -18,11 +18,11 @@ import type {
 export {
   MiyaClient,
   getMiyaClient,
-  MiyaDaemonService,
   daemonInvoke,
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
   stopMiyaLauncher,
+  readPythonRuntimeStatus,
 };
 
 export type {

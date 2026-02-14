@@ -17,11 +17,23 @@ export interface DaemonJobRecord {
   id: string;
   kind: ResourceTaskKind;
   status: DaemonJobStatus;
+  progress?: number;
+  statusText?: string;
   createdAt: string;
   startedAt?: string;
   endedAt?: string;
   error?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface DaemonJobProgressEvent {
+  jobID: string;
+  kind: ResourceTaskKind;
+  progress: number;
+  status: string;
+  phase: string;
+  updatedAt: string;
+  etaSec?: number;
 }
 
 export interface DaemonRuntimeState {

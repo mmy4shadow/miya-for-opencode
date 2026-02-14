@@ -14,13 +14,31 @@ from typing import Optional
 STOP_EVENT = threading.Event()
 
 
+def _emit(payload: dict):
+    try:
+        print(json.dumps(payload), flush=True)
+    except BrokenPipeError:
+        STOP_EVENT.set()
+        raise SystemExit(86)
+
+
 def _on_signal(signum, _frame):
     STOP_EVENT.set()
-    print(json.dumps({"event": "signal", "signal": int(signum), "message": "interrupt_requested"}), flush=True)
+    _emit({"event": "signal", "signal": int(signum), "message": "interrupt_requested"})
 
 
 signal.signal(signal.SIGINT, _on_signal)
 signal.signal(signal.SIGTERM, _on_signal)
+
+
+def _stdin_parent_watchdog():
+    if os.getenv("MIYA_PARENT_STDIN_MONITOR") != "1":
+        return
+    while not STOP_EVENT.is_set():
+        chunk = sys.stdin.buffer.read(1)
+        if chunk == b"":
+            STOP_EVENT.set()
+            return
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -67,16 +85,13 @@ def _gpu_watchdog(interval_s: float):
     while not STOP_EVENT.is_set():
         snap = _read_gpu_memory()
         if snap:
-            print(
-                json.dumps(
-                    {
-                        "event": "gpu",
-                        "total_mb": round(snap.total_mb, 2),
-                        "used_mb": round(snap.used_mb, 2),
-                        "free_mb": round(snap.free_mb, 2),
-                    }
-                ),
-                flush=True,
+            _emit(
+                {
+                    "event": "gpu",
+                    "total_mb": round(snap.total_mb, 2),
+                    "used_mb": round(snap.used_mb, 2),
+                    "free_mb": round(snap.free_mb, 2),
+                }
             )
         STOP_EVENT.wait(interval_s)
 
@@ -86,7 +101,7 @@ def _train_with_diffusers(args: argparse.Namespace, output_lora_path: Path) -> b
         import torch  # type: ignore
         from diffusers import DiffusionPipeline  # type: ignore
     except Exception as exc:
-        print(json.dumps({"event": "warn", "message": f"diffusers_unavailable:{exc}"}), flush=True)
+        _emit({"event": "warn", "message": f"diffusers_unavailable:{exc}"})
         return False
 
     model_root = Path(args.model_dir)
@@ -108,11 +123,11 @@ def _train_with_diffusers(args: argparse.Namespace, output_lora_path: Path) -> b
 
     for step in range(resume_step + 1, steps + 1):
         if STOP_EVENT.is_set():
-            print(json.dumps({"event": "canceled", "step": step}), flush=True)
+            _emit({"event": "canceled", "step": step})
             return False
         time.sleep(0.03)
         if step % 10 == 0 or step == steps:
-            print(json.dumps({"event": "progress", "step": step, "total": steps, "tier": args.tier}), flush=True)
+            _emit({"event": "progress", "step": step, "total": steps, "tier": args.tier, "status": "Training LoRA..."})
         if ckpt_path and (step % checkpoint_interval == 0 or step == steps):
             ckpt_path.parent.mkdir(parents=True, exist_ok=True)
             ckpt_path.write_text(
@@ -165,52 +180,50 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    threading.Thread(target=_stdin_parent_watchdog, daemon=True).start()
 
     if not args.images_dir:
-        print(json.dumps({"event": "error", "message": "images_dir_required"}), flush=True)
+        _emit({"event": "error", "message": "images_dir_required"})
         return 2
     if not args.output_path:
-        print(json.dumps({"event": "error", "message": "output_path_required"}), flush=True)
+        _emit({"event": "error", "message": "output_path_required"})
         return 2
 
     images_dir = Path(args.images_dir)
     if not images_dir.exists():
-        print(json.dumps({"event": "error", "message": f"images_dir_not_found:{images_dir}"}), flush=True)
+        _emit({"event": "error", "message": f"images_dir_not_found:{images_dir}"})
         return 2
     if not any(images_dir.glob("**/*")):
-        print(json.dumps({"event": "error", "message": "images_dir_empty"}), flush=True)
+        _emit({"event": "error", "message": "images_dir_empty"})
         return 2
 
     try:
         _parse_size(args.resolution)
     except Exception as exc:
-        print(json.dumps({"event": "error", "message": str(exc)}), flush=True)
+        _emit({"event": "error", "message": str(exc)})
         return 2
 
     output_lora_path = Path(args.output_path)
     gpu_thread = threading.Thread(target=_gpu_watchdog, args=(max(1.0, args.gpu_log_interval),), daemon=True)
     gpu_thread.start()
 
-    print(
-        json.dumps(
-            {
-                "event": "start",
-                "job_id": args.job_id,
-                "tier": args.tier,
-                "images_dir": str(images_dir),
-                "trigger_word": args.trigger_word,
-                "model_dir": args.model_dir,
-                "output_path": str(output_lora_path),
-                "steps": args.steps,
-            }
-        ),
-        flush=True,
+    _emit(
+        {
+            "event": "start",
+            "job_id": args.job_id,
+            "tier": args.tier,
+            "images_dir": str(images_dir),
+            "trigger_word": args.trigger_word,
+            "model_dir": args.model_dir,
+            "output_path": str(output_lora_path),
+            "steps": args.steps,
+        }
     )
 
     if args.dry_run:
         output_lora_path.parent.mkdir(parents=True, exist_ok=True)
         output_lora_path.write_bytes(b"MIYA_FLUX_LORA_DRY_RUN")
-        print(json.dumps({"event": "done", "status": "dry_run"}), flush=True)
+        _emit({"event": "done", "status": "dry_run"})
         STOP_EVENT.set()
         return 0
 
@@ -222,10 +235,10 @@ def main() -> int:
             output_lora_path.write_bytes(b"MIYA_FLUX_LORA_FALLBACK")
         if STOP_EVENT.is_set():
             return 130
-        print(json.dumps({"event": "done", "status": "ok", "output_path": str(output_lora_path)}), flush=True)
+        _emit({"event": "done", "status": "ok", "output_path": str(output_lora_path)})
         return 0
     except Exception as exc:
-        print(json.dumps({"event": "error", "message": str(exc)}), flush=True)
+        _emit({"event": "error", "message": str(exc)})
         return 1
     finally:
         STOP_EVENT.set()

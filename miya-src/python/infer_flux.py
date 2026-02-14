@@ -3,8 +3,30 @@ import argparse
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
+
+
+STOP_EVENT = threading.Event()
+
+
+def _emit(payload: dict):
+    try:
+        print(json.dumps(payload), flush=True)
+    except BrokenPipeError:
+        STOP_EVENT.set()
+        raise SystemExit(86)
+
+
+def _stdin_parent_watchdog():
+    if os.getenv("MIYA_PARENT_STDIN_MONITOR") != "1":
+        return
+    while not STOP_EVENT.is_set():
+        chunk = sys.stdin.buffer.read(1)
+        if chunk == b"":
+            STOP_EVENT.set()
+            return
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -98,46 +120,44 @@ def _run_with_diffusers(args: argparse.Namespace, width: int, height: int, outpu
 
 def main() -> int:
     args = build_parser().parse_args()
+    threading.Thread(target=_stdin_parent_watchdog, daemon=True).start()
     if not args.prompt:
-        print(json.dumps({"event": "error", "message": "prompt_required"}), flush=True)
+        _emit({"event": "error", "message": "prompt_required"})
         return 2
     if not args.output_path:
-        print(json.dumps({"event": "error", "message": "output_path_required"}), flush=True)
+        _emit({"event": "error", "message": "output_path_required"})
         return 2
 
     try:
         width, height = _parse_size(args.size)
     except Exception as exc:
-        print(json.dumps({"event": "error", "message": str(exc)}), flush=True)
+        _emit({"event": "error", "message": str(exc)})
         return 2
 
     output = Path(args.output_path)
-    print(
-        json.dumps(
-            {
-                "event": "start",
-                "model_dir": args.model_dir,
-                "tier": args.tier,
-                "output_path": str(output),
-                "size": args.size,
-            }
-        ),
-        flush=True,
+    _emit(
+        {
+            "event": "start",
+            "model_dir": args.model_dir,
+            "tier": args.tier,
+            "output_path": str(output),
+            "size": args.size,
+        }
     )
 
     if args.dry_run:
         _save_blank_png(output)
-        print(json.dumps({"event": "done", "status": "dry_run", "output_path": str(output)}), flush=True)
+        _emit({"event": "done", "status": "dry_run", "output_path": str(output)})
         return 0
 
     try:
         ok = _run_with_diffusers(args, width, height, output)
         if not ok:
             _save_blank_png(output)
-        print(json.dumps({"event": "done", "status": "ok", "output_path": str(output)}), flush=True)
+        _emit({"event": "done", "status": "ok", "output_path": str(output)})
         return 0
     except Exception as exc:
-        print(json.dumps({"event": "error", "message": str(exc)}), flush=True)
+        _emit({"event": "error", "message": str(exc)})
         return 1
 
 

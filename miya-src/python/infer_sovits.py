@@ -3,8 +3,22 @@ import argparse
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
+
+
+STOP_EVENT = threading.Event()
+
+
+def _stdin_parent_watchdog():
+    if os.getenv("MIYA_PARENT_STDIN_MONITOR") != "1":
+        return
+    while not STOP_EVENT.is_set():
+        chunk = sys.stdin.buffer.read(1)
+        if chunk == b"":
+            STOP_EVENT.set()
+            return
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -28,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    threading.Thread(target=_stdin_parent_watchdog, daemon=True).start()
     if not args.output_path:
         print("output_path_required", file=sys.stderr)
         return 2
@@ -50,6 +65,8 @@ def main() -> int:
         cmd.extend(["--input-audio", args.input_audio])
     if args.dry_run:
         cmd.append("--dry-run")
+    if STOP_EVENT.is_set():
+        return 130
     proc = subprocess.run(cmd, check=False)
     return proc.returncode
 
