@@ -1071,6 +1071,131 @@ interface CheckTrainingProgressOutput {
   - 仅在你确认后执行 `memory_write` 更新，并保留旧值版本快照与变更证据。
 - 充分利用 OpenCode 多 session 并行优势，规避上下文污染
 
+### **4.5.1 Miya-MemOS 工程核心决策（8 问 8 答）**
+
+#### **Q1：记忆真相源（Source of Truth）是什么？**
+- **决策**：双真相源，分层治理（Raw Logs for Audit, Triplets for Reason）。
+- **Layer A（Cold Truth，审计层）**：原始日志（Raw Logs）为法律级真相。所有压缩、提取、推理均视为派生视图，可回溯重建。
+  - 存储：按 `session_id` 分块的 JSONL（可压缩）。
+- **Layer B（Hot Truth，推理层）**：事实三元组（Triplets）+ 向量索引，为运行时可检索真相。
+  - 存储：SQLite（`memories` + `memories_vss`）。
+- **工程原则**：Hot Layer 可删库重建；禁止“只存图谱不存原始日志”。
+
+#### **Q2：记忆写入是同步阻塞还是异步队列？**
+- **决策**：异步队列 + 乐观更新（Async Queue with Optimistic UI）。
+- **机制**：
+  - 交互层：用户发消息后 Miya 立即回复，不等待记忆提取。
+  - 队列层：`message_id` 写入 `memory_ingestion_queue`（内存队列 + 持久化备份）。
+  - Worker 层：Daemon 异步消费，调用 LLM 提取三元组。
+- **去重与重试**：
+  - 幂等键：`message_hash = hash(content + timestamp + sender)`。
+  - 重试策略：指数退避，最多 3 次；失败进入 `dead_letter`，由人工/定时任务处理，不阻塞后续写入。
+
+#### **Q3：反思提取 Schema 采用固定字段还是可扩展本体？**
+- **决策**：V1 使用“固定核心 + 半结构化扩展”，避免本体爆炸导致检索失控。
+- **Core Schema（SQL）**：
+  - `subject`（Enum：User/Miya/Project/Tool/Entity）
+  - `predicate`（Enum：likes/owns/knows/is_blocking/requires/...）
+  - `object`（String）
+- **Extension（JSON）**：
+  - `context`（提取上下文）
+  - `original_quote`（原始片段）
+  - `meta`（如 `project_id`、`file_path`）
+
+#### **Q4：冲突更新策略如何定义？**
+- **决策**：置信度加权的时间衰减模型（Confidence-Weighted Time Decay）。
+- 当新三元组与旧值冲突时：
+
+```text
+S_new = C_new * 1.0
+S_old = C_old * exp(-lambda * (t_now - t_old))
+```
+
+- **Rule 1（Overwrite）**：若 `S_new > S_old + threshold`，覆盖旧值。
+- **Rule 2（Explicit Override）**：若 `source_type = Direct_Correction`（如“我搬家了”），令 `C_new = +inf`，强制覆盖。
+- **Rule 3（Ambiguity）**：若分值接近，保留两者并标记 `conflict_flag = true`，下次相关话题触发 Arch Advisor 主动确认。
+
+#### **Q5：遗忘采用逻辑降权还是物理删除？**
+- **决策**：逻辑软删除（Soft Delete）+ 访问热度降权。
+- **机制**：
+  - 不物理删除 Fact；状态在 `Active -> Dormant -> Archived` 之间迁移。
+  - 每条 Fact 维护 `access_count` 与 `last_accessed_at`。
+  - 检索时按 `relevance_score * decay_factor` 过滤低价值记忆。
+- **审计要求**：所有状态迁移必须写审计日志，支持“为何忘记”的可追溯解释。
+
+#### **Q6：双流压缩后的摘要由谁校验？**
+- **决策**：小模型校验 + 规则兜底（Critic Model）。
+- **校验流程**：
+  - 输入：`[Raw_Text_B] + [Generated_Summary]`
+  - 判定问题：摘要是否遗漏情绪信息、否定词或关键约束（Yes/No）。
+- **规则兜底**：
+  - 若原文含“不/别/禁止/但是/停/等一下”等强转折或强约束词，禁止激进压缩，保留原文关键句，防止指令反转。
+
+#### **Q7：是否需要记忆置信度字段？**
+- **决策**：必须；按三档治理。
+- `L1 Fact = 1.0`：显式设定/向导录入/用户修正（高权重）。
+- `L2 Inferred = 0.7`：LLM 从对话提取（可用但需持续验证）。
+- `L3 Hypothesis = 0.4`：弱关联猜测（仅提升召回多样性，不直驱关键决策）。
+- **策略约束**：`delete/send` 等关键动作仅允许依据 L1/L2。
+
+#### **Q8：成功指标定义是什么？**
+- **决策**：不以“Token 降低率”单点论优劣，以准确率和打断率为主指标。
+- **Metric 1：Retrieval Precision（Recall@K）**
+  - 在目标任务中是否准确召回关键记忆，且无明显无关污染。
+- **Metric 2：Interruption Rate（负向）**
+  - 因记忆缺失/冲突导致 Task Manager 打断用户二次确认的频率（越低越好）。
+- **Metric 3：Persona Consistency Score**
+  - 长对话后（如 50 轮）能否稳定记住并正确应用偏好（如点餐/提醒/措辞）。
+
+### **4.5.2 修订后的落地架构（Miya-MemOS v1.1）**
+
+#### **1）存储层：SQLite First（避免引入重图数据库）**
+- V1 不引入 Nebula/Neo4j，使用 SQLite 模拟图结构 + 向量表。
+
+```sql
+-- 事实图（Triplets）
+CREATE TABLE memories (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object TEXT NOT NULL,
+    confidence REAL DEFAULT 0.5,
+    source_message_id TEXT,
+    conflict_flag BOOLEAN DEFAULT 0,
+    is_archived BOOLEAN DEFAULT 0,
+    access_count INTEGER DEFAULT 0,
+    created_at DATETIME,
+    last_accessed_at DATETIME
+);
+
+-- 语义检索（vss0）
+CREATE VIRTUAL TABLE memories_vss USING vss0(
+    object_embedding(768)
+);
+```
+
+#### **2）上下文液压机：Dynamic Budget Allocator（动态配额）**
+- **预算计算**：`Total_Context_Window - System_Prompt - Task_Instruction = Retrieval_Budget`。
+- **分配策略**：
+  - `Work_Mode`：Stream A（代码/日志）80%，Stream B（聊天）20%，B 仅保留最近 5 轮 + 强情绪摘要。
+  - `Chat_Mode`：Stream B 70%，Stream A 30%，A 仅保留当前文件名 + 最近错误摘要。
+- **中断协议（Priority 0）**：
+  - 若 Stream B 命中强中断词（如“停”“别”“等一下”），无视当前模式，直接注入窗口头部并抢占执行链路。
+
+#### **3）异步整理 Worker（The Janitor）**
+- **触发条件（双触发）**：
+  - `Session_End` 或 `User_Idle > 10min`
+  - 且 `Unprocessed_Logs > 50`
+- **处理流程**：
+  1. `lock(pending_logs)`
+  2. LLM 抽取 Triplets
+  3. SQL 冲突检查 + 置信度更新
+  4. Upsert `memories`
+  5. `pending_logs -> archived_logs`（归档而非删除）
+- **接口补充**：
+  - 新增 `miya.memory.reflect()`，允许 Task Manager 在关键任务前主动触发反思整理。
+  - 该接口必须具备幂等键与执行冷却，避免重复抽取造成记忆污染。
+
 ---
 
 ### **4.6 图像：自拍生成 + 本地训练闭环（必须"记住那张脸"，且不超过显存）**
