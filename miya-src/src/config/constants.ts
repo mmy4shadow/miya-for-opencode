@@ -7,6 +7,8 @@ export const AGENT_ALIASES: Record<string, string> = {
   oracle: '4-architecture-advisor',
   fixer: '5-code-fixer',
   designer: '6-ui-designer',
+  'code-simplicity-reviewer': '7-code-simplicity-reviewer',
+  simplicity_reviewer: '7-code-simplicity-reviewer',
 
   // extra compatibility aliases
   explore: '2-code-search',

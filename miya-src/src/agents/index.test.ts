@@ -189,6 +189,34 @@ describe('createAgents', () => {
     expect(agents.length).toBe(6);
   });
 
+  test('does not enable slim prompt by default (backward compatible)', () => {
+    const agents = createAgents();
+    const prompt = String(agents[0].config.prompt ?? '');
+    expect(prompt.includes('7-code-simplicity-reviewer')).toBe(false);
+  });
+
+  test('enables slim prompt only when slimCompat flags are on', () => {
+    const agents = createAgents({
+      slimCompat: { enabled: true, useSlimOrchestratorPrompt: true },
+    } as PluginConfig);
+    const prompt = String(agents[0].config.prompt ?? '');
+    expect(prompt.includes('7-code-simplicity-reviewer')).toBe(true);
+  });
+
+  test('adds code-simplicity-reviewer only when enabled by slimCompat', () => {
+    const disabled = createAgents();
+    expect(disabled.some((a) => a.name === '7-code-simplicity-reviewer')).toBe(
+      false,
+    );
+
+    const enabled = createAgents({
+      slimCompat: { enabled: true, enableCodeSimplicityReviewer: true },
+    } as PluginConfig);
+    expect(enabled.some((a) => a.name === '7-code-simplicity-reviewer')).toBe(
+      true,
+    );
+  });
+
   test('injects soul persona layer when project directory is provided', () => {
     const projectDir = tempProjectDir();
     const agents = createAgents(undefined, projectDir);

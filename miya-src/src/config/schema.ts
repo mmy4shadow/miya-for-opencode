@@ -83,6 +83,15 @@ export const BackgroundTaskConfigSchema = z.object({
 
 export type BackgroundTaskConfig = z.infer<typeof BackgroundTaskConfigSchema>;
 
+export const SlimCompatConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  useSlimOrchestratorPrompt: z.boolean().default(false),
+  enableCodeSimplicityReviewer: z.boolean().default(false),
+  enablePostWriteSimplicityNudge: z.boolean().default(false),
+});
+
+export type SlimCompatConfig = z.infer<typeof SlimCompatConfigSchema>;
+
 export const FailoverConfigSchema = z.object({
   enabled: z.boolean().default(true),
   timeoutMs: z.number().min(1000).max(120000).default(15000),
@@ -101,6 +110,7 @@ export const PluginConfigSchema = z.object({
   tmux: TmuxConfigSchema.optional(),
   background: BackgroundTaskConfigSchema.optional(),
   fallback: FailoverConfigSchema.optional(),
+  slimCompat: SlimCompatConfigSchema.optional(),
 });
 
 export type PluginConfig = z.infer<typeof PluginConfigSchema>;

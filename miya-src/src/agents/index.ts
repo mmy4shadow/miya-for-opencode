@@ -18,6 +18,7 @@ import { createExplorerAgent } from './2-code-search';
 import { createFixerAgent } from './5-code-fixer';
 import { createLibrarianAgent } from './3-docs-helper';
 import { createOracleAgent } from './4-architecture-advisor';
+import { createCodeSimplicityReviewerAgent } from './7-code-simplicity-reviewer';
 import { type AgentDefinition, createOrchestratorAgent } from './1-task-manager';
 
 export type { AgentDefinition } from './1-task-manager';
@@ -139,6 +140,8 @@ function shouldInjectSoulLayer(agentName: string, personaStyle: 'full' | 'minima
 
 // Ultimate fallback model - always available
 const ULTIMATE_FALLBACK_MODEL = 'openrouter/z-ai/glm-5';
+const CODE_SIMPLICITY_REVIEWER_NAME = '7-code-simplicity-reviewer';
+const CODE_SIMPLICITY_REVIEWER_DEFAULT_MODEL = 'openrouter/z-ai/glm-5';
 
 function resolveAgentModel(
   config: PluginConfig | undefined,
@@ -166,6 +169,12 @@ function resolveAgentModel(
  * @returns Array of agent definitions (orchestrator first, then subagents)
  */
 export function createAgents(config?: PluginConfig, projectDir?: string): AgentDefinition[] {
+  const slimCompatEnabled = config?.slimCompat?.enabled === true;
+  const enableCodeSimplicityReviewer =
+    slimCompatEnabled && config?.slimCompat?.enableCodeSimplicityReviewer === true;
+  const useSlimOrchestratorPrompt =
+    slimCompatEnabled && config?.slimCompat?.useSlimOrchestratorPrompt === true;
+
   const getModelForAgent = (name: SubagentName): string => {
     if (name === '5-code-fixer') {
       return resolveAgentModel(config, name, [
@@ -205,6 +214,24 @@ export function createAgents(config?: PluginConfig, projectDir?: string): AgentD
     return agent;
   });
 
+  if (enableCodeSimplicityReviewer) {
+    const customPrompts = loadAgentPrompt(CODE_SIMPLICITY_REVIEWER_NAME);
+    const reviewer = createCodeSimplicityReviewerAgent(
+      resolveAgentModel(config, CODE_SIMPLICITY_REVIEWER_NAME, [
+        CODE_SIMPLICITY_REVIEWER_DEFAULT_MODEL,
+        DEFAULT_MODELS['5-code-fixer'],
+      ]),
+      customPrompts.prompt,
+      customPrompts.appendPrompt,
+    );
+    const override = getAgentOverride(config, CODE_SIMPLICITY_REVIEWER_NAME);
+    if (override) {
+      applyOverrides(reviewer, override);
+    }
+    applyDefaultPermissions(reviewer, override?.skills);
+    allSubAgents.push(reviewer);
+  }
+
   // 3. Create Orchestrator (with its own overrides and custom prompts)
   const orchestratorModel = resolveAgentModel(config, '1-task-manager', [
     DEFAULT_MODELS['1-task-manager'],
@@ -216,6 +243,7 @@ export function createAgents(config?: PluginConfig, projectDir?: string): AgentD
     orchestratorModel,
     orchestratorPrompts.prompt,
     orchestratorPrompts.appendPrompt,
+    useSlimOrchestratorPrompt,
   );
   const oOverride = getAgentOverride(config, '1-task-manager');
   applyDefaultPermissions(orchestrator, oOverride?.skills);
@@ -253,7 +281,7 @@ export function getAgentConfigs(
       };
 
       // Apply classification-based visibility and mode
-      if (isSubagent(a.name)) {
+      if (isSubagent(a.name) || a.name === CODE_SIMPLICITY_REVIEWER_NAME) {
         sdkConfig.mode = 'primary';
       } else if (a.name === '1-task-manager') {
         sdkConfig.mode = 'primary';

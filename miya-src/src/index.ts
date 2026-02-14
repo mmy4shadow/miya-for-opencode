@@ -35,6 +35,7 @@ import {
   createLoopGuardHook,
   createPhaseReminderHook,
   createPostReadNudgeHook,
+  createPostWriteSimplicityHook,
   createSlashCommandBridgeHook,
 } from './hooks';
 import { createSafetyTools, handlePermissionAsk } from './safety';
@@ -285,6 +286,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
   // Initialize post-read nudge hook
   const postReadNudgeHook = createPostReadNudgeHook();
+  const postWriteSimplicityHook = createPostWriteSimplicityHook();
+  const postWriteSimplicityEnabled =
+    config.slimCompat?.enabled === true &&
+    config.slimCompat?.enablePostWriteSimplicityNudge === true;
 
   const onPermissionAsked = async (
     input: {
@@ -674,6 +679,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
     // Nudge after file reads to encourage delegation + track websearch usage for intake gate
     'tool.execute.after': async (input, output) => {
       await postReadNudgeHook['tool.execute.after'](input, output);
+      if (postWriteSimplicityEnabled) {
+        await postWriteSimplicityHook['tool.execute.after'](input, output);
+      }
       trackWebsearchToolOutput(
         typeof input.sessionID === 'string' ? input.sessionID : 'main',
         String(input.tool ?? ''),
