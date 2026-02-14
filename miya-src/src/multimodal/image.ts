@@ -44,7 +44,7 @@ export async function generateImage(
       mimeType: item.mimeType,
       localPath: item.localPath,
     }));
-  const outputDir = path.join(getMiyaRuntimeDir(projectDir), 'model', 'tu pian', 'outputs');
+  const outputDir = path.join(getMiyaRuntimeDir(projectDir), 'model', 'tu pian', 'lin shi');
   const outputPath = path.join(outputDir, `flux-${Date.now()}.png`);
   const profileDir = path.join(
     getMiyaRuntimeDir(projectDir),

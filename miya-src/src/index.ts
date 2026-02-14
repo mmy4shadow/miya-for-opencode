@@ -178,6 +178,45 @@ const MiyaPlugin: Plugin = async (ctx) => {
   // Initialize post-read nudge hook
   const postReadNudgeHook = createPostReadNudgeHook();
 
+  const onPermissionAsked = async (
+    input: {
+      sessionID?: string;
+      type?: string;
+      pattern?: string[] | string;
+      metadata?: unknown;
+      messageID?: string;
+      callID?: string;
+    },
+    output: { status?: 'allow' | 'ask' | 'deny' },
+  ) => {
+    const intakeGate = shouldInterceptWriteAfterWebsearch(ctx.directory, {
+      sessionID: String(input.sessionID ?? 'main'),
+      permission: String(input.type ?? ''),
+    });
+    if (intakeGate.intercept) {
+      output.status = 'ask';
+      return;
+    }
+
+    const patterns = Array.isArray(input.pattern)
+      ? input.pattern.map(String)
+      : typeof input.pattern === 'string'
+        ? [String(input.pattern)]
+        : [];
+    const status = await handlePermissionAsk(ctx.directory, {
+      sessionID: String(input.sessionID ?? 'main'),
+      permission: String(input.type ?? ''),
+      patterns,
+      metadata:
+        input.metadata && typeof input.metadata === 'object'
+          ? (input.metadata as Record<string, unknown>)
+          : {},
+      messageID: input.messageID ? String(input.messageID) : undefined,
+      toolCallID: input.callID ? String(input.callID) : undefined,
+    });
+    output.status = status.status;
+  };
+
   return {
     name: 'miya',
 
@@ -504,34 +543,11 @@ const MiyaPlugin: Plugin = async (ctx) => {
       );
     },
 
-    'permission.ask': async (input, output) => {
-      const intakeGate = shouldInterceptWriteAfterWebsearch(ctx.directory, {
-        sessionID: String(input.sessionID ?? 'main'),
-        permission: String(input.type ?? ''),
-      });
-      if (intakeGate.intercept) {
-        output.status = 'ask';
-        return;
-      }
+    // Current OpenCode event key.
+    'permission.asked': onPermissionAsked,
 
-      const patterns = Array.isArray(input.pattern)
-        ? input.pattern.map(String)
-        : typeof input.pattern === 'string'
-          ? [String(input.pattern)]
-          : [];
-      const status = await handlePermissionAsk(ctx.directory, {
-        sessionID: String(input.sessionID ?? 'main'),
-        permission: String(input.type ?? ''),
-        patterns,
-        metadata:
-          input.metadata && typeof input.metadata === 'object'
-            ? (input.metadata as Record<string, unknown>)
-            : {},
-        messageID: input.messageID ? String(input.messageID) : undefined,
-        toolCallID: input.callID ? String(input.callID) : undefined,
-      });
-      output.status = status.status;
-    },
+    // Backward compatibility for older runtimes.
+    'permission.ask': onPermissionAsked,
   };
 };
 

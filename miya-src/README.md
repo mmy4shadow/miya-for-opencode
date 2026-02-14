@@ -10,6 +10,27 @@
 bunx miya@latest install
 ```
 
+### Local Plugin Loading (OpenCode Native)
+
+If you run Miya from source, OpenCode only auto-loads local plugins from:
+- Project: `.opencode/plugins/`
+- Global: `~/.config/opencode/plugins/`
+
+Recommended local-dev layout (project-scoped):
+
+```bash
+mkdir -p .opencode/plugins
+cp miya-src/dist/index.js .opencode/plugins/miya.js
+```
+
+If your local plugin uses external npm packages, put dependencies in
+`.opencode/package.json` (not repo root `package.json`), then install there:
+
+```bash
+cd .opencode
+bun install
+```
+
 The installer can refresh and use OpenCode free models directly:
 
 ```bash

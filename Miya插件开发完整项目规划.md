@@ -1119,16 +1119,20 @@ G:\pythonG\py\yun\.opencode\miya\
 ├── automation\
 └── model\
     ├── shi jue\
-    │   ├── Qwen3VL-4B-Instruct-Q4_K_M\
+    │   ├── Qwen3VL-4B-Instruct-Q4_K_M\              #识别屏幕，辅助控制电脑的模型，不需要训练
     │   ├── lin shi\      # 视觉临时截图（短期）
     │   └── chang qi\     # 视觉长期证据图（有意义图片）
     ├── tu pian\
-    │   ├── FLUX.1 schnell\
-    │   ├── FLUX.2 [klein] 4B（Apache-2.0）\
+    │   ├── FLUX.1 schnell\               #即时生图的模型，需要训练
+    │   ├── FLUX.2 [klein] 4B（Apache-2.0）\         #精细化生图的模型，需要训练
     │   ├── lin shi\      # Miya 生成图临时区（6个月清理）
     │   └── chang qi\     # 用户提供长期素材 + 晋升保留图
+    │
+    ├──shi bie\ 
+    │   ├──eres2net\      #识别我的声音的模型，不需要训练
+    │   └── ben ren\      #我的声音的录音
     └── sheng yin\
-        ├── GPT-SoVITS-v2pro-20250604\
+        ├── GPT-SoVITS-v2pro-20250604\        #克隆声音的模型，需要训练
         ├── lin shi\      # Miya 生成语音临时区（7天清理）
         └── chang qi\     # 用户提供长期音色素材
 ```
