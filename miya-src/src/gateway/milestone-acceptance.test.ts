@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { ensureGatewayRunning, stopGateway } from './index';
+import { createGatewayAcceptanceProjectDir } from './test-helpers';
 
 interface GatewayWsClient {
   request(method: string, params?: Record<string, unknown>): Promise<unknown>;
@@ -93,15 +91,9 @@ async function connectGateway(url: string): Promise<GatewayWsClient> {
   };
 }
 
-function tempProjectDir(): string {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-gateway-acceptance-'));
-  fs.mkdirSync(path.join(projectDir, '.opencode'), { recursive: true });
-  return projectDir;
-}
-
 describe('gateway milestone acceptance', () => {
   test('runs startup probe for 20 rounds with stable gateway health', async () => {
-    const projectDir = tempProjectDir();
+    const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url);
     try {
@@ -124,7 +116,7 @@ describe('gateway milestone acceptance', () => {
   });
 
   test('runs 10-concurrency pressure probe with accounted outcomes', async () => {
-    const projectDir = tempProjectDir();
+    const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url);
     try {
@@ -147,7 +139,7 @@ describe('gateway milestone acceptance', () => {
   });
 
   test('exposes provider override audit and mcp capabilities endpoints', async () => {
-    const projectDir = tempProjectDir();
+    const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url);
     try {

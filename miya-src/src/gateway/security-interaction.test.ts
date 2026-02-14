@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { ensureGatewayRunning, stopGateway } from './index';
+import { createGatewayAcceptanceProjectDir } from './test-helpers';
 
 interface GatewayWsClient {
   request(method: string, params?: Record<string, unknown>): Promise<unknown>;
@@ -93,18 +91,12 @@ async function connectGateway(url: string): Promise<GatewayWsClient> {
   };
 }
 
-function tempProjectDir(): string {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-gateway-security-'));
-  fs.mkdirSync(path.join(projectDir, '.opencode'), { recursive: true });
-  return projectDir;
-}
-
 describe('gateway security interaction acceptance', () => {
   test('speaker gate pauses outbound/desktop/memory_read in guest mode', async () => {
     const prevStrict = process.env.MIYA_VOICEPRINT_STRICT;
     process.env.MIYA_VOICEPRINT_STRICT = '0';
 
-    const projectDir = tempProjectDir();
+    const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url);
     try {
@@ -160,7 +152,7 @@ describe('gateway security interaction acceptance', () => {
     const prevOwnerSyncRequired = process.env.MIYA_OWNER_SYNC_REQUIRED;
     process.env.MIYA_OWNER_SYNC_REQUIRED = '0';
 
-    const projectDir = tempProjectDir();
+    const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url);
     try {

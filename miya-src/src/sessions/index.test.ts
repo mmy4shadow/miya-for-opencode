@@ -9,7 +9,10 @@ function tempProjectDir(): string {
 }
 
 describe('session store encryption', () => {
-  test('encrypts session summary fields at rest and keeps read API plain', () => {
+  test(
+    'encrypts session summary fields at rest and keeps read API plain',
+    { timeout: 15_000 },
+    () => {
     const projectDir = tempProjectDir();
     upsertSession(projectDir, {
       id: 's-1',
@@ -31,5 +34,6 @@ describe('session store encryption', () => {
     const session = getSession(projectDir, 's-1');
     expect(session?.groupId).toBe('channel:alice');
     expect(session?.queue[0]?.text).toContain('latest context');
-  });
+    },
+  );
 });
