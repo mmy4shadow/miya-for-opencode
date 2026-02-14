@@ -1,4 +1,7 @@
 import type { Plugin } from '@opencode-ai/plugin';
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { getAgentConfigs } from './agents';
 import { MiyaAutomationService } from './automation';
 import { BackgroundTaskManager, TmuxSessionManager } from './background';
@@ -11,7 +14,9 @@ import {
 import { parseList } from './config/agent-mcps';
 import {
   createGatewayTools,
+  ensureGatewayRunning,
   isGatewayOwner,
+  probeGatewayAlive,
   registerGatewayDependencies,
   startGatewayWithLog,
 } from './gateway';
@@ -33,7 +38,7 @@ import {
   createSlashCommandBridgeHook,
 } from './hooks';
 import { createSafetyTools, handlePermissionAsk } from './safety';
-import { createConfigTools } from './settings';
+import { createConfigTools, readConfig } from './settings';
 import { createBuiltinMcps } from './mcp';
 import {
   ast_grep_replace,
@@ -79,6 +84,60 @@ function deepMergeObject(
   return result;
 }
 
+const autoUiOpenAtByDir = new Map<string, number>();
+
+function openUrlSilently(url: string): void {
+  if (process.platform === 'win32') {
+    const child = spawn('cmd', ['/c', 'start', '', url], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+    return;
+  }
+  if (process.platform === 'darwin') {
+    const child = spawn('open', [url], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    return;
+  }
+  const child = spawn('xdg-open', [url], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+}
+
+function launchDockSilently(projectDir: string): void {
+  if (process.platform !== 'win32') return;
+  const bat = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-launch.bat');
+  if (!fs.existsSync(bat)) return;
+  const child = spawn('cmd', ['/c', bat], {
+    cwd: projectDir,
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
+
+function shouldAutoOpenUi(projectDir: string): boolean {
+  const config = readConfig(projectDir);
+  const ui = (config.ui as Record<string, unknown> | undefined)?.dashboard as
+    | Record<string, unknown>
+    | undefined;
+  const enabled = ui?.openOnStart !== false;
+  if (!enabled) return false;
+  const last = autoUiOpenAtByDir.get(projectDir) ?? 0;
+  const now = Date.now();
+  if (now - last < 10_000) return false;
+  autoUiOpenAtByDir.set(projectDir, now);
+  return true;
+}
+
 const MiyaPlugin: Plugin = async (ctx) => {
   const config = loadPluginConfig(ctx.directory);
   const agents = getAgentConfigs(config, ctx.directory);
@@ -107,6 +166,26 @@ const MiyaPlugin: Plugin = async (ctx) => {
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);
     log('[miya-launcher] daemon bootstrap', daemonLaunch);
+    if (shouldAutoOpenUi(ctx.directory)) {
+      setTimeout(async () => {
+        try {
+          const state = ensureGatewayRunning(ctx.directory);
+          const healthy = await probeGatewayAlive(state.url, 1_500);
+          if (!healthy) {
+            log('[miya] auto ui open skipped: gateway unhealthy', { url: state.url });
+            return;
+          }
+          // Windows: try dock bootstrap (side panel) and always open fallback web UI.
+          launchDockSilently(ctx.directory);
+          openUrlSilently(state.url);
+          log('[miya] auto ui open triggered', { url: state.url });
+        } catch (error) {
+          log('[miya] auto ui open failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }, 1_200);
+    }
     setTimeout(async () => {
       try {
         const daemon = getLauncherDaemonSnapshot(ctx.directory);
