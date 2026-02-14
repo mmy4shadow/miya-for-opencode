@@ -4,7 +4,7 @@ import { MiyaAutomationService } from './automation';
 import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
 import {
-  extractAgentModelSelectionFromEvent,
+  extractAgentModelSelectionsFromEvent,
   persistAgentRuntimeSelection,
 } from './config/agent-model-persistence';
 import { parseList } from './config/agent-mcps';
@@ -404,22 +404,19 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
 
     event: async (input) => {
-      // Handle model persistence from all event types (message, agent switch, session)
-      const modelSelection = extractAgentModelSelectionFromEvent(input.event);
-      if (modelSelection) {
-        const changed = persistAgentRuntimeSelection(
-          ctx.directory,
-          {
-            agentName: modelSelection.agentName,
-            model: modelSelection.model,
-            variant: modelSelection.variant,
-            providerID: modelSelection.providerID,
-            options: modelSelection.options,
-            apiKey: modelSelection.apiKey,
-            baseURL: modelSelection.baseURL,
-            activeAgentId: modelSelection.activeAgentId,
-          },
-        );
+      // Handle model/runtime persistence from message, agent switch, and settings-save events.
+      const selections = extractAgentModelSelectionsFromEvent(input.event);
+      for (const modelSelection of selections) {
+        const changed = persistAgentRuntimeSelection(ctx.directory, {
+          agentName: modelSelection.agentName,
+          model: modelSelection.model,
+          variant: modelSelection.variant,
+          providerID: modelSelection.providerID,
+          options: modelSelection.options,
+          apiKey: modelSelection.apiKey,
+          baseURL: modelSelection.baseURL,
+          activeAgentId: modelSelection.activeAgentId,
+        });
         if (changed) {
           log(`[model-persistence] updated from ${modelSelection.source}`, {
             agent: modelSelection.agentName,

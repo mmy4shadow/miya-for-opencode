@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import {
   applyPersistedAgentModelOverrides,
   extractAgentModelSelectionFromEvent,
+  extractAgentModelSelectionsFromEvent,
   normalizeAgentName,
   normalizeModelRef,
   persistAgentModelSelection,
@@ -154,5 +155,30 @@ describe('agent-model-persistence', () => {
         properties: { info: { role: 'assistant' } },
       }),
     ).toBeNull();
+  });
+
+  test('extracts multi-agent settings save patch as runtime selections', () => {
+    const extracted = extractAgentModelSelectionsFromEvent({
+      type: 'settings.saved',
+      properties: {
+        patch: {
+          set: {
+            default_agent: '6-ui-designer',
+            'agent.2-code-search.model': 'openai/gpt-5.1-codex-mini',
+            'agent.2-code-search.providerID': 'openai',
+            'agent.6-ui-designer.model': 'google/gemini-2.5-pro',
+            'agent.6-ui-designer.baseURL': 'https://example.local/v1',
+          },
+        },
+      },
+    });
+
+    expect(extracted).toHaveLength(2);
+    const byAgent = Object.fromEntries(extracted.map((item) => [item.agentName, item]));
+    expect(byAgent['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
+    expect(byAgent['2-code-search']?.providerID).toBe('openai');
+    expect(byAgent['2-code-search']?.activeAgentId).toBe('6-ui-designer');
+    expect(byAgent['6-ui-designer']?.baseURL).toBe('https://example.local/v1');
+    expect(byAgent['6-ui-designer']?.source).toBe('settings_save_patch');
   });
 });

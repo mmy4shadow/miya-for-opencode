@@ -62,6 +62,7 @@ import {
   patchVoiceState,
   readVoiceState,
 } from '../voice/state';
+import { readPersistedAgentRuntime } from '../config/agent-model-persistence';
 import {
   closeCanvasDoc,
   getCanvasDoc,
@@ -180,6 +181,13 @@ interface DoctorIssue {
 interface GatewaySnapshot {
   updatedAt: string;
   gateway: GatewayState;
+  runtime: {
+    isOwner: boolean;
+    ownerPID?: number;
+    ownerFresh: boolean;
+    activeAgentId?: string;
+    storageRevision: number;
+  };
   daemon: ReturnType<typeof getLauncherDaemonSnapshot>;
   policyHash: string;
   configCenter: Record<string, unknown>;
@@ -328,6 +336,26 @@ function isOwnerLockFresh(lock: GatewayOwnerLock): boolean {
   const ts = Date.parse(lock.updatedAt);
   if (!Number.isFinite(ts)) return false;
   return Date.now() - ts <= 15_000;
+}
+
+function ownerSummary(projectDir: string): {
+  isOwner: boolean;
+  ownerPID?: number;
+  ownerFresh: boolean;
+} {
+  const lock = readGatewayOwnerLock(projectDir);
+  if (!lock) {
+    return {
+      isOwner: false,
+      ownerFresh: false,
+    };
+  }
+  const token = ownerTokens.get(projectDir);
+  return {
+    isOwner: Boolean(token) && lock.pid === process.pid && lock.token === token,
+    ownerPID: lock.pid,
+    ownerFresh: isOwnerLockFresh(lock),
+  };
 }
 
 function writeOwnerLock(projectDir: string, token: string): GatewayOwnerLock {
@@ -969,10 +997,19 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const voice = readVoiceState(projectDir);
   const canvas = readCanvasState(projectDir);
   const companion = readCompanionProfile(projectDir);
+  const persistedRuntime = readPersistedAgentRuntime(projectDir);
+  const owner = ownerSummary(projectDir);
 
   const base: Omit<GatewaySnapshot, 'doctor'> = {
     updatedAt: nowIso(),
     gateway: syncGatewayState(projectDir, runtime),
+    runtime: {
+      isOwner: owner.isOwner,
+      ownerPID: owner.ownerPID,
+      ownerFresh: owner.ownerFresh,
+      activeAgentId: persistedRuntime.activeAgentId,
+      storageRevision: persistedRuntime.revision,
+    },
     daemon: getLauncherDaemonSnapshot(projectDir),
     policyHash: currentPolicyHash(projectDir),
     configCenter: readConfig(projectDir),
@@ -1348,12 +1385,26 @@ function renderWebChatHtml(): string {
 }
 
 function formatGatewayState(state: GatewayState): string {
+  return formatGatewayStateWithRuntime(state, undefined, undefined, undefined, undefined);
+}
+
+function formatGatewayStateWithRuntime(
+  state: GatewayState,
+  ownerPID?: number,
+  isOwner?: boolean,
+  activeAgentId?: string,
+  storageRevision?: number,
+): string {
   return [
     `url=${state.url}`,
     `port=${state.port}`,
     `pid=${state.pid}`,
+    `owner_pid=${ownerPID ?? 0}`,
+    `is_owner=${Boolean(isOwner)}`,
     `started_at=${state.startedAt}`,
     `status=${state.status}`,
+    `active_agent=${activeAgentId ?? ''}`,
+    `storage_revision=${storageRevision ?? 0}`,
   ].join('\n');
 }
 
@@ -3300,7 +3351,19 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
     async execute() {
       registerGatewayDependencies(ctx.directory, { client: ctx.client });
       const state = ensureGatewayRunning(ctx.directory);
-      return formatGatewayState(state);
+      const persisted = readPersistedAgentRuntime(ctx.directory);
+      const owner = ownerSummary(ctx.directory);
+      const healthy = await probeGatewayAlive(state.url, 1_000);
+      return [
+        formatGatewayStateWithRuntime(
+          state,
+          owner.ownerPID,
+          owner.isOwner,
+          persisted.activeAgentId,
+          persisted.revision,
+        ),
+        `gateway_healthy=${healthy}`,
+      ].join('\n');
     },
   });
 
@@ -3310,7 +3373,19 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
     async execute() {
       registerGatewayDependencies(ctx.directory, { client: ctx.client });
       const state = ensureGatewayRunning(ctx.directory);
-      return formatGatewayState(state);
+      const persisted = readPersistedAgentRuntime(ctx.directory);
+      const owner = ownerSummary(ctx.directory);
+      const healthy = await probeGatewayAlive(state.url, 1_000);
+      return [
+        formatGatewayStateWithRuntime(
+          state,
+          owner.ownerPID,
+          owner.isOwner,
+          persisted.activeAgentId,
+          persisted.revision,
+        ),
+        `gateway_healthy=${healthy}`,
+      ].join('\n');
     },
   });
 

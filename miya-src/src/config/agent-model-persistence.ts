@@ -54,6 +54,17 @@ export interface AgentModelSelectionFromEvent {
   source: string;
 }
 
+interface AgentPatchDraft {
+  agentName: string;
+  model?: unknown;
+  variant?: unknown;
+  providerID?: unknown;
+  options?: unknown;
+  apiKey?: unknown;
+  baseURL?: unknown;
+  activeAgentId?: unknown;
+}
+
 interface NormalizedAgentRuntime {
   version: number;
   revision: number;
@@ -436,11 +447,89 @@ export function applyPersistedAgentModelOverrides(
 export function extractAgentModelSelectionFromEvent(
   event: unknown,
 ): AgentModelSelectionFromEvent | null {
-  if (!isObject(event)) return null;
+  const many = extractAgentModelSelectionsFromEvent(event);
+  return many[0] ?? null;
+}
+
+function normalizeSelectionFromDraft(
+  draft: AgentPatchDraft,
+  source: string,
+): AgentModelSelectionFromEvent | null {
+  const agentName = normalizeAgentName(String(draft.agentName ?? ''));
+  if (!agentName) return null;
+  const model = normalizeModelRef(draft.model);
+  const variant = normalizeStringValue(draft.variant);
+  const providerID =
+    normalizeProviderID(draft.providerID) ??
+    (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+  const options = normalizeOptions(draft.options);
+  const apiKey = normalizeStringValue(draft.apiKey);
+  const baseURL = normalizeStringValue(draft.baseURL);
+  const activeAgentId = normalizeAgentName(String(draft.activeAgentId ?? '')) ?? undefined;
+  if (!model && !variant && !providerID && !options && !apiKey && !baseURL && !activeAgentId) {
+    return null;
+  }
+  return {
+    agentName,
+    model: model ?? undefined,
+    variant,
+    providerID,
+    options,
+    apiKey,
+    baseURL,
+    activeAgentId,
+    source,
+  };
+}
+
+function parseAgentPatchSet(
+  setMap: Record<string, unknown>,
+  source: string,
+): AgentModelSelectionFromEvent[] {
+  const drafts = new Map<string, AgentPatchDraft>();
+  let defaultAgentFromPatch: string | undefined;
+  for (const [rawKey, value] of Object.entries(setMap)) {
+    const key = rawKey.trim();
+    if (!key) continue;
+    const parts = key.split('.');
+    if (parts[0] === 'default_agent' && typeof value === 'string') {
+      defaultAgentFromPatch = value;
+      continue;
+    }
+    if (parts[0] !== 'agent' || parts.length < 3) continue;
+    const agentNameRaw = parts[1] ?? '';
+    const field = parts.slice(2).join('.');
+    const draft = drafts.get(agentNameRaw) ?? {
+      agentName: agentNameRaw,
+    };
+    if (field === 'model') draft.model = value;
+    if (field === 'variant') draft.variant = value;
+    if (field === 'providerID') draft.providerID = value;
+    if (field === 'options') draft.options = value;
+    if (field === 'apiKey') draft.apiKey = value;
+    if (field === 'baseURL') draft.baseURL = value;
+    drafts.set(agentNameRaw, draft);
+  }
+
+  const normalized: AgentModelSelectionFromEvent[] = [];
+  for (const draft of drafts.values()) {
+    if (defaultAgentFromPatch) {
+      draft.activeAgentId = defaultAgentFromPatch;
+    }
+    const item = normalizeSelectionFromDraft(draft, source);
+    if (item) normalized.push(item);
+  }
+  return normalized;
+}
+
+export function extractAgentModelSelectionsFromEvent(
+  event: unknown,
+): AgentModelSelectionFromEvent[] {
+  if (!isObject(event)) return [];
 
   const eventType = String(event.type ?? '');
   const properties = event.properties;
-  if (!isObject(properties)) return null;
+  if (!isObject(properties)) return [];
 
   const extractFromEvent = (
     source: string,
@@ -484,13 +573,15 @@ export function extractAgentModelSelectionFromEvent(
   if (eventType === 'message.updated') {
     const info = properties.info;
     if (!isObject(info) || info.role !== 'user') {
-      return null;
+      return [];
     }
-    return extractFromEvent('message', info, String(properties.agent ?? ''), true);
+    const result = extractFromEvent('message', info, String(properties.agent ?? ''), true);
+    return result ? [result] : [];
   }
 
   if (['agent.selected', 'agent.changed', 'session.agent.changed'].includes(eventType)) {
-    return extractFromEvent('agent_switch', properties, undefined, true);
+    const result = extractFromEvent('agent_switch', properties, undefined, true);
+    return result ? [result] : [];
   }
 
   if (['session.created', 'session.updated', 'config.updated'].includes(eventType)) {
@@ -502,10 +593,33 @@ export function extractAgentModelSelectionFromEvent(
         String(properties.agent ?? properties.currentAgent ?? ''),
         true,
       );
-      if (fromInfo) return fromInfo;
+      if (fromInfo) return [fromInfo];
     }
-    return extractFromEvent('session', properties, undefined, true);
+    const fromProperties = extractFromEvent('session', properties, undefined, true);
+    if (fromProperties) return [fromProperties];
   }
 
-  return null;
+  if (
+    [
+      'settings.saved',
+      'settings.updated',
+      'settings.changed',
+      'config.saved',
+      'config.changed',
+      'agent.updated',
+      'agent.config.saved',
+    ].includes(eventType)
+  ) {
+    const patchRaw = properties.patch;
+    if (isObject(patchRaw) && isObject(patchRaw.set)) {
+      const parsed = parseAgentPatchSet(patchRaw.set, 'settings_save_patch');
+      if (parsed.length > 0) return parsed;
+    }
+    if (isObject(properties.set)) {
+      const parsed = parseAgentPatchSet(properties.set, 'settings_save_set');
+      if (parsed.length > 0) return parsed;
+    }
+  }
+
+  return [];
 }
