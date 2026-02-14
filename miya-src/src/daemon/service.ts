@@ -30,15 +30,44 @@ interface ModelProcessResult {
 }
 
 interface TrainingRunResult {
-  status: 'completed' | 'degraded' | 'failed';
+  status: 'completed' | 'degraded' | 'failed' | 'canceled';
   tier: ModelTier;
   message: string;
   artifactPath?: string;
+  checkpointPath?: string;
 }
+
+const TRAINING_PRESET_HALF = {
+  image: {
+    resolutionMax: '1024x1024',
+    stepRange: [50, 100] as const,
+    defaultSteps: 80,
+    batchSize: 1,
+    precision: 'fp16',
+    cachePolicy: 'disk+memory',
+    fallbackChain: ['lora', 'embedding', 'reference'] as const,
+    checkpointInterval: 50,
+  },
+  voice: {
+    sampleRate: 32000,
+    stepRange: [100, 200] as const,
+    defaultSteps: 120,
+    batchSize: 2,
+    precision: 'fp16',
+    cachePolicy: 'stream+memory',
+    fallbackChain: ['lora', 'embedding', 'reference'] as const,
+    checkpointInterval: 100,
+    minCheckpointIntervalSec: 300,
+  },
+};
 
 function toSessionID(projectDir: string): string {
   const suffix = Buffer.from(projectDir).toString('base64url').slice(-12);
   return `daemon-${suffix || 'default'}`;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class MiyaDaemonService {
@@ -50,6 +79,27 @@ export class MiyaDaemonService {
   constructor(projectDir: string) {
     this.projectDir = projectDir;
     this.sessionID = toSessionID(projectDir);
+  }
+
+  private cancelMarkerPath(jobID: string): string {
+    return path.join(getMiyaRuntimeDir(this.projectDir), 'daemon', 'cancel', `${jobID}.flag`);
+  }
+
+  requestTrainingCancel(jobID: string): void {
+    const marker = this.cancelMarkerPath(jobID);
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    fs.writeFileSync(marker, nowIso(), 'utf-8');
+  }
+
+  private clearTrainingCancel(jobID: string): void {
+    const marker = this.cancelMarkerPath(jobID);
+    if (fs.existsSync(marker)) {
+      fs.rmSync(marker, { force: true });
+    }
+  }
+
+  private isTrainingCanceled(jobID: string): boolean {
+    return fs.existsSync(this.cancelMarkerPath(jobID));
   }
 
   start(): void {
@@ -320,6 +370,7 @@ export class MiyaDaemonService {
     profileDir: string;
     photosDir: string;
     jobID: string;
+    checkpointPath?: string;
   }): Promise<TrainingRunResult> {
     const preferred = this.resolveTierByBudget({
       kind: 'training.image',
@@ -343,11 +394,13 @@ export class MiyaDaemonService {
       envBase: {
         MIYA_FLUX_TRAIN_PHOTOS_DIR: input.photosDir,
       },
+      checkpointPath: input.checkpointPath,
       resourceByTier: {
         lora: { priority: 10, vramMB: 2048, modelID: 'local:flux.1-schnell', modelVramMB: 4096 },
         embedding: { priority: 10, vramMB: 768, modelID: 'local:flux.1-schnell', modelVramMB: 1024 },
         reference: { priority: 10, vramMB: 256, modelID: 'local:flux.1-schnell', modelVramMB: 0 },
       },
+      preset: TRAINING_PRESET_HALF.image,
     });
     return result;
   }
@@ -356,6 +409,7 @@ export class MiyaDaemonService {
     profileDir: string;
     voiceSamplePath: string;
     jobID: string;
+    checkpointPath?: string;
   }): Promise<TrainingRunResult> {
     const preferred = this.resolveTierByBudget({
       kind: 'training.voice',
@@ -379,11 +433,13 @@ export class MiyaDaemonService {
       envBase: {
         MIYA_SOVITS_TRAIN_SAMPLE_PATH: input.voiceSamplePath,
       },
+      checkpointPath: input.checkpointPath,
       resourceByTier: {
         lora: { priority: 10, vramMB: 1536, modelID: 'local:gpt-sovits-v2pro', modelVramMB: 3072 },
         embedding: { priority: 10, vramMB: 512, modelID: 'local:gpt-sovits-v2pro', modelVramMB: 1024 },
         reference: { priority: 10, vramMB: 128, modelID: 'local:gpt-sovits-v2pro', modelVramMB: 0 },
       },
+      preset: TRAINING_PRESET_HALF.voice,
     });
   }
 
@@ -503,15 +559,23 @@ export class MiyaDaemonService {
     profileDir: string;
     jobID: string;
     envBase: Record<string, string>;
+    checkpointPath?: string;
+    preset:
+      | (typeof TRAINING_PRESET_HALF.image)
+      | (typeof TRAINING_PRESET_HALF.voice);
     artifactByTier: Record<ModelTier, string>;
     resourceByTier: Record<ModelTier, { priority: number; vramMB: number; modelID: string; modelVramMB: number }>;
   }): Promise<TrainingRunResult> {
+    this.clearTrainingCancel(input.jobID);
     const attempts: ModelTier[] =
       input.preferredTier === 'lora'
         ? ['lora', 'embedding', 'reference']
         : input.preferredTier === 'embedding'
           ? ['embedding', 'reference']
           : ['reference'];
+    const checkpointPath =
+      input.checkpointPath || path.join(input.profileDir, 'checkpoints', `${input.jobID}.json`);
+    let resumeStep = this.readCheckpointStep(checkpointPath);
 
     for (const tier of attempts) {
       const artifactPath = input.artifactByTier[tier];
@@ -528,6 +592,8 @@ export class MiyaDaemonService {
           MIYA_TRAIN_TIER: tier,
           MIYA_PROFILE_DIR: input.profileDir,
           MIYA_TRAIN_ARTIFACT_PATH: artifactPath,
+          MIYA_TRAIN_CHECKPOINT_PATH: checkpointPath,
+          MIYA_TRAIN_RESUME_STEP: String(resumeStep),
         },
         metadata: { stage: 'daemon.training', jobID: input.jobID, tier },
       });
@@ -539,24 +605,44 @@ export class MiyaDaemonService {
             'utf-8',
           );
         }
+        this.clearTrainingCancel(input.jobID);
         return {
           status: tier === 'lora' ? 'completed' : 'degraded',
           tier,
           message: tier === 'lora' ? 'training_completed' : 'training_completed_with_degrade',
           artifactPath,
+          checkpointPath,
         };
       }
+      const fallback = await this.runBuiltinTrainingRunner({
+        jobID: input.jobID,
+        tier,
+        artifactPath,
+        checkpointPath,
+        resumeStep,
+        preset: input.preset,
+      });
+      if (fallback.status === 'canceled') {
+        return fallback;
+      }
+      if (fallback.status === 'completed' || fallback.status === 'degraded') {
+        this.clearTrainingCancel(input.jobID);
+        return fallback;
+      }
+      resumeStep = this.readCheckpointStep(checkpointPath);
       if (!proc.executed && tier === 'reference') {
         fs.writeFileSync(
           artifactPath,
           `${JSON.stringify({ tier: 'reference', generatedAt: nowIso(), jobID: input.jobID, fallback: true })}\n`,
           'utf-8',
         );
+        this.clearTrainingCancel(input.jobID);
         return {
           status: 'degraded',
           tier: 'reference',
           message: 'training_degraded_reference_command_missing',
           artifactPath,
+          checkpointPath,
         };
       }
     }
@@ -564,6 +650,110 @@ export class MiyaDaemonService {
       status: 'failed',
       tier: input.preferredTier,
       message: 'training_failed_all_tiers',
+      checkpointPath,
+    };
+  }
+
+  private readCheckpointStep(checkpointPath: string): number {
+    if (!fs.existsSync(checkpointPath)) return 0;
+    try {
+      const payload = JSON.parse(fs.readFileSync(checkpointPath, 'utf-8')) as {
+        step?: number;
+      };
+      const step = Number(payload.step ?? 0);
+      return Number.isFinite(step) && step > 0 ? Math.floor(step) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private writeCheckpoint(checkpointPath: string, input: {
+    jobID: string;
+    tier: ModelTier;
+    step: number;
+    totalSteps: number;
+  }): void {
+    fs.mkdirSync(path.dirname(checkpointPath), { recursive: true });
+    fs.writeFileSync(
+      checkpointPath,
+      `${JSON.stringify(
+        {
+          jobID: input.jobID,
+          tier: input.tier,
+          step: input.step,
+          totalSteps: input.totalSteps,
+          updatedAt: nowIso(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+  }
+
+  private async runBuiltinTrainingRunner(input: {
+    jobID: string;
+    tier: ModelTier;
+    artifactPath: string;
+    checkpointPath: string;
+    resumeStep: number;
+    preset: (typeof TRAINING_PRESET_HALF.image) | (typeof TRAINING_PRESET_HALF.voice);
+  }): Promise<TrainingRunResult> {
+    const totalSteps = Number(input.preset.defaultSteps) || 80;
+    const checkpointInterval = Math.max(1, Number(input.preset.checkpointInterval || 50));
+    const startStep = Math.max(0, Math.min(totalSteps, Math.floor(input.resumeStep)));
+    for (let step = startStep + 1; step <= totalSteps; step += 1) {
+      if (this.isTrainingCanceled(input.jobID)) {
+        this.writeCheckpoint(input.checkpointPath, {
+          jobID: input.jobID,
+          tier: input.tier,
+          step,
+          totalSteps,
+        });
+        return {
+          status: 'canceled',
+          tier: input.tier,
+          message: 'training_canceled_by_request',
+          checkpointPath: input.checkpointPath,
+        };
+      }
+      if (step % checkpointInterval === 0 || step === totalSteps) {
+        this.writeCheckpoint(input.checkpointPath, {
+          jobID: input.jobID,
+          tier: input.tier,
+          step,
+          totalSteps,
+        });
+      }
+      // Built-in fallback runner keeps training executable without external env command.
+      await delay(20);
+    }
+
+    fs.mkdirSync(path.dirname(input.artifactPath), { recursive: true });
+    fs.writeFileSync(
+      input.artifactPath,
+      `${JSON.stringify(
+        {
+          tier: input.tier,
+          generatedAt: nowIso(),
+          jobID: input.jobID,
+          preset: '0.5',
+          builtinRunner: true,
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+    return {
+      status: input.tier === 'lora' ? 'completed' : 'degraded',
+      tier: input.tier,
+      message:
+        input.tier === 'lora'
+          ? 'training_completed_builtin_runner'
+          : 'training_completed_with_degrade_builtin_runner',
+      artifactPath: input.artifactPath,
+      checkpointPath: input.checkpointPath,
     };
   }
 

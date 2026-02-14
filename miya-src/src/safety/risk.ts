@@ -69,6 +69,7 @@ export function isSideEffectPermission(permission: string): boolean {
     permission === 'bash' ||
     permission === 'external_directory' ||
     permission === 'external_message' ||
+    permission === 'desktop_control' ||
     permission === 'node_invoke' ||
     permission === 'skills_install' ||
     permission === 'webhook_outbound'
@@ -82,6 +83,7 @@ export function requiredTierForRequest(
 
   if (request.permission === 'external_directory') return 'THOROUGH';
   if (request.permission === 'external_message') return 'THOROUGH';
+  if (request.permission === 'desktop_control') return 'THOROUGH';
   if (request.permission === 'node_invoke') {
     const patterns = request.patterns.map(normalizePattern).join(' ');
     if (

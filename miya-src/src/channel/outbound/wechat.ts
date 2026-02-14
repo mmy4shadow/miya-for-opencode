@@ -4,7 +4,13 @@ export function sendWechatDesktopMessage(input: {
   destination: string;
   text?: string;
   mediaPath?: string;
-}): { sent: boolean; message: string } {
+}): {
+  sent: boolean;
+  message: string;
+  visualPrecheck?: string;
+  visualPostcheck?: string;
+  receiptStatus?: 'confirmed' | 'uncertain';
+} {
   return sendDesktopOutbound({
     appName: 'WeChat',
     channel: 'wechat',

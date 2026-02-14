@@ -78,6 +78,62 @@ export interface ChannelOutboundAudit {
   intent?: 'reply' | 'initiate';
   containsSensitive?: boolean;
   policyHash?: string;
+  sendFingerprint?: string;
+  ticketSummary?: {
+    outboundSendTraceId: string;
+    desktopControlTraceId: string;
+    expiresAt: string;
+  };
+  visualPrecheck?: string;
+  visualPostcheck?: string;
+  receiptStatus?: 'confirmed' | 'uncertain';
+}
+
+type InputMutexLease = {
+  release: () => void;
+};
+
+const INPUT_MUTEX_TIMEOUT_MS = 20_000;
+const INPUT_MUTEX_STRIKE_LIMIT = 3;
+const INPUT_MUTEX_COOLDOWN_MS = 15 * 60 * 1000;
+
+let inputMutexOwner: string | null = null;
+const inputMutexQueue: Array<{
+  sessionID: string;
+  grant: () => void;
+}> = [];
+
+function acquireInputMutex(sessionID: string, timeoutMs = INPUT_MUTEX_TIMEOUT_MS): Promise<InputMutexLease> {
+  return new Promise((resolve, reject) => {
+    let released = false;
+    const makeLease = (): InputMutexLease => ({
+      release: () => {
+        if (released) return;
+        released = true;
+        if (inputMutexOwner === sessionID) {
+          inputMutexOwner = null;
+        }
+        const next = inputMutexQueue.shift();
+        if (next) {
+          next.grant();
+        }
+      },
+    });
+    const timer = setTimeout(() => {
+      reject(new Error('input_mutex_timeout'));
+    }, timeoutMs);
+    const grant = (): void => {
+      clearTimeout(timer);
+      inputMutexOwner = sessionID;
+      resolve(makeLease());
+    };
+
+    if (!inputMutexOwner) {
+      grant();
+      return;
+    }
+    inputMutexQueue.push({ sessionID, grant });
+  });
 }
 
 export function listOutboundAudit(
@@ -113,6 +169,9 @@ export class ChannelRuntime {
   private slackReconnectTimer?: ReturnType<typeof setTimeout>;
   private readonly outboundThrottle = new Map<string, number[]>();
   private readonly outboundPayloadHistory = new Map<string, Array<{ at: number; hash: string }>>();
+  private readonly inputMutexStrike = new Map<string, number>();
+  private readonly inputMutexCooldownUntil = new Map<string, number>();
+  private readonly sendFingerprintHistory = new Map<string, number>();
 
   constructor(projectDir: string, callbacks: ChannelRuntimeCallbacks) {
     this.projectDir = projectDir;
@@ -465,6 +524,11 @@ export class ChannelRuntime {
       intent: row.intent,
       containsSensitive: row.containsSensitive,
       policyHash: row.policyHash,
+      sendFingerprint: row.sendFingerprint,
+      ticketSummary: row.ticketSummary,
+      visualPrecheck: row.visualPrecheck,
+      visualPostcheck: row.visualPostcheck,
+      receiptStatus: row.receiptStatus,
     };
     appendOutboundAudit(this.projectDir, payload);
     return payload;
@@ -519,11 +583,60 @@ export class ChannelRuntime {
     return `duplicate_payload_within_${duplicateWindowMs}ms`;
   }
 
+  private isDesktopChannel(channel: ChannelName): boolean {
+    return channel === 'qq' || channel === 'wechat';
+  }
+
+  private inMutexCooldown(sessionID: string): boolean {
+    const until = this.inputMutexCooldownUntil.get(sessionID) ?? 0;
+    return until > Date.now();
+  }
+
+  private markMutexTimeout(sessionID: string): void {
+    const strikes = (this.inputMutexStrike.get(sessionID) ?? 0) + 1;
+    this.inputMutexStrike.set(sessionID, strikes);
+    if (strikes >= INPUT_MUTEX_STRIKE_LIMIT) {
+      this.inputMutexCooldownUntil.set(sessionID, Date.now() + INPUT_MUTEX_COOLDOWN_MS);
+      this.inputMutexStrike.set(sessionID, 0);
+    }
+  }
+
+  private clearMutexStrike(sessionID: string): void {
+    this.inputMutexStrike.set(sessionID, 0);
+  }
+
+  private checkSendFingerprint(sendFingerprint: string): string | null {
+    const now = Date.now();
+    const windowMs = 60_000;
+    for (const [fingerprint, ts] of this.sendFingerprintHistory.entries()) {
+      if (now - ts > windowMs) {
+        this.sendFingerprintHistory.delete(fingerprint);
+      }
+    }
+    if (this.sendFingerprintHistory.has(sendFingerprint)) {
+      return 'duplicate_send_fingerprint';
+    }
+    this.sendFingerprintHistory.set(sendFingerprint, now);
+    return null;
+  }
+
   async sendMessage(input: {
     channel: ChannelName;
     destination: string;
     text?: string;
     mediaPath?: string;
+    sessionID?: string;
+    sendFingerprint?: string;
+    approvalTickets?: {
+      outboundSend: {
+        traceID: string;
+        expiresAt: string;
+      };
+      desktopControl: {
+        traceID: string;
+        expiresAt: string;
+      };
+    };
     outboundCheck?: {
       archAdvisorApproved?: boolean;
       riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
@@ -564,6 +677,21 @@ export class ChannelRuntime {
     const intent = input.outboundCheck?.intent ?? 'initiate';
     const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
     const policyHash = input.outboundCheck?.policyHash;
+    const sessionID = (input.sessionID ?? 'main').trim() || 'main';
+    const ticketSummary =
+      input.approvalTickets &&
+      input.approvalTickets.outboundSend &&
+      input.approvalTickets.desktopControl
+        ? {
+            outboundSendTraceId: input.approvalTickets.outboundSend.traceID,
+            desktopControlTraceId: input.approvalTickets.desktopControl.traceID,
+            expiresAt:
+              Date.parse(input.approvalTickets.outboundSend.expiresAt) <
+              Date.parse(input.approvalTickets.desktopControl.expiresAt)
+                ? input.approvalTickets.outboundSend.expiresAt
+                : input.approvalTickets.desktopControl.expiresAt,
+          }
+        : undefined;
     if (!archAdvisorApproved) {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
@@ -694,12 +822,87 @@ export class ChannelRuntime {
       }
     }
 
+    if (input.sendFingerprint) {
+      const fingerprintDup = this.checkSendFingerprint(input.sendFingerprint);
+      if (fingerprintDup) {
+        const audit = this.recordOutboundAttempt({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
+          message: `outbound_blocked:${fingerprintDup}`,
+          reason: 'duplicate_payload',
+          archAdvisorApproved,
+          targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
+          riskLevel,
+          policyHash,
+          sendFingerprint: input.sendFingerprint,
+          ticketSummary,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+    }
+
+    let mutexLease: InputMutexLease | null = null;
+    if (this.isDesktopChannel(input.channel)) {
+      if (this.inMutexCooldown(sessionID)) {
+        const audit = this.recordOutboundAttempt({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
+          message: 'outbound_degraded:input_mutex_cooldown:draft_only',
+          reason: 'desktop_send_failed',
+          archAdvisorApproved,
+          targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
+          riskLevel,
+          policyHash,
+          sendFingerprint: input.sendFingerprint,
+          ticketSummary,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+      try {
+        mutexLease = await acquireInputMutex(sessionID, INPUT_MUTEX_TIMEOUT_MS);
+      } catch {
+        this.markMutexTimeout(sessionID);
+        const audit = this.recordOutboundAttempt({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
+          message: 'outbound_degraded:input_mutex_timeout:draft_only',
+          reason: 'desktop_send_failed',
+          archAdvisorApproved,
+          targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
+          riskLevel,
+          policyHash,
+          sendFingerprint: input.sendFingerprint,
+          ticketSummary,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+    }
+
     if (input.channel === 'qq') {
       const result = sendQqDesktopMessage({
         destination: input.destination,
         text,
         mediaPath,
       });
+      if (result.sent && result.receiptStatus !== 'confirmed') {
+        result.sent = false;
+        result.message = 'outbound_blocked:receipt_uncertain';
+      }
       const audit = this.recordOutboundAttempt({
         channel: 'qq',
         destination: input.destination,
@@ -715,7 +918,16 @@ export class ChannelRuntime {
         containsSensitive,
         riskLevel,
         policyHash,
+        sendFingerprint: input.sendFingerprint,
+        ticketSummary,
+        visualPrecheck: result.visualPrecheck,
+        visualPostcheck: result.visualPostcheck,
+        receiptStatus: result.receiptStatus,
       });
+      if (result.sent) {
+        this.clearMutexStrike(sessionID);
+      }
+      mutexLease?.release();
       return { ...result, auditID: audit.id };
     }
 
@@ -725,6 +937,10 @@ export class ChannelRuntime {
         text,
         mediaPath,
       });
+      if (result.sent && result.receiptStatus !== 'confirmed') {
+        result.sent = false;
+        result.message = 'outbound_blocked:receipt_uncertain';
+      }
       const audit = this.recordOutboundAttempt({
         channel: 'wechat',
         destination: input.destination,
@@ -740,9 +956,19 @@ export class ChannelRuntime {
         containsSensitive,
         riskLevel,
         policyHash,
+        sendFingerprint: input.sendFingerprint,
+        ticketSummary,
+        visualPrecheck: result.visualPrecheck,
+        visualPostcheck: result.visualPostcheck,
+        receiptStatus: result.receiptStatus,
       });
+      if (result.sent) {
+        this.clearMutexStrike(sessionID);
+      }
+      mutexLease?.release();
       return { ...result, auditID: audit.id };
     }
+    mutexLease?.release();
     return {
       sent: false,
       message: `channel_send_blocked:${input.channel}:INBOUND_ONLY channels are receive-only`,

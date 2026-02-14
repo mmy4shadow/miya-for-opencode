@@ -4,6 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { ingestMedia } from '../media/store';
 import {
+  cancelCompanionWizardTraining,
+  isCompanionWizardEmpty,
   markTrainingJobFinished,
   markTrainingJobRunning,
   readCompanionWizardState,
@@ -67,6 +69,57 @@ describe('companion wizard', () => {
 
     const done = submitWizardPersonality(projectDir, { personalityText: '你是个讽刺的艺术学生' });
     expect(done.state).toBe('completed');
-    expect(readCompanionWizardState(projectDir).assets.personalityText.length).toBeGreaterThan(0);
+    expect(readCompanionWizardState(projectDir, 's1').assets.personalityText.length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  test('enforces photo count 1-5 and session-isolated wizard file path', () => {
+    const projectDir = tempProjectDir();
+    startCompanionWizard(projectDir, { sessionId: 'room_a', forceReset: true });
+    const imageMedia = ingestMedia(projectDir, {
+      source: 'test',
+      kind: 'image',
+      mimeType: 'image/png',
+      fileName: 'p.png',
+      contentBase64: ONE_PIXEL_BASE64,
+    });
+    expect(() =>
+      submitWizardPhotos(projectDir, {
+        sessionId: 'room_a',
+        mediaIDs: Array.from({ length: 6 }, () => imageMedia.id),
+      }),
+    ).toThrow(/must_be_1_to_5/);
+
+    const legacyFile = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'profiles',
+      'companion',
+      'current',
+      'wizard-session.json',
+    );
+    expect(fs.existsSync(legacyFile)).toBe(false);
+  });
+
+  test('cancel marks queued/running jobs canceled and keeps wizard retryable', () => {
+    const projectDir = tempProjectDir();
+    startCompanionWizard(projectDir, { sessionId: 'cancel_case', forceReset: true });
+    const imageMedia = ingestMedia(projectDir, {
+      source: 'test',
+      kind: 'image',
+      mimeType: 'image/png',
+      fileName: 'p.png',
+      contentBase64: ONE_PIXEL_BASE64,
+    });
+    const photos = submitWizardPhotos(projectDir, {
+      sessionId: 'cancel_case',
+      mediaIDs: [imageMedia.id],
+    });
+    markTrainingJobRunning(projectDir, photos.job.id, 'cancel_case');
+    const canceled = cancelCompanionWizardTraining(projectDir, 'cancel_case');
+    expect(canceled.jobs.some((job) => job.status === 'canceled')).toBe(true);
+    expect(isCompanionWizardEmpty(projectDir, 'cancel_case')).toBe(false);
   });
 });

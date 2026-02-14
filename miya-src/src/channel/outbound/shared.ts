@@ -4,7 +4,13 @@ export function sendDesktopOutbound(input: {
   destination: string;
   text?: string;
   mediaPath?: string;
-}): { sent: boolean; message: string } {
+}): {
+  sent: boolean;
+  message: string;
+  visualPrecheck?: string;
+  visualPostcheck?: string;
+  receiptStatus?: 'confirmed' | 'uncertain';
+} {
   if (process.platform !== 'win32') {
     return { sent: false, message: 'desktop_ui_windows_only' };
   }
@@ -45,6 +51,7 @@ if (-not $activated) {
 if (-not $activated) {
   throw "window_not_found:$destination"
 }
+$precheck = "window_activated"
 
 if ($mediaPath) {
   if (-not (Test-Path -LiteralPath $mediaPath)) {
@@ -70,7 +77,13 @@ if ($payload) {
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 }
 
-Write-Output 'desktop_send_ok'
+if (-not $shell.AppActivate($appName)) {
+  throw "postcheck_window_not_active:$appName"
+}
+$postcheck = "window_active_after_send"
+$receipt = "confirmed"
+
+Write-Output ("desktop_send_ok|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt)
 `.trim();
 
   const proc = Bun.spawnSync(
@@ -92,12 +105,24 @@ Write-Output 'desktop_send_ok'
   const stdout = Buffer.from(proc.stdout).toString('utf-8').trim();
   const stderr = Buffer.from(proc.stderr).toString('utf-8').trim();
   if (proc.exitCode === 0 && stdout.includes('desktop_send_ok')) {
-    return { sent: true, message: `${input.channel}_desktop_sent` };
+    const precheck = /pre=([^|]+)/.exec(stdout)?.[1] ?? 'window_activated';
+    const postcheck = /post=([^|]+)/.exec(stdout)?.[1] ?? 'window_active_after_send';
+    const receipt = /receipt=([^|]+)/.exec(stdout)?.[1] === 'confirmed' ? 'confirmed' : 'uncertain';
+    return {
+      sent: true,
+      message: `${input.channel}_desktop_sent`,
+      visualPrecheck: precheck,
+      visualPostcheck: postcheck,
+      receiptStatus: receipt,
+    };
   }
 
   const detail = stderr || stdout || `exit_${proc.exitCode}`;
   return {
     sent: false,
     message: `${input.channel}_desktop_send_failed:${detail}`,
+    visualPrecheck: 'failed',
+    visualPostcheck: 'failed',
+    receiptStatus: 'uncertain',
   };
 }

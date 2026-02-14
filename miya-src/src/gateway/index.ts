@@ -82,12 +82,15 @@ import {
   searchCompanionMemoryVectors,
 } from '../companion/memory-vector';
 import {
+  cancelCompanionWizardTraining,
   getCompanionProfileCurrentDir,
   getWizardJobById,
+  isCompanionWizardEmpty,
   markTrainingJobFinished,
   markTrainingJobRunning,
   pickQueuedTrainingJob,
   readCompanionWizardState,
+  requeueTrainingJob,
   resetCompanionWizard,
   startCompanionWizard,
   submitWizardPersonality,
@@ -326,6 +329,55 @@ function parseText(value: unknown): string {
 
 function parseChannel(value: unknown): ChannelName | null {
   return isChannelName(value) ? value : null;
+}
+
+const WIZARD_PROMPT_PHOTOS = '给我展示我应该是什么样子。发送1到5张照片。';
+const WIZARD_PROMPT_VOICE = '我应该用什么声音？录音或发送文件。';
+const WIZARD_PROMPT_PERSONALITY = '我是谁？告诉我我的性格、习惯和我们的关系。';
+const WIZARD_PROMPT_DONE = '设置完成。你好，亲爱的！';
+const WIZARD_CANCELLED_MESSAGE = '训练已取消/可重试';
+
+function wizardPromptByState(state: string): string {
+  if (state === 'awaiting_photos') return WIZARD_PROMPT_PHOTOS;
+  if (state === 'awaiting_voice') return WIZARD_PROMPT_VOICE;
+  if (state === 'awaiting_personality') return WIZARD_PROMPT_PERSONALITY;
+  if (state === 'completed') return WIZARD_PROMPT_DONE;
+  return '';
+}
+
+function containsSensitiveText(text: string): boolean {
+  const sensitivePattern =
+    /(密码|验证码|银行卡|身份证|私钥|seed|助记词|token|secret|api[_-]?key|wallet|汇款|转账|打款|otp|password)/i;
+  return sensitivePattern.test(text);
+}
+
+function inferIntentSuspicious(text: string): boolean {
+  const suspiciousPattern =
+    /(立刻发|马上发|偷偷发|别告诉|绕过|伪装|冒充|代发|紧急转账|秘密|隐私文件|内部资料|账号|凭据)/i;
+  return suspiciousPattern.test(text);
+}
+
+function deriveRiskLevel(input: {
+  containsSensitive: boolean;
+  factorIntentSuspicious: boolean;
+  factorRecipientIsMe: boolean;
+}): 'LOW' | 'MEDIUM' | 'HIGH' {
+  if (input.containsSensitive && (input.factorIntentSuspicious || !input.factorRecipientIsMe)) {
+    return 'HIGH';
+  }
+  if (input.containsSensitive || input.factorIntentSuspicious) {
+    return 'MEDIUM';
+  }
+  return 'LOW';
+}
+
+interface ApprovalTicketSummary {
+  permission: string;
+  requestHash: string;
+  traceID: string;
+  createdAt: string;
+  expiresAt: string;
+  tier: string;
 }
 
 function requirePolicyHash(projectDir: string, providedHash: string | undefined): string {
@@ -605,12 +657,12 @@ async function routeSessionMessage(
   }
 }
 
-function enforceToken(input: {
+function resolveApprovalTicket(input: {
   projectDir: string;
   sessionID: string;
   permission: string;
   patterns: string[];
-}): { ok: true } | { ok: false; reason: string } {
+}): { ok: true; ticket: ApprovalTicketSummary } | { ok: false; reason: string } {
   const kill = readKillSwitch(input.projectDir);
   if (kill.active) {
     return { ok: false, reason: 'kill_switch_active' };
@@ -632,10 +684,32 @@ function enforceToken(input: {
     false,
   );
   const token = findApprovalToken(input.projectDir, input.sessionID, [requestHash], tier);
-  if (token) return { ok: true };
+  if (token) {
+    return {
+      ok: true,
+      ticket: {
+        permission: input.permission,
+        requestHash,
+        traceID: token.trace_id,
+        createdAt: token.created_at,
+        expiresAt: token.expires_at,
+        tier: token.tier,
+      },
+    };
+  }
 
   activateKillSwitch(input.projectDir, 'missing_evidence', randomUUID());
   return { ok: false, reason: 'missing_evidence' };
+}
+
+function enforceToken(input: {
+  projectDir: string;
+  sessionID: string;
+  permission: string;
+  patterns: string[];
+}): { ok: true } | { ok: false; reason: string } {
+  const resolved = resolveApprovalTicket(input);
+  return resolved.ok ? { ok: true } : resolved;
 }
 
 function renderConsoleHtml(snapshot: GatewaySnapshot): string {
@@ -876,37 +950,61 @@ async function runWizardTrainingWorker(
   if (!queued) return;
   runtime.wizardRunnerBusy = true;
   try {
-    const runningState = markTrainingJobRunning(projectDir, queued.id);
+    const runningState = markTrainingJobRunning(projectDir, queued.job.id, queued.sessionId);
     publishGatewayEvent(runtime, 'companion.wizard.progress', {
-      jobID: queued.id,
-      type: queued.type,
+      sessionId: queued.sessionId,
+      jobID: queued.job.id,
+      type: queued.job.type,
       status: 'training',
       progress: 5,
       step: runningState.state,
     });
     const daemon = getMiyaDaemonService(projectDir);
-    const profileDir = getCompanionProfileCurrentDir(projectDir);
-    if (queued.type === 'training.image') {
+    const profileDir = getCompanionProfileCurrentDir(projectDir, queued.sessionId);
+    if (queued.job.type === 'training.image') {
       const photosDir = path.join(profileDir, 'photos');
       const result = await daemon.runFluxTraining({
         profileDir,
         photosDir,
-        jobID: queued.id,
+        jobID: queued.job.id,
+        checkpointPath: queued.job.checkpointPath,
       });
+      if (result.status === 'failed' && result.checkpointPath && queued.job.attempts < 3) {
+        const requeued = requeueTrainingJob(projectDir, {
+          sessionId: queued.sessionId,
+          jobID: queued.job.id,
+          checkpointPath: result.checkpointPath,
+          message: '训练中断，已从checkpoint自动重排队恢复',
+        });
+        publishGatewayEvent(runtime, 'companion.wizard.progress', {
+          sessionId: queued.sessionId,
+          jobID: queued.job.id,
+          type: queued.job.type,
+          status: 'pending',
+          progress: Math.max(10, queued.job.progress),
+          message: '训练中断，已从checkpoint自动重排队恢复',
+          step: requeued.state,
+        });
+        return;
+      }
       const done = markTrainingJobFinished(projectDir, {
-        jobID: queued.id,
+        sessionId: queued.sessionId,
+        jobID: queued.job.id,
         status: result.status === 'failed' ? 'failed' : result.status,
         message: result.message,
         tier: result.tier,
+        checkpointPath: result.checkpointPath,
       });
       publishGatewayEvent(runtime, 'companion.wizard.progress', {
-        jobID: queued.id,
-        type: queued.type,
+        sessionId: queued.sessionId,
+        jobID: queued.job.id,
+        type: queued.job.type,
         status: result.status === 'failed' ? 'failed' : result.status,
-        progress: result.status === 'failed' ? 50 : 100,
+        progress: result.status === 'failed' || result.status === 'canceled' ? 50 : 100,
         currentTier: result.tier,
         message: result.message,
         step: done.state,
+        nextPrompt: wizardPromptByState(done.state),
       });
       return;
     }
@@ -915,22 +1013,45 @@ async function runWizardTrainingWorker(
     const result = await daemon.runSovitsTraining({
       profileDir,
       voiceSamplePath,
-      jobID: queued.id,
+      jobID: queued.job.id,
+      checkpointPath: queued.job.checkpointPath,
     });
+    if (result.status === 'failed' && result.checkpointPath && queued.job.attempts < 3) {
+      const requeued = requeueTrainingJob(projectDir, {
+        sessionId: queued.sessionId,
+        jobID: queued.job.id,
+        checkpointPath: result.checkpointPath,
+        message: '训练中断，已从checkpoint自动重排队恢复',
+      });
+      publishGatewayEvent(runtime, 'companion.wizard.progress', {
+        sessionId: queued.sessionId,
+        jobID: queued.job.id,
+        type: queued.job.type,
+        status: 'pending',
+        progress: Math.max(10, queued.job.progress),
+        message: '训练中断，已从checkpoint自动重排队恢复',
+        step: requeued.state,
+      });
+      return;
+    }
     const done = markTrainingJobFinished(projectDir, {
-      jobID: queued.id,
+      sessionId: queued.sessionId,
+      jobID: queued.job.id,
       status: result.status === 'failed' ? 'failed' : result.status,
       message: result.message,
       tier: result.tier,
+      checkpointPath: result.checkpointPath,
     });
     publishGatewayEvent(runtime, 'companion.wizard.progress', {
-      jobID: queued.id,
-      type: queued.type,
+      sessionId: queued.sessionId,
+      jobID: queued.job.id,
+      type: queued.job.type,
       status: result.status === 'failed' ? 'failed' : result.status,
-      progress: result.status === 'failed' ? 50 : 100,
+      progress: result.status === 'failed' || result.status === 'canceled' ? 50 : 100,
       currentTier: result.tier,
       message: result.message,
       step: done.state,
+      nextPrompt: wizardPromptByState(done.state),
     });
   } finally {
     runtime.wizardRunnerBusy = false;
@@ -1036,17 +1157,22 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const text = parseText(params.text);
     if (!sessionID || !text) throw new Error('invalid_sessions_send_args');
     if (text.trim() === '/start') {
-      const wizard = startCompanionWizard(projectDir, { sessionId: sessionID });
+      const wizard = isCompanionWizardEmpty(projectDir, sessionID)
+        ? startCompanionWizard(projectDir, { sessionId: sessionID })
+        : readCompanionWizardState(projectDir, sessionID);
       return {
         sessionID: wizard.sessionId,
         wizard,
         checklist: wizardChecklist(wizard),
-        message: '给我展示我应该是什么样子。发送1到5张照片。',
+        message:
+          wizard.state === 'awaiting_photos'
+            ? WIZARD_PROMPT_PHOTOS
+            : `检测到已有向导进度，已恢复继续。${wizardPromptByState(wizard.state)}`,
         instruction: '将照片拖拽到聊天中',
       };
     }
     if (text.trim() === '/reset_personality') {
-      const wizard = resetCompanionWizard(projectDir);
+      const wizard = resetCompanionWizard(projectDir, sessionID);
       return {
         sessionID: wizard.sessionId,
         wizard,
@@ -1210,6 +1336,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     }
     const resolvedPolicyHash = requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'outbound_send');
+    requireDomainRunning(projectDir, 'desktop_control');
     const outboundCheckRaw =
       params.outboundCheck && typeof params.outboundCheck === 'object'
         ? (params.outboundCheck as Record<string, unknown>)
@@ -1218,38 +1345,26 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       outboundCheckRaw && typeof outboundCheckRaw.archAdvisorApproved === 'boolean'
         ? Boolean(outboundCheckRaw.archAdvisorApproved)
         : false;
-    const riskLevelInput =
-      outboundCheckRaw && typeof outboundCheckRaw.riskLevel === 'string'
-        ? String(outboundCheckRaw.riskLevel)
-        : 'HIGH';
-    const riskLevel =
-      riskLevelInput === 'LOW' || riskLevelInput === 'MEDIUM' || riskLevelInput === 'HIGH'
-        ? riskLevelInput
-        : 'HIGH';
     const intent =
       outboundCheckRaw && typeof outboundCheckRaw.intent === 'string'
         ? String(outboundCheckRaw.intent)
         : 'initiate';
-    const containsSensitive =
-      outboundCheckRaw && typeof outboundCheckRaw.containsSensitive === 'boolean'
-        ? Boolean(outboundCheckRaw.containsSensitive)
-        : false;
     const factorRecipientIsMeInput =
       outboundCheckRaw && typeof outboundCheckRaw.factorRecipientIsMe === 'boolean'
         ? Boolean(outboundCheckRaw.factorRecipientIsMe)
         : null;
-    const factorIntentSuspicious =
-      outboundCheckRaw && typeof outboundCheckRaw.factorIntentSuspicious === 'boolean'
-        ? Boolean(outboundCheckRaw.factorIntentSuspicious)
-        : false;
-    const confidenceIntentRaw =
-      outboundCheckRaw && typeof outboundCheckRaw.confidenceIntent === 'number'
-        ? Number(outboundCheckRaw.confidenceIntent)
-        : 0.5;
     const factorRecipientIsMe =
       factorRecipientIsMeInput !== null
         ? factorRecipientIsMeInput
         : getContactTier(projectDir, channel, destination) === 'owner';
+    const containsSensitive = containsSensitiveText(text);
+    const factorIntentSuspicious = inferIntentSuspicious(text);
+    const confidenceIntentRaw = factorIntentSuspicious ? 0.35 : containsSensitive ? 0.75 : 0.95;
+    const riskLevel = deriveRiskLevel({
+      containsSensitive,
+      factorIntentSuspicious,
+      factorRecipientIsMe,
+    });
 
     if (idempotencyKey) {
       const key = `channels.send:${idempotencyKey}`;
@@ -1352,23 +1467,45 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       };
     }
 
-    const token = enforceToken({
+    const payloadHash = hashText(`${text}||${mediaPath}`);
+    const outboundTicket = resolveApprovalTicket({
       projectDir,
       sessionID,
       permission: 'external_message',
       patterns: [
         `channel=${channel}`,
         `dest=${destination}`,
-        `payload_sha256=${hashText(`${text}||${mediaPath}`)}`,
+        `payload_sha256=${payloadHash}`,
       ],
     });
-    if (!token.ok) throw new Error(`approval_required:${token.reason}`);
+    if (!outboundTicket.ok) throw new Error(`approval_required:${outboundTicket.reason}`);
+    const desktopTicket = resolveApprovalTicket({
+      projectDir,
+      sessionID,
+      permission: 'desktop_control',
+      patterns: [
+        `channel=${channel}`,
+        `dest=${destination}`,
+        `payload_sha256=${payloadHash}`,
+      ],
+    });
+    if (!desktopTicket.ok) throw new Error(`approval_required:${desktopTicket.reason}`);
+
+    const sendFingerprint = hashText(
+      `${channel}|${destination}|${payloadHash}|${Math.floor(Date.now() / 60000)}`,
+    ).slice(0, 40);
 
     const result = await runtime.channelRuntime.sendMessage({
       channel,
       destination,
       text,
       mediaPath: mediaPath || undefined,
+      sessionID,
+      sendFingerprint,
+      approvalTickets: {
+        outboundSend: outboundTicket.ticket,
+        desktopControl: desktopTicket.ticket,
+      },
       outboundCheck: {
         archAdvisorApproved,
         riskLevel,
@@ -1434,6 +1571,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return {
       ...result,
       policyHash: resolvedPolicyHash,
+      sendFingerprint,
     };
   });
 
@@ -1970,6 +2108,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
 
   methods.register('companion.status', async () => readCompanionProfile(projectDir));
   methods.register('companion.wizard.start', async (params) => {
+    const sessionId = parseText(params.sessionID) || 'wizard:companion';
     const session = upsertSession(projectDir, {
       id: 'wizard:companion',
       kind: 'wizard',
@@ -1979,25 +2118,30 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       agent: '1-task-manager',
     });
     const profile = readCompanionProfile(projectDir);
-    const wizard = startCompanionWizard(projectDir, {
-      sessionId: 'wizard:companion',
-      forceReset: Boolean(params.forceReset),
-    });
+    const forceReset = Boolean(params.forceReset);
+    const wizard =
+      !forceReset && !isCompanionWizardEmpty(projectDir, sessionId)
+        ? readCompanionWizardState(projectDir, sessionId)
+        : startCompanionWizard(projectDir, {
+            sessionId,
+            forceReset,
+          });
     return {
       session,
       profile,
       wizard,
       checklist: wizardChecklist(wizard),
       state: wizard.state,
-      message: '给我展示我应该是什么样子。发送1到5张照片。',
+      message: wizardPromptByState(wizard.state),
       instruction: '将照片拖拽到聊天中',
     };
   });
-  methods.register('companion.wizard.status', async () => {
-    const wizard = readCompanionWizardState(projectDir);
+  methods.register('companion.wizard.status', async (params) => {
+    const wizard = readCompanionWizardState(projectDir, parseText(params.sessionID) || 'main');
     return {
       wizard,
       checklist: wizardChecklist(wizard),
+      prompt: wizardPromptByState(wizard.state),
     };
   });
   methods.register('companion.wizard.photos.submit', async (params) => {
@@ -2009,7 +2153,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       : Array.isArray(params.imageMediaIDs)
         ? params.imageMediaIDs.map(String)
         : [];
-    const { state, job } = submitWizardPhotos(projectDir, { mediaIDs });
+    const sessionId = parseText(params.sessionID) || 'main';
+    const { state, job } = submitWizardPhotos(projectDir, { mediaIDs, sessionId });
     return {
       state: state.state,
       message: '收到照片，开始训练图像模型...',
@@ -2025,7 +2170,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requireDomainRunning(projectDir, 'memory_write');
     const mediaID = parseText(params.mediaID) || parseText(params.audioMediaID);
     if (!mediaID) throw new Error('invalid_voice_media_id');
-    const { state, job } = submitWizardVoice(projectDir, { mediaID });
+    const sessionId = parseText(params.sessionID) || 'main';
+    const { state, job } = submitWizardVoice(projectDir, { mediaID, sessionId });
     return {
       state: state.state,
       message: '收到语音样本，开始训练声音模型...',
@@ -2039,14 +2185,38 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
     const personalityText = parseText(params.personalityText);
+    const sessionId = parseText(params.sessionID) || 'main';
     const wizard = submitWizardPersonality(projectDir, {
       personalityText,
+      sessionId,
+    });
+    patchCompanionProfile(projectDir, {
+      onboardingCompleted: true,
     });
     return {
       state: wizard.state,
-      message: '设置完成。你好，亲爱的！',
+      message: WIZARD_PROMPT_DONE,
       personaPreview: wizard.assets.personalityText.slice(0, 120),
       checklist: wizardChecklist(wizard),
+    };
+  });
+  methods.register('companion.wizard.cancel', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const sessionId = parseText(params.sessionID) || 'main';
+    const daemon = getMiyaDaemonService(projectDir);
+    const state = readCompanionWizardState(projectDir, sessionId);
+    for (const job of state.jobs) {
+      if (job.status === 'queued' || job.status === 'training') {
+        daemon.requestTrainingCancel(job.id);
+      }
+    }
+    const canceled = cancelCompanionWizardTraining(projectDir, sessionId);
+    return {
+      state: canceled.state,
+      checklist: wizardChecklist(canceled),
+      message: WIZARD_CANCELLED_MESSAGE,
     };
   });
   methods.register('companion.wizard.submit', async (params) => {
@@ -2076,7 +2246,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('companion.wizard.tick', async () => {
     await runWizardTrainingWorker(projectDir, runtime);
     return {
-      wizard: readCompanionWizardState(projectDir),
+      wizard: readCompanionWizardState(projectDir, 'main'),
     };
   });
   methods.register('companion.wizard.progress.get', async (params) => {
@@ -2084,11 +2254,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!jobID) throw new Error('invalid_job_id');
     const job = getWizardJobById(projectDir, jobID);
     if (!job) throw new Error('job_not_found');
-    const status: 'pending' | 'training' | 'completed' | 'failed' | 'degraded' =
+    const status: 'pending' | 'training' | 'completed' | 'failed' | 'degraded' | 'canceled' =
       job.status === 'queued' ? 'pending' : job.status;
     const nextStep =
       status === 'completed' || status === 'degraded'
-        ? readCompanionWizardState(projectDir).state
+        ? readCompanionWizardState(projectDir, job.sessionId).state
         : undefined;
     return {
       status,
@@ -2096,6 +2266,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       currentTier: job.currentTier,
       message: job.message ?? '',
       nextStep,
+      checkpointPath: job.checkpointPath,
+      sessionId: job.sessionId,
     }
   });
   methods.register('companion.profile.update', async (params) => {

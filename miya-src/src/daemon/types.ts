@@ -1,6 +1,11 @@
 import type { ResourceRequest, ResourceTaskKind } from '../resource-scheduler';
 
-export type DaemonJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type DaemonJobStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'canceled';
 
 export interface DaemonJobRequest {
   kind: ResourceTaskKind;
