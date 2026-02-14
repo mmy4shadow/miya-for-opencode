@@ -6,6 +6,7 @@ import { getResourceScheduler } from '../resource-scheduler';
 import type { ResourceTaskKind } from '../resource-scheduler';
 import { getMiyaModelPath, getMiyaModelRootDir } from '../model/paths';
 import { getMiyaRuntimeDir } from '../workflow';
+import { maybeAutoReflectCompanionMemory } from '../companion/memory-reflect';
 import {
   ensurePythonRuntime,
   readPythonRuntimeStatus,
@@ -221,6 +222,21 @@ export class MiyaDaemonService {
     if (!this.started) return;
     this.started = false;
     this.writeRuntimeState('stopped');
+  }
+
+  runMemoryWorkerTick(): { triggered: boolean; processedLogs?: number; generatedTriplets?: number } {
+    const reflected = maybeAutoReflectCompanionMemory(this.projectDir, {
+      idleMinutes: 5,
+      minPendingLogs: 1,
+      cooldownMinutes: 3,
+      maxLogs: 120,
+    });
+    if (!reflected) return { triggered: false };
+    return {
+      triggered: true,
+      processedLogs: reflected.processedLogs,
+      generatedTriplets: reflected.generatedTriplets,
+    };
   }
 
   getModelLockStatus(): Record<string, { expected: string; ok: boolean; reason?: string }> {

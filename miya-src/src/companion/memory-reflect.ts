@@ -15,6 +15,7 @@ export interface MemoryShortTermLog {
 }
 
 interface ReflectTriplet {
+  kind: 'Fact' | 'Insight' | 'UserPreference';
   subject: 'User' | 'Miya';
   predicate: string;
   object: string;
@@ -27,6 +28,9 @@ export interface ReflectResult {
   jobID: string;
   processedLogs: number;
   generatedTriplets: number;
+  generatedFacts: number;
+  generatedInsights: number;
+  generatedPreferences: number;
   createdMemories: CompanionMemoryVector[];
   archivedLogs: number;
 }
@@ -127,16 +131,24 @@ function writeReflectState(projectDir: string, patch: Partial<ReflectState>): Re
 }
 
 function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
-  if (log.sender !== 'user') return [];
+  if (log.sender === 'system') return [];
   const text = normalizeText(log.text);
   if (!text) return [];
   const triplets: ReflectTriplet[] = [];
 
-  const add = (predicate: string, object: string, confidence: number, tier: 'L1' | 'L2' | 'L3') => {
+  const add = (
+    kind: 'Fact' | 'Insight' | 'UserPreference',
+    subject: 'User' | 'Miya',
+    predicate: string,
+    object: string,
+    confidence: number,
+    tier: 'L1' | 'L2' | 'L3',
+  ) => {
     const value = normalizeText(object);
     if (!value) return;
     triplets.push({
-      subject: 'User',
+      kind,
+      subject,
       predicate,
       object: value,
       confidence,
@@ -146,19 +158,35 @@ function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
   };
 
   const likes = text.match(/我(?:特别)?喜欢([^，。！？!?.]+)/);
-  if (likes?.[1]) add('likes', likes[1], 0.82, 'L2');
+  if (likes?.[1]) add('UserPreference', 'User', 'likes', likes[1], 0.86, 'L2');
 
   const dislikes = text.match(/我(?:很|真的)?不喜欢([^，。！？!?.]+)/);
-  if (dislikes?.[1]) add('dislikes', dislikes[1], 0.82, 'L2');
+  if (dislikes?.[1]) add('UserPreference', 'User', 'dislikes', dislikes[1], 0.86, 'L2');
+
+  const prefers = text.match(/(?:以后|之后|从现在开始)?(?:只要|只喝|只用|优先)\s*([^，。！？!?.]+)/);
+  if (prefers?.[1]) add('UserPreference', 'User', 'prefers', prefers[1], 0.9, 'L2');
+
+  const avoids = text.match(/(?:不要|别|避免)\s*([^，。！？!?.]+)/);
+  if (avoids?.[1]) add('UserPreference', 'User', 'avoids', avoids[1], 0.88, 'L2');
 
   const needs = text.match(/我(?:需要|想要|要)([^，。！？!?.]+)/);
-  if (needs?.[1]) add('requires', needs[1], 0.68, 'L2');
+  if (needs?.[1]) add('Fact', 'User', 'requires', needs[1], 0.7, 'L2');
 
   const blocks = text.match(/(?:卡在|被|遇到)([^，。！？!?.]+)(?:问题|错误|异常|报错)/);
-  if (blocks?.[1]) add('is_blocking', `${blocks[1]}问题`, 0.7, 'L2');
+  if (blocks?.[1]) add('Insight', 'User', 'is_blocking', `${blocks[1]}问题`, 0.75, 'L2');
+
+  const anxiety = text.match(/(?:焦虑|着急|担心|压力很大|怕来不及)([^，。！？!?.]*)/);
+  if (anxiety) add('Insight', 'User', 'emotion_signal', `进度压力 ${anxiety[0]}`.trim(), 0.72, 'L3');
 
   const project = text.match(/(?:项目|仓库|repo|分支)\s*[:：]?\s*([^，。！？!?.]+)/i);
-  if (project?.[1]) add('project', project[1], 0.65, 'L2');
+  if (project?.[1]) add('Fact', 'User', 'project', project[1], 0.68, 'L2');
+
+  const apiRef = text.match(/(?:API|文档|doc|docs?)\s*[:：]?\s*([^，。！？!?.]+)/i);
+  if (apiRef?.[1]) add('Fact', 'User', 'api_reference', apiRef[1], 0.64, 'L3');
+
+  if (triplets.length === 0 && text.length <= 120) {
+    add('Fact', log.sender === 'assistant' ? 'Miya' : 'User', 'stated', text, 0.55, 'L3');
+  }
 
   return triplets;
 }
@@ -234,6 +262,9 @@ export function reflectCompanionMemory(
         jobID: `reflect_${randomUUID()}`,
         processedLogs: 0,
         generatedTriplets: 0,
+        generatedFacts: 0,
+        generatedInsights: 0,
+        generatedPreferences: 0,
         createdMemories: [],
         archivedLogs: 0,
       };
@@ -252,6 +283,9 @@ export function reflectCompanionMemory(
       jobID: `reflect_${randomUUID()}`,
       processedLogs: 0,
       generatedTriplets: 0,
+      generatedFacts: 0,
+      generatedInsights: 0,
+      generatedPreferences: 0,
       createdMemories: [],
       archivedLogs: 0,
     };
@@ -260,6 +294,9 @@ export function reflectCompanionMemory(
   const maxLogs = Math.max(1, input?.maxLogs ?? 50);
   const picked = pending.slice(0, maxLogs);
   const triplets = picked.flatMap((row) => extractTriplets(row));
+  const generatedFacts = triplets.filter((item) => item.kind === 'Fact').length;
+  const generatedInsights = triplets.filter((item) => item.kind === 'Insight').length;
+  const generatedPreferences = triplets.filter((item) => item.kind === 'UserPreference').length;
   const createdMemories = triplets.map((triplet) =>
     upsertCompanionMemoryVector(projectDir, {
       text: tripletText(triplet),
@@ -268,6 +305,8 @@ export function reflectCompanionMemory(
       confidence: triplet.confidence,
       tier: triplet.tier,
       sourceMessageID: triplet.sourceLogID,
+      sourceType: 'reflect',
+      memoryKind: triplet.kind,
     }),
   );
 
@@ -284,6 +323,9 @@ export function reflectCompanionMemory(
     jobID: `reflect_${randomUUID()}`,
     processedLogs: picked.length,
     generatedTriplets: triplets.length,
+    generatedFacts,
+    generatedInsights,
+    generatedPreferences,
     createdMemories,
     archivedLogs: moved.length,
   };
@@ -306,8 +348,8 @@ export function maybeAutoReflectCompanionMemory(
     maxLogs?: number;
   },
 ): ReflectResult | null {
-  const idleMinutes = Math.max(1, input?.idleMinutes ?? 10);
-  const minPendingLogs = Math.max(1, input?.minPendingLogs ?? 50);
+  const idleMinutes = Math.max(1, input?.idleMinutes ?? 5);
+  const minPendingLogs = Math.max(1, input?.minPendingLogs ?? 1);
   const cooldownMinutes = Math.max(1, input?.cooldownMinutes ?? 3);
   const status = getMemoryReflectStatus(projectDir);
   if (status.pendingLogs < minPendingLogs) return null;

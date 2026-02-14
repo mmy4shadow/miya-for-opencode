@@ -21,6 +21,7 @@ function openDatabase(projectDir: string): Database {
       subject TEXT NOT NULL,
       predicate TEXT NOT NULL,
       object TEXT NOT NULL,
+      memory_kind TEXT DEFAULT 'Fact',
       confidence REAL DEFAULT 0.5,
       source_message_id TEXT,
       conflict_flag INTEGER DEFAULT 0,
@@ -37,6 +38,22 @@ function openDatabase(projectDir: string): Database {
       FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
     );
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS long_term_graph (
+      memory_id TEXT PRIMARY KEY,
+      subject TEXT NOT NULL,
+      predicate TEXT NOT NULL,
+      object TEXT NOT NULL,
+      memory_kind TEXT NOT NULL,
+      confidence REAL DEFAULT 0.5,
+      source_message_id TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(memory_id) REFERENCES memories(id) ON DELETE CASCADE
+    );
+  `);
+  try {
+    db.exec(`ALTER TABLE memories ADD COLUMN memory_kind TEXT DEFAULT 'Fact'`);
+  } catch {}
   return db;
 }
 
@@ -65,13 +82,14 @@ export function syncCompanionMemoriesToSqlite(
     db = openDatabase(projectDir);
     const upsertMemory = db.query(`
       INSERT INTO memories (
-        id, subject, predicate, object, confidence, source_message_id,
+        id, subject, predicate, object, memory_kind, confidence, source_message_id,
         conflict_flag, is_archived, access_count, created_at, last_accessed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         subject=excluded.subject,
         predicate=excluded.predicate,
         object=excluded.object,
+        memory_kind=excluded.memory_kind,
         confidence=excluded.confidence,
         source_message_id=excluded.source_message_id,
         conflict_flag=excluded.conflict_flag,
@@ -86,6 +104,19 @@ export function syncCompanionMemoriesToSqlite(
       ON CONFLICT(memory_id) DO UPDATE SET
         object_embedding=excluded.object_embedding
     `);
+    const upsertLongTermGraph = db.query(`
+      INSERT INTO long_term_graph (
+        memory_id, subject, predicate, object, memory_kind, confidence, source_message_id, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(memory_id) DO UPDATE SET
+        subject=excluded.subject,
+        predicate=excluded.predicate,
+        object=excluded.object,
+        memory_kind=excluded.memory_kind,
+        confidence=excluded.confidence,
+        source_message_id=excluded.source_message_id,
+        updated_at=excluded.updated_at
+    `);
 
     const tx = db.transaction(() => {
       for (const item of items) {
@@ -95,6 +126,7 @@ export function syncCompanionMemoriesToSqlite(
           triplet.subject,
           triplet.predicate,
           triplet.object,
+          item.memoryKind ?? 'Fact',
           item.confidence,
           item.sourceMessageID ?? null,
           item.conflictWizardID ? 1 : 0,
@@ -104,6 +136,16 @@ export function syncCompanionMemoriesToSqlite(
           item.lastAccessedAt,
         );
         upsertVss.run(item.id, JSON.stringify(item.embedding));
+        upsertLongTermGraph.run(
+          item.id,
+          triplet.subject,
+          triplet.predicate,
+          triplet.object,
+          item.memoryKind ?? 'Fact',
+          item.confidence,
+          item.sourceMessageID ?? null,
+          item.updatedAt,
+        );
       }
     });
     tx();
@@ -120,6 +162,7 @@ export function getCompanionMemorySqliteStats(projectDir: string): {
   sqlitePath: string;
   memoryCount: number;
   vectorCount: number;
+  graphCount: number;
 } {
   let db: Database | null = null;
   const dbPath = sqlitePath(projectDir);
@@ -131,10 +174,15 @@ export function getCompanionMemorySqliteStats(projectDir: string): {
     const vectorCount = Number(
       (db.query('SELECT COUNT(1) AS c FROM memories_vss').get() as { c?: number } | null)?.c ?? 0,
     );
+    const graphCount = Number(
+      (db.query('SELECT COUNT(1) AS c FROM long_term_graph').get() as { c?: number } | null)?.c ??
+        0,
+    );
     return {
       sqlitePath: dbPath,
       memoryCount,
       vectorCount,
+      graphCount,
     };
   } finally {
     try {
@@ -142,4 +190,3 @@ export function getCompanionMemorySqliteStats(projectDir: string): {
     } catch {}
   }
 }
-

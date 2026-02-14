@@ -7,6 +7,7 @@ import { syncCompanionMemoriesToSqlite } from './memory-sqlite';
 export interface CompanionMemoryVector {
   id: string;
   text: string;
+  memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
   source: string;
   embedding: number[];
   score: number;
@@ -87,6 +88,12 @@ function readStore(projectDir: string): MemoryVectorStore {
               item.sourceType === 'direct_correction'
                 ? item.sourceType
                 : 'manual',
+            memoryKind:
+              item.memoryKind === 'Fact' ||
+              item.memoryKind === 'Insight' ||
+              item.memoryKind === 'UserPreference'
+                ? item.memoryKind
+                : undefined,
             status:
               item.status === 'active' ||
               item.status === 'pending' ||
@@ -207,6 +214,7 @@ export function upsertCompanionMemoryVector(
     tier?: 'L1' | 'L2' | 'L3';
     sourceMessageID?: string;
     sourceType?: 'manual' | 'conversation' | 'reflect' | 'direct_correction';
+    memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
   },
 ): CompanionMemoryVector {
   const text = normalizeText(input.text);
@@ -255,6 +263,7 @@ export function upsertCompanionMemoryVector(
     tier: input.tier ?? (confidence >= 0.95 ? 'L1' : confidence >= 0.6 ? 'L2' : 'L3'),
     sourceMessageID: input.sourceMessageID,
     sourceType: input.sourceType ?? 'manual',
+    memoryKind: input.memoryKind,
     status: input.activate ? 'active' : 'pending',
     conflictKey: preference.key,
     accessCount: 0,

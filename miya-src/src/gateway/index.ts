@@ -4383,18 +4383,17 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     touchOwnerLock(projectDir);
   }, 5_000);
   runtime.memoryReflectTimer = setInterval(() => {
-    const status = getMemoryReflectStatus(projectDir);
-    if (status.pendingLogs < 50) return;
+    // MemoryWorker: consolidate short-term logs after idle periods.
     const reflected = maybeAutoReflectCompanionMemory(projectDir, {
-      idleMinutes: 10,
-      minPendingLogs: 50,
+      idleMinutes: 5,
+      minPendingLogs: 1,
       cooldownMinutes: 3,
-      maxLogs: 100,
+      maxLogs: 120,
     });
     if (reflected) {
       syncCompanionProfileMemoryFacts(projectDir);
     }
-  }, 30_000);
+  }, 20_000);
   runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === 'job.progress') {
@@ -4499,11 +4498,49 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
     },
   });
 
+  const miya_memory_reflect = tool({
+    description:
+      'Trigger Miya memory reflection (Memory Consolidation Loop) and sync long-term graph.',
+    args: {
+      force: z.boolean().optional().describe('Force reflection even with low pending logs'),
+      minLogs: z.number().optional().describe('Minimum pending logs required'),
+      maxLogs: z.number().optional().describe('Maximum logs processed in this run'),
+      cooldownMinutes: z.number().optional().describe('Cooldown window in minutes'),
+      idempotencyKey: z.string().optional().describe('Optional idempotency key'),
+    },
+    async execute(args) {
+      registerGatewayDependencies(ctx.directory, { client: ctx.client });
+      ensureGatewayRunning(ctx.directory);
+      const runtime = runtimes.get(ctx.directory);
+      if (!runtime) throw new Error('gateway_runtime_unavailable');
+      const result = await invokeGatewayMethod(
+        ctx.directory,
+        runtime,
+        'miya.memory.reflect',
+        {
+          policyHash: currentPolicyHash(ctx.directory),
+          force: Boolean(args.force),
+          minLogs: typeof args.minLogs === 'number' ? Math.floor(args.minLogs) : undefined,
+          maxLogs: typeof args.maxLogs === 'number' ? Math.floor(args.maxLogs) : undefined,
+          cooldownMinutes:
+            typeof args.cooldownMinutes === 'number' ? Number(args.cooldownMinutes) : undefined,
+          idempotencyKey:
+            typeof args.idempotencyKey === 'string' && args.idempotencyKey.trim().length > 0
+              ? args.idempotencyKey.trim()
+              : undefined,
+        },
+        { clientID: 'gateway-tool', role: 'admin' },
+      );
+      return JSON.stringify(result, null, 2);
+    },
+  });
+
   return {
     miya_gateway_start,
     miya_gateway_status,
     miya_gateway_doctor,
     miya_gateway_shutdown,
+    miya_memory_reflect,
   };
 }
 

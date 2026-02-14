@@ -160,6 +160,12 @@ const telemetryTimer = setInterval(() => {
   }
 }, 2_000);
 
+const memoryWorkerTimer = setInterval(() => {
+  try {
+    daemonService.runMemoryWorkerTick();
+  } catch {}
+}, 20_000);
+
 function baseStatus(): Record<string, unknown> {
   const gpu = gpuMemoryTelemetry();
   return {
@@ -744,6 +750,7 @@ function shutdown(code: number): void {
   clearInterval(parentWatchTimer);
   clearInterval(heartbeatWatchTimer);
   clearInterval(telemetryTimer);
+  clearInterval(memoryWorkerTimer);
   try {
     server.stop(true);
   } catch {}
