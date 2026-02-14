@@ -62,6 +62,7 @@ import {
   resolveInteractionMode,
   rotateOwnerSecrets,
   setInteractionMode,
+  verifyOwnerPasswordOnly,
   verifyOwnerSecrets,
 } from '../security/owner-identity';
 import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
@@ -170,6 +171,7 @@ interface GatewayRuntime {
   wizardTickTimer?: ReturnType<typeof setInterval>;
   ownerBeatTimer?: ReturnType<typeof setInterval>;
   wizardRunnerBusy?: boolean;
+  dependencyAssistHashes: Set<string>;
 }
 
 interface GatewayWsData {
@@ -594,6 +596,107 @@ function isHighRiskInstruction(text: string): boolean {
   );
 }
 
+interface GatewayDependencyRecommendation {
+  package: string;
+  recommendedVersion: string;
+  reason: string;
+  command: string;
+}
+
+interface GatewayPythonRuntimeStatus {
+  ready?: boolean;
+  pythonPath?: string;
+  trainingDisabledReason?: 'no_gpu' | 'dependency_fault';
+  diagnostics?: {
+    issues?: string[];
+  };
+  repairPlan?: {
+    issueType?: 'ok' | 'no_gpu' | 'dependency_fault';
+    warnings?: string[];
+    recommendations?: GatewayDependencyRecommendation[];
+    conflicts?: string[];
+    oneShotCommand?: string;
+    opencodeAssistPrompt?: string;
+  };
+}
+
+function normalizeRuntimeDependencyRecommendations(
+  status: GatewayPythonRuntimeStatus,
+): GatewayDependencyRecommendation[] {
+  const fromPlan = Array.isArray(status.repairPlan?.recommendations)
+    ? status.repairPlan?.recommendations ?? []
+    : [];
+  if (fromPlan.length > 0) return fromPlan;
+  const issues = Array.isArray(status.diagnostics?.issues) ? status.diagnostics?.issues : [];
+  const fallback: GatewayDependencyRecommendation[] = [];
+  if (issues.some((issue) => issue.startsWith('torch_not_installed'))) {
+    fallback.push({
+      package: 'torch',
+      recommendedVersion: '>=2.2.0',
+      reason: 'PyTorch runtime is required by FLUX/GPT-SoVITS tasks.',
+      command: 'pip install "torch>=2.2.0" "torchvision>=0.17.0" "torchaudio>=2.2.0"',
+    });
+  }
+  if (issues.some((issue) => issue.startsWith('ffmpeg_missing'))) {
+    fallback.push({
+      package: 'ffmpeg',
+      recommendedVersion: 'system_latest',
+      reason: 'Audio conversion requires ffmpeg binary in PATH.',
+      command: 'winget install --id Gyan.FFmpeg -e',
+    });
+  }
+  if (fallback.length === 0 && issues.length > 0) {
+    fallback.push({
+      package: 'python-deps',
+      recommendedVersion: 'requirements.txt',
+      reason: 'Environment check reported dependency issues.',
+      command:
+        'python -m pip install --upgrade pip setuptools wheel && python -m pip install --disable-pip-version-check -r miya-src/python/requirements.txt',
+    });
+  }
+  return fallback;
+}
+
+function buildDependencyAssistPrompt(status: GatewayPythonRuntimeStatus): string {
+  const issues = Array.isArray(status.diagnostics?.issues) ? status.diagnostics?.issues : [];
+  const recommendations = normalizeRuntimeDependencyRecommendations(status);
+  const recommendationLines = recommendations
+    .map(
+      (item) =>
+        `- ${item.package} ${item.recommendedVersion}\n  reason: ${item.reason}\n  cmd: ${item.command}`,
+    )
+    .join('\n');
+  return [
+    'Miya dependency fault detected in local Python runtime.',
+    `python: ${status.pythonPath ?? 'unknown'}`,
+    `issues: ${issues.join(', ') || 'none'}`,
+    'Please produce a short repair guide with exact commands and conflict explanation.',
+    'Use and refine these baseline recommendations:',
+    recommendationLines || '- reinstall requirements and inspect pip stderr',
+  ].join('\n');
+}
+
+async function maybeTriggerDependencyAssist(
+  projectDir: string,
+  runtime: GatewayRuntime,
+  status: GatewayPythonRuntimeStatus,
+): Promise<{ triggered: boolean; routed?: { delivered: boolean; queued: boolean; reason?: string } }> {
+  const issueType = status.repairPlan?.issueType ?? status.trainingDisabledReason ?? 'ok';
+  if (issueType !== 'dependency_fault') return { triggered: false };
+  const prompt = status.repairPlan?.opencodeAssistPrompt || buildDependencyAssistPrompt(status);
+  const digest = hashText(prompt);
+  if (runtime.dependencyAssistHashes.has(digest)) {
+    return { triggered: false };
+  }
+  runtime.dependencyAssistHashes.add(digest);
+  const routed = await routeSessionMessage(projectDir, {
+    sessionID: 'main',
+    source: 'daemon.python.env.dependency_fault',
+    text: prompt,
+  });
+  return { triggered: true, routed };
+}
+
 function deriveRiskLevel(input: {
   containsSensitive: boolean;
   factorIntentSuspicious: boolean;
@@ -674,7 +777,13 @@ async function sendChannelMessageGuarded(
   requireDomainRunning(projectDir, 'outbound_send');
   requireDomainRunning(projectDir, 'desktop_control');
   const identity = readOwnerIdentityState(projectDir);
-  if (identity.mode === 'guest') {
+  const localPhysicalConfirmed = Boolean(input.confirmation?.physicalConfirmed);
+  const localPasswordVerified = verifyOwnerPasswordOnly(projectDir, input.confirmation?.password);
+  const localGuestOverride =
+    (identity.mode === 'guest' || identity.mode === 'unknown') &&
+    localPhysicalConfirmed &&
+    localPasswordVerified;
+  if ((identity.mode === 'guest' || identity.mode === 'unknown') && !localGuestOverride) {
     return {
       sent: false,
       message: 'outbound_blocked:guest_mode',
@@ -699,7 +808,7 @@ async function sendChannelMessageGuarded(
     factorRecipientIsMe,
   });
   if (isHighRiskInstruction(input.text)) {
-    const physicalConfirmed = Boolean(input.confirmation?.physicalConfirmed);
+    const physicalConfirmed = localPhysicalConfirmed;
     const secretVerified = verifyOwnerSecrets(projectDir, {
       password: input.confirmation?.password,
       passphrase: input.confirmation?.passphrase,
@@ -2014,7 +2123,39 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
   methods.register('daemon.python.env.status', async () => {
     const daemon = getMiyaClient(projectDir);
-    return daemon.getPythonRuntimeStatus();
+    const status = (await daemon.getPythonRuntimeStatus()) as GatewayPythonRuntimeStatus | null;
+    if (!status) return null;
+    const recommendations = normalizeRuntimeDependencyRecommendations(status);
+    const assist = await maybeTriggerDependencyAssist(projectDir, runtime, status);
+    return {
+      ...status,
+      repairPlan: {
+        ...(status.repairPlan ?? {}),
+        recommendations,
+      },
+      opencodeAssist: assist,
+    };
+  });
+  methods.register('daemon.python.env.repair.plan', async (params) => {
+    const daemon = getMiyaClient(projectDir);
+    const status = (await daemon.getPythonRuntimeStatus()) as GatewayPythonRuntimeStatus | null;
+    if (!status) throw new Error('python_runtime_status_unavailable');
+    const recommendations = normalizeRuntimeDependencyRecommendations(status);
+    const prompt =
+      status.repairPlan?.opencodeAssistPrompt || buildDependencyAssistPrompt(status);
+    const route = await routeSessionMessage(projectDir, {
+      sessionID: parseText(params.sessionID) || 'main',
+      source: 'daemon.python.env.repair.plan',
+      text: prompt,
+    });
+    return {
+      issueType: status.repairPlan?.issueType ?? status.trainingDisabledReason ?? 'ok',
+      warnings: status.repairPlan?.warnings ?? [],
+      conflicts: status.repairPlan?.conflicts ?? [],
+      oneShotCommand: status.repairPlan?.oneShotCommand,
+      recommendations,
+      routed: route,
+    };
   });
   methods.register('daemon.model.lock.status', async () => {
     const daemon = getMiyaClient(projectDir);
@@ -3543,6 +3684,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     wizardTickTimer: undefined,
     ownerBeatTimer: undefined,
     wizardRunnerBusy: false,
+    dependencyAssistHashes: new Set(),
   };
 
   runtime.methods = createMethods(projectDir, runtime);

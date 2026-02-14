@@ -12,12 +12,29 @@ export interface PythonRuntimeDiagnostics {
   min_vram_mb?: number;
 }
 
+export interface PythonDependencyRecommendation {
+  package: string;
+  recommendedVersion: string;
+  reason: string;
+  command: string;
+}
+
+export interface PythonRuntimeRepairPlan {
+  issueType: 'ok' | 'no_gpu' | 'dependency_fault';
+  warnings: string[];
+  recommendations: PythonDependencyRecommendation[];
+  conflicts: string[];
+  oneShotCommand?: string;
+  opencodeAssistPrompt?: string;
+}
+
 export interface PythonRuntimeStatus {
   ready: boolean;
   venvPath: string;
   pythonPath: string;
   diagnostics?: PythonRuntimeDiagnostics;
   trainingDisabledReason?: 'no_gpu' | 'dependency_fault';
+  repairPlan?: PythonRuntimeRepairPlan;
   updatedAt: string;
 }
 
@@ -146,8 +163,122 @@ function runCheckEnv(projectDir: string, pythonPath: string): PythonRuntimeDiagn
 
 function classifyTrainingCapability(diagnostics: PythonRuntimeDiagnostics): PythonRuntimeStatus['trainingDisabledReason'] {
   if (!Array.isArray(diagnostics.issues) || diagnostics.issues.length === 0) return undefined;
+  const hasDependencyIssue = diagnostics.issues.some((issue) =>
+    /torch_not_installed|pip_|requirements_missing|check_env_|parse_failed|run_failed|metadata_invalid/i.test(
+      issue,
+    ),
+  );
+  if (hasDependencyIssue) return 'dependency_fault';
   if (diagnostics.issues.includes('cuda_not_available')) return 'no_gpu';
   return 'dependency_fault';
+}
+
+function recommendationMap(issue: string): PythonDependencyRecommendation[] {
+  if (issue === 'torch_not_installed') {
+    return [
+      {
+        package: 'torch',
+        recommendedVersion: '>=2.2.0',
+        reason: 'PyTorch is required by FLUX/GPT-SoVITS runtime and CUDA probing.',
+        command: 'pip install "torch>=2.2.0" "torchvision>=0.17.0" "torchaudio>=2.2.0"',
+      },
+    ];
+  }
+  if (issue === 'ffmpeg_missing') {
+    return [
+      {
+        package: 'ffmpeg',
+        recommendedVersion: 'system_latest',
+        reason: 'Audio preprocess and format conversion require ffmpeg binary.',
+        command: 'winget install --id Gyan.FFmpeg -e',
+      },
+    ];
+  }
+  if (issue.startsWith('pip_install_failed')) {
+    return [
+      {
+        package: 'python-deps',
+        recommendedVersion: 'requirements.txt',
+        reason: 'pip install failed while resolving project dependencies.',
+        command:
+          'python -m pip install --upgrade pip setuptools wheel && python -m pip install --disable-pip-version-check -r miya-src/python/requirements.txt',
+      },
+    ];
+  }
+  return [];
+}
+
+function dedupeRecommendations(items: PythonDependencyRecommendation[]): PythonDependencyRecommendation[] {
+  const seen = new Set<string>();
+  const out: PythonDependencyRecommendation[] = [];
+  for (const item of items) {
+    const key = `${item.package}::${item.recommendedVersion}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function extractConflicts(issues: string[]): string[] {
+  const conflicts: string[] = [];
+  for (const issue of issues) {
+    if (issue.startsWith('pip_install_failed:')) {
+      conflicts.push(issue.slice('pip_install_failed:'.length));
+    }
+  }
+  return conflicts.slice(0, 5);
+}
+
+function buildRepairPlan(input: {
+  diagnostics: PythonRuntimeDiagnostics;
+  reason?: PythonRuntimeStatus['trainingDisabledReason'];
+  pythonPath: string;
+}): PythonRuntimeRepairPlan {
+  const issues = Array.isArray(input.diagnostics.issues) ? input.diagnostics.issues : [];
+  const issueType: PythonRuntimeRepairPlan['issueType'] = input.reason
+    ? input.reason
+    : issues.length > 0
+      ? 'dependency_fault'
+      : 'ok';
+  if (issueType === 'ok') {
+    return { issueType: 'ok', warnings: [], recommendations: [], conflicts: [] };
+  }
+  if (issueType === 'no_gpu') {
+    return {
+      issueType: 'no_gpu',
+      warnings: ['no_gpu_detected_training_disabled'],
+      recommendations: [],
+      conflicts: [],
+      opencodeAssistPrompt:
+        'Miya detected no GPU. Keep training disabled and guide user to install a compatible GPU driver or run on a GPU machine.',
+    };
+  }
+  const recommendations = dedupeRecommendations(issues.flatMap((issue) => recommendationMap(issue)));
+  const oneShotCommand = recommendations.map((item) => item.command).join(' && ');
+  const conflicts = extractConflicts(issues);
+  const recSummary = recommendations.length
+    ? recommendations
+        .map((item) => `- ${item.package} ${item.recommendedVersion}: ${item.reason}\n  cmd: ${item.command}`)
+        .join('\n')
+    : '- Re-run requirements installation and inspect pip stderr.';
+  const prompt = [
+    'You are assisting Miya local Python environment recovery.',
+    `Interpreter: ${input.pythonPath}`,
+    `Issues: ${issues.join(', ') || 'none'}`,
+    conflicts.length ? `Conflicts: ${conflicts.join(' | ')}` : 'Conflicts: none',
+    'Please produce a minimal repair plan with exact commands and explain why each dependency version is recommended.',
+    'Current deterministic recommendations:',
+    recSummary,
+  ].join('\n');
+  return {
+    issueType: 'dependency_fault',
+    warnings: ['dependency_fault_detected'],
+    recommendations,
+    conflicts,
+    oneShotCommand: oneShotCommand || undefined,
+    opencodeAssistPrompt: prompt,
+  };
 }
 
 export function readPythonRuntimeStatus(projectDir: string): PythonRuntimeStatus | null {
@@ -170,6 +301,11 @@ export function ensurePythonRuntime(projectDir: string): PythonRuntimeStatus {
       updatedAt: nowIso(),
       diagnostics: { ok: false, issues: [venv.message ?? 'venv_create_failed'] },
       trainingDisabledReason: 'dependency_fault',
+      repairPlan: buildRepairPlan({
+        diagnostics: { ok: false, issues: [venv.message ?? 'venv_create_failed'] },
+        reason: 'dependency_fault',
+        pythonPath,
+      }),
     };
     writeStatus(projectDir, failed);
     return failed;
@@ -184,6 +320,11 @@ export function ensurePythonRuntime(projectDir: string): PythonRuntimeStatus {
       updatedAt: nowIso(),
       diagnostics: { ok: false, issues: [deps.message ?? 'pip_install_failed'] },
       trainingDisabledReason: 'dependency_fault',
+      repairPlan: buildRepairPlan({
+        diagnostics: { ok: false, issues: [deps.message ?? 'pip_install_failed'] },
+        reason: 'dependency_fault',
+        pythonPath,
+      }),
     };
     writeStatus(projectDir, failed);
     return failed;
@@ -197,6 +338,11 @@ export function ensurePythonRuntime(projectDir: string): PythonRuntimeStatus {
     diagnostics,
     updatedAt: nowIso(),
     trainingDisabledReason: classifyTrainingCapability(diagnostics),
+    repairPlan: buildRepairPlan({
+      diagnostics,
+      reason: classifyTrainingCapability(diagnostics),
+      pythonPath,
+    }),
   };
   writeStatus(projectDir, status);
   return status;

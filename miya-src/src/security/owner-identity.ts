@@ -120,6 +120,13 @@ export function verifyOwnerSecrets(
   return passOk || phraseOk;
 }
 
+export function verifyOwnerPasswordOnly(projectDir: string, password?: string): boolean {
+  const state = readOwnerIdentityState(projectDir);
+  if (!state.initialized || !state.passwordHash) return false;
+  if (typeof password !== 'string' || !password) return false;
+  return hashSecret(password) === state.passwordHash;
+}
+
 export function rotateOwnerSecrets(
   projectDir: string,
   input: {

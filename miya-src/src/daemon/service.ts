@@ -184,9 +184,10 @@ export class MiyaDaemonService {
     }
     try {
       const raw = JSON.parse(fs.readFileSync(metadataFile, 'utf-8')) as {
+        model_version?: string;
         version?: string;
       };
-      const actual = String(raw.version ?? '');
+      const actual = String(raw.model_version ?? raw.version ?? '');
       const expected = EXPECTED_MODEL_VERSION[model];
       if (actual !== expected) {
         throw new Error(`model_update_required:${model}:expected=${expected}:actual=${actual || 'none'}`);
