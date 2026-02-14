@@ -196,4 +196,24 @@ describe('channel runtime send policy', () => {
       'outbound_blocked:friend_tier_sensitive_content_denied',
     );
   });
+
+  test('outbound send pipeline keeps local blocked-path p95 under 50ms', async () => {
+    const runtime = new ChannelRuntime(tempProjectDir(), {
+      onInbound: () => {},
+      onPairRequested: () => {},
+    });
+    const samples: number[] = [];
+    for (let i = 0; i < 40; i += 1) {
+      const start = Date.now();
+      await runtime.sendMessage({
+        channel: 'telegram',
+        destination: `u-${i}`,
+        text: 'hello',
+      });
+      samples.push(Date.now() - start);
+    }
+    samples.sort((a, b) => a - b);
+    const p95 = samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.95))];
+    expect(p95).toBeLessThan(50);
+  });
 });

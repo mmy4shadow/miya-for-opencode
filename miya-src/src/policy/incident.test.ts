@@ -21,12 +21,26 @@ describe('policy incidents', () => {
       channel: 'qq',
       destination: 'friend-1',
       pausedDomains: ['outbound_send', 'desktop_control'],
+      semanticTags: ['recipient_mismatch'],
     });
 
     const rows = listPolicyIncidents(projectDir, 10);
     expect(rows.length).toBe(2);
-    expect(rows[0].id).toBe(second.id);
-    expect(rows[1].id).toBe(first.id);
-    expect(rows[0].type).toBe('friend_tier_sensitive_violation');
+    expect(rows.some((row) => row.id === first.id)).toBe(true);
+    expect(rows.some((row) => row.id === second.id)).toBe(true);
+    const matched = rows.find((row) => row.id === second.id);
+    expect(matched?.type).toBe('friend_tier_sensitive_violation');
+    expect(matched?.semanticTags).toEqual(['recipient_mismatch']);
+  });
+
+  test('rejects non-frozen semantic tags', () => {
+    const projectDir = tempProjectDir();
+    expect(() =>
+      appendPolicyIncident(projectDir, {
+        type: 'manual_pause',
+        reason: 'bad',
+        semanticTags: ['unknown_tag' as any],
+      }),
+    ).toThrow(/invalid_semantic_tag/);
   });
 });

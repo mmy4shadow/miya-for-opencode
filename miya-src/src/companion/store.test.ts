@@ -8,7 +8,9 @@ import {
   patchCompanionProfile,
   readCompanionProfile,
   resetCompanionProfile,
+  syncCompanionProfileMemoryFacts,
 } from './store';
+import { confirmCompanionMemoryVector, listPendingCompanionMemoryVectors } from './memory-vector';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-companion-test-'));
@@ -28,7 +30,12 @@ describe('companion profile store', () => {
     expect(profile.enabled).toBe(true);
 
     const withMemory = addCompanionMemoryFact(projectDir, 'User likes synthwave music.');
-    expect(withMemory.memoryFacts.length).toBe(1);
+    expect(withMemory.memoryFacts.length).toBe(0);
+    const pending = listPendingCompanionMemoryVectors(projectDir);
+    expect(pending.length).toBe(1);
+    confirmCompanionMemoryVector(projectDir, { memoryID: pending[0].id, confirm: true });
+    const synced = syncCompanionProfileMemoryFacts(projectDir);
+    expect(synced.memoryFacts.length).toBe(1);
 
     const withAsset = addCompanionAsset(projectDir, {
       type: 'image',

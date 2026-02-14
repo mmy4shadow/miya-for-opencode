@@ -3,7 +3,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
+  listCompanionMemoryCorrections,
+  listPendingCompanionMemoryVectors,
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from './memory-vector';
@@ -13,17 +16,51 @@ function tempProjectDir(): string {
 }
 
 describe('companion memory vectors', () => {
-  test('supports insert + search + conflict supersede', () => {
+  test('supports pending -> active two-stage memory activation', () => {
     const projectDir = tempProjectDir();
-    upsertCompanionMemoryVector(projectDir, {
+    const created = upsertCompanionMemoryVector(projectDir, {
       text: '我喜欢抹茶拿铁',
       source: 'test',
+      activate: false,
     });
-    upsertCompanionMemoryVector(projectDir, {
+    expect(created.status).toBe('pending');
+    expect(listPendingCompanionMemoryVectors(projectDir).length).toBe(1);
+    expect(searchCompanionMemoryVectors(projectDir, '抹茶', 3).length).toBe(0);
+
+    const confirmed = confirmCompanionMemoryVector(projectDir, {
+      memoryID: created.id,
+      confirm: true,
+      supersedeConflicts: true,
+    });
+    expect(confirmed?.status).toBe('active');
+    expect(searchCompanionMemoryVectors(projectDir, '抹茶', 3).length).toBeGreaterThan(0);
+  });
+
+  test('creates correction wizard entry for conflicting memories', () => {
+    const projectDir = tempProjectDir();
+    const first = upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢抹茶拿铁',
+      source: 'test',
+      activate: true,
+    });
+    const conflict = upsertCompanionMemoryVector(projectDir, {
       text: '我不喜欢抹茶拿铁',
       source: 'test',
     });
+    expect(first.status).toBe('active');
+    expect(conflict.status).toBe('pending');
+    expect(conflict.conflictWizardID).toBeDefined();
+    expect(listCompanionMemoryCorrections(projectDir).length).toBe(1);
+  });
 
+  test('supports insert + search + decay', () => {
+    const projectDir = tempProjectDir();
+    const mem = upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢抹茶拿铁',
+      source: 'test',
+      activate: true,
+    });
+    expect(mem.status).toBe('active');
     const hit = searchCompanionMemoryVectors(projectDir, '抹茶', 3);
     expect(hit.length).toBeGreaterThan(0);
     expect(hit[0]?.text.includes('抹茶')).toBe(true);

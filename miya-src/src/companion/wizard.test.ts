@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ingestMedia } from '../media/store';
+import { detectMultimodalIntent } from '../multimodal/intent';
 import {
   cancelCompanionWizardTraining,
   isCompanionWizardEmpty,
@@ -72,6 +73,11 @@ describe('companion wizard', () => {
     expect(readCompanionWizardState(projectDir, 's1').assets.personalityText.length).toBeGreaterThan(
       0,
     );
+
+    const selfie = detectMultimodalIntent('给我发张自拍');
+    const voiceIntent = detectMultimodalIntent('用你的声音发一条语音给[小明]');
+    expect(selfie.type).toBe('selfie');
+    expect(voiceIntent.type).toBe('voice_to_friend');
   });
 
   test('enforces photo count 1-5 and session-isolated wizard file path', () => {

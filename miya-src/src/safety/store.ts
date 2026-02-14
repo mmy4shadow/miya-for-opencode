@@ -3,6 +3,8 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
 import { type SafetyTier, tierAtLeast } from './tier';
+import { transitionSafetyState } from './state-machine';
+import { decryptSensitiveValue, encryptSensitiveValue } from '../security/system-keyring';
 
 const RECORD_LIMIT = 500;
 const TOKEN_TTL_MS = 120_000;
@@ -127,12 +129,39 @@ export function listRecentSelfApprovalRecords(
 
 function readTokenStore(projectDir: string): ApprovalTokenStore {
   const file = runtimeFile(projectDir, 'approval-tokens.json');
-  return readJson<ApprovalTokenStore>(file, { tokens: {} });
+  const store = readJson<ApprovalTokenStore>(file, { tokens: {} });
+  const decoded: ApprovalTokenStore = { tokens: {} };
+  for (const [sessionID, tokens] of Object.entries(store.tokens ?? {})) {
+    const plainSession = decryptSensitiveValue(projectDir, sessionID);
+    decoded.tokens[plainSession] = {};
+    for (const [hash, token] of Object.entries(tokens ?? {})) {
+      const plainHash = decryptSensitiveValue(projectDir, hash);
+      decoded.tokens[plainSession][plainHash] = {
+        ...token,
+        request_hash: decryptSensitiveValue(projectDir, token.request_hash),
+        action: decryptSensitiveValue(projectDir, token.action),
+      };
+    }
+  }
+  return decoded;
 }
 
 function writeTokenStore(projectDir: string, store: ApprovalTokenStore): void {
   const file = runtimeFile(projectDir, 'approval-tokens.json');
-  writeJson(file, store);
+  const encoded: ApprovalTokenStore = { tokens: {} };
+  for (const [sessionID, tokens] of Object.entries(store.tokens ?? {})) {
+    const safeSession = encryptSensitiveValue(projectDir, sessionID);
+    encoded.tokens[safeSession] = {};
+    for (const [hash, token] of Object.entries(tokens ?? {})) {
+      const safeHash = encryptSensitiveValue(projectDir, hash);
+      encoded.tokens[safeSession][safeHash] = {
+        ...token,
+        request_hash: encryptSensitiveValue(projectDir, token.request_hash),
+        action: encryptSensitiveValue(projectDir, token.action),
+      };
+    }
+  }
+  writeJson(file, encoded);
 }
 
 export function saveApprovalToken(
@@ -200,6 +229,13 @@ export function activateKillSwitch(
     activated_at: nowIso(),
   };
   writeJson(runtimeFile(projectDir, 'kill-switch.json'), next);
+  transitionSafetyState(projectDir, {
+    source: 'kill_switch_activate',
+    reason,
+    traceID,
+    globalState: 'killed',
+    domains: {},
+  });
   syncGatewayStatus(projectDir, 'killswitch');
   return next;
 }
@@ -207,6 +243,12 @@ export function activateKillSwitch(
 export function releaseKillSwitch(projectDir: string): KillSwitchState {
   const next: KillSwitchState = { active: false };
   writeJson(runtimeFile(projectDir, 'kill-switch.json'), next);
+  transitionSafetyState(projectDir, {
+    source: 'kill_switch_release',
+    reason: 'manual_release',
+    globalState: 'running',
+    domains: {},
+  });
   syncGatewayStatus(projectDir, 'running');
   return next;
 }

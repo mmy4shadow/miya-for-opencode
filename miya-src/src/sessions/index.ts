@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
+import { decryptSensitiveValue, encryptSensitiveValue } from '../security/system-keyring';
 
 export type SessionKind = 'opencode' | 'channel' | 'wizard' | 'system';
 export type SessionActivation = 'active' | 'queued' | 'muted';
@@ -66,7 +67,32 @@ function readStore(projectDir: string): SessionStore {
     if (!parsed || typeof parsed !== 'object' || !parsed.sessions) {
       return { sessions: {} };
     }
-    return parsed;
+    const normalized: SessionStore = { sessions: {} };
+    for (const [id, session] of Object.entries(parsed.sessions ?? {})) {
+      normalized.sessions[id] = {
+        ...session,
+        groupId: decryptSensitiveValue(projectDir, String(session.groupId ?? '')),
+        title:
+          typeof session.title === 'string'
+            ? decryptSensitiveValue(projectDir, session.title)
+            : session.title,
+        routing: {
+          ...(session.routing ?? { opencodeSessionID: 'main', agent: '1-task-manager' }),
+          opencodeSessionID: decryptSensitiveValue(
+            projectDir,
+            String(session.routing?.opencodeSessionID ?? 'main'),
+          ),
+        },
+        queue: Array.isArray(session.queue)
+          ? session.queue.map((item) => ({
+              ...item,
+              text: decryptSensitiveValue(projectDir, String(item.text ?? '')),
+              source: decryptSensitiveValue(projectDir, String(item.source ?? '')),
+            }))
+          : [],
+      } as MiyaSession;
+    }
+    return normalized;
   } catch {
     return { sessions: {} };
   }
@@ -75,7 +101,26 @@ function readStore(projectDir: string): SessionStore {
 function writeStore(projectDir: string, store: SessionStore): void {
   const file = filePath(projectDir);
   ensureDir(file);
-  fs.writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  const encrypted: SessionStore = { sessions: {} };
+  for (const [id, session] of Object.entries(store.sessions)) {
+    encrypted.sessions[id] = {
+      ...session,
+      groupId: encryptSensitiveValue(projectDir, session.groupId),
+      title: session.title
+        ? encryptSensitiveValue(projectDir, session.title)
+        : session.title,
+      routing: {
+        ...session.routing,
+        opencodeSessionID: encryptSensitiveValue(projectDir, session.routing.opencodeSessionID),
+      },
+      queue: session.queue.map((item) => ({
+        ...item,
+        text: encryptSensitiveValue(projectDir, item.text),
+        source: encryptSensitiveValue(projectDir, item.source),
+      })),
+    };
+  }
+  fs.writeFileSync(file, `${JSON.stringify(encrypted, null, 2)}\n`, 'utf-8');
 }
 
 function sanitizeSession(value: MiyaSession): MiyaSession {

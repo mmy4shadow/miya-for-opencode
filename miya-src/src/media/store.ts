@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
+import { decryptSensitiveValue, encryptSensitiveValue } from '../security/system-keyring';
 
 export interface MediaItem {
   id: string;
@@ -38,6 +39,23 @@ function ensureDir(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
+function decodeMetadata(
+  projectDir: string,
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata || typeof metadata !== 'object') return metadata;
+  if (typeof metadata.secure === 'string') {
+    try {
+      const plain = decryptSensitiveValue(projectDir, metadata.secure);
+      const parsed = JSON.parse(plain) as Record<string, unknown>;
+      return parsed;
+    } catch {
+      return metadata;
+    }
+  }
+  return metadata;
+}
+
 function readStore(projectDir: string): MediaStore {
   const file = mediaIndexFile(projectDir);
   if (!fs.existsSync(file)) {
@@ -45,9 +63,20 @@ function readStore(projectDir: string): MediaStore {
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MediaStore>;
-    return {
-      items: parsed.items ?? {},
-    };
+    const items: Record<string, MediaItem> = {};
+    for (const [id, item] of Object.entries(parsed.items ?? {})) {
+      items[id] = {
+        ...item,
+        source: decryptSensitiveValue(projectDir, String(item.source ?? '')),
+        fileName: decryptSensitiveValue(projectDir, String(item.fileName ?? '')),
+        localPath:
+          typeof item.localPath === 'string'
+            ? decryptSensitiveValue(projectDir, item.localPath)
+            : item.localPath,
+        metadata: decodeMetadata(projectDir, item.metadata),
+      } as MediaItem;
+    }
+    return { items };
   } catch {
     return { items: {} };
   }
@@ -55,7 +84,27 @@ function readStore(projectDir: string): MediaStore {
 
 function writeStore(projectDir: string, store: MediaStore): void {
   ensureDir(mediaDir(projectDir));
-  fs.writeFileSync(mediaIndexFile(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  const encrypted: MediaStore = { items: {} };
+  for (const [id, item] of Object.entries(store.items)) {
+    encrypted.items[id] = {
+      ...item,
+      source: encryptSensitiveValue(projectDir, item.source),
+      fileName: encryptSensitiveValue(projectDir, item.fileName),
+      localPath: item.localPath
+        ? encryptSensitiveValue(projectDir, item.localPath)
+        : item.localPath,
+      metadata: item.metadata
+        ? {
+            secure: encryptSensitiveValue(projectDir, JSON.stringify(item.metadata)),
+          }
+        : item.metadata,
+    };
+  }
+  fs.writeFileSync(
+    mediaIndexFile(projectDir),
+    `${JSON.stringify(encrypted, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 function buildExpiration(ttlHours: number): string {

@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
-import { upsertCompanionMemoryVector } from './memory-vector';
+import {
+  listCompanionMemoryVectors,
+  upsertCompanionMemoryVector,
+} from './memory-vector';
 
 export interface CompanionAsset {
   id: string;
@@ -107,8 +110,12 @@ export function addCompanionMemoryFact(
   upsertCompanionMemoryVector(projectDir, {
     text: normalized,
     source: 'profile_fact',
+    activate: false,
   });
-  const memoryFacts = [...new Set([normalized, ...current.memoryFacts])].slice(0, 300);
+  const memoryFacts = listCompanionMemoryVectors(projectDir)
+    .filter((item) => item.status === 'active')
+    .map((item) => item.text)
+    .slice(0, 300);
   return writeCompanionProfile(projectDir, {
     ...current,
     memoryFacts,
@@ -139,4 +146,16 @@ export function addCompanionAsset(
 
 export function resetCompanionProfile(projectDir: string): CompanionProfile {
   return writeCompanionProfile(projectDir, defaultProfile());
+}
+
+export function syncCompanionProfileMemoryFacts(projectDir: string): CompanionProfile {
+  const current = readCompanionProfile(projectDir);
+  const memoryFacts = listCompanionMemoryVectors(projectDir)
+    .filter((item) => item.status === 'active')
+    .map((item) => item.text)
+    .slice(0, 300);
+  return writeCompanionProfile(projectDir, {
+    ...current,
+    memoryFacts,
+  });
 }

@@ -200,6 +200,7 @@ describe('createAgents', () => {
     expect(String(agents[0].config.prompt).includes('<PersonaModeRouter>')).toBe(
       true,
     );
+    expect(String(agents[0].config.prompt).includes('mode_decision')).toBe(true);
     expect(
       String(
         agents.find((agent) => agent.name === '5-code-fixer')?.config.prompt,

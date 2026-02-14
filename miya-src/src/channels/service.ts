@@ -16,6 +16,11 @@ import {
 } from './pairing-store';
 import { getMiyaRuntimeDir } from '../workflow';
 import { readPolicy } from '../policy';
+import {
+  assertSemanticTags,
+  normalizeSemanticTags,
+  type SemanticTag,
+} from '../policy/semantic-tags';
 
 export interface ChannelInboundMessage {
   channel: ChannelName;
@@ -87,6 +92,19 @@ export interface ChannelOutboundAudit {
   visualPrecheck?: string;
   visualPostcheck?: string;
   receiptStatus?: 'confirmed' | 'uncertain';
+  semanticTags?: SemanticTag[];
+}
+
+function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
+  if (message.includes('target_not_in_allowlist')) return ['recipient_mismatch'];
+  if (message.includes('input_mutex_timeout')) return ['input_mutex_timeout'];
+  if (message.includes('receipt_uncertain')) return ['receipt_uncertain'];
+  if (message.includes('blocked_by_privilege') || message.includes('privilege')) {
+    return ['privilege_barrier'];
+  }
+  if (message.includes('window_not_found')) return ['window_not_found'];
+  if (message.includes('window_occluded')) return ['window_occluded'];
+  return [];
 }
 
 type InputMutexLease = {
@@ -507,6 +525,10 @@ export class ChannelRuntime {
   private recordOutboundAttempt(
     row: Omit<ChannelOutboundAudit, 'id' | 'at'> & { id?: string; at?: string },
   ): ChannelOutboundAudit {
+    const semanticTags = normalizeSemanticTags(
+      row.semanticTags ?? semanticTagsForOutboundMessage(row.message),
+    );
+    assertSemanticTags(semanticTags);
     const payload: ChannelOutboundAudit = {
       id: row.id ?? `out_${randomUUID()}`,
       at: row.at ?? new Date().toISOString(),
@@ -529,6 +551,7 @@ export class ChannelRuntime {
       visualPrecheck: row.visualPrecheck,
       visualPostcheck: row.visualPostcheck,
       receiptStatus: row.receiptStatus,
+      semanticTags,
     };
     appendOutboundAudit(this.projectDir, payload);
     return payload;

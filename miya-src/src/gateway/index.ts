@@ -23,6 +23,7 @@ import {
   listRecentSelfApprovalRecords,
   readKillSwitch,
 } from '../safety/store';
+import { isDomainExecutionAllowed, transitionSafetyState } from '../safety/state-machine';
 import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
 import {
   assertPolicyHash,
@@ -71,15 +72,19 @@ import {
 } from '../canvas/state';
 import {
   addCompanionAsset,
-  addCompanionMemoryFact,
   patchCompanionProfile,
   readCompanionProfile,
   resetCompanionProfile,
+  syncCompanionProfileMemoryFacts,
 } from '../companion/store';
 import {
+  confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
+  listCompanionMemoryCorrections,
   listCompanionMemoryVectors,
+  listPendingCompanionMemoryVectors,
   searchCompanionMemoryVectors,
+  upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
 import {
   cancelCompanionWizardTraining,
@@ -389,7 +394,7 @@ function requirePolicyHash(projectDir: string, providedHash: string | undefined)
 }
 
 function requireDomainRunning(projectDir: string, domain: PolicyDomain): void {
-  if (!isDomainRunning(projectDir, domain)) {
+  if (!isDomainRunning(projectDir, domain) || !isDomainExecutionAllowed(projectDir, domain)) {
     throw new Error(`domain_paused:${domain}`);
   }
 }
@@ -1384,11 +1389,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       confidenceIntent: confidenceIntentRaw,
     });
     if (fusion.action === 'hard_fuse') {
-      const policy = writePolicy(projectDir, {
+      const safetyState = transitionSafetyState(projectDir, {
+        source: 'decision_fusion_hard',
+        reason: 'outbound_blocked:decision_fusion_hard',
+        policyHash: resolvedPolicyHash,
         domains: {
-          ...readPolicy(projectDir).domains,
-          outbound_send: 'paused',
-          desktop_control: 'paused',
+          outbound_send: 'killed',
+          desktop_control: 'killed',
         },
       });
       const incident = appendPolicyIncident(projectDir, {
@@ -1399,8 +1406,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         policyHash: resolvedPolicyHash,
         pausedDomains: ['outbound_send', 'desktop_control'],
         statusByDomain: {
-          outbound_send: policy.domains.outbound_send,
-          desktop_control: policy.domains.desktop_control,
+          outbound_send: safetyState.domains.outbound_send === 'running' ? 'running' : 'paused',
+          desktop_control:
+            safetyState.domains.desktop_control === 'running' ? 'running' : 'paused',
         },
         semanticSummary: {
           trigger: 'decision_fusion_hard',
@@ -1409,6 +1417,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           recovery:
             'Review outbound intent in OpenCode and manually resume paused domains after confirmation.',
         },
+        semanticTags: ['recipient_mismatch'],
         details: {
           factorTextSensitive: containsSensitive,
           factorRecipientIsMe,
@@ -1420,7 +1429,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       await notifySafetyReport(projectDir, sessionID, [
         'Miya安全报告：已触发硬熔断并暂停能力域',
         `触发原因: ${incident.reason}`,
-        `能力域状态: outbound_send=${policy.domains.outbound_send}, desktop_control=${policy.domains.desktop_control}`,
+        `能力域状态: outbound_send=${safetyState.domains.outbound_send}, desktop_control=${safetyState.domains.desktop_control}`,
         `关键断言: A=${containsSensitive}, B_is_me=${factorRecipientIsMe}, C_suspicious=${factorIntentSuspicious}, Conf(C)=${confidenceIntentRaw}`,
         '恢复条件: 请在确认外发意图后手动恢复域开关',
       ]);
@@ -1444,6 +1453,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
             'Decision fusion matched in gray zone (0.5 <= confidence <= 0.85), manual confirmation required.',
           recovery: 'Confirm outbound intent in OpenCode, then retry with explicit approval.',
         },
+        semanticTags: ['recipient_mismatch'],
         details: {
           factorTextSensitive: containsSensitive,
           factorRecipientIsMe,
@@ -1521,11 +1531,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           ? 'friend_tier_initiate_violation'
           : null;
     if (violationType) {
-      const policy = writePolicy(projectDir, {
+      const safetyState = transitionSafetyState(projectDir, {
+        source: 'friend_tier_violation',
+        reason: result.message,
+        policyHash: resolvedPolicyHash,
         domains: {
-          ...readPolicy(projectDir).domains,
-          outbound_send: 'paused',
-          desktop_control: 'paused',
+          outbound_send: 'killed',
+          desktop_control: 'killed',
         },
       });
       const incident = appendPolicyIncident(projectDir, {
@@ -1537,8 +1549,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         policyHash: resolvedPolicyHash,
         pausedDomains: ['outbound_send', 'desktop_control'],
         statusByDomain: {
-          outbound_send: policy.domains.outbound_send,
-          desktop_control: policy.domains.desktop_control,
+          outbound_send: safetyState.domains.outbound_send === 'running' ? 'running' : 'paused',
+          desktop_control:
+            safetyState.domains.desktop_control === 'running' ? 'running' : 'paused',
         },
         semanticSummary: {
           trigger: violationType,
@@ -1546,11 +1559,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           recovery:
             'Review recipient tier and outbound payload, then manually resume paused domains.',
         },
+        semanticTags: ['recipient_mismatch'],
       });
       await notifySafetyReport(projectDir, sessionID, [
         'Miya安全报告：朋友档外发违规，已暂停能力域',
         `触发原因: ${result.message}`,
-        `能力域状态: outbound_send=${policy.domains.outbound_send}, desktop_control=${policy.domains.desktop_control}`,
+        `能力域状态: outbound_send=${safetyState.domains.outbound_send}, desktop_control=${safetyState.domains.desktop_control}`,
         `收件通道: ${channel}, 收件目标: ${destination}`,
         '恢复条件: 调整联系人档位/内容后手动恢复域开关',
       ]);
@@ -1606,9 +1620,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!isPolicyDomain(domain)) {
       throw new Error('invalid_policy_domain');
     }
-    const policy = writePolicy(projectDir, {
+    const state = transitionSafetyState(projectDir, {
+      source: 'policy.domain.pause',
+      reason: `manual_pause:${domain}`,
+      policyHash: currentPolicyHash(projectDir),
       domains: {
-        ...readPolicy(projectDir).domains,
         [domain]: 'paused',
       },
     });
@@ -1617,13 +1633,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       reason: `manual_pause:${domain}`,
       pausedDomains: [domain],
       statusByDomain: {
-        [domain]: policy.domains[domain],
+        [domain]: state.domains[domain] === 'running' ? 'running' : 'paused',
       },
       policyHash: currentPolicyHash(projectDir),
     });
     return {
       domain,
-      status: policy.domains[domain],
+      status: state.domains[domain] === 'running' ? 'running' : 'paused',
       hash: currentPolicyHash(projectDir),
     };
   });
@@ -1632,9 +1648,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!isPolicyDomain(domain)) {
       throw new Error('invalid_policy_domain');
     }
-    const policy = writePolicy(projectDir, {
+    const state = transitionSafetyState(projectDir, {
+      source: 'policy.domain.resume',
+      reason: `manual_resume:${domain}`,
+      policyHash: currentPolicyHash(projectDir),
       domains: {
-        ...readPolicy(projectDir).domains,
         [domain]: 'running',
       },
     });
@@ -1643,13 +1661,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       reason: `manual_resume:${domain}`,
       pausedDomains: [domain],
       statusByDomain: {
-        [domain]: policy.domains[domain],
+        [domain]: state.domains[domain] === 'running' ? 'running' : 'paused',
       },
       policyHash: currentPolicyHash(projectDir),
     });
     return {
       domain,
-      status: policy.domains[domain],
+      status: state.domains[domain] === 'running' ? 'running' : 'paused',
       hash: currentPolicyHash(projectDir),
     };
   });
@@ -2295,11 +2313,54 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!fact) throw new Error('invalid_memory_fact');
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
-    return addCompanionMemoryFact(projectDir, fact);
+    const created = upsertCompanionMemoryVector(projectDir, {
+      text: fact,
+      source: 'conversation',
+      activate: false,
+    });
+    const profile = syncCompanionProfileMemoryFacts(projectDir);
+    return {
+      memory: created,
+      stage: created.status,
+      needsCorrectionWizard: Boolean(created.conflictWizardID),
+      message: created.conflictWizardID
+        ? 'memory_pending_conflict_requires_correction_wizard'
+        : 'memory_pending_confirmation_required',
+      profile,
+    };
   });
   methods.register('companion.memory.list', async () =>
     readCompanionProfile(projectDir).memoryFacts,
   );
+  methods.register('companion.memory.pending.list', async () =>
+    listPendingCompanionMemoryVectors(projectDir),
+  );
+  methods.register('companion.memory.corrections.list', async () =>
+    listCompanionMemoryCorrections(projectDir),
+  );
+  methods.register('companion.memory.confirm', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const memoryID = parseText(params.memoryID);
+    if (!memoryID) throw new Error('invalid_memory_id');
+    const confirm = typeof params.confirm === 'boolean' ? Boolean(params.confirm) : true;
+    const updated = confirmCompanionMemoryVector(projectDir, {
+      memoryID,
+      confirm,
+      supersedeConflicts:
+        typeof params.supersedeConflicts === 'boolean'
+          ? Boolean(params.supersedeConflicts)
+          : true,
+    });
+    if (!updated) throw new Error('memory_not_found');
+    const profile = syncCompanionProfileMemoryFacts(projectDir);
+    return {
+      memory: updated,
+      stage: updated.status,
+      profile,
+    };
+  });
   methods.register('companion.memory.search', async (params) => {
     const query = parseText(params.query);
     if (!query) throw new Error('invalid_memory_query');

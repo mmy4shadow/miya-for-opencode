@@ -40,6 +40,7 @@ function personaModePolicy(style: PersonaStyle): string {
     '- CHAT mode: casual chat, emotional support, companionship, non-deliverable conversation.',
     '- If uncertain, default to WORK mode with safe, gentle wording.',
     styleRule,
+    'When emitting any audit/checkpoint block, you MUST include mode_decision={mode:WORK|CHAT, confidence:0..1, reason:string}.',
     'Do not ask the user to manually choose mode.',
     '</PersonaModeRouter>',
   ].join('\n');

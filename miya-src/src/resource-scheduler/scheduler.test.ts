@@ -50,6 +50,39 @@ describe('resource scheduler', () => {
     expect(grantOrder[1]).toBe('low');
   });
 
+  test('foreground interaction request preempts queued training and recovers quickly', async () => {
+    const scheduler = new ResourceScheduler(tempProjectDir(), {
+      totalVramMB: 8192,
+      safetyMarginMB: 256,
+      maxConcurrentTasks: 1,
+    });
+    const blocker = await scheduler.acquire({
+      kind: 'training.image',
+      priority: 10,
+      vramMB: 512,
+    });
+
+    const training = scheduler.acquire({
+      kind: 'training.voice',
+      priority: 5,
+      vramMB: 256,
+    });
+    const t0 = Date.now();
+    const foreground = scheduler.acquire({
+      kind: 'generic',
+      priority: 100,
+      vramMB: 128,
+    });
+    blocker.release();
+    const fgLease = await foreground;
+    const recoveryMs = Date.now() - t0;
+    fgLease.release();
+    const trainingLease = await training;
+    trainingLease.release();
+
+    expect(recoveryMs).toBeLessThan(120);
+  });
+
   test('evicts least-recently-used models when VRAM is tight', async () => {
     const scheduler = new ResourceScheduler(tempProjectDir(), {
       totalVramMB: 3000,

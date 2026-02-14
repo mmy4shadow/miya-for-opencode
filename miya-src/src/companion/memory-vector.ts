@@ -9,8 +9,9 @@ export interface CompanionMemoryVector {
   source: string;
   embedding: number[];
   score: number;
-  status: 'active' | 'superseded';
+  status: 'pending' | 'active' | 'superseded';
   conflictKey?: string;
+  conflictWizardID?: string;
   supersededBy?: string;
   createdAt: string;
   updatedAt: string;
@@ -22,12 +23,31 @@ interface MemoryVectorStore {
   items: CompanionMemoryVector[];
 }
 
+export interface CompanionMemoryCorrection {
+  id: string;
+  conflictKey: string;
+  candidateMemoryID: string;
+  existingMemoryIDs: string[];
+  status: 'pending' | 'resolved' | 'rejected';
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface MemoryCorrectionStore {
+  version: 1;
+  items: CompanionMemoryCorrection[];
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
 
 function filePath(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'companion-memory-vectors.json');
+}
+
+function correctionFilePath(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'companion-memory-corrections.json');
 }
 
 function ensureDir(projectDir: string): void {
@@ -41,11 +61,44 @@ function readStore(projectDir: string): MemoryVectorStore {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MemoryVectorStore>;
     return {
       version: 1,
+      items: Array.isArray(parsed.items)
+        ? parsed.items.map((item) => ({
+            ...item,
+            status:
+              item.status === 'active' ||
+              item.status === 'pending' ||
+              item.status === 'superseded'
+                ? item.status
+                : 'active',
+          }))
+        : [],
+    };
+  } catch {
+    return { version: 1, items: [] };
+  }
+}
+
+function readCorrectionStore(projectDir: string): MemoryCorrectionStore {
+  const file = correctionFilePath(projectDir);
+  if (!fs.existsSync(file)) return { version: 1, items: [] };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MemoryCorrectionStore>;
+    return {
+      version: 1,
       items: Array.isArray(parsed.items) ? parsed.items : [],
     };
   } catch {
     return { version: 1, items: [] };
   }
+}
+
+function writeCorrectionStore(
+  projectDir: string,
+  store: MemoryCorrectionStore,
+): MemoryCorrectionStore {
+  ensureDir(projectDir);
+  fs.writeFileSync(correctionFilePath(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  return store;
 }
 
 function writeStore(projectDir: string, store: MemoryVectorStore): MemoryVectorStore {
@@ -82,10 +135,10 @@ function cosine(a: number[], b: number[]): number {
 }
 
 function extractConflictKey(text: string): { key?: string; polarity: 'positive' | 'negative' | 'neutral' } {
-  const positive = text.match(/(?:喜欢|爱|偏好|想要)\s*([^，。!！?？]+)/);
-  if (positive?.[1]) return { key: normalizeText(positive[1]), polarity: 'positive' };
   const negative = text.match(/(?:不喜欢|讨厌|不想|不要)\s*([^，。!！?？]+)/);
   if (negative?.[1]) return { key: normalizeText(negative[1]), polarity: 'negative' };
+  const positive = text.match(/(?:喜欢|爱|偏好|想要)\s*([^，。!！?？]+)/);
+  if (positive?.[1]) return { key: normalizeText(positive[1]), polarity: 'positive' };
   return { polarity: 'neutral' };
 }
 
@@ -114,7 +167,7 @@ export function decayCompanionMemoryVectors(
 
 export function upsertCompanionMemoryVector(
   projectDir: string,
-  input: { text: string; source?: string },
+  input: { text: string; source?: string; activate?: boolean },
 ): CompanionMemoryVector {
   const text = normalizeText(input.text);
   if (!text) throw new Error('invalid_memory_text');
@@ -146,7 +199,7 @@ export function upsertCompanionMemoryVector(
     source: input.source?.trim() || 'manual',
     embedding,
     score: 1,
-    status: 'active',
+    status: input.activate ? 'active' : 'pending',
     conflictKey: preference.key,
     createdAt: now,
     updatedAt: now,
@@ -154,16 +207,30 @@ export function upsertCompanionMemoryVector(
   };
 
   if (preference.key && preference.polarity !== 'neutral') {
+    const conflicting: string[] = [];
     for (const item of store.items) {
-      if (item.status !== 'active') continue;
+      if (item.status === 'superseded') continue;
       const other = extractConflictKey(item.text);
       if (!other.key || other.key !== preference.key || other.polarity === 'neutral') continue;
       if (other.polarity !== preference.polarity) {
-        item.status = 'superseded';
-        item.supersededBy = created.id;
-        item.score = Math.max(0.05, item.score * 0.4);
-        item.updatedAt = now;
+        conflicting.push(item.id);
       }
+    }
+    if (conflicting.length > 0) {
+      const correctionStore = readCorrectionStore(projectDir);
+      const wizard: CompanionMemoryCorrection = {
+        id: `mcw_${randomUUID()}`,
+        conflictKey: preference.key,
+        candidateMemoryID: created.id,
+        existingMemoryIDs: conflicting,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      };
+      correctionStore.items = [wizard, ...correctionStore.items].slice(0, 1000);
+      writeCorrectionStore(projectDir, correctionStore);
+      created.conflictWizardID = wizard.id;
+      created.status = 'pending';
     }
   }
 
@@ -195,4 +262,69 @@ export function searchCompanionMemoryVectors(
 
 export function listCompanionMemoryVectors(projectDir: string): CompanionMemoryVector[] {
   return readStore(projectDir).items;
+}
+
+export function listPendingCompanionMemoryVectors(
+  projectDir: string,
+): CompanionMemoryVector[] {
+  return readStore(projectDir).items.filter((item) => item.status === 'pending');
+}
+
+export function listCompanionMemoryCorrections(
+  projectDir: string,
+): CompanionMemoryCorrection[] {
+  return readCorrectionStore(projectDir).items;
+}
+
+export function confirmCompanionMemoryVector(
+  projectDir: string,
+  input: {
+    memoryID: string;
+    confirm: boolean;
+    supersedeConflicts?: boolean;
+  },
+): CompanionMemoryVector | null {
+  const store = readStore(projectDir);
+  const target = store.items.find((item) => item.id === input.memoryID);
+  if (!target) return null;
+
+  const now = nowIso();
+  if (!input.confirm) {
+    target.status = 'superseded';
+    target.updatedAt = now;
+  } else {
+    target.status = 'active';
+    target.updatedAt = now;
+    target.lastAccessedAt = now;
+    if (input.supersedeConflicts && target.conflictKey) {
+      for (const item of store.items) {
+        if (item.id === target.id || item.status === 'superseded') continue;
+        if (item.conflictKey === target.conflictKey) {
+          const sourcePolarity = extractConflictKey(target.text).polarity;
+          const itemPolarity = extractConflictKey(item.text).polarity;
+          if (sourcePolarity !== 'neutral' && itemPolarity !== 'neutral' && sourcePolarity !== itemPolarity) {
+            item.status = 'superseded';
+            item.supersededBy = target.id;
+            item.updatedAt = now;
+          }
+        }
+      }
+    }
+  }
+  writeStore(projectDir, store);
+
+  if (target.conflictWizardID) {
+    const corrections = readCorrectionStore(projectDir);
+    corrections.items = corrections.items.map((item) =>
+      item.id === target.conflictWizardID
+        ? {
+            ...item,
+            status: input.confirm ? 'resolved' : 'rejected',
+            updatedAt: now,
+          }
+        : item,
+    );
+    writeCorrectionStore(projectDir, corrections);
+  }
+  return target;
 }

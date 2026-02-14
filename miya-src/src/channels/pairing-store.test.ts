@@ -38,4 +38,15 @@ describe('channel contact tier store', () => {
     expect(rows).toContainEqual({ channel: 'qq', senderID: 'user-f', tier: 'friend' });
     expect(rows).toContainEqual({ channel: 'wechat', senderID: 'user-o', tier: 'owner' });
   });
+
+  test('encrypts account identifiers at rest', () => {
+    const projectDir = tempProjectDir();
+    setContactTier(projectDir, 'qq', 'acc-123456', 'owner');
+    const raw = fs.readFileSync(
+      path.join(projectDir, '.opencode', 'miya', 'channels.json'),
+      'utf-8',
+    );
+    expect(raw.includes('acc-123456')).toBe(false);
+    expect(raw.includes('miya-sec:')).toBe(true);
+  });
 });

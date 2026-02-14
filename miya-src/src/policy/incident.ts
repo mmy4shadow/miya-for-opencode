@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PolicyDomain } from './index';
 import { getMiyaRuntimeDir } from '../workflow';
+import { assertSemanticTags, normalizeSemanticTags, type SemanticTag } from './semantic-tags';
 
 export interface PolicyIncident {
   id: string;
@@ -26,6 +27,7 @@ export interface PolicyIncident {
     keyAssertion: string;
     recovery: string;
   };
+  semanticTags?: SemanticTag[];
   details?: Record<string, unknown>;
 }
 
@@ -37,6 +39,8 @@ export function appendPolicyIncident(
   projectDir: string,
   incident: Omit<PolicyIncident, 'id' | 'at'> & { id?: string; at?: string },
 ): PolicyIncident {
+  assertSemanticTags(incident.semanticTags);
+  const semanticTags = normalizeSemanticTags(incident.semanticTags);
   const payload: PolicyIncident = {
     id: incident.id ?? `incident_${randomUUID()}`,
     at: incident.at ?? new Date().toISOString(),
@@ -49,6 +53,7 @@ export function appendPolicyIncident(
     pausedDomains: incident.pausedDomains,
     statusByDomain: incident.statusByDomain,
     semanticSummary: incident.semanticSummary,
+    semanticTags,
     details: incident.details,
   };
   const file = incidentFile(projectDir);
