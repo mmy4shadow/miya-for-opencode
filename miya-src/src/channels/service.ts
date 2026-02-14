@@ -1051,7 +1051,7 @@ export class ChannelRuntime {
     }
 
     if (input.channel === 'qq') {
-      const result = sendQqDesktopMessage({
+      const result = await sendQqDesktopMessage({
         projectDir: this.projectDir,
         destination: input.destination,
         text,
@@ -1131,7 +1131,7 @@ export class ChannelRuntime {
     }
 
     if (input.channel === 'wechat') {
-      const result = sendWechatDesktopMessage({
+      const result = await sendWechatDesktopMessage({
         projectDir: this.projectDir,
         destination: input.destination,
         text,

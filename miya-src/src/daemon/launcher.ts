@@ -54,6 +54,7 @@ interface LauncherRuntime {
   lastPongAt?: number;
   reqSeq: number;
   pending: Map<string, PendingRequest>;
+  maxPendingRequests: number;
   snapshot: DaemonConnectionSnapshot;
 }
 
@@ -213,6 +214,13 @@ function daemonRequest(
   if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) {
     return Promise.reject(new Error('daemon_ws_not_open'));
   }
+  if (runtime.pending.size >= runtime.maxPendingRequests) {
+    return Promise.reject(
+      new Error(
+        `daemon_backpressure_overloaded:pending=${runtime.pending.size}:max=${runtime.maxPendingRequests}`,
+      ),
+    );
+  }
   runtime.reqSeq += 1;
   const id = `req-${runtime.reqSeq}`;
   const frame = DaemonRequestFrameSchema.parse({
@@ -350,6 +358,10 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     connected: false,
     reqSeq: 0,
     pending: new Map(),
+    maxPendingRequests: Math.max(
+      4,
+      Math.floor(Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64)),
+    ),
     snapshot: {
       connected: false,
       statusText: 'Miya Daemon Booting',

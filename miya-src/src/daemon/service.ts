@@ -726,7 +726,7 @@ export class MiyaDaemonService {
         });
       }
       // Built-in fallback runner keeps training executable without external env command.
-      await delay(20);
+      await delay(10);
     }
 
     fs.mkdirSync(path.dirname(input.artifactPath), { recursive: true });

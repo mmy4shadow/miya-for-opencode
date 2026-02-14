@@ -82,8 +82,52 @@ export type GatewayMethodHandler = (
   context: GatewayMethodContext,
 ) => Promise<unknown> | unknown;
 
+interface GatewayMethodRegistryOptions {
+  maxInFlight?: number;
+  maxQueued?: number;
+  queueTimeoutMs?: number;
+}
+
+interface QueuedInvocation {
+  method: string;
+  params: Record<string, unknown>;
+  context: GatewayMethodContext;
+  resolve: (value: unknown) => void;
+  reject: (reason: unknown) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
 export class GatewayMethodRegistry {
   private handlers = new Map<string, GatewayMethodHandler>();
+  private inFlight = 0;
+  private readonly queue: QueuedInvocation[] = [];
+  private readonly maxInFlight: number;
+  private readonly maxQueued: number;
+  private readonly queueTimeoutMs: number;
+
+  constructor(options: GatewayMethodRegistryOptions = {}) {
+    this.maxInFlight = Math.max(
+      1,
+      Math.floor(
+        options.maxInFlight ??
+          Number(process.env.MIYA_GATEWAY_MAX_IN_FLIGHT ?? 8),
+      ),
+    );
+    this.maxQueued = Math.max(
+      1,
+      Math.floor(
+        options.maxQueued ??
+          Number(process.env.MIYA_GATEWAY_MAX_QUEUED ?? 64),
+      ),
+    );
+    this.queueTimeoutMs = Math.max(
+      100,
+      Math.floor(
+        options.queueTimeoutMs ??
+          Number(process.env.MIYA_GATEWAY_QUEUE_TIMEOUT_MS ?? 15_000),
+      ),
+    );
+  }
 
   register(method: string, handler: GatewayMethodHandler): void {
     this.handlers.set(method, handler);
@@ -94,13 +138,73 @@ export class GatewayMethodRegistry {
     params: Record<string, unknown>,
     context: GatewayMethodContext,
   ): Promise<unknown> {
-    const handler = this.handlers.get(method);
-    if (!handler) throw new Error(`unknown_method:${method}`);
-    return await handler(params, context);
+    if (this.inFlight < this.maxInFlight) {
+      return this.executeNow(method, params, context);
+    }
+    if (this.queue.length >= this.maxQueued) {
+      throw new Error(
+        `gateway_backpressure_overloaded:in_flight=${this.inFlight}:queued=${this.queue.length}`,
+      );
+    }
+    return await new Promise<unknown>((resolve, reject) => {
+      const queued: QueuedInvocation = {
+        method,
+        params,
+        context,
+        resolve,
+        reject,
+        timeout: setTimeout(() => {
+          const index = this.queue.indexOf(queued);
+          if (index >= 0) this.queue.splice(index, 1);
+          reject(new Error('gateway_backpressure_timeout'));
+        }, this.queueTimeoutMs),
+      };
+      this.queue.push(queued);
+    });
   }
 
   list(): string[] {
     return [...this.handlers.keys()].sort();
+  }
+
+  stats(): { inFlight: number; queued: number; maxInFlight: number; maxQueued: number } {
+    return {
+      inFlight: this.inFlight,
+      queued: this.queue.length,
+      maxInFlight: this.maxInFlight,
+      maxQueued: this.maxQueued,
+    };
+  }
+
+  private async executeNow(
+    method: string,
+    params: Record<string, unknown>,
+    context: GatewayMethodContext,
+  ): Promise<unknown> {
+    const handler = this.handlers.get(method);
+    if (!handler) throw new Error(`unknown_method:${method}`);
+    this.inFlight += 1;
+    try {
+      return await handler(params, context);
+    } finally {
+      this.inFlight = Math.max(0, this.inFlight - 1);
+      this.drainQueue();
+    }
+  }
+
+  private drainQueue(): void {
+    if (this.inFlight >= this.maxInFlight) return;
+    const next = this.queue.shift();
+    if (!next) return;
+    clearTimeout(next.timeout);
+    void this.executeNow(next.method, next.params, next.context)
+      .then((value) => next.resolve(value))
+      .catch((error) => next.reject(error))
+      .finally(() => {
+        if (this.inFlight < this.maxInFlight && this.queue.length > 0) {
+          this.drainQueue();
+        }
+      });
   }
 }
 
@@ -178,4 +282,3 @@ export function toPongFrame(ts: number): PongFrame {
     ts,
   });
 }
-

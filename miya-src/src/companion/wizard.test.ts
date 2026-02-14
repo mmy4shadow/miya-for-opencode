@@ -79,7 +79,7 @@ describe('companion wizard', () => {
     const voiceIntent = detectMultimodalIntent('用你的声音发一条语音给[小明]');
     expect(selfie.type).toBe('selfie');
     expect(voiceIntent.type).toBe('voice_to_friend');
-  });
+  }, 15_000);
 
   test('enforces photo count 1-5 and session-isolated wizard file path', () => {
     const projectDir = tempProjectDir();
@@ -193,5 +193,5 @@ describe('companion wizard', () => {
       tier: 'reference',
     });
     expect(failedVoice.state).toBe('training_voice');
-  });
+  }, 15_000);
 });

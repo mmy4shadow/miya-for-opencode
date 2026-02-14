@@ -23,21 +23,39 @@ function summarizeFromMetadata(metadata: Record<string, unknown> | undefined): s
   return 'Image metadata found but no caption/tags were provided.';
 }
 
-function commandExists(command: string): boolean {
+async function commandExists(command: string): Promise<boolean> {
   const probe = process.platform === 'win32' ? ['where', command] : ['which', command];
-  const result = Bun.spawnSync(probe, { stdout: 'pipe', stderr: 'pipe', timeout: 3000 });
-  return result.exitCode === 0;
+  const proc = Bun.spawn(probe, { stdout: 'pipe', stderr: 'pipe' });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    try {
+      proc.kill();
+    } catch {}
+  }, 3000);
+  const code = await proc.exited;
+  clearTimeout(timer);
+  return !timedOut && code === 0;
 }
 
-function runTesseractOcr(imagePath: string): string {
-  if (!commandExists('tesseract')) return '';
+async function runTesseractOcr(imagePath: string): Promise<string> {
+  if (!(await commandExists('tesseract'))) return '';
   const args =
     process.platform === 'win32'
       ? ['tesseract', imagePath, 'stdout', '--psm', '6']
       : ['tesseract', imagePath, 'stdout', '--psm', '6'];
-  const proc = Bun.spawnSync(args, { stdout: 'pipe', stderr: 'pipe', timeout: 8000 });
-  if (proc.exitCode !== 0) return '';
-  return Buffer.from(proc.stdout).toString('utf-8').trim();
+  const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    try {
+      proc.kill();
+    } catch {}
+  }, 8000);
+  const code = await proc.exited;
+  clearTimeout(timer);
+  if (timedOut || code !== 0) return '';
+  return (await new Response(proc.stdout).text()).trim();
 }
 
 async function runRemoteVisionInference(
@@ -98,7 +116,7 @@ async function readTextFromImage(imagePath: string, question?: string): Promise<
       boxes: remote.boxes,
     };
   }
-  const tesseractText = runTesseractOcr(imagePath);
+  const tesseractText = await runTesseractOcr(imagePath);
   if (tesseractText) {
     return {
       source: 'tesseract',

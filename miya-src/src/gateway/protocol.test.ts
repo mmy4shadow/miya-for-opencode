@@ -7,6 +7,17 @@ import {
   toResponseFrame,
 } from './protocol';
 
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('wait_timeout');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 describe('gateway protocol', () => {
   test('parses request frame', () => {
     const parsed = parseIncomingFrame(
@@ -54,6 +65,70 @@ describe('gateway protocol', () => {
 
     expect(result).toEqual({ echoed: 'x' });
     expect(registry.list()).toEqual(['echo']);
+  });
+
+  test('applies backpressure queue and drains in order', async () => {
+    const registry = new GatewayMethodRegistry({
+      maxInFlight: 1,
+      maxQueued: 4,
+      queueTimeoutMs: 5000,
+    });
+    const blockers: Array<() => void> = [];
+    registry.register('slow', async (params) => {
+      const order = Number(params.order ?? -1);
+      await new Promise<void>((resolve) => blockers.push(resolve));
+      return { order };
+    });
+
+    const first = registry.invoke('slow', { order: 1 }, { clientID: 'c1', role: 'ui' });
+    const second = registry.invoke('slow', { order: 2 }, { clientID: 'c1', role: 'ui' });
+    const third = registry.invoke('slow', { order: 3 }, { clientID: 'c1', role: 'ui' });
+
+    expect(registry.stats().inFlight).toBe(1);
+    expect(registry.stats().queued).toBe(2);
+
+    await waitFor(() => blockers.length >= 1);
+    const release1 = blockers.shift();
+    release1?.();
+    expect(await first).toEqual({ order: 1 });
+
+    await waitFor(() => blockers.length >= 1);
+    const release2 = blockers.shift();
+    release2?.();
+    expect(await second).toEqual({ order: 2 });
+
+    await waitFor(() => blockers.length >= 1);
+    const release3 = blockers.shift();
+    release3?.();
+    expect(await third).toEqual({ order: 3 });
+  });
+
+  test('rejects when backpressure queue is full', async () => {
+    const registry = new GatewayMethodRegistry({
+      maxInFlight: 1,
+      maxQueued: 1,
+      queueTimeoutMs: 5000,
+    });
+    const blockers: Array<() => void> = [];
+    registry.register(
+      'slow',
+      async () =>
+        await new Promise<void>((resolve) => {
+          blockers.push(resolve);
+        }),
+    );
+
+    const first = registry.invoke('slow', {}, { clientID: 'c1', role: 'ui' });
+    const second = registry.invoke('slow', {}, { clientID: 'c1', role: 'ui' });
+    await expect(
+      registry.invoke('slow', {}, { clientID: 'c1', role: 'ui' }),
+    ).rejects.toThrow(/gateway_backpressure_overloaded/);
+    await waitFor(() => blockers.length >= 1);
+    blockers.shift()?.();
+    await first;
+    await waitFor(() => blockers.length >= 1);
+    blockers.shift()?.();
+    await second;
   });
 
   test('serializes response and event frames', () => {

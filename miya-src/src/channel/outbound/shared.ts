@@ -30,14 +30,14 @@ function buildEvidenceDir(projectDir: string, channel: 'qq' | 'wechat'): string 
   return root;
 }
 
-export function sendDesktopOutbound(input: {
+export async function sendDesktopOutbound(input: {
   projectDir: string;
   appName: 'QQ' | 'WeChat';
   channel: 'qq' | 'wechat';
   destination: string;
   text?: string;
   mediaPath?: string;
-}): DesktopOutboundResult {
+}): Promise<DesktopOutboundResult> {
   const destination = input.destination.trim();
   const text = (input.text ?? '').trim();
   const mediaPath = (input.mediaPath ?? '').trim();
@@ -46,35 +46,35 @@ export function sendDesktopOutbound(input: {
   const evidenceDir = buildEvidenceDir(input.projectDir, input.channel);
 
   if (process.platform !== 'win32') {
-    return {
+    return Promise.resolve({
       sent: false,
       message: 'desktop_ui_windows_only',
       receiptStatus: 'uncertain',
       failureStep: 'preflight.platform',
       payloadHash,
       recipientTextCheck: 'uncertain',
-    };
+    });
   }
   if (process.env.MIYA_UI_AUTOMATION_ENABLED !== '1') {
-    return {
+    return Promise.resolve({
       sent: false,
       message: 'desktop_ui_disabled:set MIYA_UI_AUTOMATION_ENABLED=1',
       receiptStatus: 'uncertain',
       failureStep: 'preflight.runtime_switch',
       payloadHash,
       recipientTextCheck: 'uncertain',
-    };
+    });
   }
 
   if (!destination || (!text && !mediaPath)) {
-    return {
+    return Promise.resolve({
       sent: false,
       message: 'invalid_desktop_send_args',
       receiptStatus: 'uncertain',
       failureStep: 'preflight.args',
       payloadHash,
       recipientTextCheck: 'uncertain',
-    };
+    });
   }
 
   const script = `
@@ -271,10 +271,9 @@ exit 0
 }
 `.trim();
 
-  const proc = Bun.spawnSync(
+  const proc = Bun.spawn(
     ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
     {
-      timeout: 15_000,
       stdout: 'pipe',
       stderr: 'pipe',
       env: {
@@ -289,9 +288,18 @@ exit 0
       },
     },
   );
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    try {
+      proc.kill();
+    } catch {}
+  }, 15_000);
+  const exitCode = await proc.exited;
+  clearTimeout(timeout);
 
-  const stdout = Buffer.from(proc.stdout).toString('utf-8').trim();
-  const stderr = Buffer.from(proc.stderr).toString('utf-8').trim();
+  const stdout = (await new Response(proc.stdout).text()).trim();
+  const stderr = (await new Response(proc.stderr).text()).trim();
   const signal = stdout || stderr;
   const precheck = safeValueFromSignal(signal, 'pre') ?? 'failed';
   const postcheck = safeValueFromSignal(signal, 'post') ?? 'failed';
@@ -306,7 +314,7 @@ exit 0
   const preSendScreenshotPath = safeValueFromSignal(signal, 'pre_shot');
   const postSendScreenshotPath = safeValueFromSignal(signal, 'post_shot');
   const payloadFromSignal = safeValueFromSignal(signal, 'payload') ?? payloadHash;
-  if (proc.exitCode === 0 && stdout.includes('desktop_send_ok')) {
+  if (exitCode === 0 && stdout.includes('desktop_send_ok') && !timedOut) {
     return {
       sent: true,
       message: `${input.channel}_desktop_sent`,
@@ -326,7 +334,7 @@ exit 0
     safeValueFromSignal(signal, 'error') ??
     (stderr.trim() || undefined) ??
     (stdout.trim() || undefined) ??
-    `exit_${proc.exitCode}`;
+    timedOut ? 'timeout' : `exit_${exitCode}`;
   return {
     sent: false,
     message: `${input.channel}_desktop_send_failed:${detail}`,

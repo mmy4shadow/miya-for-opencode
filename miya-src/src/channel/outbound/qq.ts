@@ -1,11 +1,11 @@
 import { sendDesktopOutbound } from './shared';
 
-export function sendQqDesktopMessage(input: {
+export async function sendQqDesktopMessage(input: {
   projectDir: string;
   destination: string;
   text?: string;
   mediaPath?: string;
-}): {
+}): Promise<{
   sent: boolean;
   message: string;
   visualPrecheck?: string;
@@ -17,8 +17,8 @@ export function sendQqDesktopMessage(input: {
   recipientTextCheck?: 'matched' | 'uncertain' | 'mismatch';
   preSendScreenshotPath?: string;
   postSendScreenshotPath?: string;
-} {
-  return sendDesktopOutbound({
+}> {
+  return await sendDesktopOutbound({
     projectDir: input.projectDir,
     appName: 'QQ',
     channel: 'qq',
