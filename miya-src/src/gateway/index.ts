@@ -301,6 +301,8 @@ interface GatewaySnapshot {
 const runtimes = new Map<string, GatewayRuntime>();
 const dependencies = new Map<string, GatewayDependencies>();
 const ownerTokens = new Map<string, string>();
+const controlUiFallbackLoggedAtByDir = new Map<string, number>();
+const followerRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 interface GatewayOwnerLock {
   pid: number;
@@ -311,6 +313,14 @@ interface GatewayOwnerLock {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function shouldEmitThrottledLog(cache: Map<string, number>, key: string, windowMs: number): boolean {
+  const now = Date.now();
+  const last = cache.get(key) ?? 0;
+  if (now - last < windowMs) return false;
+  cache.set(key, now);
+  return true;
 }
 
 function depsOf(projectDir: string): GatewayDependencies {
@@ -364,6 +374,18 @@ function readGatewayOwnerLock(projectDir: string): GatewayOwnerLock | null {
   const startedAt = String(raw.startedAt ?? '');
   if (!Number.isFinite(pid) || !token || !updatedAt || !startedAt) return null;
   return { pid, token, updatedAt, startedAt };
+}
+
+function describeOwnerLock(lock: GatewayOwnerLock | null): Record<string, unknown> {
+  if (!lock) return { exists: false };
+  return {
+    exists: true,
+    pid: lock.pid,
+    updatedAt: lock.updatedAt,
+    startedAt: lock.startedAt,
+    fresh: isOwnerLockFresh(lock),
+    alive: isProcessAlive(lock.pid),
+  };
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -481,6 +503,19 @@ function readGatewayStateFile(projectDir: string): GatewayState | null {
   };
 }
 
+function describeGatewayState(state: GatewayState | null): Record<string, unknown> {
+  if (!state) return { exists: false };
+  return {
+    exists: true,
+    url: state.url,
+    port: state.port,
+    pid: state.pid,
+    startedAt: state.startedAt,
+    status: state.status,
+    pidAlive: isProcessAlive(state.pid),
+  };
+}
+
 function clearGatewayStateFile(projectDir: string): void {
   try {
     fs.unlinkSync(gatewayFile(projectDir));
@@ -530,6 +565,29 @@ function resolveGatewayListenOptions(projectDir: string): {
   const port =
     Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? Math.floor(rawPort) : 0;
   return { hostname, port };
+}
+
+function logControlUiFallback(
+  projectDir: string,
+  pathname: string,
+  controlUi: ReturnType<typeof createControlUiRequestOptions>,
+  responseStatus: number,
+): void {
+  const logKey = `${projectDir}:control-ui-fallback`;
+  if (!shouldEmitThrottledLog(controlUiFallbackLoggedAtByDir, logKey, 10_000)) return;
+  log('[gateway] control-ui fallback to built-in console', {
+    projectDir,
+    pathname,
+    responseStatus,
+    uiRootKind: controlUi.root?.kind ?? 'unknown',
+    uiRootPath:
+      controlUi.root && 'path' in controlUi.root
+        ? String(controlUi.root.path)
+        : undefined,
+    uiBasePath: controlUi.basePath ?? '',
+    envUiRoot: process.env.MIYA_GATEWAY_UI_ROOT ?? '',
+    envUiBasePath: process.env.MIYA_GATEWAY_UI_BASE_PATH ?? '',
+  });
 }
 
 function toGatewayState(projectDir: string, runtime: GatewayRuntime): GatewayState {
@@ -4131,27 +4189,65 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     if (owner.owned) {
       touchOwnerLock(projectDir);
     }
+    log('[gateway] runtime already active; reused existing runtime', {
+      projectDir,
+      owner: describeOwnerLock(owner.owner ?? null),
+    });
     return syncGatewayState(projectDir, existing);
   }
 
   const owner = acquireGatewayOwner(projectDir);
   if (!owner.owned) {
     const state = readGatewayStateFile(projectDir);
+    const ownerAlive = owner.owner ? isProcessAlive(owner.owner.pid) : false;
+    const ownerFresh = owner.owner ? isOwnerLockFresh(owner.owner) : false;
+    log('[gateway] owner lock held by another process', {
+      projectDir,
+      owner: describeOwnerLock(owner.owner ?? null),
+      state: describeGatewayState(state),
+    });
     if (state && owner.owner && state.pid !== owner.owner.pid) {
       clearGatewayStateFile(projectDir);
+      log('[gateway] cleared stale gateway state file due to pid mismatch', {
+        projectDir,
+        statePid: state.pid,
+        ownerPid: owner.owner.pid,
+      });
     }
     if (state && isProcessAlive(state.pid)) {
+      log('[gateway] follower mode attached to existing owner state', {
+        projectDir,
+        state: describeGatewayState(state),
+      });
       return state;
     }
     if (state && !isProcessAlive(state.pid)) {
       clearGatewayStateFile(projectDir);
+      log('[gateway] removed dead gateway state pid', {
+        projectDir,
+        statePid: state.pid,
+      });
     }
-    if (owner.owner && !isProcessAlive(owner.owner.pid)) {
+    if (owner.owner && !ownerAlive) {
       const retry = acquireGatewayOwner(projectDir);
       if (!retry.owned) {
+        log('[gateway] ownership reacquire failed after dead owner detected', {
+          projectDir,
+          previousOwner: describeOwnerLock(owner.owner),
+          retryOwner: describeOwnerLock(retry.owner ?? null),
+        });
         throw new Error('gateway_owned_by_other_process');
       }
+      log('[gateway] ownership reacquired after dead owner detected', {
+        projectDir,
+        retryOwner: describeOwnerLock(retry.owner ?? null),
+      });
     } else {
+      log('[gateway] follower refused ownership takeover', {
+        projectDir,
+        ownerAlive,
+        ownerFresh,
+      });
       throw new Error('gateway_owned_by_other_process');
     }
   }
@@ -4169,13 +4265,21 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
   });
 
   const listen = resolveGatewayListenOptions(projectDir);
-  const server = Bun.serve({
+  log('[gateway] creating runtime server', {
+    projectDir,
+    listen,
+    owner: describeOwnerLock(readGatewayOwnerLock(projectDir)),
+    controlUiRoot: controlUi.root?.kind ?? 'unknown',
+  });
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({
     hostname: listen.hostname,
     port: listen.port,
     fetch(request, currentServer) {
       const url = new URL(request.url);
       if (url.pathname === '/ws') {
-        const upgraded = currentServer.upgrade(request);
+        const upgraded = currentServer.upgrade(request, { data: {} });
         if (upgraded) return;
         return new Response('websocket upgrade failed', { status: 400 });
       }
@@ -4190,6 +4294,9 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       if (controlUiResponse) {
         const missingUiFallback =
           controlUiResponse.status === 503 && controlUi.root?.kind !== 'resolved';
+        if (missingUiFallback) {
+          logControlUiFallback(projectDir, url.pathname, controlUi, controlUiResponse.status);
+        }
         if (!missingUiFallback) return controlUiResponse;
       }
 
@@ -4370,7 +4477,17 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         }
       },
     },
-  });
+    });
+  } catch (error) {
+    clearGatewayStateFile(projectDir);
+    removeOwnerLock(projectDir);
+    log('[gateway] failed to bind server', {
+      projectDir,
+      listen,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   runtime = {
     startedAt: nowIso(),
@@ -4434,6 +4551,11 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     publishGatewayEvent(runtime, event.type, event);
   });
   void runtime.channelRuntime.start();
+  log('[gateway] runtime started', {
+    projectDir,
+    state: toGatewayState(projectDir, runtime),
+    owner: describeOwnerLock(readGatewayOwnerLock(projectDir)),
+  });
   return syncGatewayState(projectDir, runtime);
 }
 
@@ -4561,17 +4683,76 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
 }
 
 export function startGatewayWithLog(projectDir: string): void {
+  const stateFile = gatewayFile(projectDir);
+  const ownerFile = gatewayOwnerLockFile(projectDir);
+  log('[gateway] startup requested', {
+    projectDir,
+    pid: process.pid,
+    stateFile,
+    ownerFile,
+    existingState: describeGatewayState(readGatewayStateFile(projectDir)),
+    existingOwner: describeOwnerLock(readGatewayOwnerLock(projectDir)),
+  });
   try {
     const state = ensureGatewayRunning(projectDir);
-    log('[gateway] started', state);
+    const owner = ownerSummary(projectDir);
+    log('[gateway] started', {
+      ...state,
+      owner,
+    });
+    void probeGatewayAlive(state.url, 1_500)
+      .then((healthy) => {
+        log('[gateway] startup health probe result', {
+          projectDir,
+          url: state.url,
+          healthy,
+        });
+      })
+      .catch((error) => {
+        log('[gateway] startup health probe failed', {
+          projectDir,
+          url: state.url,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message === 'gateway_owned_by_other_process') {
-      log('[gateway] follower mode: owner is another process', { projectDir });
+      const owner = readGatewayOwnerLock(projectDir);
+      const state = readGatewayStateFile(projectDir);
+      log('[gateway] follower mode: owner is another process', {
+        projectDir,
+        owner: describeOwnerLock(owner),
+        state: describeGatewayState(state),
+      });
+      const timerKey = projectDir;
+      if (!followerRecoveryTimers.has(timerKey)) {
+        const timer = setTimeout(() => {
+          followerRecoveryTimers.delete(timerKey);
+          try {
+            const recovered = ensureGatewayRunning(projectDir);
+            log('[gateway] follower delayed recovery succeeded', {
+              projectDir,
+              state: recovered,
+            });
+          } catch (recoveryError) {
+            log('[gateway] follower delayed recovery still blocked', {
+              projectDir,
+              error: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+              owner: describeOwnerLock(readGatewayOwnerLock(projectDir)),
+              state: describeGatewayState(readGatewayStateFile(projectDir)),
+            });
+          }
+        }, 6_000);
+        followerRecoveryTimers.set(timerKey, timer);
+      }
       return;
     }
     log('[gateway] failed to start', {
+      projectDir,
       error: message,
+      owner: describeOwnerLock(readGatewayOwnerLock(projectDir)),
+      state: describeGatewayState(readGatewayStateFile(projectDir)),
     });
   }
 }
