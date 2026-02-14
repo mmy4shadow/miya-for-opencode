@@ -38,7 +38,7 @@ import {
   createSlashCommandBridgeHook,
 } from './hooks';
 import { createSafetyTools, handlePermissionAsk } from './safety';
-import { createConfigTools, readConfig } from './settings';
+import { createConfigTools } from './settings';
 import { createBuiltinMcps } from './mcp';
 import {
   ast_grep_replace,
@@ -125,12 +125,6 @@ function launchDockSilently(projectDir: string): void {
 }
 
 function shouldAutoOpenUi(projectDir: string): boolean {
-  const config = readConfig(projectDir);
-  const ui = (config.ui as Record<string, unknown> | undefined)?.dashboard as
-    | Record<string, unknown>
-    | undefined;
-  const enabled = ui?.openOnStart !== false;
-  if (!enabled) return false;
   const last = autoUiOpenAtByDir.get(projectDir) ?? 0;
   const now = Date.now();
   if (now - last < 10_000) return false;
