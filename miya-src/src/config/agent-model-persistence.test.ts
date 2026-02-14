@@ -8,7 +8,9 @@ import {
   normalizeAgentName,
   normalizeModelRef,
   persistAgentModelSelection,
+  persistAgentRuntimeSelection,
   readPersistedAgentModels,
+  readPersistedAgentRuntime,
 } from './agent-model-persistence';
 
 describe('agent-model-persistence', () => {
@@ -76,6 +78,56 @@ describe('agent-model-persistence', () => {
     expect(merged.agents?.['6-ui-designer']?.temperature).toBe(0.7);
   });
 
+  test('persists runtime fields with revision and active agent', () => {
+    const changed = persistAgentRuntimeSelection(tempDir, {
+      agentName: '6-ui-designer',
+      model: 'openai/gpt-5.2-codex',
+      providerID: 'openai',
+      options: { baseURL: 'https://api.example.com/v1' },
+      apiKey: '{env:OPENAI_API_KEY}',
+      baseURL: 'https://api.example.com/v1',
+      activeAgentId: '6-ui-designer',
+    });
+    expect(changed).toBe(true);
+
+    const runtime = readPersistedAgentRuntime(tempDir);
+    expect(runtime.revision).toBe(1);
+    expect(runtime.activeAgentId).toBe('6-ui-designer');
+    expect(runtime.agents['6-ui-designer']?.providerID).toBe('openai');
+    expect(runtime.agents['6-ui-designer']?.baseURL).toBe(
+      'https://api.example.com/v1',
+    );
+  });
+
+  test('injects active-agent provider options into global provider map', () => {
+    persistAgentRuntimeSelection(tempDir, {
+      agentName: '6-ui-designer',
+      model: 'openai/gpt-5.2-codex',
+      providerID: 'openai',
+      apiKey: '{env:OPENAI_API_KEY}',
+      baseURL: 'https://custom-openai.example/v1',
+      activeAgentId: '6-ui-designer',
+    });
+
+    const merged = applyPersistedAgentModelOverrides(
+      {
+        provider: {
+          openai: {
+            options: {
+              timeout: 10000,
+            },
+          },
+        },
+      },
+      tempDir,
+    );
+
+    const provider = merged.provider?.openai as { options?: Record<string, unknown> };
+    expect(provider.options?.timeout).toBe(10000);
+    expect(provider.options?.apiKey).toBe('{env:OPENAI_API_KEY}');
+    expect(provider.options?.baseURL).toBe('https://custom-openai.example/v1');
+  });
+
   test('extracts model selection from message.updated user events only', () => {
     const extracted = extractAgentModelSelectionFromEvent({
       type: 'message.updated',
@@ -91,6 +143,8 @@ describe('agent-model-persistence', () => {
     expect(extracted).toEqual({
       agentName: '6-ui-designer',
       model: 'openai/gpt-5.2-codex',
+      providerID: 'openai',
+      activeAgentId: '6-ui-designer',
       source: 'message',
     });
 

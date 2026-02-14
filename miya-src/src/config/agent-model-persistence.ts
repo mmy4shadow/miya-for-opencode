@@ -5,10 +5,61 @@ import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
 import type { PluginConfig } from './schema';
 
 const KNOWN_AGENT_NAMES = new Set<string>(ALL_AGENT_NAMES as readonly string[]);
+const AGENT_RUNTIME_VERSION = 1;
+const MAX_WRITE_RETRIES = 4;
+
+interface AgentRuntimeEntry {
+  model?: string;
+  variant?: string;
+  providerID?: string;
+  options?: Record<string, unknown>;
+  apiKey?: string;
+  baseURL?: string;
+  updatedAt: string;
+}
+
+interface PersistedAgentRuntimeFile {
+  version?: number;
+  revision?: number;
+  updatedAt?: string;
+  activeAgentId?: string;
+  agents?: Record<string, unknown>;
+}
 
 interface PersistedAgentModelsFile {
   updatedAt?: string;
   agents?: Record<string, unknown>;
+}
+
+export interface AgentRuntimeSelectionInput {
+  agentName: string;
+  model?: unknown;
+  variant?: unknown;
+  providerID?: unknown;
+  options?: unknown;
+  apiKey?: unknown;
+  baseURL?: unknown;
+  activeAgentId?: unknown;
+}
+
+export interface AgentModelSelectionFromEvent {
+  agentName: string;
+  model?: string;
+  variant?: string;
+  providerID?: string;
+  options?: Record<string, unknown>;
+  apiKey?: string;
+  baseURL?: string;
+  activeAgentId?: string;
+  source: string;
+}
+
+interface NormalizedAgentRuntime {
+  version: number;
+  revision: number;
+  updatedAt: string;
+  activeAgentId?: string;
+  agents: Record<string, AgentRuntimeEntry>;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -16,6 +67,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function filePath(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'agent-runtime.json');
+}
+
+function legacyFilePath(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'agent-models.json');
 }
 
@@ -50,8 +105,50 @@ function parsePersistedModel(value: unknown): string | null {
   return normalizeModelRef(value) ?? (isObject(value) ? normalizeModelRef(value.model) : null);
 }
 
-export function readPersistedAgentModels(projectDir: string): Record<string, string> {
-  const file = filePath(projectDir);
+function normalizeProviderID(value: unknown): string | undefined {
+  const text = String(value ?? '').trim();
+  return text || undefined;
+}
+
+function normalizeStringValue(value: unknown): string | undefined {
+  const text = String(value ?? '').trim();
+  return text || undefined;
+}
+
+function normalizeOptions(value: unknown): Record<string, unknown> | undefined {
+  if (!isObject(value)) return undefined;
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function normalizeAgentRuntimeEntry(value: unknown): AgentRuntimeEntry | null {
+  if (!isObject(value)) return null;
+
+  const model = parsePersistedModel(value.model ?? value);
+  const variant = normalizeStringValue(value.variant);
+  const providerID =
+    normalizeProviderID(value.providerID) ??
+    (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+  const options = normalizeOptions(value.options ?? value.providerOptions);
+  const apiKey = normalizeStringValue(value.apiKey);
+  const baseURL = normalizeStringValue(value.baseURL);
+
+  if (!model && !variant && !providerID && !options && !apiKey && !baseURL) {
+    return null;
+  }
+
+  return {
+    model: model ?? undefined,
+    variant,
+    providerID,
+    options,
+    apiKey,
+    baseURL,
+    updatedAt: normalizeStringValue(value.updatedAt) ?? new Date().toISOString(),
+  };
+}
+
+function readLegacyModels(projectDir: string): Record<string, string> {
+  const file = legacyFilePath(projectDir);
   if (!fs.existsSync(file)) return {};
 
   try {
@@ -72,19 +169,195 @@ export function readPersistedAgentModels(projectDir: string): Record<string, str
   }
 }
 
-function writePersistedAgentModels(projectDir: string, models: Record<string, string>): void {
+function normalizeRuntimeState(
+  projectDir: string,
+  parsed: PersistedAgentRuntimeFile | null,
+): NormalizedAgentRuntime {
+  if (!parsed || !isObject(parsed.agents)) {
+    const legacy = readLegacyModels(projectDir);
+    const agentsFromLegacy: Record<string, AgentRuntimeEntry> = {};
+    for (const [agentName, model] of Object.entries(legacy)) {
+      agentsFromLegacy[agentName] = {
+        model,
+        providerID: model.split('/')[0],
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    return {
+      version: AGENT_RUNTIME_VERSION,
+      revision: 0,
+      updatedAt: new Date().toISOString(),
+      agents: agentsFromLegacy,
+    };
+  }
+
+  const agents: Record<string, AgentRuntimeEntry> = {};
+  for (const [rawAgentName, rawEntry] of Object.entries(parsed.agents)) {
+    const agentName = normalizeAgentName(rawAgentName);
+    if (!agentName) continue;
+    const entry = normalizeAgentRuntimeEntry(rawEntry);
+    if (!entry) continue;
+    agents[agentName] = entry;
+  }
+
+  const activeAgentId = normalizeAgentName(String(parsed.activeAgentId ?? '')) ?? undefined;
+
+  return {
+    version: AGENT_RUNTIME_VERSION,
+    revision: Number(parsed.revision ?? 0) || 0,
+    updatedAt: normalizeStringValue(parsed.updatedAt) ?? new Date().toISOString(),
+    activeAgentId,
+    agents,
+  };
+}
+
+function readRuntimeState(projectDir: string): NormalizedAgentRuntime {
+  const file = filePath(projectDir);
+  if (!fs.existsSync(file)) {
+    return normalizeRuntimeState(projectDir, null);
+  }
+  try {
+    const raw = fs.readFileSync(file, 'utf-8');
+    const parsed = JSON.parse(raw) as PersistedAgentRuntimeFile;
+    return normalizeRuntimeState(projectDir, parsed);
+  } catch {
+    return normalizeRuntimeState(projectDir, null);
+  }
+}
+
+function writeRuntimeStateAtomic(projectDir: string, runtime: NormalizedAgentRuntime): void {
   const file = filePath(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const ordered = Object.fromEntries(
-    Object.keys(models)
+  const orderedAgents = Object.fromEntries(
+    Object.keys(runtime.agents)
       .sort((a, b) => a.localeCompare(b))
-      .map((key) => [key, models[key]]),
+      .map((key) => [key, runtime.agents[key]]),
   );
-  const payload: PersistedAgentModelsFile = {
-    updatedAt: new Date().toISOString(),
-    agents: ordered,
+  const payload: PersistedAgentRuntimeFile = {
+    version: AGENT_RUNTIME_VERSION,
+    revision: runtime.revision,
+    updatedAt: runtime.updatedAt,
+    activeAgentId: runtime.activeAgentId,
+    agents: orderedAgents,
   };
-  fs.writeFileSync(file, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  fs.renameSync(tmp, file);
+}
+
+export function readPersistedAgentModels(projectDir: string): Record<string, string> {
+  const runtime = readRuntimeState(projectDir);
+  const models: Record<string, string> = {};
+  for (const [agentName, entry] of Object.entries(runtime.agents)) {
+    if (entry.model) {
+      models[agentName] = entry.model;
+    }
+  }
+  return models;
+}
+
+export function readPersistedAgentRuntime(projectDir: string): {
+  activeAgentId?: string;
+  revision: number;
+  agents: Record<string, AgentRuntimeEntry>;
+} {
+  const runtime = readRuntimeState(projectDir);
+  return {
+    activeAgentId: runtime.activeAgentId,
+    revision: runtime.revision,
+    agents: runtime.agents,
+  };
+}
+
+function normalizeSelectionInput(input: AgentRuntimeSelectionInput): {
+  agentName: string;
+  entryPatch: Partial<AgentRuntimeEntry>;
+  activeAgentId?: string;
+} | null {
+  const agentName = normalizeAgentName(input.agentName);
+  if (!agentName) return null;
+
+  const model = normalizeModelRef(input.model);
+  const variant = normalizeStringValue(input.variant);
+  const providerID =
+    normalizeProviderID(input.providerID) ??
+    (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+  const options = normalizeOptions(input.options);
+  const apiKey = normalizeStringValue(input.apiKey);
+  const baseURL = normalizeStringValue(input.baseURL);
+
+  const entryPatch: Partial<AgentRuntimeEntry> = {};
+  if (model) entryPatch.model = model;
+  if (variant) entryPatch.variant = variant;
+  if (providerID) entryPatch.providerID = providerID;
+  if (options) entryPatch.options = options;
+  if (apiKey) entryPatch.apiKey = apiKey;
+  if (baseURL) entryPatch.baseURL = baseURL;
+
+  const activeAgentId = normalizeAgentName(String(input.activeAgentId ?? '')) ?? undefined;
+  if (Object.keys(entryPatch).length === 0 && !activeAgentId) return null;
+
+  return {
+    agentName,
+    entryPatch,
+    activeAgentId,
+  };
+}
+
+export function persistAgentRuntimeSelection(
+  projectDir: string,
+  input: AgentRuntimeSelectionInput,
+): boolean {
+  const normalized = normalizeSelectionInput(input);
+  if (!normalized) return false;
+
+  for (let attempt = 0; attempt < MAX_WRITE_RETRIES; attempt += 1) {
+    const base = readRuntimeState(projectDir);
+    const currentEntry = base.agents[normalized.agentName];
+    const mergedEntry = {
+      ...(currentEntry ?? {}),
+      ...normalized.entryPatch,
+    };
+    const previousComparable = JSON.stringify({
+      ...(currentEntry ?? {}),
+      updatedAt: undefined,
+    });
+    const nextComparable = JSON.stringify({
+      ...mergedEntry,
+      updatedAt: undefined,
+    });
+    const nextEntry: AgentRuntimeEntry = {
+      ...(currentEntry ?? { updatedAt: new Date().toISOString() }),
+      ...normalized.entryPatch,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const entryUnchanged = previousComparable === nextComparable;
+    const activeUnchanged =
+      normalized.activeAgentId === undefined || base.activeAgentId === normalized.activeAgentId;
+    if (entryUnchanged && activeUnchanged) {
+      return false;
+    }
+
+    const latest = readRuntimeState(projectDir);
+    if (latest.revision !== base.revision) {
+      continue;
+    }
+
+    const nextState: NormalizedAgentRuntime = {
+      ...latest,
+      revision: latest.revision + 1,
+      updatedAt: new Date().toISOString(),
+      activeAgentId: normalized.activeAgentId ?? latest.activeAgentId,
+      agents: {
+        ...latest.agents,
+        [normalized.agentName]: nextEntry,
+      },
+    };
+    writeRuntimeStateAtomic(projectDir, nextState);
+    return true;
+  }
+  return false;
 }
 
 export function persistAgentModelSelection(
@@ -92,99 +365,147 @@ export function persistAgentModelSelection(
   agentName: string,
   model: unknown,
 ): boolean {
-  const canonicalAgentName = normalizeAgentName(agentName);
-  const modelRef = normalizeModelRef(model);
-  if (!canonicalAgentName || !modelRef) {
+  if (!normalizeModelRef(model)) {
     return false;
   }
-
-  const models = readPersistedAgentModels(projectDir);
-  if (models[canonicalAgentName] === modelRef) {
-    return false;
-  }
-
-  models[canonicalAgentName] = modelRef;
-  writePersistedAgentModels(projectDir, models);
-  return true;
+  return persistAgentRuntimeSelection(projectDir, {
+    agentName,
+    model,
+    activeAgentId: agentName,
+  });
 }
 
 export function applyPersistedAgentModelOverrides(
   config: PluginConfig,
   projectDir: string,
 ): PluginConfig {
-  const persisted = readPersistedAgentModels(projectDir);
-  if (Object.keys(persisted).length === 0) {
+  const runtime = readPersistedAgentRuntime(projectDir);
+  if (Object.keys(runtime.agents).length === 0) {
     return config;
   }
 
   const nextAgents = { ...(config.agents ?? {}) };
-  for (const [agentName, model] of Object.entries(persisted)) {
+  for (const [agentName, entry] of Object.entries(runtime.agents)) {
+    const previousAgent = (nextAgents[agentName] ?? {}) as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+    if (entry.model) patch.model = entry.model;
+    if (entry.variant) patch.variant = entry.variant;
+    if (entry.providerID) patch.providerID = entry.providerID;
+    if (entry.options) patch.options = entry.options;
+    if (entry.apiKey) patch.apiKey = entry.apiKey;
+    if (entry.baseURL) patch.baseURL = entry.baseURL;
     nextAgents[agentName] = {
-      ...(nextAgents[agentName] ?? {}),
-      model,
+      ...previousAgent,
+      ...patch,
+    };
+  }
+
+  const activeAgent = runtime.activeAgentId ? runtime.agents[runtime.activeAgentId] : undefined;
+  let nextProvider = config.provider;
+  if (activeAgent?.providerID) {
+    const providerMap = (isObject(config.provider) ? config.provider : {}) as Record<
+      string,
+      unknown
+    >;
+    const currentProvider = (providerMap[activeAgent.providerID] ?? {}) as Record<string, unknown>;
+    const currentOptions = (isObject(currentProvider.options)
+      ? currentProvider.options
+      : {}) as Record<string, unknown>;
+    const nextOptions: Record<string, unknown> = {
+      ...currentOptions,
+      ...(activeAgent.options ?? {}),
+    };
+    if (activeAgent.apiKey) nextOptions.apiKey = activeAgent.apiKey;
+    if (activeAgent.baseURL) nextOptions.baseURL = activeAgent.baseURL;
+    nextProvider = {
+      ...providerMap,
+      [activeAgent.providerID]: {
+        ...currentProvider,
+        options: nextOptions,
+      },
     };
   }
 
   return {
     ...config,
     agents: nextAgents,
+    provider: nextProvider,
   };
 }
 
 export function extractAgentModelSelectionFromEvent(
   event: unknown,
-): { agentName: string; model: string; source: string } | null {
+): AgentModelSelectionFromEvent | null {
   if (!isObject(event)) return null;
-  
+
   const eventType = String(event.type ?? '');
   const properties = event.properties;
   if (!isObject(properties)) return null;
-  
-  // Priority 1: Message events (user sends message)
+
+  const extractFromEvent = (
+    source: string,
+    scope: Record<string, unknown>,
+    fallbackAgent?: string,
+    activeAgent = false,
+  ): AgentModelSelectionFromEvent | null => {
+    const agentName =
+      normalizeAgentName(String(scope.agent ?? scope.agentName ?? scope.newAgent ?? fallbackAgent ?? '')) ??
+      null;
+    if (!agentName) return null;
+
+    const model = normalizeModelRef(scope.model ?? scope.selectedModel ?? scope.agentModel);
+    const variant = normalizeStringValue(scope.variant);
+    const providerID =
+      normalizeProviderID(scope.providerID ?? scope.provider) ??
+      (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+    const options = normalizeOptions(scope.options ?? scope.providerOptions);
+    const apiKey = normalizeStringValue(scope.apiKey ?? (isObject(scope.options) ? scope.options.apiKey : undefined));
+    const baseURL = normalizeStringValue(
+      scope.baseURL ?? (isObject(scope.options) ? scope.options.baseURL : undefined),
+    );
+
+    if (!model && !variant && !providerID && !options && !apiKey && !baseURL && !activeAgent) {
+      return null;
+    }
+
+    return {
+      agentName,
+      model: model ?? undefined,
+      variant,
+      providerID,
+      options,
+      apiKey,
+      baseURL,
+      activeAgentId: activeAgent ? agentName : undefined,
+      source,
+    };
+  };
+
   if (eventType === 'message.updated') {
     const info = properties.info;
     if (!isObject(info) || info.role !== 'user') {
       return null;
     }
-    const agentName = normalizeAgentName(String(info.agent ?? ''));
-    const model = normalizeModelRef(info.model);
-    if (!agentName || !model) return null;
-    return { agentName, model, source: 'message' };
+    return extractFromEvent('message', info, String(properties.agent ?? ''), true);
   }
-  
-  // Priority 2: Agent switch events (TAB switch without message)
+
   if (['agent.selected', 'agent.changed', 'session.agent.changed'].includes(eventType)) {
-    const agentName = normalizeAgentName(
-      String(properties.agent ?? properties.agentName ?? properties.newAgent ?? '')
-    );
-    const model = normalizeModelRef(
-      properties.model ?? properties.agentModel ?? properties.selectedModel
-    );
-    if (!agentName || !model) return null;
-    return { agentName, model, source: 'agent_switch' };
+    return extractFromEvent('agent_switch', properties, undefined, true);
   }
-  
-  // Priority 3: Session events (configuration changes)
+
   if (['session.created', 'session.updated', 'config.updated'].includes(eventType)) {
     const info = properties.info;
-    let agentName: string | null = null;
-    let model: string | null = null;
-    
     if (isObject(info)) {
-      agentName = normalizeAgentName(String(info.agent ?? ''));
-      model = normalizeModelRef(info.model);
+      const fromInfo = extractFromEvent(
+        'session',
+        info,
+        String(properties.agent ?? properties.currentAgent ?? ''),
+        true,
+      );
+      if (fromInfo) return fromInfo;
     }
-    
-    if (!agentName) {
-      agentName = normalizeAgentName(String(properties.agent ?? properties.currentAgent ?? ''));
-    }
-    if (!model) {
-      model = normalizeModelRef(properties.model ?? properties.currentModel);
-    }
-    
-    if (!agentName || !model) return null;
-    return { agentName, model, source: 'session' };
+    return extractFromEvent('session', properties, undefined, true);
   }
-  
+
   return null;
 }

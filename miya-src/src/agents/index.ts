@@ -45,6 +45,21 @@ function applyOverrides(
   // Apply temperature override
   if (override.temperature !== undefined)
     agent.config.temperature = override.temperature;
+  if (override.variant && override.variant.trim().length > 0) {
+    (agent.config as Record<string, unknown>).variant = override.variant.trim();
+  }
+  if (override.providerID && override.providerID.trim().length > 0) {
+    (agent.config as Record<string, unknown>).providerID = override.providerID.trim();
+  }
+  if (override.options) {
+    (agent.config as Record<string, unknown>).options = override.options;
+  }
+  if (override.apiKey && override.apiKey.trim().length > 0) {
+    (agent.config as Record<string, unknown>).apiKey = override.apiKey.trim();
+  }
+  if (override.baseURL && override.baseURL.trim().length > 0) {
+    (agent.config as Record<string, unknown>).baseURL = override.baseURL.trim();
+  }
 }
 
 /**

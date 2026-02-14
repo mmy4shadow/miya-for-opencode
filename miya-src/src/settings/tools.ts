@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { PluginInput } from '@opencode-ai/plugin';
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
-import { ensureGatewayRunning } from '../gateway';
+import { ensureGatewayRunning, probeGatewayAlive, stopGateway } from '../gateway';
 import { collectSafetyEvidence } from '../safety/evidence';
 import {
   activateKillSwitch,
@@ -247,7 +247,16 @@ export function createConfigTools(
     description: 'Open Miya 本地控制台页面（默认浏览器）。',
     args: {},
     async execute() {
-      const state = ensureGatewayRunning(ctx.directory);
+      let state = ensureGatewayRunning(ctx.directory);
+      let healthy = await probeGatewayAlive(state.url);
+      if (!healthy) {
+        stopGateway(ctx.directory);
+        state = ensureGatewayRunning(ctx.directory);
+        healthy = await probeGatewayAlive(state.url, 1_200);
+      }
+      if (!healthy) {
+        return `opened=false\nreason=gateway_unhealthy\nurl=${state.url}`;
+      }
       openUrl(state.url);
       return `opened=${state.url}`;
     },

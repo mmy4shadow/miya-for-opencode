@@ -5,11 +5,12 @@ import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
 import {
   extractAgentModelSelectionFromEvent,
-  persistAgentModelSelection,
+  persistAgentRuntimeSelection,
 } from './config/agent-model-persistence';
 import { parseList } from './config/agent-mcps';
 import {
   createGatewayTools,
+  isGatewayOwner,
   registerGatewayDependencies,
   startGatewayWithLog,
 } from './gateway';
@@ -79,35 +80,44 @@ const MiyaPlugin: Plugin = async (ctx) => {
   }
 
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
-  const daemonLaunch = ensureMiyaLauncher(ctx.directory);
-  log('[miya-launcher] daemon bootstrap', daemonLaunch);
-  setTimeout(async () => {
-    try {
-      const daemon = getLauncherDaemonSnapshot(ctx.directory);
-      await ctx.client.tui.showToast({
-        query: { directory: ctx.directory },
-        body: {
-          title: 'Miya',
-          message: daemon.connected
-            ? 'Miya Daemon Connected'
-            : daemon.statusText || 'Miya Daemon Connecting',
-          variant: daemon.connected ? 'success' : 'info',
-          duration: 3000,
-        },
-      });
-    } catch {}
-  }, 4000);
   const daemonService = getMiyaDaemonService(ctx.directory);
-  daemonService.start();
+  startGatewayWithLog(ctx.directory);
+  const gatewayOwner = isGatewayOwner(ctx.directory);
+  if (gatewayOwner) {
+    const daemonLaunch = ensureMiyaLauncher(ctx.directory);
+    log('[miya-launcher] daemon bootstrap', daemonLaunch);
+    setTimeout(async () => {
+      try {
+        const daemon = getLauncherDaemonSnapshot(ctx.directory);
+        await ctx.client.tui.showToast({
+          query: { directory: ctx.directory },
+          body: {
+            title: 'Miya',
+            message: daemon.connected
+              ? 'Miya Daemon Connected'
+              : daemon.statusText || 'Miya Daemon Connecting',
+            variant: daemon.connected ? 'success' : 'info',
+            duration: 3000,
+          },
+        });
+      } catch {}
+    }, 4000);
+    daemonService.start();
+  } else {
+    log('[miya] follower instance detected; skip daemon bootstrap/toast', {
+      directory: ctx.directory,
+    });
+  }
   const automationService = new MiyaAutomationService(ctx.directory);
-  automationService.start();
+  if (gatewayOwner) {
+    automationService.start();
+  }
   registerGatewayDependencies(ctx.directory, {
     client: ctx.client,
     backgroundManager,
     automationService,
     extraSkillDirs: [],
   });
-  startGatewayWithLog(ctx.directory);
 
   const backgroundTools = createBackgroundTools(
     ctx,
@@ -397,10 +407,18 @@ const MiyaPlugin: Plugin = async (ctx) => {
       // Handle model persistence from all event types (message, agent switch, session)
       const modelSelection = extractAgentModelSelectionFromEvent(input.event);
       if (modelSelection) {
-        const changed = persistAgentModelSelection(
+        const changed = persistAgentRuntimeSelection(
           ctx.directory,
-          modelSelection.agentName,
-          modelSelection.model,
+          {
+            agentName: modelSelection.agentName,
+            model: modelSelection.model,
+            variant: modelSelection.variant,
+            providerID: modelSelection.providerID,
+            options: modelSelection.options,
+            apiKey: modelSelection.apiKey,
+            baseURL: modelSelection.baseURL,
+            activeAgentId: modelSelection.activeAgentId,
+          },
         );
         if (changed) {
           log(`[model-persistence] updated from ${modelSelection.source}`, {

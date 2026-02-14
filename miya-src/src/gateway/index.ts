@@ -158,6 +158,7 @@ interface GatewayRuntime {
   nodeSockets: Map<string, Bun.ServerWebSocket<unknown>>;
   wsMeta: WeakMap<Bun.ServerWebSocket<unknown>, GatewayWsData>;
   wizardTickTimer?: ReturnType<typeof setInterval>;
+  ownerBeatTimer?: ReturnType<typeof setInterval>;
   wizardRunnerBusy?: boolean;
 }
 
@@ -247,6 +248,14 @@ interface GatewaySnapshot {
 
 const runtimes = new Map<string, GatewayRuntime>();
 const dependencies = new Map<string, GatewayDependencies>();
+const ownerTokens = new Map<string, string>();
+
+interface GatewayOwnerLock {
+  pid: number;
+  token: string;
+  updatedAt: string;
+  startedAt: string;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -268,8 +277,165 @@ function gatewayFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway.json');
 }
 
+function gatewayOwnerLockFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-owner.json');
+}
+
 function ensureDir(file: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
+}
+
+function writeJsonAtomic(file: string, payload: unknown): void {
+  ensureDir(file);
+  const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  fs.renameSync(tmp, file);
+}
+
+function safeReadJsonObject(file: string): Record<string, unknown> | null {
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function readGatewayOwnerLock(projectDir: string): GatewayOwnerLock | null {
+  const raw = safeReadJsonObject(gatewayOwnerLockFile(projectDir));
+  if (!raw) return null;
+  const pid = Number(raw.pid);
+  const token = String(raw.token ?? '');
+  const updatedAt = String(raw.updatedAt ?? '');
+  const startedAt = String(raw.startedAt ?? '');
+  if (!Number.isFinite(pid) || !token || !updatedAt || !startedAt) return null;
+  return { pid, token, updatedAt, startedAt };
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isOwnerLockFresh(lock: GatewayOwnerLock): boolean {
+  const ts = Date.parse(lock.updatedAt);
+  if (!Number.isFinite(ts)) return false;
+  return Date.now() - ts <= 15_000;
+}
+
+function writeOwnerLock(projectDir: string, token: string): GatewayOwnerLock {
+  const file = gatewayOwnerLockFile(projectDir);
+  const existing = readGatewayOwnerLock(projectDir);
+  const lock: GatewayOwnerLock = {
+    pid: process.pid,
+    token,
+    updatedAt: nowIso(),
+    startedAt: existing?.pid === process.pid && existing.token === token ? existing.startedAt : nowIso(),
+  };
+  writeJsonAtomic(file, lock);
+  return lock;
+}
+
+function touchOwnerLock(projectDir: string): void {
+  const token = ownerTokens.get(projectDir);
+  if (!token) return;
+  writeOwnerLock(projectDir, token);
+}
+
+function removeOwnerLock(projectDir: string): void {
+  const file = gatewayOwnerLockFile(projectDir);
+  const lock = readGatewayOwnerLock(projectDir);
+  const token = ownerTokens.get(projectDir);
+  if (!lock || !token) return;
+  if (lock.pid === process.pid && lock.token === token) {
+    try {
+      fs.unlinkSync(file);
+    } catch {}
+  }
+}
+
+function acquireGatewayOwner(projectDir: string): { owned: boolean; owner?: GatewayOwnerLock } {
+  const existingToken = ownerTokens.get(projectDir) ?? randomUUID();
+  ownerTokens.set(projectDir, existingToken);
+  const lockFile = gatewayOwnerLockFile(projectDir);
+  const lock = readGatewayOwnerLock(projectDir);
+
+  if (
+    lock &&
+    lock.pid === process.pid &&
+    lock.token === existingToken &&
+    isOwnerLockFresh(lock)
+  ) {
+    const refreshed: GatewayOwnerLock = {
+      ...lock,
+      updatedAt: nowIso(),
+    };
+    writeJsonAtomic(lockFile, refreshed);
+    return { owned: true, owner: refreshed };
+  }
+
+  if (lock && isProcessAlive(lock.pid) && isOwnerLockFresh(lock)) {
+    return { owned: false, owner: lock };
+  }
+
+  const created = writeOwnerLock(projectDir, existingToken);
+  return { owned: true, owner: created };
+}
+
+function readGatewayStateFile(projectDir: string): GatewayState | null {
+  const raw = safeReadJsonObject(gatewayFile(projectDir));
+  if (!raw) return null;
+  const url = String(raw.url ?? '').trim();
+  const port = Number(raw.port);
+  const pid = Number(raw.pid);
+  const startedAt = String(raw.startedAt ?? '');
+  const status = String(raw.status ?? 'running');
+  if (!url || !Number.isFinite(port) || !Number.isFinite(pid) || !startedAt) {
+    return null;
+  }
+  return {
+    url,
+    port,
+    pid,
+    startedAt,
+    status: status === 'killswitch' ? 'killswitch' : 'running',
+  };
+}
+
+function clearGatewayStateFile(projectDir: string): void {
+  try {
+    fs.unlinkSync(gatewayFile(projectDir));
+  } catch {}
+}
+
+export function isGatewayOwner(projectDir: string): boolean {
+  const token = ownerTokens.get(projectDir);
+  const lock = readGatewayOwnerLock(projectDir);
+  if (!token || !lock) return false;
+  return lock.pid === process.pid && lock.token === token && isOwnerLockFresh(lock);
+}
+
+export async function probeGatewayAlive(url: string, timeoutMs = 800): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${url.replace(/\/+$/, '')}/api/status`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function killAwareStatus(projectDir: string): GatewayStatus {
@@ -292,8 +458,7 @@ function toGatewayState(projectDir: string, runtime: GatewayRuntime): GatewaySta
 
 function writeGatewayState(projectDir: string, state: GatewayState): void {
   const file = gatewayFile(projectDir);
-  ensureDir(file);
-  fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+  writeJsonAtomic(file, state);
 }
 
 function syncGatewayState(projectDir: string, runtime: GatewayRuntime): GatewayState {
@@ -314,6 +479,10 @@ export function stopGateway(projectDir: string): {
     clearInterval(runtime.wizardTickTimer);
     runtime.wizardTickTimer = undefined;
   }
+  if (runtime.ownerBeatTimer) {
+    clearInterval(runtime.ownerBeatTimer);
+    runtime.ownerBeatTimer = undefined;
+  }
   try {
     runtime.channelRuntime.stop();
   } catch {}
@@ -321,6 +490,8 @@ export function stopGateway(projectDir: string): {
     runtime.server.stop(true);
   } catch {}
   runtimes.delete(projectDir);
+  clearGatewayStateFile(projectDir);
+  removeOwnerLock(projectDir);
   return { stopped: true, previous };
 }
 
@@ -2856,7 +3027,30 @@ async function handleWebhook(
 export function ensureGatewayRunning(projectDir: string): GatewayState {
   const existing = runtimes.get(projectDir);
   if (existing) {
+    const owner = acquireGatewayOwner(projectDir);
+    if (owner.owned) {
+      touchOwnerLock(projectDir);
+    }
     return syncGatewayState(projectDir, existing);
+  }
+
+  const owner = acquireGatewayOwner(projectDir);
+  if (!owner.owned) {
+    const state = readGatewayStateFile(projectDir);
+    if (state && isProcessAlive(state.pid)) {
+      return state;
+    }
+    if (state && !isProcessAlive(state.pid)) {
+      clearGatewayStateFile(projectDir);
+    }
+    if (owner.owner && !isProcessAlive(owner.owner.pid)) {
+      const retry = acquireGatewayOwner(projectDir);
+      if (!retry.owned) {
+        throw new Error('gateway_owned_by_other_process');
+      }
+    } else {
+      throw new Error('gateway_owned_by_other_process');
+    }
   }
 
   let runtime!: GatewayRuntime;
@@ -3083,6 +3277,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     nodeSockets: new Map(),
     wsMeta: new WeakMap(),
     wizardTickTimer: undefined,
+    ownerBeatTimer: undefined,
     wizardRunnerBusy: false,
   };
 
@@ -3091,6 +3286,9 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
   runtime.wizardTickTimer = setInterval(() => {
     void runWizardTrainingWorker(projectDir, runtime);
   }, 1_200);
+  runtime.ownerBeatTimer = setInterval(() => {
+    touchOwnerLock(projectDir);
+  }, 5_000);
   void runtime.channelRuntime.start();
   return syncGatewayState(projectDir, runtime);
 }
@@ -3161,8 +3359,13 @@ export function startGatewayWithLog(projectDir: string): void {
     const state = ensureGatewayRunning(projectDir);
     log('[gateway] started', state);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === 'gateway_owned_by_other_process') {
+      log('[gateway] follower mode: owner is another process', { projectDir });
+      return;
+    }
     log('[gateway] failed to start', {
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     });
   }
 }

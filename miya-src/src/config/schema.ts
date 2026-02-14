@@ -38,6 +38,10 @@ export const AgentOverrideConfigSchema = z.object({
   model: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   variant: z.string().optional().catch(undefined),
+  providerID: z.string().optional(),
+  options: z.record(z.string(), z.unknown()).optional(),
+  apiKey: z.string().optional(),
+  baseURL: z.string().optional(),
   skills: z.array(z.string()).optional(), // skills this agent can use ("*" = all, "!item" = exclude)
   mcps: z.array(z.string()).optional(), // MCPs this agent can use ("*" = all, "!item" = exclude)
 });
@@ -92,6 +96,7 @@ export const PluginConfigSchema = z.object({
   preset: z.string().optional(),
   presets: z.record(z.string(), PresetSchema).optional(),
   agents: z.record(z.string(), AgentOverrideConfigSchema).optional(),
+  provider: z.record(z.string(), z.unknown()).optional(),
   disabled_mcps: z.array(z.string()).optional(),
   tmux: TmuxConfigSchema.optional(),
   background: BackgroundTaskConfigSchema.optional(),
