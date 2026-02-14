@@ -2,7 +2,9 @@ import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import {
   addRouteFeedback,
   classifyIntent,
+  rankAgentsByFeedback,
   recommendedAgent,
+  resolveAgentWithFeedback,
   resolveFallbackAgent,
   summarizeRouteHistory,
 } from '../router';
@@ -36,11 +38,17 @@ export function createRouterTools(
         ? args.available_agents.map(String)
         : DEFAULT_AVAILABLE_AGENTS;
       const preferred = recommendedAgent(intent);
-      const selected = resolveFallbackAgent(intent, availableAgents);
+      const fallback = resolveFallbackAgent(intent, availableAgents);
+      const ranked = rankAgentsByFeedback(projectDir, intent, availableAgents);
+      const selected = resolveAgentWithFeedback(intent, availableAgents, ranked);
+      const selectedFeedback = ranked.find((item) => item.agent === selected);
       return [
         `intent=${intent}`,
         `preferred_agent=${preferred}`,
+        `fallback_agent=${fallback}`,
         `selected_agent=${selected}`,
+        `feedback_score=${selectedFeedback?.score ?? 0}`,
+        `feedback_samples=${selectedFeedback?.samples ?? 0}`,
       ].join('\n');
     },
   });
@@ -74,7 +82,18 @@ export function createRouterTools(
     description: 'Show historical routing acceptance stats.',
     args: {},
     async execute() {
-      return summarizeRouteHistory(projectDir);
+      const summary = summarizeRouteHistory(projectDir);
+      const ranking = rankAgentsByFeedback(
+        projectDir,
+        'general',
+        DEFAULT_AVAILABLE_AGENTS,
+      )
+        .slice(0, 6)
+        .map(
+          (item) =>
+            `- ${item.agent} score=${item.score} samples=${item.samples} accept_rate=${item.acceptRate}`,
+        );
+      return [summary, 'general_intent_ranking:', ...ranking].join('\n');
     },
   });
 
@@ -84,4 +103,3 @@ export function createRouterTools(
     miya_route_stats,
   };
 }
-

@@ -24,3 +24,51 @@ export function createBuiltinMcps(
     ),
   );
 }
+
+export function buildMcpServiceManifest(
+  disabledMcps: readonly string[] = [],
+): {
+  service: string;
+  version: number;
+  generatedAt: string;
+  mcps: Array<{
+    name: string;
+    type: string;
+    sampling: boolean;
+    mcpUi: boolean;
+    serviceExpose: boolean;
+  }>;
+  controlPlaneEndpoints: string[];
+} {
+  const builtins = createBuiltinMcps(disabledMcps);
+  const mcps = Object.entries(builtins).map(([name, config]) => {
+    const caps =
+      'capabilities' in config
+        ? (config.capabilities as {
+            sampling?: boolean;
+            mcpUi?: boolean;
+            serviceExpose?: boolean;
+          })
+        : undefined;
+    return {
+      name,
+      type: config.type,
+      sampling: Boolean(caps?.sampling),
+      mcpUi: Boolean(caps?.mcpUi),
+      serviceExpose: Boolean(caps?.serviceExpose),
+    };
+  });
+  return {
+    service: 'miya-control-plane',
+    version: 2,
+    generatedAt: new Date().toISOString(),
+    mcps,
+    controlPlaneEndpoints: [
+      'gateway.status.get',
+      'gateway.backpressure.stats',
+      'daemon.backpressure.stats',
+      'mcp.capabilities.list',
+      'mcp.service.expose',
+    ],
+  };
+}

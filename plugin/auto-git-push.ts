@@ -11,6 +11,8 @@ const MIN_FLUSH_INTERVAL_MS = 60_000
 const LARGE_FILE_LIMIT_BYTES = 2 * 1024 * 1024
 const SELF_APPROVAL_MAX_AGE_MS = 30 * 60 * 1000
 const SELF_APPROVAL_RECORD_LIMIT = 500
+const STANDARD_RECOVERY_COMMAND =
+  "$b=git rev-parse --abbrev-ref HEAD; git pull --rebase origin $b; git push origin $b"
 
 const MUTATING_TOOLS = new Set(["write", "edit", "multiedit", "bash"])
 const EXCLUDED_PATH_RULES: RegExp[] = [
@@ -80,6 +82,8 @@ type GitResult = {
   stdout: string
   stderr: string
 }
+
+type AutoGitFailureClass = "auth" | "network" | "rebase" | "denied" | "secret_block"
 
 type CommitPushResult =
   | { status: "pushed"; treeHash: string; stagedFiles: string[]; targetRef: string; trace: string }
@@ -404,6 +408,8 @@ function writeAutoGitStatus(
     status: string
     reason?: string
     trace?: string
+    trace_id?: string
+    failure_class?: AutoGitFailureClass
     target_ref?: string
     recovery_command?: string
   },
@@ -417,6 +423,39 @@ function writeAutoGitStatus(
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`, "utf-8")
   } catch {}
+}
+
+function classifyFailure(input: {
+  reason: string
+  stdout?: string
+  stderr?: string
+  details?: string[]
+}): AutoGitFailureClass {
+  if (input.reason === "self_approval_missing" || input.reason === "self_approval_stale") return "denied"
+  if (input.reason === "staged_security_scan_failed" || input.reason === "denylist_path_blocked") {
+    const details = (input.details ?? []).join(" ").toLowerCase()
+    if (details.includes("secret:") || details.includes("api") || details.includes("private_key")) {
+      return "secret_block"
+    }
+    return "denied"
+  }
+  const text = `${input.stdout ?? ""}\n${input.stderr ?? ""}`.toLowerCase()
+  if (text.includes("authentication") || text.includes("permission denied") || text.includes("access denied")) {
+    return "auth"
+  }
+  if (text.includes("non-fast-forward") || text.includes("fetch first") || text.includes("rebase")) {
+    return "rebase"
+  }
+  if (
+    text.includes("network") ||
+    text.includes("timed out") ||
+    text.includes("could not resolve host") ||
+    text.includes("connection")
+  ) {
+    return "network"
+  }
+  if (input.reason.includes("deny")) return "denied"
+  return "denied"
 }
 
 async function ensureRepo(projectDir: string, client: ClientLike): Promise<boolean> {
@@ -557,6 +596,7 @@ async function blockAutoPushWithRecord(
   reason: string,
   details: string[],
   recovery: string,
+  failureClass: AutoGitFailureClass,
 ): Promise<CommitPushResult> {
   appendSelfApprovalRecord(projectDir, {
     trace_id: trace,
@@ -582,8 +622,9 @@ async function blockAutoPushWithRecord(
   })
   await log(client, "error", "auto push blocked", {
     session: sessionID,
-    trace,
+    trace_id: trace,
     reason,
+    failure_class: failureClass,
     details,
     recovery,
   })
@@ -592,6 +633,8 @@ async function blockAutoPushWithRecord(
     status: "blocked",
     reason,
     trace,
+    trace_id: trace,
+    failure_class: failureClass,
     recovery_command: recovery,
   })
   return { status: "blocked", reason, details }
@@ -636,16 +679,22 @@ async function commitAndPush(
       trace,
       approvalGate.reason ?? "self_approval_missing",
       details,
-      "run miya_self_approve, then retry the task",
+      STANDARD_RECOVERY_COMMAND,
+      "denied",
     )
   }
 
   const okRepo = await ensureRepo(projectDir, client)
   if (!okRepo) {
+    const failureClass = classifyFailure({ reason: "ensure_repo_failed" })
     writeAutoGitStatus(projectDir, {
       session_id: sessionID,
       status: "failed",
       reason: "ensure_repo_failed",
+      trace,
+      trace_id: trace,
+      failure_class: failureClass,
+      recovery_command: STANDARD_RECOVERY_COMMAND,
     })
     return { status: "failed", reason: "ensure_repo_failed", retryable: true }
   }
@@ -671,7 +720,11 @@ async function commitAndPush(
       trace,
       reasonCode,
       details,
-      scan.recovery ?? "git status",
+      STANDARD_RECOVERY_COMMAND,
+      classifyFailure({
+        reason: reasonCode,
+        details,
+      }),
     )
   }
 
@@ -683,13 +736,24 @@ async function commitAndPush(
     }
     await log(client, "warn", "git commit failed", {
       session: sessionID,
+      trace_id: trace,
       stderr: commit.stderr,
       stdout: commit.stdout,
+      recovery_command: STANDARD_RECOVERY_COMMAND,
+    })
+    const failureClass = classifyFailure({
+      reason: "commit_failed",
+      stdout: commit.stdout,
+      stderr: commit.stderr,
     })
     writeAutoGitStatus(projectDir, {
       session_id: sessionID,
       status: "failed",
       reason: "commit_failed",
+      trace,
+      trace_id: trace,
+      failure_class: failureClass,
+      recovery_command: STANDARD_RECOVERY_COMMAND,
     })
     return { status: "failed", reason: "commit_failed", retryable: true }
   }
@@ -707,23 +771,29 @@ async function commitAndPush(
   }
 
   if (!push.ok) {
-    const recovery = `git push ${REMOTE_NAME} HEAD:${targetRef}`
+    const failureClass = classifyFailure({
+      reason: "push_failed",
+      stdout: push.stdout,
+      stderr: push.stderr,
+    })
     await log(client, "error", "git push failed", {
       session: sessionID,
       targetRef,
-      trace,
+      trace_id: trace,
+      failure_class: failureClass,
       stderr: push.stderr,
       stdout: push.stdout,
-      recovery,
-      recovery_force: `${recovery} --force-with-lease`,
+      recovery_command: STANDARD_RECOVERY_COMMAND,
     })
     writeAutoGitStatus(projectDir, {
       session_id: sessionID,
       status: "failed",
       reason: "push_failed",
       trace,
+      trace_id: trace,
+      failure_class: failureClass,
       target_ref: targetRef,
-      recovery_command: recovery,
+      recovery_command: STANDARD_RECOVERY_COMMAND,
     })
     return { status: "failed", reason: "push_failed", retryable: true }
   }
@@ -731,7 +801,7 @@ async function commitAndPush(
   await log(client, "info", "git push ok", {
     session: sessionID,
     targetRef,
-    trace,
+    trace_id: trace,
     files: stagedFiles,
   })
   appendSelfApprovalRecord(projectDir, {
@@ -763,6 +833,7 @@ async function commitAndPush(
     session_id: sessionID,
     status: "pushed",
     trace,
+    trace_id: trace,
     target_ref: targetRef,
   })
 

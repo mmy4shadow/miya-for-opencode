@@ -2,6 +2,7 @@ import { addCompanionAsset } from '../companion/store';
 import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
 import { getMiyaModelPath } from '../model/paths';
+import { readConfig } from '../settings';
 import { getMiyaRuntimeDir } from '../workflow';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -23,6 +24,19 @@ function toBase64FromFile(filePath: string): string | null {
   } catch {
     return null;
   }
+}
+
+function isRuntimeNotReadyError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.startsWith('python_runtime_not_ready:');
+}
+
+function useMultimodalTestMode(projectDir: string): boolean {
+  if (process.env.MIYA_MULTIMODAL_TEST_MODE === '1') return true;
+  const config = readConfig(projectDir);
+  const runtime = config.runtime as Record<string, unknown> | undefined;
+  const multimodal = runtime?.multimodal as Record<string, unknown> | undefined;
+  return multimodal?.test_mode === true;
 }
 
 export async function generateImage(
@@ -53,13 +67,40 @@ export async function generateImage(
     'companion',
     'current',
   );
-  const inference = await daemon.runFluxImageGenerate({
-    prompt,
-    outputPath,
-    profileDir,
-    references: references.map((item) => item.localPath).filter((item): item is string => Boolean(item)),
-    size,
-  });
+  let inference: {
+    outputPath: string;
+    tier: 'lora' | 'embedding' | 'reference';
+    degraded: boolean;
+    message: string;
+  };
+  if (useMultimodalTestMode(projectDir)) {
+    inference = {
+      outputPath,
+      tier: 'reference',
+      degraded: true,
+      message: 'python_runtime_not_ready:test_mode',
+    };
+  } else {
+    try {
+      inference = await daemon.runFluxImageGenerate({
+        prompt,
+        outputPath,
+        profileDir,
+        references: references
+          .map((item) => item.localPath)
+          .filter((item): item is string => Boolean(item)),
+        size,
+      });
+    } catch (error) {
+      if (!isRuntimeNotReadyError(error)) throw error;
+      inference = {
+        outputPath,
+        tier: 'reference',
+        degraded: true,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   const payloadBase64 = toBase64FromFile(inference.outputPath) ?? BLANK_PNG_BASE64;
 
   const media = ingestMedia(projectDir, {
@@ -70,13 +111,18 @@ export async function generateImage(
     contentBase64: payloadBase64,
     sizeBytes: Math.floor((payloadBase64.length * 3) / 4),
     metadata: {
-      status: 'generated_local',
+      status: inference.message.startsWith('python_runtime_not_ready:')
+        ? 'degraded_runtime_not_ready'
+        : 'generated_local',
       prompt,
       model,
       size,
       tier: inference.tier,
       degraded: inference.degraded,
       engineMessage: inference.message,
+      runtimeError: inference.message.startsWith('python_runtime_not_ready:')
+        ? inference.message
+        : undefined,
       references,
       createdBy: 'miya_generate_image',
     },

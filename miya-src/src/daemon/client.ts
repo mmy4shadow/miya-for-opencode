@@ -118,6 +118,24 @@ export class MiyaClient {
     return daemonInvoke(this.projectDir, 'daemon.model.locks.get', {}, 15_000);
   }
 
+  async getModelUpdatePlan(target?: string): Promise<unknown> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.model.update.plan',
+      target ? { target } : {},
+      20_000,
+    );
+  }
+
+  async applyModelUpdate(target?: string): Promise<unknown> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.model.update.apply',
+      target ? { target } : {},
+      30_000,
+    );
+  }
+
   async runIsolatedProcess(input: IsolatedProcessInput): Promise<{
     exitCode: number | null;
     stdout: string;

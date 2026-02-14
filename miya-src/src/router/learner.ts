@@ -60,3 +60,27 @@ export function summarizeRouteHistory(projectDir: string): string {
   ].join('\n');
 }
 
+export function rankAgentsByFeedback(
+  projectDir: string,
+  intent: RouteIntent,
+  availableAgents: string[],
+): Array<{ agent: string; score: number; samples: number; acceptRate: number }> {
+  const records = readStore(projectDir).records
+    .filter((item) => item.intent === intent)
+    .slice(0, 300);
+  const scored = availableAgents.map((agent) => {
+    const matched = records.filter((item) => item.suggestedAgent === agent);
+    const accepted = matched.filter((item) => item.accepted).length;
+    const samples = matched.length;
+    const acceptRate = samples > 0 ? accepted / samples : 0;
+    // Sample-aware score: keep small prior to avoid overfitting.
+    const score = Number((acceptRate * 0.8 + Math.min(0.2, samples / 50)).toFixed(4));
+    return {
+      agent,
+      score,
+      samples,
+      acceptRate: Number(acceptRate.toFixed(4)),
+    };
+  });
+  return scored.sort((a, b) => b.score - a.score);
+}

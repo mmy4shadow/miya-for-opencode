@@ -1,5 +1,5 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
-import { createBuiltinMcps } from '../mcp';
+import { buildMcpServiceManifest, createBuiltinMcps } from '../mcp';
 
 const z = tool.schema;
 
@@ -34,24 +34,17 @@ export function createMcpTools(): Record<string, ToolDefinition> {
   const miya_mcp_service_manifest = tool({
     description:
       'Return Miya MCP service exposure manifest used for control-plane integration.',
-    args: {},
-    async execute() {
+    args: {
+      disabled_mcps: z
+        .array(z.string())
+        .optional()
+        .describe('Optional disabled MCP names'),
+    },
+    async execute(args) {
       return JSON.stringify(
-        {
-          service: 'miya-control-plane',
-          version: 1,
-          endpoints: [
-            'gateway.status.get',
-            'nodes.status',
-            'channels.status',
-            'skills.status',
-          ],
-          capabilities: {
-            sampling: false,
-            mcpUi: true,
-            serviceExpose: true,
-          },
-        },
+        buildMcpServiceManifest(
+          Array.isArray(args.disabled_mcps) ? args.disabled_mcps.map(String) : [],
+        ),
         null,
         2,
       );
@@ -63,4 +56,3 @@ export function createMcpTools(): Record<string, ToolDefinition> {
     miya_mcp_service_manifest,
   };
 }
-

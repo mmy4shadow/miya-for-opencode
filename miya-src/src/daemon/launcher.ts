@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getMiyaRuntimeDir } from '../workflow';
+import { readConfig } from '../settings';
 import {
   parseDaemonOutgoingFrame,
   DaemonHelloFrameSchema,
@@ -31,6 +32,9 @@ export interface DaemonConnectionSnapshot {
   lastSeenAt?: string;
   activeJobID?: string;
   activeJobProgress?: number;
+  pendingRequests: number;
+  rejectedRequests: number;
+  lastRejectReason?: string;
   startedAt: string;
 }
 
@@ -39,6 +43,15 @@ interface PendingRequest {
   reject: (reason: unknown) => void;
   timeout: ReturnType<typeof setTimeout>;
 }
+
+export interface DaemonLauncherEvent {
+  type: 'daemon.ready' | 'daemon.disconnected' | 'job.progress';
+  at: string;
+  payload?: Record<string, unknown>;
+  snapshot: DaemonConnectionSnapshot;
+}
+
+type DaemonLauncherListener = (event: DaemonLauncherEvent) => void;
 
 interface LauncherRuntime {
   projectDir: string;
@@ -57,10 +70,46 @@ interface LauncherRuntime {
   reqSeq: number;
   pending: Map<string, PendingRequest>;
   maxPendingRequests: number;
+  rejectedRequests: number;
+  lastRejectReason?: string;
+  listeners: Set<DaemonLauncherListener>;
   snapshot: DaemonConnectionSnapshot;
 }
 
+export interface DaemonBackpressureStats {
+  connected: boolean;
+  maxPendingRequests: number;
+  pendingRequests: number;
+  rejectedRequests: number;
+  lastRejectReason?: string;
+}
+
 const runtimes = new Map<string, LauncherRuntime>();
+
+function emitLauncherEvent(
+  runtime: LauncherRuntime,
+  type: DaemonLauncherEvent['type'],
+  payload?: Record<string, unknown>,
+): void {
+  if (runtime.listeners.size === 0) return;
+  const event: DaemonLauncherEvent = {
+    type,
+    at: nowIso(),
+    payload,
+    snapshot: { ...runtime.snapshot },
+  };
+  for (const listener of runtime.listeners) {
+    try {
+      listener(event);
+    } catch {}
+  }
+}
+
+function syncBackpressureSnapshot(runtime: LauncherRuntime): void {
+  runtime.snapshot.pendingRequests = runtime.pending.size;
+  runtime.snapshot.rejectedRequests = runtime.rejectedRequests;
+  runtime.snapshot.lastRejectReason = runtime.lastRejectReason;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -209,6 +258,7 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
       if (pending) {
         runtime.pending.delete(frame.id);
         clearTimeout(pending.timeout);
+        syncBackpressureSnapshot(runtime);
         if (frame.ok) {
           pending.resolve(frame.result);
         } else {
@@ -220,6 +270,7 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
     if (frame.type === 'event' && frame.event === 'daemon.ready') {
       runtime.snapshot.statusText = 'Miya Daemon Connected';
       runtime.snapshot.connected = true;
+      emitLauncherEvent(runtime, 'daemon.ready');
       return;
     }
     if (frame.type === 'event' && frame.event === 'job.progress') {
@@ -237,6 +288,7 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
         typeof payload.status === 'string' && payload.status
           ? payload.status
           : runtime.snapshot.statusText;
+      emitLauncherEvent(runtime, 'job.progress', payload);
     }
   };
 
@@ -250,6 +302,7 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
     runtime.connected = false;
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = 'Miya Daemon Disconnected';
+    emitLauncherEvent(runtime, 'daemon.disconnected');
     stopHeartbeat(runtime);
     stopStatusPoll(runtime);
     scheduleReconnect(runtime);
@@ -263,9 +316,15 @@ function daemonRequest(
   timeoutMs = 8_000,
 ): Promise<unknown> {
   if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) {
+    runtime.lastRejectReason = 'ws_not_open';
+    runtime.rejectedRequests += 1;
+    syncBackpressureSnapshot(runtime);
     return Promise.reject(new Error('daemon_ws_not_open'));
   }
   if (runtime.pending.size >= runtime.maxPendingRequests) {
+    runtime.lastRejectReason = 'overloaded';
+    runtime.rejectedRequests += 1;
+    syncBackpressureSnapshot(runtime);
     return Promise.reject(
       new Error(
         `daemon_backpressure_overloaded:pending=${runtime.pending.size}:max=${runtime.maxPendingRequests}`,
@@ -283,9 +342,13 @@ function daemonRequest(
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       runtime.pending.delete(id);
+      runtime.lastRejectReason = 'timeout';
+      runtime.rejectedRequests += 1;
+      syncBackpressureSnapshot(runtime);
       reject(new Error('daemon_request_timeout'));
     }, Math.max(1_000, timeoutMs));
     runtime.pending.set(id, { resolve, reject, timeout });
+    syncBackpressureSnapshot(runtime);
     runtime.ws?.send(JSON.stringify(frame));
   });
 }
@@ -389,6 +452,8 @@ function cleanupRuntime(runtime: LauncherRuntime): void {
     pending.reject(new Error('launcher_shutdown'));
   }
   runtime.pending.clear();
+  syncBackpressureSnapshot(runtime);
+  runtime.listeners.clear();
   try {
     runtime.ws?.close();
   } catch {}
@@ -400,6 +465,14 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
   if (existing) return { ...existing.snapshot };
 
   ensureDaemonDir(projectDir);
+  const config = readConfig(projectDir);
+  const backpressure = (config.runtime as Record<string, unknown> | undefined)?.backpressure as
+    | Record<string, unknown>
+    | undefined;
+  const configuredMaxPending =
+    typeof backpressure?.daemon_max_pending_requests === 'number'
+      ? Number(backpressure.daemon_max_pending_requests)
+      : Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64);
   const runtime: LauncherRuntime = {
     projectDir,
     daemonToken: randomUUID(),
@@ -411,14 +484,20 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     pending: new Map(),
     maxPendingRequests: Math.max(
       4,
-      Math.floor(Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64)),
+      Math.floor(configuredMaxPending),
     ),
+    rejectedRequests: 0,
+    lastRejectReason: undefined,
+    listeners: new Set(),
     snapshot: {
       connected: false,
       statusText: 'Miya Daemon Booting',
+      pendingRequests: 0,
+      rejectedRequests: 0,
       startedAt: nowIso(),
     },
   };
+  syncBackpressureSnapshot(runtime);
   runtimes.set(projectDir, runtime);
 
   writeParentLock(runtime);
@@ -435,10 +514,36 @@ export function getLauncherDaemonSnapshot(projectDir: string): DaemonConnectionS
     return {
       connected: false,
       statusText: 'Miya Daemon Not Started',
+      pendingRequests: 0,
+      rejectedRequests: 0,
       startedAt: nowIso(),
     };
   }
+  syncBackpressureSnapshot(runtime);
   return { ...runtime.snapshot };
+}
+
+export function getLauncherBackpressureStats(projectDir: string): DaemonBackpressureStats {
+  const runtime = runtimes.get(projectDir);
+  if (!runtime) {
+    return {
+      connected: false,
+      maxPendingRequests: Math.max(
+        4,
+        Math.floor(Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64)),
+      ),
+      pendingRequests: 0,
+      rejectedRequests: 0,
+    };
+  }
+  syncBackpressureSnapshot(runtime);
+  return {
+    connected: runtime.connected,
+    maxPendingRequests: runtime.maxPendingRequests,
+    pendingRequests: runtime.snapshot.pendingRequests,
+    rejectedRequests: runtime.snapshot.rejectedRequests,
+    lastRejectReason: runtime.snapshot.lastRejectReason,
+  };
 }
 
 export function stopMiyaLauncher(projectDir: string): void {
@@ -449,6 +554,20 @@ export function stopMiyaLauncher(projectDir: string): void {
     fs.rmSync(runtime.parentLockFile, { force: true });
   } catch {}
   runtimes.delete(projectDir);
+}
+
+export function subscribeLauncherEvents(
+  projectDir: string,
+  listener: DaemonLauncherListener,
+): () => void {
+  ensureMiyaLauncher(projectDir);
+  const runtime = runtimes.get(projectDir);
+  if (!runtime) return () => {};
+  runtime.listeners.add(listener);
+  return () => {
+    const current = runtimes.get(projectDir);
+    current?.listeners.delete(listener);
+  };
 }
 
 async function waitForDaemonConnection(

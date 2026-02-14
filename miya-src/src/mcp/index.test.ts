@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createBuiltinMcps } from './index';
+import { buildMcpServiceManifest, createBuiltinMcps } from './index';
 
 describe('createBuiltinMcps', () => {
   test('returns all MCPs when no disabled list provided', () => {
@@ -92,5 +92,13 @@ describe('createBuiltinMcps', () => {
 
     expect(grep_app).toBeDefined();
     expect('url' in grep_app).toBe(true);
+  });
+
+  test('builds service manifest with control-plane endpoints', () => {
+    const manifest = buildMcpServiceManifest(['context7']);
+    expect(manifest.service).toBe('miya-control-plane');
+    expect(manifest.controlPlaneEndpoints).toContain('mcp.service.expose');
+    expect(manifest.mcps.some((item) => item.name === 'context7')).toBe(false);
+    expect(manifest.mcps.some((item) => item.name === 'websearch')).toBe(true);
   });
 });

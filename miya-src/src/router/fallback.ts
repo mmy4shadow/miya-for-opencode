@@ -10,3 +10,15 @@ export function resolveFallbackAgent(
   return availableAgents[0] ?? primary;
 }
 
+export function resolveAgentWithFeedback(
+  intent: RouteIntent,
+  availableAgents: string[],
+  ranked: Array<{ agent: string; score: number }>,
+): string {
+  const base = resolveFallbackAgent(intent, availableAgents);
+  if (ranked.length === 0) return base;
+  const preferred = ranked.find(
+    (item) => availableAgents.includes(item.agent) && item.score >= 0.55,
+  );
+  return preferred?.agent ?? base;
+}

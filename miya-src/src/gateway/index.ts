@@ -54,7 +54,12 @@ import {
   touchNodeHeartbeat,
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
-import { getLauncherDaemonSnapshot, getMiyaClient, subscribeLauncherEvents } from '../daemon';
+import {
+  getLauncherBackpressureStats,
+  getLauncherDaemonSnapshot,
+  getMiyaClient,
+  subscribeLauncherEvents,
+} from '../daemon';
 import {
   appendGuestConversation,
   initOwnerIdentity,
@@ -141,6 +146,7 @@ import {
 } from '../sessions';
 import { discoverSkills } from '../skills/loader';
 import { listEnabledSkills, setSkillEnabled } from '../skills/state';
+import { buildMcpServiceManifest, createBuiltinMcps } from '../mcp';
 import { log } from '../utils/logger';
 import { getMiyaRuntimeDir, getSessionState } from '../workflow';
 import { createControlUiRequestOptions, handleControlUiHttpRequest } from './control-ui';
@@ -816,7 +822,15 @@ async function verifyVoiceprintWithLocalModel(
   projectDir: string,
   input: { mediaPath?: string; speakerHint?: string; speakerScore?: number },
 ): Promise<{ mode: 'owner' | 'guest' | 'unknown'; score?: number; source: string }> {
-  const strict = process.env.MIYA_VOICEPRINT_STRICT !== '0';
+  const config = readConfig(projectDir);
+  const strictFromConfig =
+    ((config.security as Record<string, unknown> | undefined)?.voiceprint as
+      | Record<string, unknown>
+      | undefined)?.strict !== false;
+  const strict =
+    process.env.MIYA_VOICEPRINT_STRICT !== undefined
+      ? process.env.MIYA_VOICEPRINT_STRICT !== '0'
+      : strictFromConfig;
   const hintMode = resolveInteractionMode(projectDir, {
     speakerHint: input.speakerHint,
     speakerScore: input.speakerScore,
@@ -2210,7 +2224,23 @@ async function onInboundMessage(
 }
 
 function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMethodRegistry {
-  const methods = new GatewayMethodRegistry();
+  const config = readConfig(projectDir);
+  const backpressure = (config.runtime as Record<string, unknown> | undefined)?.backpressure as
+    | Record<string, unknown>
+    | undefined;
+  const maxInFlight =
+    typeof backpressure?.max_in_flight === 'number' ? Number(backpressure.max_in_flight) : undefined;
+  const maxQueued =
+    typeof backpressure?.max_queued === 'number' ? Number(backpressure.max_queued) : undefined;
+  const queueTimeoutMs =
+    typeof backpressure?.queue_timeout_ms === 'number'
+      ? Number(backpressure.queue_timeout_ms)
+      : undefined;
+  const methods = new GatewayMethodRegistry({
+    maxInFlight,
+    maxQueued,
+    queueTimeoutMs,
+  });
 
   methods.register('gateway.status.get', async () => buildSnapshot(projectDir, runtime));
   methods.register('gateway.shutdown', async () => {
@@ -2221,6 +2251,94 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return { ok: true, state };
   });
   methods.register('doctor.run', async () => buildSnapshot(projectDir, runtime).doctor);
+  methods.register('gateway.backpressure.stats', async () => ({
+    ...runtime.methods.stats(),
+    updatedAt: nowIso(),
+  }));
+  methods.register('daemon.backpressure.stats', async () => ({
+    ...getLauncherBackpressureStats(projectDir),
+    updatedAt: nowIso(),
+  }));
+  methods.register('gateway.pressure.run', async (params) => {
+    const concurrencyRaw =
+      typeof params.concurrency === 'number' ? Number(params.concurrency) : 10;
+    const roundsRaw = typeof params.rounds === 'number' ? Number(params.rounds) : 1;
+    const timeoutMs = typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : 20_000;
+    const concurrency = Math.max(1, Math.min(100, Math.floor(concurrencyRaw)));
+    const rounds = Math.max(1, Math.min(20, Math.floor(roundsRaw)));
+    const daemon = getMiyaClient(projectDir);
+    const startedAtMs = Date.now();
+    let success = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    for (let round = 0; round < rounds; round += 1) {
+      const tasks = Array.from({ length: concurrency }, async (_, index) => {
+        try {
+          await daemon.runIsolatedProcess({
+            kind: 'generic',
+            command: process.platform === 'win32' ? 'cmd' : 'sh',
+            args:
+              process.platform === 'win32'
+                ? ['/c', 'echo', `miya-pressure-${round}-${index}`]
+                : ['-lc', `echo miya-pressure-${round}-${index}`],
+            timeoutMs: Math.max(1_000, timeoutMs),
+          });
+          success += 1;
+        } catch (error) {
+          failed += 1;
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
+      });
+      await Promise.all(tasks);
+    }
+    return {
+      success,
+      failed,
+      elapsedMs: Date.now() - startedAtMs,
+      gateway: runtime.methods.stats(),
+      daemon: getLauncherBackpressureStats(projectDir),
+      errors: errors.slice(0, 20),
+    };
+  });
+  methods.register('gateway.startup.probe.run', async (params) => {
+    const roundsRaw = typeof params.rounds === 'number' ? Number(params.rounds) : 20;
+    const rounds = Math.max(1, Math.min(100, Math.floor(roundsRaw)));
+    const waitMsRaw = typeof params.waitMs === 'number' ? Number(params.waitMs) : 250;
+    const waitMs = Math.max(50, Math.min(5_000, Math.floor(waitMsRaw)));
+    const state = ensureGatewayRunning(projectDir);
+    let healthy = 0;
+    let daemonReady = 0;
+    const samples: Array<{
+      index: number;
+      gatewayAlive: boolean;
+      daemonConnected: boolean;
+      daemonStatus: string;
+    }> = [];
+    for (let index = 0; index < rounds; index += 1) {
+      const gatewayAlive = await probeGatewayAlive(state.url, 1_200);
+      const daemonSnapshot = getLauncherDaemonSnapshot(projectDir);
+      const daemonConnected = Boolean(daemonSnapshot.connected);
+      if (gatewayAlive) healthy += 1;
+      if (daemonConnected) daemonReady += 1;
+      samples.push({
+        index: index + 1,
+        gatewayAlive,
+        daemonConnected,
+        daemonStatus: daemonSnapshot.statusText,
+      });
+      if (index < rounds - 1) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
+    return {
+      rounds,
+      gatewayHealthy: healthy,
+      daemonConnected: daemonReady,
+      gatewaySuccessRate: Number(((healthy / rounds) * 100).toFixed(2)),
+      daemonSuccessRate: Number(((daemonReady / rounds) * 100).toFixed(2)),
+      samples,
+    };
+  });
   methods.register('config.center.get', async () => readConfig(projectDir));
   methods.register('config.center.patch', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
@@ -2599,6 +2717,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const daemon = getMiyaClient(projectDir);
     return daemon.getModelLockStatus();
   });
+  methods.register('daemon.model.update.plan', async (params) => {
+    const daemon = getMiyaClient(projectDir);
+    const target = parseText(params.target);
+    return daemon.getModelUpdatePlan(target || undefined);
+  });
+  methods.register('daemon.model.update.apply', async (params) => {
+    const daemon = getMiyaClient(projectDir);
+    const target = parseText(params.target);
+    return daemon.applyModelUpdate(target || undefined);
+  });
   methods.register('policy.domains.list', async () => {
     const policy = readPolicy(projectDir);
     return {
@@ -2840,6 +2968,32 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     enabled: listEnabledSkills(projectDir),
     discovered: discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []),
   }));
+  methods.register('mcp.capabilities.list', async (params) => {
+    const disabled = Array.isArray(params.disabledMcps)
+      ? params.disabledMcps.map(String)
+      : [];
+    const mcps = createBuiltinMcps(disabled);
+    return {
+      mcps: Object.entries(mcps).map(([name, config]) => {
+        const caps = 'capabilities' in config ? config.capabilities : undefined;
+        return {
+          name,
+          type: config.type,
+          sampling: Boolean(caps?.sampling),
+          mcpUi: Boolean(caps?.mcpUi),
+          serviceExpose: Boolean(
+            (caps as { serviceExpose?: boolean } | undefined)?.serviceExpose,
+          ),
+        };
+      }),
+    };
+  });
+  methods.register('mcp.service.expose', async (params) => {
+    const disabled = Array.isArray(params.disabledMcps)
+      ? params.disabledMcps.map(String)
+      : [];
+    return buildMcpServiceManifest(disabled);
+  });
   methods.register('skills.enable', async (params) => {
     const skillID = parseText(params.skillID);
     if (!skillID) throw new Error('invalid_skill_id');
@@ -4232,12 +4386,18 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === 'job.progress') {
       publishGatewayEvent(runtime, 'daemon.job_progress', event);
+      const config = readConfig(projectDir);
+      const notifyOnTerminal =
+        ((config.runtime as Record<string, unknown> | undefined)?.notifications as
+          | Record<string, unknown>
+          | undefined)?.job_toast !== false;
       const status = String(event.payload?.status ?? '').trim().toLowerCase();
       if (
-        status === 'completed' ||
-        status === 'failed' ||
-        status === 'degraded' ||
-        status === 'canceled'
+        notifyOnTerminal &&
+        (status === 'completed' ||
+          status === 'failed' ||
+          status === 'degraded' ||
+          status === 'canceled')
       ) {
         publishGatewayEvent(runtime, 'daemon.job_terminal', event);
       }

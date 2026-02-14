@@ -303,6 +303,58 @@ const server = Bun.serve({
         return;
       }
 
+      if (frame.method === 'daemon.model.update.plan') {
+        const target =
+          typeof params.target === 'string' && params.target.trim()
+            ? params.target.trim()
+            : undefined;
+        ws.send(
+          JSON.stringify(
+            DaemonResponseFrameSchema.parse({
+              type: 'response',
+              id: frame.id,
+              ok: true,
+              result: daemonService.getModelUpdatePlan(target),
+            }),
+          ),
+        );
+        return;
+      }
+
+      if (frame.method === 'daemon.model.update.apply') {
+        try {
+          const target =
+            typeof params.target === 'string' && params.target.trim()
+              ? params.target.trim()
+              : undefined;
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result: daemonService.applyModelUpdate(target),
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'daemon_model_update_apply_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
       if (frame.method === 'config.center.get') {
         ws.send(
           JSON.stringify(

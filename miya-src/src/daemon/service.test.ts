@@ -39,4 +39,17 @@ describe('daemon service', () => {
     expect(proc.exitCode).toBe(0);
     expect(proc.stdout.toLowerCase()).toContain('miya-daemon');
   });
+
+  test('builds and applies model update plan', () => {
+    const daemon = new MiyaDaemonService(tempProjectDir());
+    const plan = daemon.getModelUpdatePlan();
+    expect(plan.items.length).toBeGreaterThanOrEqual(2);
+    expect(plan.pending).toBeGreaterThanOrEqual(1);
+
+    const applied = daemon.applyModelUpdate();
+    expect(applied.updated.length).toBeGreaterThanOrEqual(1);
+
+    const nextPlan = daemon.getModelUpdatePlan();
+    expect(nextPlan.pending).toBe(0);
+  });
 });

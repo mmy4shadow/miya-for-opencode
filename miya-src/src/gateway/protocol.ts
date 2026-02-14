@@ -92,6 +92,7 @@ interface QueuedInvocation {
   method: string;
   params: Record<string, unknown>;
   context: GatewayMethodContext;
+  enqueuedAtMs: number;
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
   timeout: ReturnType<typeof setTimeout>;
@@ -101,6 +102,9 @@ export class GatewayMethodRegistry {
   private handlers = new Map<string, GatewayMethodHandler>();
   private inFlight = 0;
   private readonly queue: QueuedInvocation[] = [];
+  private rejectedOverloaded = 0;
+  private rejectedTimeout = 0;
+  private readonly queueWaitSamplesMs: number[] = [];
   private readonly maxInFlight: number;
   private readonly maxQueued: number;
   private readonly queueTimeoutMs: number;
@@ -142,6 +146,7 @@ export class GatewayMethodRegistry {
       return this.executeNow(method, params, context);
     }
     if (this.queue.length >= this.maxQueued) {
+      this.rejectedOverloaded += 1;
       throw new Error(
         `gateway_backpressure_overloaded:in_flight=${this.inFlight}:queued=${this.queue.length}`,
       );
@@ -151,11 +156,13 @@ export class GatewayMethodRegistry {
         method,
         params,
         context,
+        enqueuedAtMs: Date.now(),
         resolve,
         reject,
         timeout: setTimeout(() => {
           const index = this.queue.indexOf(queued);
           if (index >= 0) this.queue.splice(index, 1);
+          this.rejectedTimeout += 1;
           reject(new Error('gateway_backpressure_timeout'));
         }, this.queueTimeoutMs),
       };
@@ -167,12 +174,32 @@ export class GatewayMethodRegistry {
     return [...this.handlers.keys()].sort();
   }
 
-  stats(): { inFlight: number; queued: number; maxInFlight: number; maxQueued: number } {
+  stats(): {
+    inFlight: number;
+    queued: number;
+    maxInFlight: number;
+    maxQueued: number;
+    rejected_overloaded: number;
+    rejected_timeout: number;
+    queue_wait_ms_p95: number;
+    rejectedOverloaded: number;
+    rejectedTimeout: number;
+    queueWaitMsP95: number;
+  } {
+    const rejectedOverloaded = this.rejectedOverloaded;
+    const rejectedTimeout = this.rejectedTimeout;
+    const queueWaitMsP95 = this.queueWaitMsP95();
     return {
       inFlight: this.inFlight,
       queued: this.queue.length,
       maxInFlight: this.maxInFlight,
       maxQueued: this.maxQueued,
+      rejected_overloaded: rejectedOverloaded,
+      rejected_timeout: rejectedTimeout,
+      queue_wait_ms_p95: queueWaitMsP95,
+      rejectedOverloaded,
+      rejectedTimeout,
+      queueWaitMsP95,
     };
   }
 
@@ -197,6 +224,7 @@ export class GatewayMethodRegistry {
     const next = this.queue.shift();
     if (!next) return;
     clearTimeout(next.timeout);
+    this.recordQueueWait(Date.now() - next.enqueuedAtMs);
     void this.executeNow(next.method, next.params, next.context)
       .then((value) => next.resolve(value))
       .catch((error) => next.reject(error))
@@ -205,6 +233,24 @@ export class GatewayMethodRegistry {
           this.drainQueue();
         }
       });
+  }
+
+  private recordQueueWait(waitMs: number): void {
+    if (!Number.isFinite(waitMs) || waitMs < 0) return;
+    this.queueWaitSamplesMs.push(waitMs);
+    if (this.queueWaitSamplesMs.length > 256) {
+      this.queueWaitSamplesMs.splice(0, this.queueWaitSamplesMs.length - 256);
+    }
+  }
+
+  private queueWaitMsP95(): number {
+    if (this.queueWaitSamplesMs.length === 0) return 0;
+    const sorted = [...this.queueWaitSamplesMs].sort((a, b) => a - b);
+    const index = Math.max(
+      0,
+      Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95)),
+    );
+    return Math.floor(sorted[index] ?? 0);
   }
 }
 

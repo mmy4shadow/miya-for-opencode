@@ -2,9 +2,13 @@ import { MiyaClient, getMiyaClient } from './client';
 import {
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
+  getLauncherBackpressureStats,
   daemonInvoke,
   stopMiyaLauncher,
+  subscribeLauncherEvents,
   type DaemonConnectionSnapshot,
+  type DaemonBackpressureStats,
+  type DaemonLauncherEvent,
 } from './launcher';
 import { readPythonRuntimeStatus } from './python-runtime';
 import type {
@@ -21,7 +25,9 @@ export {
   daemonInvoke,
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
+  getLauncherBackpressureStats,
   stopMiyaLauncher,
+  subscribeLauncherEvents,
   readPythonRuntimeStatus,
 };
 
@@ -32,4 +38,6 @@ export type {
   DaemonRunResult,
   DaemonRuntimeState,
   DaemonConnectionSnapshot,
+  DaemonBackpressureStats,
+  DaemonLauncherEvent,
 };

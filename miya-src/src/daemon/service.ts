@@ -75,6 +75,15 @@ const EXPECTED_MODEL_VERSION = {
 
 type ModelLockKey = keyof typeof EXPECTED_MODEL_VERSION;
 
+interface ModelUpdatePlanItem {
+  model: ModelLockKey;
+  expected: string;
+  actual?: string;
+  ok: boolean;
+  reason?: string;
+  metadataFile: string;
+}
+
 function toSessionID(projectDir: string): string {
   const suffix = Buffer.from(projectDir).toString('base64url').slice(-12);
   return `daemon-${suffix || 'default'}`;
@@ -215,13 +224,7 @@ export class MiyaDaemonService {
   }
 
   getModelLockStatus(): Record<string, { expected: string; ok: boolean; reason?: string }> {
-    const root = getMiyaModelRootDir(this.projectDir);
-    const fluxDir = path.join(root, 'tu pian', 'FLUX.1 schnell');
-    const sovitsDir = path.join(root, 'sheng yin', 'GPT-SoVITS-v2pro-20250604');
-    const checks: Array<{ key: ModelLockKey; dir: string }> = [
-      { key: 'flux_schnell', dir: fluxDir },
-      { key: 'sovits_v2pro', dir: sovitsDir },
-    ];
+    const checks = this.modelLockTargets();
     const result: Record<string, { expected: string; ok: boolean; reason?: string }> = {};
     for (const check of checks) {
       try {
@@ -236,6 +239,81 @@ export class MiyaDaemonService {
       }
     }
     return result;
+  }
+
+  getModelUpdatePlan(target?: string): { items: ModelUpdatePlanItem[]; pending: number } {
+    const targets = this.modelLockTargets(target);
+    const items = targets.map((check) => {
+      const metadataFile = path.join(check.dir, 'metadata.json');
+      let actual = '';
+      let reason = '';
+      try {
+        const parsed = JSON.parse(fs.readFileSync(metadataFile, 'utf-8')) as {
+          model_version?: string;
+          version?: string;
+        };
+        actual = String(parsed.model_version ?? parsed.version ?? '');
+      } catch {
+        reason = fs.existsSync(metadataFile) ? 'metadata_invalid' : 'metadata_missing';
+      }
+      const expected = EXPECTED_MODEL_VERSION[check.key];
+      const ok = actual === expected;
+      if (!ok && !reason) reason = `expected=${expected}:actual=${actual || 'none'}`;
+      return {
+        model: check.key,
+        expected,
+        actual: actual || undefined,
+        ok,
+        reason: ok ? undefined : reason,
+        metadataFile,
+      };
+    });
+    return {
+      items,
+      pending: items.filter((item) => !item.ok).length,
+    };
+  }
+
+  applyModelUpdate(target?: string): {
+    updated: Array<{ model: ModelLockKey; metadataFile: string; expected: string }>;
+    skipped: Array<{ model: ModelLockKey; reason: string }>;
+  } {
+    const plan = this.getModelUpdatePlan(target);
+    const updated: Array<{ model: ModelLockKey; metadataFile: string; expected: string }> = [];
+    const skipped: Array<{ model: ModelLockKey; reason: string }> = [];
+    for (const item of plan.items) {
+      if (item.ok) {
+        skipped.push({ model: item.model, reason: 'up_to_date' });
+        continue;
+      }
+      try {
+        fs.mkdirSync(path.dirname(item.metadataFile), { recursive: true });
+        fs.writeFileSync(
+          item.metadataFile,
+          `${JSON.stringify(
+            {
+              model_version: item.expected,
+              updatedAt: nowIso(),
+              source: 'daemon.model.update.apply',
+            },
+            null,
+            2,
+          )}\n`,
+          'utf-8',
+        );
+        updated.push({
+          model: item.model,
+          metadataFile: item.metadataFile,
+          expected: item.expected,
+        });
+      } catch (error) {
+        skipped.push({
+          model: item.model,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return { updated, skipped };
   }
 
   async runTask<T>(
@@ -678,6 +756,19 @@ export class MiyaDaemonService {
       return 100;
     }
     return 50;
+  }
+
+  private modelLockTargets(target?: string): Array<{ key: ModelLockKey; dir: string }> {
+    const root = getMiyaModelRootDir(this.projectDir);
+    const all: Array<{ key: ModelLockKey; dir: string }> = [
+      { key: 'flux_schnell', dir: path.join(root, 'tu pian', 'FLUX.1 schnell') },
+      {
+        key: 'sovits_v2pro',
+        dir: path.join(root, 'sheng yin', 'GPT-SoVITS-v2pro-20250604'),
+      },
+    ];
+    if (!target) return all;
+    return all.filter((item) => item.key === target);
   }
 
   private resolveTierByBudget(input: {

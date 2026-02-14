@@ -2,6 +2,7 @@ import { addCompanionAsset } from '../companion/store';
 import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
 import { getMiyaModelPath } from '../model/paths';
+import { readConfig } from '../settings';
 import { appendVoiceHistory } from '../voice/state';
 import { getMiyaRuntimeDir } from '../workflow';
 import * as fs from 'node:fs';
@@ -91,6 +92,19 @@ function toBase64FromFile(filePath: string): string | null {
   }
 }
 
+function isRuntimeNotReadyError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.startsWith('python_runtime_not_ready:');
+}
+
+function useMultimodalTestMode(projectDir: string): boolean {
+  if (process.env.MIYA_MULTIMODAL_TEST_MODE === '1') return true;
+  const config = readConfig(projectDir);
+  const runtime = config.runtime as Record<string, unknown> | undefined;
+  const multimodal = runtime?.multimodal as Record<string, unknown> | undefined;
+  return multimodal?.test_mode === true;
+}
+
 export async function synthesizeVoiceOutput(
   projectDir: string,
   input: VoiceOutputInput,
@@ -113,13 +127,38 @@ export async function synthesizeVoiceOutput(
     'companion',
     'current',
   );
-  const tts = await daemon.runSovitsTts({
-    text,
-    outputPath,
-    profileDir,
-    voice,
-    format,
-  });
+  let tts: {
+    outputPath: string;
+    tier: 'lora' | 'embedding' | 'reference';
+    degraded: boolean;
+    message: string;
+  };
+  if (useMultimodalTestMode(projectDir)) {
+    tts = {
+      outputPath,
+      tier: 'reference',
+      degraded: true,
+      message: 'python_runtime_not_ready:test_mode',
+    };
+  } else {
+    try {
+      tts = await daemon.runSovitsTts({
+        text,
+        outputPath,
+        profileDir,
+        voice,
+        format,
+      });
+    } catch (error) {
+      if (!isRuntimeNotReadyError(error)) throw error;
+      tts = {
+        outputPath,
+        tier: 'reference',
+        degraded: true,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   const wavBase64 = toBase64FromFile(tts.outputPath) ?? buildSilentWavBase64(estDurationMs);
 
   const media = ingestMedia(projectDir, {
@@ -130,7 +169,9 @@ export async function synthesizeVoiceOutput(
     contentBase64: wavBase64,
     sizeBytes: Math.floor((wavBase64.length * 3) / 4),
     metadata: {
-      status: 'generated_local',
+      status: tts.message.startsWith('python_runtime_not_ready:')
+        ? 'degraded_runtime_not_ready'
+        : 'generated_local',
       text,
       voice,
       model,
@@ -140,6 +181,7 @@ export async function synthesizeVoiceOutput(
       engineMessage: tts.message,
       payloadCodec: 'pcm_s16le',
       estimatedDurationMs: estDurationMs,
+      runtimeError: tts.message.startsWith('python_runtime_not_ready:') ? tts.message : undefined,
       createdBy: 'miya_voice_output',
     },
   });

@@ -86,6 +86,8 @@ describe('gateway protocol', () => {
 
     expect(registry.stats().inFlight).toBe(1);
     expect(registry.stats().queued).toBe(2);
+    expect(registry.stats().rejectedOverloaded).toBe(0);
+    expect(registry.stats().rejectedTimeout).toBe(0);
 
     await waitFor(() => blockers.length >= 1);
     const release1 = blockers.shift();
@@ -123,12 +125,37 @@ describe('gateway protocol', () => {
     await expect(
       registry.invoke('slow', {}, { clientID: 'c1', role: 'ui' }),
     ).rejects.toThrow(/gateway_backpressure_overloaded/);
+    expect(registry.stats().rejectedOverloaded).toBe(1);
     await waitFor(() => blockers.length >= 1);
     blockers.shift()?.();
     await first;
     await waitFor(() => blockers.length >= 1);
     blockers.shift()?.();
     await second;
+  });
+
+  test('marks queued timeout counter', async () => {
+    const registry = new GatewayMethodRegistry({
+      maxInFlight: 1,
+      maxQueued: 1,
+      queueTimeoutMs: 80,
+    });
+    let release: (() => void) | undefined;
+    registry.register(
+      'slow',
+      async () =>
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    const first = registry.invoke('slow', {}, { clientID: 'c1', role: 'ui' });
+    await expect(
+      registry.invoke('slow', {}, { clientID: 'c1', role: 'ui' }),
+    ).rejects.toThrow(/gateway_backpressure_timeout/);
+    expect(registry.stats().rejectedTimeout).toBe(1);
+    release?.();
+    await first;
   });
 
   test('serializes response and event frames', () => {

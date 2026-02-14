@@ -3,6 +3,9 @@ export {
   recommendedAgent,
   type RouteIntent,
 } from './classifier';
-export { resolveFallbackAgent } from './fallback';
-export { addRouteFeedback, summarizeRouteHistory } from './learner';
-
+export { resolveAgentWithFeedback, resolveFallbackAgent } from './fallback';
+export {
+  addRouteFeedback,
+  rankAgentsByFeedback,
+  summarizeRouteHistory,
+} from './learner';

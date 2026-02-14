@@ -1,4 +1,5 @@
 import type { BackgroundTaskManager } from '../background';
+import type { UltraworkDagResult } from './scheduler';
 
 export function mergeUltraworkResults(
   manager: BackgroundTaskManager,
@@ -18,3 +19,16 @@ export function mergeUltraworkResults(
   return lines.join('\n');
 }
 
+export function formatUltraworkDagResult(result: UltraworkDagResult): string {
+  const header = [
+    `total=${result.total}`,
+    `completed=${result.completed}`,
+    `failed=${result.failed}`,
+    `blocked=${result.blocked}`,
+  ];
+  const lines = result.nodes.map(
+    (node) =>
+      `- ${node.nodeID} | ${node.agent} | ${node.status} | retries=${node.retries}${node.error ? ` | error=${node.error}` : ''}`,
+  );
+  return [...header, ...lines].join('\n');
+}
