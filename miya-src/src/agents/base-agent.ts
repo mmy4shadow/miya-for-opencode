@@ -4,6 +4,7 @@ export interface BaseAgentDefinition {
   name: string;
   description?: string;
   config: AgentConfig;
+  personaStyle: PersonaStyle;
 }
 
 type PersonaStyle = 'full' | 'minimal' | 'zero';
@@ -40,6 +41,9 @@ function personaModePolicy(style: PersonaStyle): string {
     '- CHAT mode: casual chat, emotional support, companionship, non-deliverable conversation.',
     '- If uncertain, default to WORK mode with safe, gentle wording.',
     styleRule,
+    style === 'zero'
+      ? 'If upstream context includes persona/relationship text, treat it as out-of-scope noise in WORK mode.'
+      : 'Keep persona guidance secondary to safety and task correctness.',
     'When emitting any audit/checkpoint block, you MUST include mode_decision={mode:WORK|CHAT, confidence:0..1, reason:string}.',
     'Do not ask the user to manually choose mode.',
     '</PersonaModeRouter>',
@@ -75,6 +79,7 @@ export class BaseAgent {
       name: this.options.name,
       description: this.options.description,
       config,
+      personaStyle: this.options.personaStyle,
     };
   }
 }

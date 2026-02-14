@@ -11,6 +11,10 @@ export function createRalphTools(): Record<string, ToolDefinition> {
       task_description: z.string().describe('Human-readable task objective'),
       verification_command: z.string().describe('Command used to verify success'),
       max_iterations: z.number().default(8),
+      max_retries: z
+        .number()
+        .optional()
+        .describe('Alias of max_iterations for retry-oriented workflows'),
       timeout_ms: z.number().default(60000),
       budget_ms: z
         .number()
@@ -46,7 +50,11 @@ export function createRalphTools(): Record<string, ToolDefinition> {
         taskDescription: String(args.task_description),
         verificationCommand: String(args.verification_command),
         maxIterations:
-          typeof args.max_iterations === 'number' ? Number(args.max_iterations) : 8,
+          typeof args.max_retries === 'number'
+            ? Number(args.max_retries)
+            : typeof args.max_iterations === 'number'
+              ? Number(args.max_iterations)
+              : 8,
         timeoutMs: typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : 60000,
         budgetMs: typeof args.budget_ms === 'number' ? Number(args.budget_ms) : undefined,
         stallWindow:
@@ -91,6 +99,9 @@ export function createRalphTools(): Record<string, ToolDefinition> {
                 ? `error_similarity=${attempt.errorSimilarity.toFixed(3)}`
                 : '',
               attempt.failureKind ? `failure=${attempt.failureKind}` : '',
+              attempt.result.stderr.trim()
+                ? `stderr=${attempt.result.stderr.trim().slice(0, 220).replace(/\s+/g, ' ')}`
+                : '',
             ]
               .filter(Boolean)
               .join(' | '),

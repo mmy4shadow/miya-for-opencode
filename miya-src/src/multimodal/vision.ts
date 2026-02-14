@@ -180,23 +180,64 @@ export async function analyzeDesktopOutboundEvidence(
   sendStatusDetected: 'sent' | 'failed' | 'uncertain';
   ocrSource: 'remote_vlm' | 'tesseract' | 'none';
   ocrPreview: string;
+  uiStyleMismatch: boolean;
+  retries: number;
 }> {
-  const screenshotPath =
-    input.postSendScreenshotPath && fs.existsSync(input.postSendScreenshotPath)
-      ? input.postSendScreenshotPath
-      : input.preSendScreenshotPath && fs.existsSync(input.preSendScreenshotPath)
-        ? input.preSendScreenshotPath
-        : undefined;
-  if (!screenshotPath) {
+  const candidates = [
+    input.postSendScreenshotPath,
+    input.preSendScreenshotPath,
+  ].filter((item): item is string => typeof item === 'string' && fs.existsSync(item));
+  if (candidates.length === 0) {
     return {
       recipientMatch: input.recipientTextCheck ?? 'uncertain',
       sendStatusDetected: input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain',
       ocrSource: 'none',
       ocrPreview: '',
+      uiStyleMismatch: true,
+      retries: 0,
     };
   }
-  const inferred = await readTextFromImage(screenshotPath, '识别聊天界面收件人与发送状态');
-  const signals = parseDesktopOcrSignals(inferred.text, input.destination);
+
+  const isLowConfidenceText = (text: string): boolean => {
+    const trimmed = (text || '').replace(/\s+/g, '');
+    if (trimmed.length < 8) return true;
+    const meaningful = trimmed.replace(/[a-zA-Z0-9\u4e00-\u9fa5]/g, '');
+    const noiseRatio = meaningful.length / Math.max(1, trimmed.length);
+    return noiseRatio > 0.6;
+  };
+
+  let inferred = await readTextFromImage(candidates[0], '识别聊天界面收件人与发送状态');
+  let signals = parseDesktopOcrSignals(inferred.text, input.destination);
+  let retries = 0;
+  let uiStyleMismatch =
+    inferred.source === 'none' ||
+    (signals.recipientMatch !== 'matched' && isLowConfidenceText(inferred.text));
+
+  if (
+    candidates.length > 1 &&
+    (signals.recipientMatch === 'mismatch' || uiStyleMismatch)
+  ) {
+    const retryInferred = await readTextFromImage(
+      candidates[1],
+      'DPI样式兼容重试：识别聊天界面收件人与发送状态',
+    );
+    const retrySignals = parseDesktopOcrSignals(retryInferred.text, input.destination);
+    retries = 1;
+
+    const retryBetter =
+      retrySignals.recipientMatch === 'matched' ||
+      (retrySignals.sendStatusDetected !== 'uncertain' &&
+        signals.sendStatusDetected === 'uncertain') ||
+      (!isLowConfidenceText(retryInferred.text) && isLowConfidenceText(inferred.text));
+    if (retryBetter) {
+      inferred = retryInferred;
+      signals = retrySignals;
+    }
+    uiStyleMismatch =
+      (inferred.source === 'none' || isLowConfidenceText(inferred.text)) &&
+      signals.recipientMatch !== 'matched';
+  }
+
   const mergedRecipient =
     signals.recipientMatch === 'mismatch' && input.recipientTextCheck === 'matched'
       ? 'matched'
@@ -209,11 +250,17 @@ export async function analyzeDesktopOutboundEvidence(
         ? 'sent'
         : 'uncertain'
       : signals.sendStatusDetected;
+
+  const stableRecipient =
+    uiStyleMismatch && mergedRecipient === 'mismatch' ? 'uncertain' : mergedRecipient;
+
   return {
-    recipientMatch: mergedRecipient,
+    recipientMatch: stableRecipient,
     sendStatusDetected: mergedStatus,
     ocrSource: inferred.source,
     ocrPreview: inferred.text.slice(0, 300),
+    uiStyleMismatch,
+    retries,
   };
 }
 

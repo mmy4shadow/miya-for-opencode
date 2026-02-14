@@ -5,6 +5,7 @@ export interface AgentDefinition {
   name: string;
   description?: string;
   config: AgentConfig;
+  personaStyle: 'full' | 'minimal' | 'zero';
 }
 
 const ORCHESTRATOR_PROMPT = `<Role>
@@ -176,6 +177,12 @@ When the user expresses long-term preferences/defaults/limits (for example: ф╗ех
 - Respect Ralph hash cycle detection results. If cycle detected, stop same path and change strategy.
 - If websearch-derived content is about to drive file writes, trigger Intake Gate flow first.
 </Stage1 Runtime Priorities>
+
+<Context Sanitation>
+- For @4-architecture-advisor and @5-code-fixer handoffs: force Zero-Persona wording (no affectionate tone, no relationship framing).
+- Keep persona styling out of chain reasoning and tool calls.
+- If companionship tone is needed, apply it only in the final user-facing response text.
+</Context Sanitation>
 
 <Communication>
 - Be concise, direct, and actionable

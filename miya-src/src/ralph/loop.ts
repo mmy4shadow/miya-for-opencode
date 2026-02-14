@@ -109,6 +109,25 @@ function runCommand(
   };
 }
 
+function renderFixCommand(
+  template: string,
+  input: {
+    iteration: number;
+    failureSummary: string;
+    stderr: string;
+    stdout: string;
+  },
+): string {
+  const stderrTrimmed = input.stderr.trim();
+  const stdoutTrimmed = input.stdout.trim();
+  return template
+    .replaceAll('{{ITERATION}}', String(input.iteration))
+    .replaceAll('{{FAILURE_SUMMARY}}', input.failureSummary)
+    .replaceAll('{{LAST_STDERR}}', stderrTrimmed)
+    .replaceAll('{{LAST_STDOUT}}', stdoutTrimmed)
+    .replaceAll('{{LAST_ERROR}}', stderrTrimmed || stdoutTrimmed || input.failureSummary);
+}
+
 function pushAttempt(
   attempts: RalphAttempt[],
   iteration: number,
@@ -261,7 +280,15 @@ export function executeRalphLoop(input: RalphLoopInput): RalphLoopResult {
       };
     }
 
-    const nextFix = fixQueue.shift();
+    const nextFixTemplate = fixQueue.shift();
+    const nextFix = nextFixTemplate
+      ? renderFixCommand(nextFixTemplate, {
+          iteration,
+          failureSummary: failure.summary,
+          stderr: verifyResult.stderr,
+          stdout: verifyResult.stdout,
+        })
+      : '';
     if (!nextFix) {
       return {
         success: false,

@@ -132,6 +132,11 @@ function getFallbackChain(config: PluginConfig | undefined, agentName: string): 
   return [];
 }
 
+function shouldInjectSoulLayer(agentName: string, personaStyle: 'full' | 'minimal' | 'zero'): boolean {
+  if (personaStyle === 'zero') return false;
+  return agentName === '1-task-manager' || agentName === '6-ui-designer';
+}
+
 // Ultimate fallback model - always available
 const ULTIMATE_FALLBACK_MODEL = 'openrouter/z-ai/glm-5';
 
@@ -191,7 +196,10 @@ export function createAgents(config?: PluginConfig, projectDir?: string): AgentD
       applyOverrides(agent, override);
     }
     applyDefaultPermissions(agent, override?.skills);
-    if (projectDir) {
+    if (
+      projectDir &&
+      shouldInjectSoulLayer(agent.name, agent.personaStyle)
+    ) {
       agent.config.prompt = `${soulPersonaLayer(projectDir)}\n\n${String(agent.config.prompt ?? '')}`;
     }
     return agent;
@@ -214,7 +222,10 @@ export function createAgents(config?: PluginConfig, projectDir?: string): AgentD
   if (oOverride) {
     applyOverrides(orchestrator, oOverride);
   }
-  if (projectDir) {
+  if (
+    projectDir &&
+    shouldInjectSoulLayer(orchestrator.name, orchestrator.personaStyle)
+  ) {
     orchestrator.config.prompt = `${soulPersonaLayer(projectDir)}\n\n${String(orchestrator.config.prompt ?? '')}`;
   }
 

@@ -68,6 +68,16 @@ describe('channel runtime send policy', () => {
       payloadHash?: string;
       receiptStatus?: string;
       failureStep?: string;
+      evidenceBundle?: {
+        kind?: string;
+        destination?: string;
+        screenshots?: string[];
+      };
+      semanticSummary?: {
+        conclusion?: string;
+        keyAssertion?: string;
+        recovery?: string;
+      };
     };
     expect(typeof first.id).toBe('string');
     expect(first.channel).toBe('qq');
@@ -77,6 +87,12 @@ describe('channel runtime send policy', () => {
     expect(first.payloadHash?.length).toBe(64);
     expect(first.receiptStatus).toBe('uncertain');
     expect(typeof first.failureStep).toBe('string');
+    expect(first.evidenceBundle?.kind).toBe('desktop_outbound');
+    expect(first.evidenceBundle?.destination).toBe('tester');
+    expect(Array.isArray(first.evidenceBundle?.screenshots)).toBe(true);
+    expect(typeof first.semanticSummary?.conclusion).toBe('string');
+    expect(typeof first.semanticSummary?.keyAssertion).toBe('string');
+    expect(typeof first.semanticSummary?.recovery).toBe('string');
   });
 
   test('blocks outbound send when arch advisor has not approved', async () => {

@@ -103,6 +103,29 @@ export interface ChannelOutboundAudit {
   failureStep?: string;
   ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
   ocrPreview?: string;
+  evidenceBundle?: {
+    kind: 'desktop_outbound';
+    destination: string;
+    payloadHash?: string;
+    ticketTraceIds?: string[];
+    screenshots: string[];
+    checks: {
+      recipientTextCheck?: 'matched' | 'uncertain' | 'mismatch';
+      sendStatusCheck?: 'sent' | 'failed' | 'uncertain';
+      receiptStatus?: 'confirmed' | 'uncertain';
+    };
+    diagnostics: {
+      windowFingerprint?: string;
+      failureStep?: string;
+      ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
+      ocrPreview?: string;
+    };
+  };
+  semanticSummary?: {
+    conclusion: string;
+    keyAssertion: string;
+    recovery: string;
+  };
 }
 
 function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
@@ -114,6 +137,7 @@ function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
   }
   if (message.includes('window_not_found')) return ['window_not_found'];
   if (message.includes('window_occluded')) return ['window_occluded'];
+  if (message.includes('ui_style_mismatch')) return ['ui_style_mismatch'];
   return [];
 }
 
@@ -128,6 +152,7 @@ const INPUT_MUTEX_COOLDOWN_MS = 15 * 60 * 1000;
 let inputMutexOwner: string | null = null;
 const inputMutexQueue: Array<{
   sessionID: string;
+  active: boolean;
   grant: () => void;
 }> = [];
 
@@ -141,27 +166,101 @@ function acquireInputMutex(sessionID: string, timeoutMs = INPUT_MUTEX_TIMEOUT_MS
         if (inputMutexOwner === sessionID) {
           inputMutexOwner = null;
         }
-        const next = inputMutexQueue.shift();
-        if (next) {
+        while (inputMutexQueue.length > 0 && !inputMutexOwner) {
+          const next = inputMutexQueue.shift();
+          if (!next) break;
+          if (!next.active) continue;
           next.grant();
         }
       },
     });
+    const pending = {
+      sessionID,
+      active: true,
+      grant: () => {},
+    };
     const timer = setTimeout(() => {
+      pending.active = false;
+      const idx = inputMutexQueue.indexOf(pending);
+      if (idx >= 0) inputMutexQueue.splice(idx, 1);
       reject(new Error('input_mutex_timeout'));
     }, timeoutMs);
     const grant = (): void => {
+      if (!pending.active) return;
+      pending.active = false;
       clearTimeout(timer);
       inputMutexOwner = sessionID;
       resolve(makeLease());
     };
+    pending.grant = grant;
 
     if (!inputMutexOwner) {
       grant();
       return;
     }
-    inputMutexQueue.push({ sessionID, grant });
+    inputMutexQueue.push(pending);
   });
+}
+
+function buildSemanticSummary(row: Omit<ChannelOutboundAudit, 'id' | 'at'>): ChannelOutboundAudit['semanticSummary'] {
+  if (row.sent) {
+    return {
+      conclusion: 'Outbound send completed with verifiable desktop evidence.',
+      keyAssertion: `recipient_check=${row.recipientTextCheck ?? 'uncertain'}, send_status=${row.sendStatusCheck ?? 'uncertain'}`,
+      recovery: 'No recovery needed.',
+    };
+  }
+  if (row.message.includes('input_mutex_timeout')) {
+    return {
+      conclusion: 'Outbound send blocked by input mutex timeout.',
+      keyAssertion: 'Desktop control was denied because user input mutex could not be acquired in time.',
+      recovery: 'Wait for user idle state and retry with renewed approval tickets.',
+    };
+  }
+  if (row.message.includes('ui_style_mismatch')) {
+    return {
+      conclusion: 'Outbound send degraded due to unstable UI/OCR style mismatch.',
+      keyAssertion: 'Visual confirmation confidence was too low after retry, so send was treated as failed.',
+      recovery: 'Adjust DPI/theme/window state, then retry with refreshed evidence.',
+    };
+  }
+  return {
+    conclusion: row.sent ? 'Outbound send completed.' : 'Outbound send blocked or uncertain.',
+    keyAssertion: `message=${row.message}`,
+    recovery: row.sent
+      ? 'No recovery needed.'
+      : 'Review desktop evidence and retry only after policy/approval checks pass.',
+  };
+}
+
+function buildEvidenceBundle(
+  row: Omit<ChannelOutboundAudit, 'id' | 'at'>,
+): ChannelOutboundAudit['evidenceBundle'] | undefined {
+  if (row.channel !== 'qq' && row.channel !== 'wechat') return undefined;
+  const screenshots = [row.preSendScreenshotPath, row.postSendScreenshotPath]
+    .filter((item): item is string => typeof item === 'string' && item.length > 0);
+  const ticketTraceIds = [
+    row.ticketSummary?.outboundSendTraceId,
+    row.ticketSummary?.desktopControlTraceId,
+  ].filter((item): item is string => typeof item === 'string' && item.length > 0);
+  return {
+    kind: 'desktop_outbound',
+    destination: row.destination,
+    payloadHash: row.payloadHash,
+    ticketTraceIds: ticketTraceIds.length > 0 ? ticketTraceIds : undefined,
+    screenshots,
+    checks: {
+      recipientTextCheck: row.recipientTextCheck,
+      sendStatusCheck: row.sendStatusCheck,
+      receiptStatus: row.receiptStatus,
+    },
+    diagnostics: {
+      windowFingerprint: row.windowFingerprint,
+      failureStep: row.failureStep,
+      ocrSource: row.ocrSource,
+      ocrPreview: row.ocrPreview,
+    },
+  };
 }
 
 export function listOutboundAudit(
@@ -570,6 +669,8 @@ export class ChannelRuntime {
       failureStep: row.failureStep,
       ocrSource: row.ocrSource,
       ocrPreview: row.ocrPreview,
+      evidenceBundle: buildEvidenceBundle(row),
+      semanticSummary: buildSemanticSummary(row),
       semanticTags,
     };
     appendOutboundAudit(this.projectDir, payload);
@@ -973,6 +1074,10 @@ export class ChannelRuntime {
         result.sent = false;
         result.message = 'outbound_blocked:receipt_uncertain';
       }
+      if (visionCheck.uiStyleMismatch) {
+        result.sent = false;
+        result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
+      }
       if (result.sent && result.receiptStatus !== 'confirmed') {
         result.sent = false;
         result.message = 'outbound_blocked:receipt_uncertain';
@@ -1013,6 +1118,14 @@ export class ChannelRuntime {
       if (result.sent) {
         this.clearMutexStrike(sessionID);
       }
+      if (!audit.evidenceBundle || !audit.semanticSummary) {
+        mutexLease?.release();
+        return {
+          sent: false,
+          message: 'outbound_blocked:missing_evidence_bundle',
+          auditID: audit.id,
+        };
+      }
       mutexLease?.release();
       return { ...result, auditID: audit.id };
     }
@@ -1040,6 +1153,10 @@ export class ChannelRuntime {
       if (visionCheck.sendStatusDetected === 'failed') {
         result.sent = false;
         result.message = 'outbound_blocked:receipt_uncertain';
+      }
+      if (visionCheck.uiStyleMismatch) {
+        result.sent = false;
+        result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
       }
       if (result.sent && result.receiptStatus !== 'confirmed') {
         result.sent = false;
@@ -1080,6 +1197,14 @@ export class ChannelRuntime {
       });
       if (result.sent) {
         this.clearMutexStrike(sessionID);
+      }
+      if (!audit.evidenceBundle || !audit.semanticSummary) {
+        mutexLease?.release();
+        return {
+          sent: false,
+          message: 'outbound_blocked:missing_evidence_bundle',
+          auditID: audit.id,
+        };
       }
       mutexLease?.release();
       return { ...result, auditID: audit.id };

@@ -81,6 +81,18 @@ export function sendDesktopOutbound(input: {
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class MiyaInputProbe {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct POINT { public int X; public int Y; }
+  [DllImport("user32.dll")]
+  public static extern bool GetCursorPos(out POINT point);
+  [DllImport("user32.dll")]
+  public static extern short GetAsyncKeyState(int vKey);
+}
+"@
 
 $destination = $env:MIYA_DESTINATION
 $payload = $env:MIYA_MESSAGE
@@ -115,12 +127,62 @@ function Save-Screenshot {
   } catch {}
 }
 
+function Get-CursorPoint {
+  $point = New-Object MiyaInputProbe+POINT
+  [void][MiyaInputProbe]::GetCursorPos([ref]$point)
+  return @{ X = [int]$point.X; Y = [int]$point.Y }
+}
+
+function Test-KeyboardActivity {
+  $keys = @(0x08,0x09,0x0D,0x10,0x11,0x12,0x1B,0x20,0x25,0x26,0x27,0x28,0x2E,0x5B,0x5C)
+  foreach ($vk in $keys) {
+    if (([MiyaInputProbe]::GetAsyncKeyState($vk) -band 0x8000) -ne 0) { return $true }
+  }
+  for ($vk = 0x30; $vk -le 0x5A; $vk++) {
+    if (([MiyaInputProbe]::GetAsyncKeyState($vk) -band 0x8000) -ne 0) { return $true }
+  }
+  return $false
+}
+
+function Wait-UserInputIdle {
+  param([int]$TimeoutMs = 1200, [int]$StableMs = 350, [int]$SampleMs = 60)
+  $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+  $idleSince = Get-Date
+  $last = Get-CursorPoint
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds $SampleMs
+    $curr = Get-CursorPoint
+    $moved = ([Math]::Abs($curr.X - $last.X) + [Math]::Abs($curr.Y - $last.Y)) -gt 2
+    $typing = Test-KeyboardActivity
+    if ($moved -or $typing) {
+      $idleSince = Get-Date
+      $last = $curr
+      continue
+    }
+    if (((Get-Date) - $idleSince).TotalMilliseconds -ge $StableMs) {
+      return $curr
+    }
+    $last = $curr
+  }
+  throw "input_mutex_timeout:user_active"
+}
+
+function Assert-NoUserInterference {
+  param($LockPoint)
+  $curr = Get-CursorPoint
+  $moved = ([Math]::Abs($curr.X - $LockPoint.X) + [Math]::Abs($curr.Y - $LockPoint.Y)) -gt 6
+  if ($moved -or (Test-KeyboardActivity)) {
+    throw "input_mutex_timeout:user_interference"
+  }
+}
+
 try {
   if (-not (Test-Path -LiteralPath $evidenceDir)) {
     New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
   }
 
   $step = "bootstrap.process"
+  $lockPoint = Wait-UserInputIdle
 $proc = Get-Process -Name $appName -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $proc) {
   Start-Process -FilePath $appName | Out-Null
@@ -136,6 +198,7 @@ if (-not $activated) {
   throw "window_not_found:$destination"
 }
 $precheck = "window_activated"
+Assert-NoUserInterference -LockPoint $lockPoint
 
 $step = "precheck.capture"
 $preShot = Join-Path $evidenceDir ($traceId + "_pre.png")
@@ -160,6 +223,7 @@ if ($windowTitle -like ("*" + $destination + "*")) {
 }
 
 if ($mediaPath) {
+  Assert-NoUserInterference -LockPoint $lockPoint
   $step = "send.media_prepare"
   if (-not (Test-Path -LiteralPath $mediaPath)) {
     throw "media_not_found:$mediaPath"
@@ -178,6 +242,7 @@ if ($mediaPath) {
 }
 
 if ($payload) {
+  Assert-NoUserInterference -LockPoint $lockPoint
   $step = "send.text_prepare"
   Set-Clipboard -Value $payload
   Start-Sleep -Milliseconds 180

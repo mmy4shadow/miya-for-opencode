@@ -86,4 +86,29 @@ describe('ralph loop', () => {
     expect(loop.success).toBe(false);
     expect(loop.reason).toBe('same_line_churn');
   });
+
+  test('renders fix command template with stderr context', () => {
+    const calls: string[] = [];
+    const outputs: RalphCommandResult[] = [
+      result({ command: 'verify', stderr: 'TS2304: Cannot find name x' }),
+      result({ command: 'fix', ok: true, exitCode: 0 }),
+      result({ command: 'verify', ok: true, exitCode: 0 }),
+    ];
+
+    const loop = executeRalphLoop({
+      taskDescription: 'template case',
+      verificationCommand: 'verify',
+      maxIterations: 3,
+      timeoutMs: 1000,
+      fixCommands: ['echo "{{FAILURE_SUMMARY}}|{{LAST_STDERR}}"'],
+      runCommand: (command) => {
+        calls.push(command);
+        return outputs.shift() ?? result({ command, ok: true, exitCode: 0 });
+      },
+      readDiff: () => '',
+    });
+
+    expect(loop.success).toBe(true);
+    expect(calls.some((item) => item.includes('TS2304'))).toBe(true);
+  });
 });
