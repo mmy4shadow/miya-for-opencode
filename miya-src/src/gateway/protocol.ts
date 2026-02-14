@@ -1,41 +1,76 @@
+import { z } from 'zod';
+
 export type GatewayClientRole = 'ui' | 'admin' | 'node' | 'channel' | 'unknown';
 
-export interface HelloFrame {
-  type: 'hello';
-  role?: GatewayClientRole;
-  clientID?: string;
-  protocolVersion?: string;
-  auth?: { token?: string };
-  capabilities?: string[];
-}
+const JsonValue: z.ZodType<unknown> = z.lazy(() =>
+  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(JsonValue), z.record(z.string(), JsonValue)]),
+);
 
-export interface RequestFrame {
-  type: 'request';
-  id: string;
-  method: string;
-  params?: Record<string, unknown>;
-}
+const JsonObject = z.record(z.string(), JsonValue);
 
-export interface ResponseFrame {
-  type: 'response';
-  id: string;
-  ok: boolean;
-  result?: unknown;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-}
+export const HelloFrameSchema = z.object({
+  type: z.literal('hello'),
+  role: z.enum(['ui', 'admin', 'node', 'channel', 'unknown']).default('unknown'),
+  clientID: z.string().optional(),
+  protocolVersion: z.string().optional(),
+  auth: z
+    .object({
+      token: z.string().optional(),
+    })
+    .optional(),
+  capabilities: z.array(z.string()).optional(),
+});
 
-export interface EventFrame {
-  type: 'event';
-  event: string;
-  payload: unknown;
-  stateVersion?: Record<string, number>;
-}
+export const RequestFrameSchema = z.object({
+  type: z.literal('request'),
+  id: z.string().min(1),
+  method: z.string().min(1),
+  params: JsonObject.default({}),
+});
 
-export type GatewayIncomingFrame = HelloFrame | RequestFrame;
+export const PingFrameSchema = z.object({
+  type: z.literal('ping'),
+  ts: z.number().int().nonnegative(),
+});
+
+export const PongFrameSchema = z.object({
+  type: z.literal('pong'),
+  ts: z.number().int().nonnegative(),
+});
+
+export const ResponseFrameSchema = z.object({
+  type: z.literal('response'),
+  id: z.string(),
+  ok: z.boolean(),
+  result: JsonValue.optional(),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+      details: JsonValue.optional(),
+    })
+    .optional(),
+});
+
+export const EventFrameSchema = z.object({
+  type: z.literal('event'),
+  event: z.string().min(1),
+  payload: JsonValue,
+  stateVersion: z.record(z.string(), z.number()).optional(),
+});
+
+export type HelloFrame = z.infer<typeof HelloFrameSchema>;
+export type RequestFrame = z.infer<typeof RequestFrameSchema>;
+export type ResponseFrame = z.infer<typeof ResponseFrameSchema>;
+export type EventFrame = z.infer<typeof EventFrameSchema>;
+export type PingFrame = z.infer<typeof PingFrameSchema>;
+export type PongFrame = z.infer<typeof PongFrameSchema>;
+
+export const GatewayIncomingFrameSchema = z.union([HelloFrameSchema, RequestFrameSchema, PingFrameSchema]);
+export const GatewayOutgoingFrameSchema = z.union([ResponseFrameSchema, EventFrameSchema, PongFrameSchema]);
+
+export type GatewayIncomingFrame = z.infer<typeof GatewayIncomingFrameSchema>;
+export type GatewayOutgoingFrame = z.infer<typeof GatewayOutgoingFrameSchema>;
 
 export interface GatewayMethodContext {
   clientID: string;
@@ -60,9 +95,7 @@ export class GatewayMethodRegistry {
     context: GatewayMethodContext,
   ): Promise<unknown> {
     const handler = this.handlers.get(method);
-    if (!handler) {
-      throw new Error(`unknown_method:${method}`);
-    }
+    if (!handler) throw new Error(`unknown_method:${method}`);
     return await handler(params, context);
   }
 
@@ -75,84 +108,27 @@ export function parseIncomingFrame(message: unknown): {
   frame?: GatewayIncomingFrame;
   error?: string;
 } {
-  let payload: unknown;
+  let payload: unknown = message;
   if (typeof message === 'string') {
     const raw = message.trim();
     if (!raw) return { error: 'empty_message' };
     if (raw === 'status') {
-      return {
-        frame: {
-          type: 'request',
-          id: 'legacy-status',
-          method: 'gateway.status.get',
-          params: {},
-        },
-      };
+      payload = { type: 'request', id: 'legacy-status', method: 'gateway.status.get', params: {} };
+    } else {
+      try {
+        payload = JSON.parse(raw) as unknown;
+      } catch {
+        return { error: 'invalid_json' };
+      }
     }
-    try {
-      payload = JSON.parse(raw) as unknown;
-    } catch {
-      return { error: 'invalid_json' };
-    }
-  } else if (message && typeof message === 'object') {
-    payload = message;
-  } else {
-    return { error: 'unsupported_payload' };
   }
 
-  if (!payload || typeof payload !== 'object') {
-    return { error: 'invalid_payload' };
+  try {
+    const frame = GatewayIncomingFrameSchema.parse(payload);
+    return { frame };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'invalid_frame' };
   }
-
-  const candidate = payload as Record<string, unknown>;
-  if (candidate.type === 'hello') {
-    return {
-      frame: {
-        type: 'hello',
-        role: normalizeRole(candidate.role),
-        clientID:
-          typeof candidate.clientID === 'string' ? candidate.clientID : undefined,
-        protocolVersion:
-          typeof candidate.protocolVersion === 'string'
-            ? candidate.protocolVersion
-            : undefined,
-        auth:
-          candidate.auth && typeof candidate.auth === 'object'
-            ? {
-                token:
-                  typeof (candidate.auth as Record<string, unknown>).token ===
-                  'string'
-                    ? String((candidate.auth as Record<string, unknown>).token)
-                    : undefined,
-              }
-            : undefined,
-        capabilities: Array.isArray(candidate.capabilities)
-          ? candidate.capabilities.map(String)
-          : undefined,
-      },
-    };
-  }
-
-  if (candidate.type === 'request') {
-    const id = typeof candidate.id === 'string' ? candidate.id : '';
-    const method = typeof candidate.method === 'string' ? candidate.method : '';
-    if (!id || !method) {
-      return { error: 'invalid_request_frame' };
-    }
-    return {
-      frame: {
-        type: 'request',
-        id,
-        method,
-        params:
-          candidate.params && typeof candidate.params === 'object'
-            ? (candidate.params as Record<string, unknown>)
-            : {},
-      },
-    };
-  }
-
-  return { error: 'unsupported_frame_type' };
 }
 
 export function toResponseFrame(input: {
@@ -164,15 +140,14 @@ export function toResponseFrame(input: {
   errorDetails?: unknown;
 }): ResponseFrame {
   if (input.ok) {
-    return {
+    return ResponseFrameSchema.parse({
       type: 'response',
       id: input.id,
       ok: true,
       result: input.result,
-    };
+    });
   }
-
-  return {
+  return ResponseFrameSchema.parse({
     type: 'response',
     id: input.id,
     ok: false,
@@ -181,7 +156,7 @@ export function toResponseFrame(input: {
       message: input.errorMessage ?? 'Internal error',
       details: input.errorDetails,
     },
-  };
+  });
 }
 
 export function toEventFrame(input: {
@@ -189,17 +164,18 @@ export function toEventFrame(input: {
   payload: unknown;
   stateVersion?: Record<string, number>;
 }): EventFrame {
-  return {
+  return EventFrameSchema.parse({
     type: 'event',
     event: input.event,
     payload: input.payload,
     stateVersion: input.stateVersion,
-  };
+  });
 }
 
-function normalizeRole(role: unknown): GatewayClientRole {
-  if (role === 'ui' || role === 'admin' || role === 'node' || role === 'channel') {
-    return role;
-  }
-  return 'unknown';
+export function toPongFrame(ts: number): PongFrame {
+  return PongFrameSchema.parse({
+    type: 'pong',
+    ts,
+  });
 }
+

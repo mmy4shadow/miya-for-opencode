@@ -53,6 +53,8 @@ import {
   touchNodeHeartbeat,
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
+import { getLauncherDaemonSnapshot } from '../daemon';
+import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
 import {
   appendVoiceHistory,
   clearVoiceHistory,
@@ -91,6 +93,7 @@ import {
   GatewayMethodRegistry,
   parseIncomingFrame,
   toEventFrame,
+  toPongFrame,
   toResponseFrame,
   type GatewayClientRole,
   type GatewayMethodContext,
@@ -145,6 +148,8 @@ interface DoctorIssue {
 interface GatewaySnapshot {
   updatedAt: string;
   gateway: GatewayState;
+  daemon: ReturnType<typeof getLauncherDaemonSnapshot>;
+  configCenter: Record<string, unknown>;
   killSwitch: ReturnType<typeof readKillSwitch>;
   safety: {
     recentSelfApproval: ReturnType<typeof listRecentSelfApprovalRecords>;
@@ -444,6 +449,8 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const base: Omit<GatewaySnapshot, 'doctor'> = {
     updatedAt: nowIso(),
     gateway: syncGatewayState(projectDir, runtime),
+    daemon: getLauncherDaemonSnapshot(projectDir),
+    configCenter: readConfig(projectDir),
     killSwitch: kill,
     safety: {
       recentSelfApproval: listRecentSelfApprovalRecords(projectDir, 15),
@@ -970,6 +977,14 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
       </div>
       <div class="stat-card">
         <div class="stat-card-header">
+          <span class="stat-card-title">Daemon 状态</span>
+          <span class="stat-card-icon">🧠</span>
+        </div>
+        <div class="stat-card-value" id="stat-daemon">--</div>
+        <div class="stat-card-subtitle">CPU / VRAM / Uptime</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-header">
           <span class="stat-card-title">循环次数</span>
           <span class="stat-card-icon">🔄</span>
         </div>
@@ -1051,6 +1066,17 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
     document.getElementById('stat-sessions').textContent = state.sessions?.total || 0;
     document.getElementById('stat-jobs').textContent = (state.jobs?.enabled || 0) + '/' + (state.jobs?.total || 0);
     document.getElementById('stat-nodes').textContent = (state.nodes?.connected || 0) + '/' + (state.nodes?.total || 0);
+    const daemonConnected = Boolean(state.daemon?.connected);
+    const daemonCpu = typeof state.daemon?.cpuPercent === 'number' ? state.daemon.cpuPercent.toFixed(1) + '%' : '--';
+    const daemonVramUsed = typeof state.daemon?.vramUsedMB === 'number' ? state.daemon.vramUsedMB : '--';
+    const daemonVramTotal = typeof state.daemon?.vramTotalMB === 'number' ? state.daemon.vramTotalMB : '--';
+    const daemonUptime = typeof state.daemon?.uptimeSec === 'number' ? state.daemon.uptimeSec + 's' : '--';
+    document.getElementById('stat-daemon').textContent =
+      daemonConnected ? (daemonCpu + ' | ' + daemonVramUsed + '/' + daemonVramTotal + 'MB | ' + daemonUptime) : 'Offline';
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    if (statusDot) statusDot.className = daemonConnected ? 'status-dot status-online' : 'status-dot status-error';
+    if (statusText) statusText.textContent = daemonConnected ? 'Miya Daemon Connected' : (state.daemon?.statusText || 'Miya Daemon Disconnected');
     
     const iter = state.loop?.iterationCompleted || 0;
     const maxIter = state.loop?.maxIterationsPerWindow || 3;
@@ -1086,6 +1112,8 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
       case 'overview':
         data = {
           gateway: state.gateway,
+          daemon: state.daemon,
+          configCenter: state.configCenter,
           sessions: { total: state.sessions?.total, active: state.sessions?.active },
           jobs: { enabled: state.jobs?.enabled, pending: state.jobs?.pendingApprovals },
           loop: { 
@@ -1115,6 +1143,7 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
         data = {
           background: state.background,
           channel: state.channels,
+          daemon: state.daemon,
           recentRuns: state.jobs?.recentRuns?.slice(0, 5)
         };
         break;
@@ -1315,6 +1344,21 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return { ok: true, state };
   });
   methods.register('doctor.run', async () => buildSnapshot(projectDir, runtime).doctor);
+  methods.register('config.center.get', async () => readConfig(projectDir));
+  methods.register('config.center.patch', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
+    const validation = validateConfigPatch(projectDir, params.patch);
+    if (!validation.ok) {
+      throw new Error(`config_validation_failed:${validation.errors.join('|')}`);
+    }
+    const applied = applyConfigPatch(projectDir, validation);
+    return {
+      updatedConfig: applied.updatedConfig,
+      changedKeys: applied.applied.map((item) => item.key),
+    };
+  });
 
   methods.register('sessions.list', async () => listSessions(projectDir));
   methods.register('sessions.get', async (params) => {
@@ -2719,6 +2763,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         }
 
         const frame = parsed.frame;
+        if (frame.type === 'ping') {
+          ws.send(JSON.stringify(toPongFrame(frame.ts)));
+          return;
+        }
         if (frame.type === 'hello') {
           const requiredToken = process.env.MIYA_GATEWAY_TOKEN;
           const incomingToken = frame.auth?.token;

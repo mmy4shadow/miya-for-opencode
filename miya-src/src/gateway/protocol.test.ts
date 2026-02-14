@@ -3,6 +3,7 @@ import {
   GatewayMethodRegistry,
   parseIncomingFrame,
   toEventFrame,
+  toPongFrame,
   toResponseFrame,
 } from './protocol';
 
@@ -31,6 +32,15 @@ describe('gateway protocol', () => {
     expect(parsed.frame?.type).toBe('request');
     if (parsed.frame?.type !== 'request') return;
     expect(parsed.frame.method).toBe('gateway.status.get');
+  });
+
+  test('parses ping frame and serializes pong', () => {
+    const parsed = parseIncomingFrame(JSON.stringify({ type: 'ping', ts: 42 }));
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.frame?.type).toBe('ping');
+    const pong = toPongFrame(42);
+    expect(pong.type).toBe('pong');
+    expect(pong.ts).toBe(42);
   });
 
   test('invokes registry methods', async () => {

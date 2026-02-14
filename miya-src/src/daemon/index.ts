@@ -1,4 +1,10 @@
 import { MiyaDaemonService } from './service';
+import {
+  ensureMiyaLauncher,
+  getLauncherDaemonSnapshot,
+  stopMiyaLauncher,
+  type DaemonConnectionSnapshot,
+} from './launcher';
 import type {
   DaemonJobRecord,
   DaemonJobRequest,
@@ -19,6 +25,9 @@ export function getMiyaDaemonService(projectDir: string): MiyaDaemonService {
 
 export {
   MiyaDaemonService,
+  ensureMiyaLauncher,
+  getLauncherDaemonSnapshot,
+  stopMiyaLauncher,
 };
 
 export type {
@@ -27,4 +36,5 @@ export type {
   DaemonJobStatus,
   DaemonRunResult,
   DaemonRuntimeState,
+  DaemonConnectionSnapshot,
 };

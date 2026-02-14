@@ -1,0 +1,11 @@
+{
+  "name": "miya-plugin",
+  "private": true,
+  "type": "module",
+  "description": "Miya OpenCode plugin workspace package",
+  "scripts": {
+    "build": "bun build ../src/index.ts --outdir ../dist --target bun --format esm",
+    "typecheck": "tsc -p ../tsconfig.json --noEmit"
+  }
+}
+
