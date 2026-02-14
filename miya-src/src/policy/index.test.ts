@@ -47,16 +47,19 @@ describe('policy hash guard', () => {
   test('supports domain pause and resume state', () => {
     const projectDir = tempProjectDir();
     expect(isDomainRunning(projectDir, 'outbound_send')).toBe(true);
+    expect(isDomainRunning(projectDir, 'memory_read')).toBe(true);
     expect(isDomainRunning(projectDir, 'memory_write')).toBe(true);
 
     writePolicy(projectDir, {
       domains: {
         ...readPolicy(projectDir).domains,
         outbound_send: 'paused',
+        memory_read: 'paused',
         memory_write: 'paused',
       },
     });
     expect(isDomainRunning(projectDir, 'outbound_send')).toBe(false);
+    expect(isDomainRunning(projectDir, 'memory_read')).toBe(false);
     expect(isDomainRunning(projectDir, 'memory_write')).toBe(false);
   });
 });

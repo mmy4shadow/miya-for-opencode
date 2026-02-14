@@ -72,6 +72,7 @@ import {
   resolveInteractionMode,
   rotateOwnerSecrets,
   setInteractionMode,
+  updateVoiceprintThresholds,
   verifyOwnerPasswordOnly,
   verifyOwnerSecrets,
 } from '../security/owner-identity';
@@ -904,6 +905,7 @@ async function verifyVoiceprintWithLocalModel(
     const parsed = JSON.parse(stdout) as {
       speaker_score?: number;
       liveness_score?: number;
+      sample_duration_sec?: number;
       diarization?: Array<{
         speaker?: string;
         score?: number;
@@ -914,22 +916,34 @@ async function verifyVoiceprintWithLocalModel(
       typeof parsed.speaker_score === 'number' ? Number(parsed.speaker_score) : input.speakerScore;
     const liveness =
       typeof parsed.liveness_score === 'number' ? Number(parsed.liveness_score) : undefined;
+    const sampleDuration =
+      typeof parsed.sample_duration_sec === 'number' ? Number(parsed.sample_duration_sec) : undefined;
     const diarization = Array.isArray(parsed.diarization) ? parsed.diarization : [];
     const ownerSegments = diarization.filter(
       (seg) => String(seg.speaker ?? '').toLowerCase() === 'owner',
     ).length;
+    const thresholds = state.voiceprintThresholds;
     const diarizationLooksOwner =
-      diarization.length === 0 ? true : ownerSegments / diarization.length >= 0.7;
+      diarization.length === 0
+        ? true
+        : ownerSegments / diarization.length >= thresholds.ownerMinDiarizationRatio;
+    const sampleDurationOk =
+      typeof sampleDuration !== 'number' || sampleDuration >= thresholds.minSampleDurationSec;
     const mode =
       parsed.mode && ['owner', 'guest', 'unknown'].includes(parsed.mode)
         ? parsed.mode
-        : typeof score === 'number'
-          ? score >= 0.78 && (liveness ?? 1) >= 0.65 && diarizationLooksOwner
+        : !sampleDurationOk
+          ? 'unknown'
+          : typeof score === 'number'
+            ? score >= thresholds.ownerMinScore &&
+                (liveness ?? 1) >= thresholds.ownerMinLiveness &&
+                diarizationLooksOwner
             ? 'owner'
-            : score < 0.62 || (typeof liveness === 'number' && liveness < 0.55)
+              : score < thresholds.guestMaxScore ||
+                  (typeof liveness === 'number' && liveness < thresholds.guestMaxLiveness)
               ? 'guest'
               : 'unknown'
-          : 'unknown';
+            : 'unknown';
     return { mode, score, source: 'voiceprint_cmd' };
   } catch {
     return {
@@ -1431,6 +1445,7 @@ function enforceInteractionModeIsolation(
     domains: {
       outbound_send: 'paused',
       desktop_control: 'paused',
+      memory_read: 'paused',
       memory_write: 'paused',
       memory_delete: 'paused',
     },
@@ -2645,6 +2660,30 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       voiceprintEmbeddingID: parseText(params.voiceprintEmbeddingID) || undefined,
       voiceprintModelPath: parseText(params.voiceprintModelPath) || undefined,
       voiceprintSampleDir: parseText(params.voiceprintSampleDir) || undefined,
+      voiceprintThresholds: {
+        ownerMinScore:
+          typeof params.ownerMinScore === 'number' ? Number(params.ownerMinScore) : undefined,
+        guestMaxScore:
+          typeof params.guestMaxScore === 'number' ? Number(params.guestMaxScore) : undefined,
+        ownerMinLiveness:
+          typeof params.ownerMinLiveness === 'number'
+            ? Number(params.ownerMinLiveness)
+            : undefined,
+        guestMaxLiveness:
+          typeof params.guestMaxLiveness === 'number'
+            ? Number(params.guestMaxLiveness)
+            : undefined,
+        ownerMinDiarizationRatio:
+          typeof params.ownerMinDiarizationRatio === 'number'
+            ? Number(params.ownerMinDiarizationRatio)
+            : undefined,
+        minSampleDurationSec:
+          typeof params.minSampleDurationSec === 'number'
+            ? Number(params.minSampleDurationSec)
+            : undefined,
+        farTarget: typeof params.farTarget === 'number' ? Number(params.farTarget) : undefined,
+        frrTarget: typeof params.frrTarget === 'number' ? Number(params.frrTarget) : undefined,
+      },
     });
     return {
       ...next,
@@ -2667,6 +2706,39 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       ...next,
       passwordHash: '***',
       passphraseHash: '***',
+    };
+  });
+
+  methods.register('security.voiceprint.threshold.get', async () => {
+    const state = readOwnerIdentityState(projectDir);
+    return {
+      ...state.voiceprintThresholds,
+    };
+  });
+
+  methods.register('security.voiceprint.threshold.set', async (params) => {
+    const next = updateVoiceprintThresholds(projectDir, {
+      ownerMinScore:
+        typeof params.ownerMinScore === 'number' ? Number(params.ownerMinScore) : undefined,
+      guestMaxScore:
+        typeof params.guestMaxScore === 'number' ? Number(params.guestMaxScore) : undefined,
+      ownerMinLiveness:
+        typeof params.ownerMinLiveness === 'number' ? Number(params.ownerMinLiveness) : undefined,
+      guestMaxLiveness:
+        typeof params.guestMaxLiveness === 'number' ? Number(params.guestMaxLiveness) : undefined,
+      ownerMinDiarizationRatio:
+        typeof params.ownerMinDiarizationRatio === 'number'
+          ? Number(params.ownerMinDiarizationRatio)
+          : undefined,
+      minSampleDurationSec:
+        typeof params.minSampleDurationSec === 'number'
+          ? Number(params.minSampleDurationSec)
+          : undefined,
+      farTarget: typeof params.farTarget === 'number' ? Number(params.farTarget) : undefined,
+      frrTarget: typeof params.frrTarget === 'number' ? Number(params.frrTarget) : undefined,
+    });
+    return {
+      ...next.voiceprintThresholds,
     };
   });
 
@@ -3208,6 +3280,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         domains: {
           outbound_send: 'paused',
           desktop_control: 'paused',
+          memory_read: 'paused',
         },
       });
     }

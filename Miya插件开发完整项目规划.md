@@ -1653,7 +1653,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | P0-6 严格进程隔离封口（插件仅 RPC） | 已完成（2026-02-14） | 已收口为 launcher/host/client 主链路 + 新增静态防回归测试，禁止非 daemon 模块直接引用 `daemon/service` 或 `MiyaDaemonService`（测试：`bun test src/daemon/isolation-guard.test.ts src/daemon/service.test.ts`） | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/isolation-guard.test.ts`, `miya-src/src/daemon/service.test.ts` |
 | P0-7 通信背压压测与拒绝语义稳定性 | 已完成（2026-02-14） | 已固化“10 指令并发”压测验收用例；并修复 Gateway 事件帧 `undefined` 字段导致的协议异常 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
 | P1-3 Provider 层覆盖注入 | 已完成（2026-02-14） | 已完成 activeAgent provider 覆盖 + provider override 审计日志落盘/查询，支持端到端验收 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/provider-override-audit.ts`, `miya-src/src/config/provider-override-audit.test.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts` |
-| P2 稳定性与体验优化（通道扩展/性能/可观测） | 持续 | 作为持续迭代，不阻塞当前验收 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/resource-scheduler/`, `miya-src/src/channel/` |
+| P2 稳定性与体验优化（通道扩展/性能/可观测） | 已完成（2026-02-14） | 已完成通道扩展收口、控制台稳态与安全交互验收增强，后续仅增量优化 | `miya-src/src/channel/`, `miya-src/src/gateway/control-ui.ts`, `miya-src/src/gateway/security-interaction.test.ts`, `miya-src/src/resource-scheduler/` |
 
 ### **6.2 尚未完全关闭的项**
 
@@ -1680,20 +1680,20 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 
 #### **6.3.2 安全交互补丁（四层）**
 
-| 层级 | 目标 | 规划补丁（新增） |
-|----|----|----|
-| 第一层：声纹门禁 | 解决“谁在说话” | 引入本地 VAD + 声纹比对（`eres2net`），输出 `owner/guest/unknown`；`guest` 下硬切断 `desktop_control`、`outbound_send`、`memory_read`。 |
-| 第二层：跨模态确认 | 解决高危误操作与注入 | 建立风险矩阵：低风险语音直达；中风险需屏幕物理点击确认；高风险（删除/外发敏感/改密）必须“物理确认 +（密码或暗语）”。当本人档识别异常时，回退到“仅 OpenCode 本地物理确认 + 密码”链路。 |
-| 第三层：上下文隔离 | 解决信息泄露 | `Owner Context` 加载 `memory/vault/relationship`；`Guest Context` 仅加载 `public_persona`，并将敏感指针置空；Guest 会话独立审计归档。 |
-| 第四层：异常熔断 | 解决深伪/胁迫 | 命中高危模式（如“忽略规则”“批量外发”“重置密码”）直接触发 Kill-Switch；要求 OpenCode 主密码解锁后方可恢复。 |
+| 层级 | 目标 | 规划补丁（新增） | 状态 |
+|----|----|----|----|
+| 第一层：声纹门禁 | 解决“谁在说话” | 引入本地 VAD + 声纹比对（`eres2net`），输出 `owner/guest/unknown`；`guest` 下硬切断 `desktop_control`、`outbound_send`、`memory_read`。 | 已完成（2026-02-14）：已接入本地声纹判定与阈值配置（含 `minSampleDurationSec`/`farTarget`/`frrTarget`）并补齐验收测试（`miya-src/src/gateway/index.ts`, `miya-src/src/security/owner-identity.ts`, `miya-src/src/gateway/security-interaction.test.ts`） |
+| 第二层：跨模态确认 | 解决高危误操作与注入 | 建立风险矩阵：低风险语音直达；中风险需屏幕物理点击确认；高风险（删除/外发敏感/改密）必须“物理确认 +（密码或暗语）”。当本人档识别异常时，回退到“仅 OpenCode 本地物理确认 + 密码”链路。 | 已完成（2026-02-14）：`channels.message.send` 已强制高危动作确认链（物理确认 + 密码/暗语 + 可选本人档同步 token）（`miya-src/src/gateway/index.ts`, `miya-src/src/security/owner-sync.ts`, `miya-src/src/gateway/security-interaction.test.ts`） |
+| 第三层：上下文隔离 | 解决信息泄露 | `Owner Context` 加载 `memory/vault/relationship`；`Guest Context` 仅加载 `public_persona`，并将敏感指针置空；Guest 会话独立审计归档。 | 已完成（2026-02-14）：Guest/Unknown 模式已注入上下文隔离提示，敏感请求改写为脱敏 payload，Guest 会话独立审计落盘（`miya-src/src/gateway/index.ts`, `miya-src/src/security/owner-identity.ts`） |
+| 第四层：异常熔断 | 解决深伪/胁迫 | 命中高危模式（如“忽略规则”“批量外发”“重置密码”）直接触发 Kill-Switch；要求 OpenCode 主密码解锁后方可恢复。 | 已完成（2026-02-14）：已实现高危注入意图硬熔断、能力域停机与语义化报告（`miya-src/src/gateway/index.ts`, `miya-src/src/policy/incident.ts`, `miya-src/src/policy/decision-fusion.ts`） |
 
-#### **6.3.3 批判性冲突与实现风险（先写入，再决策）**
+#### **6.3.3 批判性冲突与实现风险（已收口，2026-02-14）**
 
-1. “无感验证不需要密码”与“极高危必须密码/暗语”当前口径冲突；建议冻结为：`低/中风险免密，高风险强制密语或主密码`。  
-2. “通过微信/QQ 本人档确认高危操作”在通道异常时不可靠；建议把“本地物理确认”设为主确认链路，IM 确认仅作旁路审计。  
-3. 声纹识别存在误识别与深伪风险；需定义可验收门限（FAR/FRR、最短采样时长、活体验证策略），否则无法验收。  
-4. “首次配置连续训练 FLUX.1 -> GPT-SoVITS -> FLUX.2 4B”对消费级设备负载过高；建议改为分阶段可中断队列与 readiness 标记，避免首次体验崩溃。  
-5. 忘记密码时“微信/QQ+OpenCode 同时发起重置”需要先验证“本人档”可信性；否则会形成账户接管路径，需补强身份回收流程。  
+1. 已收口：`低/中风险免密，高风险强制“物理确认 +（密码或暗语）”`，并在高危外发链路落地验收测试。  
+2. 已收口：`本地物理确认` 作为主确认链路；QQ/微信 本人档同步仅作旁路确认 token。  
+3. 已收口：已定义并落地声纹可验收门限（`ownerMinScore`/`guestMaxScore`/`ownerMinLiveness`/`guestMaxLiveness`/`ownerMinDiarizationRatio`/`minSampleDurationSec`/`farTarget`/`frrTarget`）。  
+4. 已收口：训练链路采用分阶段可中断执行 + readiness/环境诊断门控，不再强制首次连续重训练。  
+5. 已收口：重置链路要求本地凭据验证，旁路同步仅作审计，不再作为单点身份恢复依据。  
 
 #### **6.3.4 已拍板口径（2026-02-14）**
 

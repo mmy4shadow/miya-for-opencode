@@ -6,6 +6,17 @@ import { getMiyaRuntimeDir } from '../workflow';
 
 export type InteractionMode = 'owner' | 'guest' | 'unknown';
 
+export interface VoiceprintThresholds {
+  ownerMinScore: number;
+  guestMaxScore: number;
+  ownerMinLiveness: number;
+  guestMaxLiveness: number;
+  ownerMinDiarizationRatio: number;
+  minSampleDurationSec: number;
+  farTarget: number;
+  frrTarget: number;
+}
+
 export interface OwnerIdentityState {
   initialized: boolean;
   passwordHash?: string;
@@ -13,6 +24,7 @@ export interface OwnerIdentityState {
   voiceprintModelPath: string;
   voiceprintSampleDir: string;
   voiceprintEmbeddingID?: string;
+  voiceprintThresholds: VoiceprintThresholds;
   mode: InteractionMode;
   lastSpeakerAt?: string;
   updatedAt: string;
@@ -30,12 +42,71 @@ function guestAuditPath(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'security', 'guest-conversations.jsonl');
 }
 
+function clamp(input: number, min: number, max: number): number {
+  if (!Number.isFinite(input)) return min;
+  return Math.min(max, Math.max(min, input));
+}
+
+function defaultVoiceprintThresholds(): VoiceprintThresholds {
+  return {
+    ownerMinScore: 0.78,
+    guestMaxScore: 0.62,
+    ownerMinLiveness: 0.65,
+    guestMaxLiveness: 0.55,
+    ownerMinDiarizationRatio: 0.7,
+    minSampleDurationSec: 2,
+    farTarget: 0.01,
+    frrTarget: 0.03,
+  };
+}
+
+function normalizeVoiceprintThresholds(
+  input: Partial<VoiceprintThresholds> | undefined,
+): VoiceprintThresholds {
+  const base = defaultVoiceprintThresholds();
+  const normalized: VoiceprintThresholds = {
+    ownerMinScore:
+      typeof input?.ownerMinScore === 'number'
+        ? clamp(input.ownerMinScore, 0.5, 0.99)
+        : base.ownerMinScore,
+    guestMaxScore:
+      typeof input?.guestMaxScore === 'number'
+        ? clamp(input.guestMaxScore, 0.01, 0.9)
+        : base.guestMaxScore,
+    ownerMinLiveness:
+      typeof input?.ownerMinLiveness === 'number'
+        ? clamp(input.ownerMinLiveness, 0.1, 0.99)
+        : base.ownerMinLiveness,
+    guestMaxLiveness:
+      typeof input?.guestMaxLiveness === 'number'
+        ? clamp(input.guestMaxLiveness, 0.01, 0.9)
+        : base.guestMaxLiveness,
+    ownerMinDiarizationRatio:
+      typeof input?.ownerMinDiarizationRatio === 'number'
+        ? clamp(input.ownerMinDiarizationRatio, 0.1, 1)
+        : base.ownerMinDiarizationRatio,
+    minSampleDurationSec:
+      typeof input?.minSampleDurationSec === 'number'
+        ? clamp(input.minSampleDurationSec, 0.5, 20)
+        : base.minSampleDurationSec,
+    farTarget:
+      typeof input?.farTarget === 'number' ? clamp(input.farTarget, 0.0001, 0.5) : base.farTarget,
+    frrTarget:
+      typeof input?.frrTarget === 'number' ? clamp(input.frrTarget, 0.0001, 0.5) : base.frrTarget,
+  };
+  if (normalized.guestMaxScore >= normalized.ownerMinScore) {
+    normalized.guestMaxScore = Math.max(0.01, normalized.ownerMinScore - 0.05);
+  }
+  return normalized;
+}
+
 function defaultState(): OwnerIdentityState {
   return {
     initialized: false,
     mode: 'unknown',
     voiceprintModelPath: '',
     voiceprintSampleDir: '',
+    voiceprintThresholds: defaultVoiceprintThresholds(),
     updatedAt: nowIso(),
   };
 }
@@ -45,17 +116,11 @@ function hashSecret(input: string): string {
 }
 
 function defaultVoiceprintModelPath(projectDir: string): string {
-  return (
-    process.env.MIYA_VOICEPRINT_MODEL_PATH ||
-    getMiyaModelPath(projectDir, 'shi bie', 'eres2net')
-  );
+  return process.env.MIYA_VOICEPRINT_MODEL_PATH || getMiyaModelPath(projectDir, 'shi bie', 'eres2net');
 }
 
 function defaultVoiceprintSampleDir(projectDir: string): string {
-  return (
-    process.env.MIYA_VOICEPRINT_SAMPLE_DIR ||
-    getMiyaModelPath(projectDir, 'shi bie', 'ben ren')
-  );
+  return process.env.MIYA_VOICEPRINT_SAMPLE_DIR || getMiyaModelPath(projectDir, 'shi bie', 'ben ren');
 }
 
 export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
@@ -80,6 +145,7 @@ export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
         typeof parsed.voiceprintSampleDir === 'string'
           ? parsed.voiceprintSampleDir
           : defaultVoiceprintSampleDir(projectDir),
+      voiceprintThresholds: normalizeVoiceprintThresholds(parsed.voiceprintThresholds),
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : nowIso(),
     };
   } catch {
@@ -94,7 +160,11 @@ export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
 export function writeOwnerIdentityState(projectDir: string, state: OwnerIdentityState): OwnerIdentityState {
   const file = filePath(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const next = { ...state, updatedAt: nowIso() };
+  const next = {
+    ...state,
+    voiceprintThresholds: normalizeVoiceprintThresholds(state.voiceprintThresholds),
+    updatedAt: nowIso(),
+  };
   fs.writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
   return next;
 }
@@ -107,6 +177,7 @@ export function initOwnerIdentity(
     voiceprintEmbeddingID?: string;
     voiceprintModelPath?: string;
     voiceprintSampleDir?: string;
+    voiceprintThresholds?: Partial<VoiceprintThresholds>;
   },
 ): OwnerIdentityState {
   const current = readOwnerIdentityState(projectDir);
@@ -117,13 +188,13 @@ export function initOwnerIdentity(
     passphraseHash: hashSecret(input.passphrase),
     voiceprintEmbeddingID: input.voiceprintEmbeddingID || current.voiceprintEmbeddingID || `owner_${randomUUID()}`,
     voiceprintModelPath:
-      input.voiceprintModelPath ||
-      current.voiceprintModelPath ||
-      defaultVoiceprintModelPath(projectDir),
+      input.voiceprintModelPath || current.voiceprintModelPath || defaultVoiceprintModelPath(projectDir),
     voiceprintSampleDir:
-      input.voiceprintSampleDir ||
-      current.voiceprintSampleDir ||
-      defaultVoiceprintSampleDir(projectDir),
+      input.voiceprintSampleDir || current.voiceprintSampleDir || defaultVoiceprintSampleDir(projectDir),
+    voiceprintThresholds: normalizeVoiceprintThresholds({
+      ...current.voiceprintThresholds,
+      ...(input.voiceprintThresholds ?? {}),
+    }),
     mode: 'owner',
     lastSpeakerAt: nowIso(),
     updatedAt: nowIso(),
@@ -179,6 +250,21 @@ export function rotateOwnerSecrets(
   });
 }
 
+export function updateVoiceprintThresholds(
+  projectDir: string,
+  patch: Partial<VoiceprintThresholds>,
+): OwnerIdentityState {
+  const current = readOwnerIdentityState(projectDir);
+  return writeOwnerIdentityState(projectDir, {
+    ...current,
+    voiceprintThresholds: normalizeVoiceprintThresholds({
+      ...current.voiceprintThresholds,
+      ...patch,
+    }),
+    updatedAt: nowIso(),
+  });
+}
+
 export function resolveInteractionMode(
   projectDir: string,
   input: {
@@ -193,8 +279,8 @@ export function resolveInteractionMode(
   const state = readOwnerIdentityState(projectDir);
   if (!state.initialized) return 'unknown';
   if (typeof input.speakerScore === 'number') {
-    if (input.speakerScore >= 0.78) return 'owner';
-    if (input.speakerScore < 0.62) return 'guest';
+    if (input.speakerScore >= state.voiceprintThresholds.ownerMinScore) return 'owner';
+    if (input.speakerScore < state.voiceprintThresholds.guestMaxScore) return 'guest';
   }
   return state.mode === 'owner' ? 'owner' : 'unknown';
 }
