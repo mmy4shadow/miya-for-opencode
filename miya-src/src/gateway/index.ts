@@ -13,8 +13,13 @@ import {
   listOutboundAudit,
   isChannelName,
   parseDiscordInbound,
+  parseGoogleChatInbound,
+  parseIMessageInbound,
+  parseSignalInbound,
   parseSlackInbound,
   parseTelegramInbound,
+  parseTeamsInbound,
+  parseWhatsappInbound,
   type ChannelName,
 } from '../channel';
 import {
@@ -3907,44 +3912,10 @@ async function handleWebhook(
         return new Response('verification_failed', { status: 403 });
       }
 
-      const body = (await request.json()) as {
-        entry?: Array<{
-          changes?: Array<{
-            value?: {
-              metadata?: { phone_number_id?: string };
-              contacts?: Array<{ wa_id?: string; profile?: { name?: string } }>;
-              messages?: Array<{
-                from?: string;
-                text?: { body?: string };
-              }>;
-            };
-          }>;
-        }>;
-      };
-      const entries = body.entry ?? [];
-      for (const entry of entries) {
-        for (const change of entry.changes ?? []) {
-          const value = change.value;
-          const contactMap = new Map(
-            (value?.contacts ?? []).map((contact) => [
-              String(contact.wa_id ?? ''),
-              contact.profile?.name,
-            ]),
-          );
-          for (const message of value?.messages ?? []) {
-            const senderID = String(message.from ?? '');
-            const text = String(message.text?.body ?? '');
-            if (!senderID || !text) continue;
-            await runtime.channelRuntime.handleInbound({
-              channel: 'whatsapp',
-              senderID,
-              displayName: contactMap.get(senderID) ?? senderID,
-              conversationID: senderID,
-              text,
-              raw: body,
-            });
-          }
-        }
+      const body = await request.json();
+      const inbound = parseWhatsappInbound(body);
+      for (const item of inbound) {
+        await runtime.channelRuntime.handleInbound(item);
       }
       return Response.json({ ok: true });
     } catch (error) {
@@ -3960,28 +3931,9 @@ async function handleWebhook(
 
   if (pathname === '/api/webhooks/google-chat') {
     try {
-      const body = (await request.json()) as {
-        message?: {
-          text?: string;
-          sender?: { name?: string; displayName?: string };
-          space?: { name?: string };
-          thread?: { name?: string };
-        };
-      };
-      const text = body.message?.text ?? '';
-      const sender = body.message?.sender?.name ?? '';
-      const conversationID =
-        body.message?.thread?.name ?? body.message?.space?.name ?? '';
-      if (text && sender && conversationID) {
-        await runtime.channelRuntime.handleInbound({
-          channel: 'google_chat',
-          senderID: sender,
-          displayName: body.message?.sender?.displayName ?? sender,
-          conversationID,
-          text,
-          raw: body,
-        });
-      }
+      const body = await request.json();
+      const inbound = parseGoogleChatInbound(body);
+      if (inbound) await runtime.channelRuntime.handleInbound(inbound);
       return Response.json({ ok: true });
     } catch (error) {
       return Response.json(
@@ -3996,25 +3948,9 @@ async function handleWebhook(
 
   if (pathname === '/api/webhooks/signal') {
     try {
-      const body = (await request.json()) as {
-        envelope?: {
-          source?: string;
-          sourceName?: string;
-          dataMessage?: { message?: string };
-        };
-      };
-      const source = body.envelope?.source ?? '';
-      const text = body.envelope?.dataMessage?.message ?? '';
-      if (source && text) {
-        await runtime.channelRuntime.handleInbound({
-          channel: 'signal',
-          senderID: source,
-          displayName: body.envelope?.sourceName ?? source,
-          conversationID: source,
-          text,
-          raw: body,
-        });
-      }
+      const body = await request.json();
+      const inbound = parseSignalInbound(body);
+      if (inbound) await runtime.channelRuntime.handleInbound(inbound);
       return Response.json({ ok: true });
     } catch (error) {
       return Response.json(
@@ -4029,29 +3965,9 @@ async function handleWebhook(
 
   if (pathname === '/api/webhooks/imessage') {
     try {
-      const body = (await request.json()) as {
-        data?: {
-          text?: string;
-          chatGuid?: string;
-          handle?: { address?: string };
-          isFromMe?: boolean;
-          displayName?: string;
-        };
-      };
-      const fromMe = Boolean(body.data?.isFromMe);
-      const text = body.data?.text ?? '';
-      const sender = body.data?.handle?.address ?? '';
-      const chatGuid = body.data?.chatGuid ?? '';
-      if (!fromMe && text && sender && chatGuid) {
-        await runtime.channelRuntime.handleInbound({
-          channel: 'imessage',
-          senderID: sender,
-          displayName: body.data?.displayName ?? sender,
-          conversationID: chatGuid,
-          text,
-          raw: body,
-        });
-      }
+      const body = await request.json();
+      const inbound = parseIMessageInbound(body);
+      if (inbound) await runtime.channelRuntime.handleInbound(inbound);
       return Response.json({ ok: true });
     } catch (error) {
       return Response.json(
@@ -4066,27 +3982,9 @@ async function handleWebhook(
 
   if (pathname === '/api/webhooks/teams') {
     try {
-      const body = (await request.json()) as {
-        type?: string;
-        text?: string;
-        from?: { id?: string; name?: string };
-        conversation?: { id?: string };
-      };
-      if (
-        body.type === 'message' &&
-        body.text &&
-        body.from?.id &&
-        body.conversation?.id
-      ) {
-        await runtime.channelRuntime.handleInbound({
-          channel: 'teams',
-          senderID: body.from.id,
-          displayName: body.from.name ?? body.from.id,
-          conversationID: body.conversation.id,
-          text: body.text,
-          raw: body,
-        });
-      }
+      const body = await request.json();
+      const inbound = parseTeamsInbound(body);
+      if (inbound) await runtime.channelRuntime.handleInbound(inbound);
       return Response.json({ ok: true });
     } catch (error) {
       return Response.json(

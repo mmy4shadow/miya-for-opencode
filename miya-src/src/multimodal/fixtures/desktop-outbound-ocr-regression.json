@@ -1,0 +1,122 @@
+[
+  {
+    "id": "qq-light-sent-1",
+    "app": "qq",
+    "theme": "light",
+    "dpi": "100",
+    "destination": "小明",
+    "ocrText": "聊天对象: 小明\n消息已发送",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "sent"
+  },
+  {
+    "id": "qq-dark-sent-2",
+    "app": "qq",
+    "theme": "dark",
+    "dpi": "125",
+    "destination": "小明",
+    "ocrText": "当前会话 小明\n发送成功",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "sent"
+  },
+  {
+    "id": "qq-failed-retry-1",
+    "app": "qq",
+    "theme": "light",
+    "dpi": "150",
+    "destination": "小明",
+    "ocrText": "聊天对象: 小明\n发送失败 请重试",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "failed"
+  },
+  {
+    "id": "wechat-light-sent-1",
+    "app": "wechat",
+    "theme": "light",
+    "dpi": "100",
+    "destination": "shadow",
+    "ocrText": "与 shadow 的聊天\n已发送",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "sent"
+  },
+  {
+    "id": "wechat-dark-uncertain-1",
+    "app": "wechat",
+    "theme": "dark",
+    "dpi": "125",
+    "destination": "shadow",
+    "ocrText": "与 shadow 的聊天\n输入中...",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "uncertain"
+  },
+  {
+    "id": "wechat-recipient-mismatch-1",
+    "app": "wechat",
+    "theme": "dark",
+    "dpi": "100",
+    "destination": "shadow",
+    "ocrText": "与 other_user 的聊天\n已发送",
+    "expectedRecipientMatch": "mismatch",
+    "expectedSendStatus": "sent"
+  },
+  {
+    "id": "qq-english-delivered-1",
+    "app": "qq",
+    "theme": "light",
+    "dpi": "100",
+    "destination": "alex",
+    "ocrText": "chat with alex\nmessage delivered",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "sent"
+  },
+  {
+    "id": "qq-english-failed-1",
+    "app": "qq",
+    "theme": "dark",
+    "dpi": "125",
+    "destination": "alex",
+    "ocrText": "chat with alex\nsend failed retry",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "failed"
+  },
+  {
+    "id": "wechat-no-recipient-1",
+    "app": "wechat",
+    "theme": "light",
+    "dpi": "100",
+    "destination": "shadow",
+    "ocrText": "消息已发送",
+    "expectedRecipientMatch": "mismatch",
+    "expectedSendStatus": "sent"
+  },
+  {
+    "id": "qq-noise-uncertain-1",
+    "app": "qq",
+    "theme": "dark",
+    "dpi": "150",
+    "destination": "小明",
+    "ocrText": "%%% ### ...",
+    "expectedRecipientMatch": "mismatch",
+    "expectedSendStatus": "uncertain"
+  },
+  {
+    "id": "wechat-unsent-1",
+    "app": "wechat",
+    "theme": "light",
+    "dpi": "125",
+    "destination": "tom",
+    "ocrText": "与 tom 的聊天\n未发送",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "failed"
+  },
+  {
+    "id": "qq-short-inputing-1",
+    "app": "qq",
+    "theme": "light",
+    "dpi": "100",
+    "destination": "tom",
+    "ocrText": "tom\n输入中",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "uncertain"
+  }
+]

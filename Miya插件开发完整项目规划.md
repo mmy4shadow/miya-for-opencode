@@ -1659,13 +1659,13 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 
 | 项 | 状态 | 下一步 |
 |----|------|--------|
-| 视觉识别“真实场景”覆盖率 | 部分完成 | 增加真实聊天窗口截图集回归，形成固定基准集 |
+| 视觉识别“真实场景”覆盖率 | 已完成（2026-02-14） | 已新增桌面聊天 OCR 回归基准集（QQ/微信，深浅色+多 DPI）并固化覆盖率评估（100%） |
 | OCR 脆弱场景策略（DPI/主题导致 `ui_style_mismatch`） | 已完成（2026-02-14） | 已补齐对抗测试，验证 `ui_style_mismatch` 触发后降级草稿与语义标签/摘要落盘 |
 | Input Mutex 对抗闭环 | 已完成（2026-02-14） | 已新增会话争用对抗测试，验证超时触发 `input_mutex_timeout` 并立即停止桌控 |
 | Context Contamination 收口 | 已完成（2026-02-14） | 已验证 Arch/Fixer 零人格执行链与 orchestrator 约束提示不回流到修复链 |
 | Ralph Loop 生产闭环 | 已完成（2026-02-14） | 已覆盖 stderr 摘要、错误回注、`max_retries` 优先级与工具接入验证 |
 | MCP-UI/采样增强 | 已完成（2026-02-14） | 已提供 `mcp.capabilities.list` 与服务暴露清单，并补齐 Gateway 验收测试 |
-| Inbound-only 通道扩展（非主线） | 部分完成 | 主链路已可用，非主线保持后置 |
+| Inbound-only 通道扩展（非主线） | 已完成（2026-02-14） | 已统一解析并接入 WhatsApp / Google Chat / Signal / iMessage / Teams 入站链路与测试 |
 
 ### **6.3 关键断裂补丁（依据新增方案，待确认后冻结）**
 
