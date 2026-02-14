@@ -1,11 +1,16 @@
 import { ResourceScheduler } from './scheduler';
 import type {
+  ModelSwapAction,
   ResourceLease,
   ResourceRequest,
   ResourceSchedulerOptions,
   ResourceSchedulerSnapshot,
   ResourceTaskKind,
+  VramBudgetModelInput,
+  VramBudgetPlan,
+  VramBudgetTaskInput,
 } from './types';
+export { calculateVramBudget, decideModelSwapAction } from './vram';
 
 const schedulers = new Map<string, ResourceScheduler>();
 
@@ -21,9 +26,13 @@ export function getResourceScheduler(
 }
 
 export type {
+  ModelSwapAction,
   ResourceLease,
   ResourceRequest,
   ResourceSchedulerOptions,
   ResourceSchedulerSnapshot,
   ResourceTaskKind,
+  VramBudgetModelInput,
+  VramBudgetPlan,
+  VramBudgetTaskInput,
 };

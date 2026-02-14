@@ -77,6 +77,20 @@ import {
   resetCompanionProfile,
 } from '../companion/store';
 import {
+  decayCompanionMemoryVectors,
+  listCompanionMemoryVectors,
+  searchCompanionMemoryVectors,
+} from '../companion/memory-vector';
+import {
+  readCompanionWizardState,
+  startCompanionWizard,
+  submitCompanionWizardInput,
+  tickCompanionTrainingJobs,
+  wizardChecklist,
+} from '../companion/wizard';
+import { generateImage, synthesizeVoiceOutput, detectMultimodalIntent } from '../multimodal';
+import { getResourceScheduler, calculateVramBudget, decideModelSwapAction } from '../resource-scheduler';
+import {
   dequeueSessionMessage,
   enqueueSessionMessage,
   getSession,
@@ -128,6 +142,7 @@ interface GatewayRuntime {
   outboundSendDedupe: Map<string, { ts: number; result: unknown }>;
   nodeSockets: Map<string, Bun.ServerWebSocket<unknown>>;
   wsMeta: WeakMap<Bun.ServerWebSocket<unknown>, GatewayWsData>;
+  wizardTickTimer?: ReturnType<typeof setInterval>;
 }
 
 interface GatewayWsData {
@@ -279,6 +294,10 @@ export function stopGateway(projectDir: string): {
   if (!runtime) return { stopped: false };
 
   const previous = toGatewayState(projectDir, runtime);
+  if (runtime.wizardTickTimer) {
+    clearInterval(runtime.wizardTickTimer);
+    runtime.wizardTickTimer = undefined;
+  }
   try {
     runtime.channelRuntime.stop();
   } catch {}
@@ -822,6 +841,24 @@ function maybeBroadcast(projectDir: string, runtime: GatewayRuntime): void {
   runtime.server.publish('miya:broadcast', JSON.stringify(frame));
 }
 
+function publishGatewayEvent(
+  runtime: GatewayRuntime,
+  event: string,
+  payload: unknown,
+): void {
+  runtime.stateVersion += 1;
+  runtime.server.publish(
+    'miya:broadcast',
+    JSON.stringify(
+      toEventFrame({
+        event,
+        payload,
+        stateVersion: { gateway: runtime.stateVersion },
+      }),
+    ),
+  );
+}
+
 function ensureWsData(
   runtime: GatewayRuntime,
   ws: Bun.ServerWebSocket<unknown>,
@@ -920,6 +957,15 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const sessionID = parseText(params.sessionID);
     const text = parseText(params.text);
     if (!sessionID || !text) throw new Error('invalid_sessions_send_args');
+    if (text.trim() === '/start') {
+      const wizard = startCompanionWizard(projectDir);
+      return {
+        sessionID: wizard.sessionID,
+        wizard,
+        checklist: wizardChecklist(wizard),
+        message: 'wizard_started: please send images, voice samples, then persona text.',
+      };
+    }
     upsertSession(projectDir, {
       id: sessionID,
       kind: sessionID.startsWith('opencode:') ? 'opencode' : 'channel',
@@ -1065,10 +1111,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const channel = parseChannel(params.channel);
     const destination = parseText(params.destination);
     const text = parseText(params.text);
+    const mediaID = parseText(params.mediaID);
+    const mediaPathInput = parseText(params.mediaPath);
     const idempotencyKey = parseText(params.idempotencyKey);
     const sessionID = parseText(params.sessionID) || 'main';
     const policyHash = parseText(params.policyHash) || undefined;
-    if (!channel || !destination || !text) throw new Error('invalid_channels_send_args');
+    const mediaFromStore = mediaID ? getMediaItem(projectDir, mediaID) : null;
+    const mediaPath = mediaPathInput || mediaFromStore?.localPath || '';
+    if (!channel || !destination || (!text && !mediaPath)) {
+      throw new Error('invalid_channels_send_args');
+    }
     const resolvedPolicyHash = requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'outbound_send');
     const outboundCheckRaw =
@@ -1220,7 +1272,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       patterns: [
         `channel=${channel}`,
         `dest=${destination}`,
-        `payload_sha256=${hashText(text)}`,
+        `payload_sha256=${hashText(`${text}||${mediaPath}`)}`,
       ],
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
@@ -1229,6 +1281,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       channel,
       destination,
       text,
+      mediaPath: mediaPath || undefined,
       outboundCheck: {
         archAdvisorApproved,
         riskLevel,
@@ -1839,17 +1892,50 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       agent: '1-task-manager',
     });
     const profile = readCompanionProfile(projectDir);
+    const wizard = startCompanionWizard(projectDir);
     return {
       session,
       profile,
-      checklist: [
-        'Set relationship and persona',
-        'Upload reference image(s)',
-        'Upload voice sample(s)',
-        'Add memory facts',
-        'Enable companion mode',
-      ],
+      wizard,
+      checklist: wizardChecklist(wizard),
     };
+  });
+  methods.register('companion.wizard.status', async () => {
+    const wizard = readCompanionWizardState(projectDir);
+    return {
+      wizard,
+      checklist: wizardChecklist(wizard),
+    };
+  });
+  methods.register('companion.wizard.submit', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const imageMediaIDs = Array.isArray(params.imageMediaIDs)
+      ? params.imageMediaIDs.map(String)
+      : [];
+    const audioMediaIDs = Array.isArray(params.audioMediaIDs)
+      ? params.audioMediaIDs.map(String)
+      : [];
+    const wizard = submitCompanionWizardInput(projectDir, {
+      imageMediaIDs,
+      audioMediaIDs,
+      personaText: parseText(params.personaText),
+    });
+    return {
+      wizard,
+      checklist: wizardChecklist(wizard),
+    };
+  });
+  methods.register('companion.wizard.tick', async () => {
+    const tick = tickCompanionTrainingJobs(projectDir);
+    if (tick.progressEvent) {
+      publishGatewayEvent(runtime, 'companion.wizard.progress', {
+        ...tick.progressEvent,
+        step: tick.state.step,
+      });
+    }
+    return tick;
   });
   methods.register('companion.profile.update', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
@@ -1881,6 +1967,28 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('companion.memory.list', async () =>
     readCompanionProfile(projectDir).memoryFacts,
   );
+  methods.register('companion.memory.search', async (params) => {
+    const query = parseText(params.query);
+    if (!query) throw new Error('invalid_memory_query');
+    const limit =
+      typeof params.limit === 'number' && params.limit > 0
+        ? Math.min(20, Number(params.limit))
+        : 5;
+    return searchCompanionMemoryVectors(projectDir, query, limit);
+  });
+  methods.register('companion.memory.decay', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const halfLifeDays =
+      typeof params.halfLifeDays === 'number' && params.halfLifeDays > 0
+        ? Number(params.halfLifeDays)
+        : 30;
+    return decayCompanionMemoryVectors(projectDir, halfLifeDays);
+  });
+  methods.register('companion.memory.vector.list', async () =>
+    listCompanionMemoryVectors(projectDir),
+  );
   methods.register('companion.asset.add', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
     const type = parseText(params.type);
@@ -1901,6 +2009,117 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_delete');
     return resetCompanionProfile(projectDir);
+  });
+  methods.register('companion.intent.handle', async (params) => {
+    const text = parseText(params.text);
+    if (!text) throw new Error('invalid_intent_text');
+    const channel = parseChannel(params.channel) ?? 'wechat';
+    const destination = parseText(params.destination);
+    const intent = detectMultimodalIntent(text);
+    if (intent.type === 'selfie') {
+      const generated = await generateImage(projectDir, {
+        prompt: intent.prompt,
+        model: 'local:flux.1-schnell',
+        registerAsCompanionAsset: true,
+      });
+      if (!destination) {
+        return {
+          intent: 'selfie',
+          sent: false,
+          mediaID: generated.media.id,
+          path: generated.media.localPath,
+          message: 'selfie_generated_destination_missing',
+        };
+      }
+      const send = await runtime.channelRuntime.sendMessage({
+        channel,
+        destination,
+        text: '给你一张我的自拍',
+        mediaPath: generated.media.localPath,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          riskLevel: 'LOW',
+          intent: 'reply',
+          containsSensitive: false,
+          policyHash: currentPolicyHash(projectDir),
+        },
+      });
+      return {
+        intent: 'selfie',
+        sent: send.sent,
+        send,
+        mediaID: generated.media.id,
+        path: generated.media.localPath,
+      };
+    }
+    if (intent.type === 'voice_to_friend') {
+      const resolvedDestination = destination || intent.friend;
+      if (!resolvedDestination) throw new Error('voice_destination_missing');
+      const voice = await synthesizeVoiceOutput(projectDir, {
+        text,
+        voice: 'companion',
+        model: 'local:gpt-sovits-v2pro',
+        format: 'wav',
+        registerAsCompanionAsset: true,
+      });
+      const send = await runtime.channelRuntime.sendMessage({
+        channel: 'wechat',
+        destination: resolvedDestination,
+        text: '语音消息已生成',
+        mediaPath: voice.media.localPath,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          riskLevel: 'LOW',
+          intent: 'reply',
+          containsSensitive: false,
+          policyHash: currentPolicyHash(projectDir),
+        },
+      });
+      return {
+        intent: 'voice_to_friend',
+        friend: resolvedDestination,
+        sent: send.sent,
+        send,
+        mediaID: voice.media.id,
+        path: voice.media.localPath,
+      };
+    }
+    return { intent: 'unknown', message: 'no_multimodal_intent_matched' };
+  });
+  methods.register('daemon.vram.budget', async (params) => {
+    const scheduler = getResourceScheduler(projectDir);
+    const modelID = parseText(params.modelID) || 'local:flux.1-schnell';
+    const kindRaw = parseText(params.kind);
+    const kind =
+      kindRaw === 'image.generate' ||
+      kindRaw === 'vision.analyze' ||
+      kindRaw === 'voice.tts' ||
+      kindRaw === 'voice.asr' ||
+      kindRaw === 'training.image' ||
+      kindRaw === 'training.voice' ||
+      kindRaw === 'shell.exec'
+        ? kindRaw
+        : 'generic';
+    const requestVram = typeof params.vramMB === 'number' ? Number(params.vramMB) : 1024;
+    const modelVram = typeof params.modelVramMB === 'number' ? Number(params.modelVramMB) : 2048;
+    const snapshot = scheduler.snapshot();
+    const budget = calculateVramBudget({
+      snapshot,
+      task: {
+        taskID: kind,
+        taskVramMB: requestVram,
+      },
+      models: [{ modelID, vramMB: modelVram, required: true }],
+    });
+    return {
+      snapshot,
+      budget,
+      swapAction: decideModelSwapAction({
+        currentModelID: snapshot.loadedModels[0]?.modelID,
+        targetModelID: modelID,
+        budget,
+      }),
+    };
   });
 
   return methods;
@@ -2420,10 +2639,20 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     outboundSendDedupe: new Map(),
     nodeSockets: new Map(),
     wsMeta: new WeakMap(),
+    wizardTickTimer: undefined,
   };
 
   runtime.methods = createMethods(projectDir, runtime);
   runtimes.set(projectDir, runtime);
+  runtime.wizardTickTimer = setInterval(() => {
+    const tick = tickCompanionTrainingJobs(projectDir);
+    if (tick.progressEvent) {
+      publishGatewayEvent(runtime, 'companion.wizard.progress', {
+        ...tick.progressEvent,
+        step: tick.state.step,
+      });
+    }
+  }, 1_200);
   void runtime.channelRuntime.start();
   return syncGatewayState(projectDir, runtime);
 }

@@ -2,7 +2,8 @@ export function sendDesktopOutbound(input: {
   appName: 'QQ' | 'WeChat';
   channel: 'qq' | 'wechat';
   destination: string;
-  text: string;
+  text?: string;
+  mediaPath?: string;
 }): { sent: boolean; message: string } {
   if (process.platform !== 'win32') {
     return { sent: false, message: 'desktop_ui_windows_only' };
@@ -15,8 +16,9 @@ export function sendDesktopOutbound(input: {
   }
 
   const destination = input.destination.trim();
-  const text = input.text.trim();
-  if (!destination || !text) {
+  const text = (input.text ?? '').trim();
+  const mediaPath = (input.mediaPath ?? '').trim();
+  if (!destination || (!text && !mediaPath)) {
     return { sent: false, message: 'invalid_desktop_send_args' };
   }
 
@@ -26,6 +28,7 @@ Add-Type -AssemblyName System.Windows.Forms
 
 $destination = $env:MIYA_DESTINATION
 $payload = $env:MIYA_MESSAGE
+$mediaPath = $env:MIYA_MEDIA_PATH
 $appName = $env:MIYA_APP_NAME
 $shell = New-Object -ComObject WScript.Shell
 
@@ -43,11 +46,29 @@ if (-not $activated) {
   throw "window_not_found:$destination"
 }
 
-Set-Clipboard -Value $payload
-Start-Sleep -Milliseconds 180
-[System.Windows.Forms.SendKeys]::SendWait('^v')
-Start-Sleep -Milliseconds 120
-[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+if ($mediaPath) {
+  if (-not (Test-Path -LiteralPath $mediaPath)) {
+    throw "media_not_found:$mediaPath"
+  }
+  $list = New-Object System.Collections.Specialized.StringCollection
+  $list.Add($mediaPath) | Out-Null
+  $data = New-Object System.Windows.Forms.DataObject
+  $data.SetFileDropList($list)
+  [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
+  Start-Sleep -Milliseconds 220
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  Start-Sleep -Milliseconds 220
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Start-Sleep -Milliseconds 240
+}
+
+if ($payload) {
+  Set-Clipboard -Value $payload
+  Start-Sleep -Milliseconds 180
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  Start-Sleep -Milliseconds 120
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+}
 
 Write-Output 'desktop_send_ok'
 `.trim();
@@ -62,6 +83,7 @@ Write-Output 'desktop_send_ok'
         ...process.env,
         MIYA_DESTINATION: destination,
         MIYA_MESSAGE: text,
+        MIYA_MEDIA_PATH: mediaPath,
         MIYA_APP_NAME: input.appName,
       },
     },

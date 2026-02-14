@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { appendSchedulerEvent, writeSchedulerSnapshot } from './store';
+import { calculateVramBudget, decideModelSwapAction } from './vram';
 import type {
+  ModelSwapAction,
   ResourceLease,
   ResourceRequest,
   ResourceSchedulerOptions,
   ResourceSchedulerSnapshot,
+  VramBudgetPlan,
 } from './types';
 
 interface PendingRequest {
@@ -49,6 +52,7 @@ export class ResourceScheduler {
   private readonly queue: PendingRequest[] = [];
   private readonly active = new Map<string, ActiveLease>();
   private readonly loadedModels = new Map<string, LoadedModel>();
+  private readonly currentModelByKind = new Map<ResourceRequest['kind'], string>();
   private usedVramMB = 0;
   private draining = false;
 
@@ -135,6 +139,29 @@ export class ResourceScheduler {
     };
   }
 
+  planVramBudget(request: ResourceRequest): VramBudgetPlan {
+    return calculateVramBudget({
+      snapshot: this.snapshot(),
+      task: {
+        taskID: request.kind,
+        taskVramMB: Math.max(0, Math.floor(request.vramMB ?? 0)),
+        priority: request.priority,
+      },
+      models: request.modelID
+        ? [
+            {
+              modelID: request.modelID,
+              vramMB: Math.max(
+                0,
+                Math.floor(request.modelVramMB ?? request.vramMB ?? 0),
+              ),
+              required: true,
+            },
+          ]
+        : [],
+    });
+  }
+
   private scheduleDrain(): void {
     if (this.draining) return;
     this.draining = true;
@@ -169,11 +196,29 @@ export class ResourceScheduler {
 
       if (requestVramMB > 0) this.usedVramMB += requestVramMB;
       if (pending.request.modelID) {
-        this.ensureModelLoaded(
-          pending.request.modelID,
-          Math.max(0, Math.floor(pending.request.modelVramMB ?? requestVramMB)),
+        const modelVramMB = Math.max(
+          0,
+          Math.floor(pending.request.modelVramMB ?? requestVramMB),
         );
+        const swapAction = this.selectModelSwapAction(
+          pending.request.kind,
+          pending.request.modelID,
+          pending.request,
+        );
+        if (swapAction === 'evict_then_load') {
+          this.evictModelsIfNeeded(modelVramMB);
+        }
+        this.ensureModelLoaded(pending.request.modelID, modelVramMB);
         this.pinModel(pending.request.modelID);
+        this.currentModelByKind.set(pending.request.kind, pending.request.modelID);
+        appendSchedulerEvent(this.projectDir, {
+          at: nowIso(),
+          type: 'model_swap',
+          kind: pending.request.kind,
+          action: swapAction,
+          modelID: pending.request.modelID,
+          vramMB: modelVramMB,
+        });
       }
 
       appendSchedulerEvent(this.projectDir, {
@@ -234,6 +279,19 @@ export class ResourceScheduler {
       : 0;
     this.evictModelsIfNeeded(neededVramMB + modelVramMB);
     return this.availableVramMB() >= neededVramMB + modelVramMB;
+  }
+
+  private selectModelSwapAction(
+    kind: ResourceRequest['kind'],
+    targetModelID: string,
+    request: ResourceRequest,
+  ): ModelSwapAction {
+    const budget = this.planVramBudget(request);
+    return decideModelSwapAction({
+      currentModelID: this.currentModelByKind.get(kind),
+      targetModelID,
+      budget,
+    });
   }
 
   private availableVramMB(): number {

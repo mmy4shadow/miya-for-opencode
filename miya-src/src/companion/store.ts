@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
+import { upsertCompanionMemoryVector } from './memory-vector';
 
 export interface CompanionAsset {
   id: string;
@@ -103,6 +104,10 @@ export function addCompanionMemoryFact(
   const current = readCompanionProfile(projectDir);
   const normalized = fact.trim();
   if (!normalized) return current;
+  upsertCompanionMemoryVector(projectDir, {
+    text: normalized,
+    source: 'profile_fact',
+  });
   const memoryFacts = [...new Set([normalized, ...current.memoryFacts])].slice(0, 300);
   return writeCompanionProfile(projectDir, {
     ...current,

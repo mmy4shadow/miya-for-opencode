@@ -62,6 +62,7 @@ export interface ChannelOutboundAudit {
   textPreview: string;
   sent: boolean;
   message: string;
+  mediaPath?: string;
   reason?:
     | 'sent'
     | 'channel_blocked'
@@ -455,6 +456,7 @@ export class ChannelRuntime {
       textPreview: row.textPreview,
       sent: row.sent,
       message: row.message,
+      mediaPath: row.mediaPath,
       reason: row.reason,
       riskLevel: row.riskLevel,
       archAdvisorApproved: row.archAdvisorApproved,
@@ -520,7 +522,8 @@ export class ChannelRuntime {
   async sendMessage(input: {
     channel: ChannelName;
     destination: string;
-    text: string;
+    text?: string;
+    mediaPath?: string;
     outboundCheck?: {
       archAdvisorApproved?: boolean;
       riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
@@ -532,13 +535,19 @@ export class ChannelRuntime {
       policyHash?: string;
     };
   }): Promise<{ sent: boolean; message: string; auditID?: string }> {
+    const text = (input.text ?? '').trim();
+    const mediaPath = (input.mediaPath ?? '').trim();
+    if (!text && !mediaPath) {
+      return { sent: false, message: 'invalid_outbound_payload_empty' };
+    }
+
     try {
       assertChannelCanSend(input.channel);
     } catch (error) {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
         destination: input.destination,
-        textPreview: input.text.slice(0, 200),
+        textPreview: text.slice(0, 200),
         sent: false,
         message: error instanceof Error ? error.message : String(error),
         reason: 'channel_blocked',
@@ -559,7 +568,7 @@ export class ChannelRuntime {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
         destination: input.destination,
-        textPreview: input.text.slice(0, 200),
+        textPreview: text.slice(0, 200),
         sent: false,
         message: 'outbound_blocked:arch_advisor_denied',
         reason: 'arch_advisor_denied',
@@ -580,7 +589,7 @@ export class ChannelRuntime {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
         destination: input.destination,
-        textPreview: input.text.slice(0, 200),
+        textPreview: text.slice(0, 200),
         sent: false,
         message: `outbound_blocked:target_not_in_allowlist:${input.channel}`,
         reason: 'allowlist_denied',
@@ -602,9 +611,9 @@ export class ChannelRuntime {
       if (intent !== 'reply') {
         const audit = this.recordOutboundAttempt({
           channel: input.channel,
-          destination: input.destination,
-          textPreview: input.text.slice(0, 200),
-          sent: false,
+        destination: input.destination,
+        textPreview: text.slice(0, 200),
+        sent: false,
           message: 'outbound_blocked:friend_tier_can_only_reply',
           reason: 'allowlist_denied',
           archAdvisorApproved,
@@ -620,9 +629,9 @@ export class ChannelRuntime {
       if (containsSensitive) {
         const audit = this.recordOutboundAttempt({
           channel: input.channel,
-          destination: input.destination,
-          textPreview: input.text.slice(0, 200),
-          sent: false,
+        destination: input.destination,
+        textPreview: text.slice(0, 200),
+        sent: false,
           message: 'outbound_blocked:friend_tier_sensitive_content_denied',
           reason: 'allowlist_denied',
           archAdvisorApproved,
@@ -642,9 +651,9 @@ export class ChannelRuntime {
       if (throttle) {
         const audit = this.recordOutboundAttempt({
           channel: input.channel,
-          destination: input.destination,
-          textPreview: input.text.slice(0, 200),
-          sent: false,
+        destination: input.destination,
+        textPreview: text.slice(0, 200),
+        sent: false,
           message: `outbound_blocked:${throttle}`,
           reason: 'throttled',
           archAdvisorApproved,
@@ -663,13 +672,13 @@ export class ChannelRuntime {
       const duplicate = this.checkDuplicatePayload(
         input.channel,
         input.destination,
-        input.text,
+        `${text}||${mediaPath}`,
       );
       if (duplicate) {
         const audit = this.recordOutboundAttempt({
           channel: input.channel,
           destination: input.destination,
-          textPreview: input.text.slice(0, 200),
+          textPreview: text.slice(0, 200),
           sent: false,
           message: `outbound_blocked:${duplicate}`,
           reason: 'duplicate_payload',
@@ -688,14 +697,16 @@ export class ChannelRuntime {
     if (input.channel === 'qq') {
       const result = sendQqDesktopMessage({
         destination: input.destination,
-        text: input.text,
+        text,
+        mediaPath,
       });
       const audit = this.recordOutboundAttempt({
         channel: 'qq',
         destination: input.destination,
-        textPreview: input.text.slice(0, 200),
+        textPreview: text.slice(0, 200),
         sent: result.sent,
         message: result.message,
+        mediaPath: mediaPath || undefined,
         reason: result.sent ? 'sent' : 'desktop_send_failed',
         archAdvisorApproved,
         targetInAllowlist,
@@ -711,14 +722,16 @@ export class ChannelRuntime {
     if (input.channel === 'wechat') {
       const result = sendWechatDesktopMessage({
         destination: input.destination,
-        text: input.text,
+        text,
+        mediaPath,
       });
       const audit = this.recordOutboundAttempt({
         channel: 'wechat',
         destination: input.destination,
-        textPreview: input.text.slice(0, 200),
+        textPreview: text.slice(0, 200),
         sent: result.sent,
         message: result.message,
+        mediaPath: mediaPath || undefined,
         reason: result.sent ? 'sent' : 'desktop_send_failed',
         archAdvisorApproved,
         targetInAllowlist,

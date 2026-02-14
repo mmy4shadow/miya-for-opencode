@@ -1,0 +1,198 @@
+import { createHash, randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { getMiyaRuntimeDir } from '../workflow';
+
+export interface CompanionMemoryVector {
+  id: string;
+  text: string;
+  source: string;
+  embedding: number[];
+  score: number;
+  status: 'active' | 'superseded';
+  conflictKey?: string;
+  supersededBy?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastAccessedAt: string;
+}
+
+interface MemoryVectorStore {
+  version: 1;
+  items: CompanionMemoryVector[];
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function filePath(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'companion-memory-vectors.json');
+}
+
+function ensureDir(projectDir: string): void {
+  fs.mkdirSync(path.dirname(filePath(projectDir)), { recursive: true });
+}
+
+function readStore(projectDir: string): MemoryVectorStore {
+  const file = filePath(projectDir);
+  if (!fs.existsSync(file)) return { version: 1, items: [] };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MemoryVectorStore>;
+    return {
+      version: 1,
+      items: Array.isArray(parsed.items) ? parsed.items : [],
+    };
+  } catch {
+    return { version: 1, items: [] };
+  }
+}
+
+function writeStore(projectDir: string, store: MemoryVectorStore): MemoryVectorStore {
+  ensureDir(projectDir);
+  fs.writeFileSync(filePath(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  return store;
+}
+
+function normalizeText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+function textToEmbedding(text: string, dims = 64): number[] {
+  const vec = new Array<number>(dims).fill(0);
+  const parts = normalizeText(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (parts.length === 0) return vec;
+  for (const part of parts) {
+    const hash = createHash('sha256').update(part).digest();
+    for (let i = 0; i < 8; i += 1) {
+      const idx = hash[i] % dims;
+      vec[idx] += 1 + (hash[i + 8] % 3);
+    }
+  }
+  const norm = Math.sqrt(vec.reduce((sum, value) => sum + value * value, 0));
+  if (norm <= 0) return vec;
+  return vec.map((value) => value / norm);
+}
+
+function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 1) sum += a[i] * b[i];
+  return sum;
+}
+
+function extractConflictKey(text: string): { key?: string; polarity: 'positive' | 'negative' | 'neutral' } {
+  const positive = text.match(/(?:喜欢|爱|偏好|想要)\s*([^，。!！?？]+)/);
+  if (positive?.[1]) return { key: normalizeText(positive[1]), polarity: 'positive' };
+  const negative = text.match(/(?:不喜欢|讨厌|不想|不要)\s*([^，。!！?？]+)/);
+  if (negative?.[1]) return { key: normalizeText(negative[1]), polarity: 'negative' };
+  return { polarity: 'neutral' };
+}
+
+export function decayCompanionMemoryVectors(
+  projectDir: string,
+  halfLifeDays = 30,
+): { updated: number; items: CompanionMemoryVector[] } {
+  const store = readStore(projectDir);
+  const safeHalfLife = Math.max(1, halfLifeDays);
+  const lambda = Math.log(2) / safeHalfLife;
+  const nowMs = Date.now();
+  let updated = 0;
+  for (const item of store.items) {
+    if (item.status !== 'active') continue;
+    const ageDays = Math.max(0, (nowMs - Date.parse(item.updatedAt)) / (24 * 3600 * 1000));
+    const nextScore = Math.max(0.05, item.score * Math.exp(-lambda * ageDays));
+    if (Math.abs(nextScore - item.score) > 0.0001) {
+      item.score = Number(nextScore.toFixed(4));
+      item.updatedAt = nowIso();
+      updated += 1;
+    }
+  }
+  writeStore(projectDir, store);
+  return { updated, items: store.items };
+}
+
+export function upsertCompanionMemoryVector(
+  projectDir: string,
+  input: { text: string; source?: string },
+): CompanionMemoryVector {
+  const text = normalizeText(input.text);
+  if (!text) throw new Error('invalid_memory_text');
+
+  decayCompanionMemoryVectors(projectDir);
+  const store = readStore(projectDir);
+  const embedding = textToEmbedding(text);
+  const now = nowIso();
+
+  const near = store.items
+    .filter((item) => item.status === 'active')
+    .map((item) => ({
+      item,
+      sim: cosine(item.embedding, embedding),
+    }))
+    .sort((a, b) => b.sim - a.sim)[0];
+  if (near && near.sim >= 0.95) {
+    near.item.score = Math.min(1.5, near.item.score + 0.15);
+    near.item.lastAccessedAt = now;
+    near.item.updatedAt = now;
+    writeStore(projectDir, store);
+    return near.item;
+  }
+
+  const preference = extractConflictKey(text);
+  const created: CompanionMemoryVector = {
+    id: `mem_${randomUUID()}`,
+    text,
+    source: input.source?.trim() || 'manual',
+    embedding,
+    score: 1,
+    status: 'active',
+    conflictKey: preference.key,
+    createdAt: now,
+    updatedAt: now,
+    lastAccessedAt: now,
+  };
+
+  if (preference.key && preference.polarity !== 'neutral') {
+    for (const item of store.items) {
+      if (item.status !== 'active') continue;
+      const other = extractConflictKey(item.text);
+      if (!other.key || other.key !== preference.key || other.polarity === 'neutral') continue;
+      if (other.polarity !== preference.polarity) {
+        item.status = 'superseded';
+        item.supersededBy = created.id;
+        item.score = Math.max(0.05, item.score * 0.4);
+        item.updatedAt = now;
+      }
+    }
+  }
+
+  store.items = [created, ...store.items].slice(0, 1000);
+  writeStore(projectDir, store);
+  return created;
+}
+
+export function searchCompanionMemoryVectors(
+  projectDir: string,
+  query: string,
+  limit = 5,
+): Array<CompanionMemoryVector & { similarity: number; rankScore: number }> {
+  const q = normalizeText(query);
+  if (!q) return [];
+  const qEmb = textToEmbedding(q);
+  const store = readStore(projectDir);
+  const results = store.items
+    .filter((item) => item.status === 'active')
+    .map((item) => {
+      const similarity = cosine(item.embedding, qEmb);
+      const rankScore = similarity * item.score;
+      return { ...item, similarity, rankScore };
+    })
+    .sort((a, b) => b.rankScore - a.rankScore)
+    .slice(0, Math.max(1, limit));
+  return results;
+}
+
+export function listCompanionMemoryVectors(projectDir: string): CompanionMemoryVector[] {
+  return readStore(projectDir).items;
+}

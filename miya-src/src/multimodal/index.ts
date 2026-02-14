@@ -1,6 +1,7 @@
 export { generateImage } from './image';
 export { analyzeVision } from './vision';
 export { ingestVoiceInput, synthesizeVoiceOutput } from './voice';
+export { detectMultimodalIntent, type MultimodalIntent } from './intent';
 export type {
   GenerateImageInput,
   GenerateImageResult,
@@ -11,4 +12,3 @@ export type {
   VoiceOutputInput,
   VoiceOutputResult,
 } from './types';
-

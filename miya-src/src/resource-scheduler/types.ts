@@ -46,3 +46,30 @@ export interface ResourceSchedulerSnapshot {
     lastUsedAt: string;
   }>;
 }
+
+export interface VramBudgetModelInput {
+  modelID: string;
+  vramMB: number;
+  required: boolean;
+}
+
+export interface VramBudgetTaskInput {
+  taskID: string;
+  taskVramMB: number;
+  priority?: number;
+}
+
+export interface VramBudgetPlan {
+  fit: boolean;
+  availableMB: number;
+  requiredMB: number;
+  overflowMB: number;
+  suggestedTaskVramMB: number;
+  canUseReferenceOnly: boolean;
+  modelPlan: {
+    keepLoaded: string[];
+    unloadFirst: string[];
+  };
+}
+
+export type ModelSwapAction = 'reuse' | 'hot_load' | 'evict_then_load' | 'degraded_reference';
