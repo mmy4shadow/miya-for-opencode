@@ -399,6 +399,273 @@ function requireDomainRunning(projectDir: string, domain: PolicyDomain): void {
   }
 }
 
+interface GuardedOutboundCheckInput {
+  archAdvisorApproved?: boolean;
+  intent?: string;
+  factorRecipientIsMe?: boolean;
+}
+
+interface GuardedOutboundSendInput {
+  channel: ChannelName;
+  destination: string;
+  text: string;
+  mediaPath?: string;
+  idempotencyKey?: string;
+  sessionID: string;
+  policyHash?: string;
+  outboundCheck?: GuardedOutboundCheckInput;
+}
+
+type GuardedOutboundSendResult = Record<string, unknown> & {
+  sent: boolean;
+  message: string;
+};
+
+async function sendChannelMessageGuarded(
+  projectDir: string,
+  runtime: GatewayRuntime,
+  input: GuardedOutboundSendInput,
+): Promise<GuardedOutboundSendResult> {
+  const resolvedPolicyHash = requirePolicyHash(projectDir, input.policyHash);
+  requireDomainRunning(projectDir, 'outbound_send');
+  requireDomainRunning(projectDir, 'desktop_control');
+
+  const mediaPath = (input.mediaPath ?? '').trim();
+  const archAdvisorApproved = Boolean(input.outboundCheck?.archAdvisorApproved);
+  const intent = input.outboundCheck?.intent ?? 'initiate';
+  const factorRecipientIsMeInput = input.outboundCheck?.factorRecipientIsMe;
+  const factorRecipientIsMe =
+    typeof factorRecipientIsMeInput === 'boolean'
+      ? factorRecipientIsMeInput
+      : getContactTier(projectDir, input.channel, input.destination) === 'owner';
+  const containsSensitive = containsSensitiveText(input.text);
+  const factorIntentSuspicious = inferIntentSuspicious(input.text);
+  const confidenceIntentRaw = factorIntentSuspicious ? 0.35 : containsSensitive ? 0.75 : 0.95;
+  const riskLevel = deriveRiskLevel({
+    containsSensitive,
+    factorIntentSuspicious,
+    factorRecipientIsMe,
+  });
+
+  if (input.idempotencyKey) {
+    const key = `channels.send:${input.idempotencyKey}`;
+    const cached = runtime.outboundSendDedupe.get(key);
+    if (cached) {
+      return {
+        ...(cached.result as GuardedOutboundSendResult),
+        cached: true,
+      };
+    }
+  }
+
+  const fusion = evaluateOutboundDecisionFusion({
+    factorTextSensitive: containsSensitive,
+    factorRecipientIsMe,
+    factorIntentSuspicious,
+    confidenceIntent: confidenceIntentRaw,
+  });
+  if (fusion.action === 'hard_fuse') {
+    const safetyState = transitionSafetyState(projectDir, {
+      source: 'decision_fusion_hard',
+      reason: 'outbound_blocked:decision_fusion_hard',
+      policyHash: resolvedPolicyHash,
+      domains: {
+        outbound_send: 'killed',
+        desktop_control: 'killed',
+      },
+    });
+    const incident = appendPolicyIncident(projectDir, {
+      type: 'decision_fusion_hard',
+      reason: 'outbound_blocked:decision_fusion_hard',
+      channel: input.channel,
+      destination: input.destination,
+      policyHash: resolvedPolicyHash,
+      pausedDomains: ['outbound_send', 'desktop_control'],
+      statusByDomain: {
+        outbound_send: safetyState.domains.outbound_send === 'running' ? 'running' : 'paused',
+        desktop_control:
+          safetyState.domains.desktop_control === 'running' ? 'running' : 'paused',
+      },
+      semanticSummary: {
+        trigger: 'decision_fusion_hard',
+        keyAssertion:
+          'A=contains_sensitive and decision fusion matched in danger zone (confidence < 0.5).',
+        recovery:
+          'Review outbound intent in OpenCode and manually resume paused domains after confirmation.',
+      },
+      semanticTags: ['recipient_mismatch'],
+      details: {
+        factorTextSensitive: containsSensitive,
+        factorRecipientIsMe,
+        factorIntentSuspicious,
+        confidenceIntent: confidenceIntentRaw,
+        zone: fusion.zone,
+      },
+    });
+    await notifySafetyReport(projectDir, input.sessionID, [
+      'Miya安全报告：已触发硬熔断并暂停能力域',
+      `触发原因: ${incident.reason}`,
+      `能力域状态: outbound_send=${safetyState.domains.outbound_send}, desktop_control=${safetyState.domains.desktop_control}`,
+      `关键断言: A=${containsSensitive}, B_is_me=${factorRecipientIsMe}, C_suspicious=${factorIntentSuspicious}, Conf(C)=${confidenceIntentRaw}`,
+      '恢复条件: 请在确认外发意图后手动恢复域开关',
+    ]);
+    return {
+      sent: false,
+      message: 'outbound_blocked:decision_fusion_hard',
+      policyHash: currentPolicyHash(projectDir),
+      incident,
+    };
+  }
+  if (fusion.action === 'soft_fuse') {
+    const incident = appendPolicyIncident(projectDir, {
+      type: 'decision_fusion_soft',
+      reason: 'outbound_blocked:decision_fusion_soft_confirmation_required',
+      channel: input.channel,
+      destination: input.destination,
+      policyHash: resolvedPolicyHash,
+      semanticSummary: {
+        trigger: 'decision_fusion_soft',
+        keyAssertion:
+          'Decision fusion matched in gray zone (0.5 <= confidence <= 0.85), manual confirmation required.',
+        recovery: 'Confirm outbound intent in OpenCode, then retry with explicit approval.',
+      },
+      semanticTags: ['recipient_mismatch'],
+      details: {
+        factorTextSensitive: containsSensitive,
+        factorRecipientIsMe,
+        factorIntentSuspicious,
+        confidenceIntent: confidenceIntentRaw,
+        zone: fusion.zone,
+      },
+    });
+    await notifySafetyReport(projectDir, input.sessionID, [
+      'Miya安全提示：当前外发进入灰区柔性熔断',
+      `触发原因: ${incident.reason}`,
+      `关键断言: A=${containsSensitive}, B_is_me=${factorRecipientIsMe}, C_suspicious=${factorIntentSuspicious}, Conf(C)=${confidenceIntentRaw}`,
+      '建议确认: 亲爱的，这句话听起来有点敏感，你是认真的吗？',
+    ]);
+    return {
+      sent: false,
+      message: 'outbound_blocked:decision_fusion_soft_confirmation_required',
+      requiresConfirmation: true,
+      policyHash: resolvedPolicyHash,
+      incident,
+    };
+  }
+
+  const payloadHash = hashText(`${input.text}||${mediaPath}`);
+  const outboundTicket = resolveApprovalTicket({
+    projectDir,
+    sessionID: input.sessionID,
+    permission: 'external_message',
+    patterns: [
+      `channel=${input.channel}`,
+      `dest=${input.destination}`,
+      `payload_sha256=${payloadHash}`,
+    ],
+  });
+  if (!outboundTicket.ok) throw new Error(`approval_required:${outboundTicket.reason}`);
+  const desktopTicket = resolveApprovalTicket({
+    projectDir,
+    sessionID: input.sessionID,
+    permission: 'desktop_control',
+    patterns: [
+      `channel=${input.channel}`,
+      `dest=${input.destination}`,
+      `payload_sha256=${payloadHash}`,
+    ],
+  });
+  if (!desktopTicket.ok) throw new Error(`approval_required:${desktopTicket.reason}`);
+
+  const sendFingerprint = hashText(
+    `${input.channel}|${input.destination}|${payloadHash}|${Math.floor(Date.now() / 60000)}`,
+  ).slice(0, 40);
+
+  const outboundRuntime = runtime.channelRuntime;
+  const result = await outboundRuntime.sendMessage({
+    channel: input.channel,
+    destination: input.destination,
+    text: input.text,
+    mediaPath: mediaPath || undefined,
+    sessionID: input.sessionID,
+    sendFingerprint,
+    approvalTickets: {
+      outboundSend: outboundTicket.ticket,
+      desktopControl: desktopTicket.ticket,
+    },
+    outboundCheck: {
+      archAdvisorApproved,
+      riskLevel,
+      intent: intent === 'reply' ? 'reply' : 'initiate',
+      containsSensitive,
+      policyHash: resolvedPolicyHash,
+    },
+  });
+  const violationType =
+    result.message === 'outbound_blocked:friend_tier_sensitive_content_denied'
+      ? 'friend_tier_sensitive_violation'
+      : result.message === 'outbound_blocked:friend_tier_can_only_reply'
+        ? 'friend_tier_initiate_violation'
+        : null;
+  if (violationType) {
+    const safetyState = transitionSafetyState(projectDir, {
+      source: 'friend_tier_violation',
+      reason: result.message,
+      policyHash: resolvedPolicyHash,
+      domains: {
+        outbound_send: 'killed',
+        desktop_control: 'killed',
+      },
+    });
+    const incident = appendPolicyIncident(projectDir, {
+      type: violationType,
+      reason: result.message,
+      channel: input.channel,
+      destination: input.destination,
+      auditID: result.auditID,
+      policyHash: resolvedPolicyHash,
+      pausedDomains: ['outbound_send', 'desktop_control'],
+      statusByDomain: {
+        outbound_send: safetyState.domains.outbound_send === 'running' ? 'running' : 'paused',
+        desktop_control:
+          safetyState.domains.desktop_control === 'running' ? 'running' : 'paused',
+      },
+      semanticSummary: {
+        trigger: violationType,
+        keyAssertion: `Outbound to friend tier violated policy (${result.message}).`,
+        recovery:
+          'Review recipient tier and outbound payload, then manually resume paused domains.',
+      },
+      semanticTags: ['recipient_mismatch'],
+    });
+    await notifySafetyReport(projectDir, input.sessionID, [
+      'Miya安全报告：朋友档外发违规，已暂停能力域',
+      `触发原因: ${result.message}`,
+      `能力域状态: outbound_send=${safetyState.domains.outbound_send}, desktop_control=${safetyState.domains.desktop_control}`,
+      `收件通道: ${input.channel}, 收件目标: ${input.destination}`,
+      '恢复条件: 调整联系人档位/内容后手动恢复域开关',
+    ]);
+    return {
+      ...result,
+      policyHash: currentPolicyHash(projectDir),
+      incident,
+    };
+  }
+  if (input.idempotencyKey) {
+    const key = `channels.send:${input.idempotencyKey}`;
+    runtime.outboundSendDedupe.set(key, { ts: Date.now(), result });
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    for (const [dedupeKey, value] of runtime.outboundSendDedupe.entries()) {
+      if (value.ts < cutoff) runtime.outboundSendDedupe.delete(dedupeKey);
+    }
+  }
+  return {
+    ...result,
+    policyHash: resolvedPolicyHash,
+    sendFingerprint,
+  };
+}
+
 async function notifySafetyReport(
   projectDir: string,
   sessionID: string,
@@ -1339,254 +1606,34 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!channel || !destination || (!text && !mediaPath)) {
       throw new Error('invalid_channels_send_args');
     }
-    const resolvedPolicyHash = requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'outbound_send');
-    requireDomainRunning(projectDir, 'desktop_control');
     const outboundCheckRaw =
       params.outboundCheck && typeof params.outboundCheck === 'object'
         ? (params.outboundCheck as Record<string, unknown>)
         : null;
-    const archAdvisorApproved =
-      outboundCheckRaw && typeof outboundCheckRaw.archAdvisorApproved === 'boolean'
-        ? Boolean(outboundCheckRaw.archAdvisorApproved)
-        : false;
-    const intent =
-      outboundCheckRaw && typeof outboundCheckRaw.intent === 'string'
-        ? String(outboundCheckRaw.intent)
-        : 'initiate';
-    const factorRecipientIsMeInput =
-      outboundCheckRaw && typeof outboundCheckRaw.factorRecipientIsMe === 'boolean'
-        ? Boolean(outboundCheckRaw.factorRecipientIsMe)
-        : null;
-    const factorRecipientIsMe =
-      factorRecipientIsMeInput !== null
-        ? factorRecipientIsMeInput
-        : getContactTier(projectDir, channel, destination) === 'owner';
-    const containsSensitive = containsSensitiveText(text);
-    const factorIntentSuspicious = inferIntentSuspicious(text);
-    const confidenceIntentRaw = factorIntentSuspicious ? 0.35 : containsSensitive ? 0.75 : 0.95;
-    const riskLevel = deriveRiskLevel({
-      containsSensitive,
-      factorIntentSuspicious,
-      factorRecipientIsMe,
-    });
-
-    if (idempotencyKey) {
-      const key = `channels.send:${idempotencyKey}`;
-      const cached = runtime.outboundSendDedupe.get(key);
-      if (cached) {
-        return {
-          ...(cached.result as Record<string, unknown>),
-          cached: true,
-        };
-      }
-    }
-
-    const fusion = evaluateOutboundDecisionFusion({
-      factorTextSensitive: containsSensitive,
-      factorRecipientIsMe,
-      factorIntentSuspicious,
-      confidenceIntent: confidenceIntentRaw,
-    });
-    if (fusion.action === 'hard_fuse') {
-      const safetyState = transitionSafetyState(projectDir, {
-        source: 'decision_fusion_hard',
-        reason: 'outbound_blocked:decision_fusion_hard',
-        policyHash: resolvedPolicyHash,
-        domains: {
-          outbound_send: 'killed',
-          desktop_control: 'killed',
-        },
-      });
-      const incident = appendPolicyIncident(projectDir, {
-        type: 'decision_fusion_hard',
-        reason: 'outbound_blocked:decision_fusion_hard',
-        channel,
-        destination,
-        policyHash: resolvedPolicyHash,
-        pausedDomains: ['outbound_send', 'desktop_control'],
-        statusByDomain: {
-          outbound_send: safetyState.domains.outbound_send === 'running' ? 'running' : 'paused',
-          desktop_control:
-            safetyState.domains.desktop_control === 'running' ? 'running' : 'paused',
-        },
-        semanticSummary: {
-          trigger: 'decision_fusion_hard',
-          keyAssertion:
-            'A=contains_sensitive and decision fusion matched in danger zone (confidence < 0.5).',
-          recovery:
-            'Review outbound intent in OpenCode and manually resume paused domains after confirmation.',
-        },
-        semanticTags: ['recipient_mismatch'],
-        details: {
-          factorTextSensitive: containsSensitive,
-          factorRecipientIsMe,
-          factorIntentSuspicious,
-          confidenceIntent: confidenceIntentRaw,
-          zone: fusion.zone,
-        },
-      });
-      await notifySafetyReport(projectDir, sessionID, [
-        'Miya安全报告：已触发硬熔断并暂停能力域',
-        `触发原因: ${incident.reason}`,
-        `能力域状态: outbound_send=${safetyState.domains.outbound_send}, desktop_control=${safetyState.domains.desktop_control}`,
-        `关键断言: A=${containsSensitive}, B_is_me=${factorRecipientIsMe}, C_suspicious=${factorIntentSuspicious}, Conf(C)=${confidenceIntentRaw}`,
-        '恢复条件: 请在确认外发意图后手动恢复域开关',
-      ]);
-      return {
-        sent: false,
-        message: 'outbound_blocked:decision_fusion_hard',
-        policyHash: currentPolicyHash(projectDir),
-        incident,
-      };
-    }
-    if (fusion.action === 'soft_fuse') {
-      const incident = appendPolicyIncident(projectDir, {
-        type: 'decision_fusion_soft',
-        reason: 'outbound_blocked:decision_fusion_soft_confirmation_required',
-        channel,
-        destination,
-        policyHash: resolvedPolicyHash,
-        semanticSummary: {
-          trigger: 'decision_fusion_soft',
-          keyAssertion:
-            'Decision fusion matched in gray zone (0.5 <= confidence <= 0.85), manual confirmation required.',
-          recovery: 'Confirm outbound intent in OpenCode, then retry with explicit approval.',
-        },
-        semanticTags: ['recipient_mismatch'],
-        details: {
-          factorTextSensitive: containsSensitive,
-          factorRecipientIsMe,
-          factorIntentSuspicious,
-          confidenceIntent: confidenceIntentRaw,
-          zone: fusion.zone,
-        },
-      });
-      await notifySafetyReport(projectDir, sessionID, [
-        'Miya安全提示：当前外发进入灰区柔性熔断',
-        `触发原因: ${incident.reason}`,
-        `关键断言: A=${containsSensitive}, B_is_me=${factorRecipientIsMe}, C_suspicious=${factorIntentSuspicious}, Conf(C)=${confidenceIntentRaw}`,
-        '建议确认: 亲爱的，这句话听起来有点敏感，你是认真的吗？',
-      ]);
-      return {
-        sent: false,
-        message: 'outbound_blocked:decision_fusion_soft_confirmation_required',
-        requiresConfirmation: true,
-        policyHash: resolvedPolicyHash,
-        incident,
-      };
-    }
-
-    const payloadHash = hashText(`${text}||${mediaPath}`);
-    const outboundTicket = resolveApprovalTicket({
-      projectDir,
-      sessionID,
-      permission: 'external_message',
-      patterns: [
-        `channel=${channel}`,
-        `dest=${destination}`,
-        `payload_sha256=${payloadHash}`,
-      ],
-    });
-    if (!outboundTicket.ok) throw new Error(`approval_required:${outboundTicket.reason}`);
-    const desktopTicket = resolveApprovalTicket({
-      projectDir,
-      sessionID,
-      permission: 'desktop_control',
-      patterns: [
-        `channel=${channel}`,
-        `dest=${destination}`,
-        `payload_sha256=${payloadHash}`,
-      ],
-    });
-    if (!desktopTicket.ok) throw new Error(`approval_required:${desktopTicket.reason}`);
-
-    const sendFingerprint = hashText(
-      `${channel}|${destination}|${payloadHash}|${Math.floor(Date.now() / 60000)}`,
-    ).slice(0, 40);
-
-    const result = await runtime.channelRuntime.sendMessage({
+    const outboundCheck: GuardedOutboundCheckInput = {
+      archAdvisorApproved:
+        outboundCheckRaw && typeof outboundCheckRaw.archAdvisorApproved === 'boolean'
+          ? Boolean(outboundCheckRaw.archAdvisorApproved)
+          : undefined,
+      intent:
+        outboundCheckRaw && typeof outboundCheckRaw.intent === 'string'
+          ? String(outboundCheckRaw.intent)
+          : undefined,
+      factorRecipientIsMe:
+        outboundCheckRaw && typeof outboundCheckRaw.factorRecipientIsMe === 'boolean'
+          ? Boolean(outboundCheckRaw.factorRecipientIsMe)
+          : undefined,
+    };
+    return sendChannelMessageGuarded(projectDir, runtime, {
       channel,
       destination,
       text,
-      mediaPath: mediaPath || undefined,
+      mediaPath,
+      idempotencyKey,
       sessionID,
-      sendFingerprint,
-      approvalTickets: {
-        outboundSend: outboundTicket.ticket,
-        desktopControl: desktopTicket.ticket,
-      },
-      outboundCheck: {
-        archAdvisorApproved,
-        riskLevel,
-        intent: intent === 'reply' ? 'reply' : 'initiate',
-        containsSensitive,
-        policyHash: resolvedPolicyHash,
-      },
+      policyHash,
+      outboundCheck,
     });
-    const violationType =
-      result.message === 'outbound_blocked:friend_tier_sensitive_content_denied'
-        ? 'friend_tier_sensitive_violation'
-        : result.message === 'outbound_blocked:friend_tier_can_only_reply'
-          ? 'friend_tier_initiate_violation'
-          : null;
-    if (violationType) {
-      const safetyState = transitionSafetyState(projectDir, {
-        source: 'friend_tier_violation',
-        reason: result.message,
-        policyHash: resolvedPolicyHash,
-        domains: {
-          outbound_send: 'killed',
-          desktop_control: 'killed',
-        },
-      });
-      const incident = appendPolicyIncident(projectDir, {
-        type: violationType,
-        reason: result.message,
-        channel,
-        destination,
-        auditID: result.auditID,
-        policyHash: resolvedPolicyHash,
-        pausedDomains: ['outbound_send', 'desktop_control'],
-        statusByDomain: {
-          outbound_send: safetyState.domains.outbound_send === 'running' ? 'running' : 'paused',
-          desktop_control:
-            safetyState.domains.desktop_control === 'running' ? 'running' : 'paused',
-        },
-        semanticSummary: {
-          trigger: violationType,
-          keyAssertion: `Outbound to friend tier violated policy (${result.message}).`,
-          recovery:
-            'Review recipient tier and outbound payload, then manually resume paused domains.',
-        },
-        semanticTags: ['recipient_mismatch'],
-      });
-      await notifySafetyReport(projectDir, sessionID, [
-        'Miya安全报告：朋友档外发违规，已暂停能力域',
-        `触发原因: ${result.message}`,
-        `能力域状态: outbound_send=${safetyState.domains.outbound_send}, desktop_control=${safetyState.domains.desktop_control}`,
-        `收件通道: ${channel}, 收件目标: ${destination}`,
-        '恢复条件: 调整联系人档位/内容后手动恢复域开关',
-      ]);
-      return {
-        ...result,
-        policyHash: currentPolicyHash(projectDir),
-        incident,
-      };
-    }
-    if (idempotencyKey) {
-      const key = `channels.send:${idempotencyKey}`;
-      runtime.outboundSendDedupe.set(key, { ts: Date.now(), result });
-      const cutoff = Date.now() - 10 * 60 * 1000;
-      for (const [dedupeKey, value] of runtime.outboundSendDedupe.entries()) {
-        if (value.ts < cutoff) runtime.outboundSendDedupe.delete(dedupeKey);
-      }
-    }
-    return {
-      ...result,
-      policyHash: resolvedPolicyHash,
-      sendFingerprint,
-    };
   });
 
   methods.register('policy.get', async () => {
@@ -2411,6 +2458,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!text) throw new Error('invalid_intent_text');
     const channel = parseChannel(params.channel) ?? 'wechat';
     const destination = parseText(params.destination);
+    const sessionID = parseText(params.sessionID) || 'main';
     const intent = detectMultimodalIntent(text);
     if (intent.type === 'selfie') {
       const generated = await generateImage(projectDir, {
@@ -2427,17 +2475,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           message: 'selfie_generated_destination_missing',
         };
       }
-      const send = await runtime.channelRuntime.sendMessage({
+      const send = await sendChannelMessageGuarded(projectDir, runtime, {
         channel,
         destination,
         text: '给你一张我的自拍',
         mediaPath: generated.media.localPath,
+        sessionID,
+        policyHash: currentPolicyHash(projectDir),
         outboundCheck: {
           archAdvisorApproved: true,
-          riskLevel: 'LOW',
           intent: 'reply',
-          containsSensitive: false,
-          policyHash: currentPolicyHash(projectDir),
         },
       });
       return {
@@ -2458,17 +2505,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         format: 'wav',
         registerAsCompanionAsset: true,
       });
-      const send = await runtime.channelRuntime.sendMessage({
+      const send = await sendChannelMessageGuarded(projectDir, runtime, {
         channel: 'wechat',
         destination: resolvedDestination,
         text: '语音消息已生成',
         mediaPath: voice.media.localPath,
+        sessionID,
+        policyHash: currentPolicyHash(projectDir),
         outboundCheck: {
           archAdvisorApproved: true,
-          riskLevel: 'LOW',
           intent: 'reply',
-          containsSensitive: false,
-          policyHash: currentPolicyHash(projectDir),
         },
       });
       return {
