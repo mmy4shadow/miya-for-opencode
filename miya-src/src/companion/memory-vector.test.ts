@@ -85,4 +85,31 @@ describe('companion memory vectors', () => {
     });
     expect(normal.length).toBeGreaterThan(0);
   });
+
+  test('direct correction force-overwrites conflicting memory', () => {
+    const projectDir = tempProjectDir();
+    const oldMem = upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢抹茶拿铁',
+      source: 'test',
+      activate: true,
+      sourceType: 'conversation',
+      confidence: 0.9,
+    });
+    const corrected = upsertCompanionMemoryVector(projectDir, {
+      text: '我不喜欢抹茶拿铁',
+      source: 'test',
+      activate: false,
+      sourceType: 'direct_correction',
+      confidence: 0.7,
+    });
+    expect(corrected.status).toBe('active');
+    const all = searchCompanionMemoryVectors(projectDir, '抹茶拿铁', 10, { threshold: 0 });
+    expect(all.some((item) => item.id === corrected.id)).toBe(true);
+    const vectors = listPendingCompanionMemoryVectors(projectDir);
+    expect(vectors.some((item) => item.id === corrected.id)).toBe(false);
+    const pendingCorrections = listCompanionMemoryCorrections(projectDir);
+    expect(pendingCorrections.length).toBe(0);
+    const storeHit = searchCompanionMemoryVectors(projectDir, '不喜欢 抹茶拿铁', 5, { threshold: 0 });
+    expect(storeHit.some((item) => item.id === corrected.id)).toBe(true);
+  });
 });

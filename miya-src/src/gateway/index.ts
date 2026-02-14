@@ -3380,6 +3380,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       text: fact,
       source: 'conversation',
       activate: false,
+      sourceType:
+        parseText(params.sourceType) === 'direct_correction'
+          ? 'direct_correction'
+          : 'conversation',
     });
     const profile = syncCompanionProfileMemoryFacts(projectDir);
     return {

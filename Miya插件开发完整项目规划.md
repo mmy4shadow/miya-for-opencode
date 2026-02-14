@@ -1157,9 +1157,10 @@ S_old = C_old * exp(-lambda * (t_now - t_old))
 - ✅ **已完成（2026-02-14）**：会话入口已自动写入 `short-term-history`，不再依赖手工调用日志接口。
 - ✅ **已完成（2026-02-14）**：`miya.memory.reflect` 已支持 `idempotencyKey` 与冷却窗口，避免重复反思污染记忆。
 - ✅ **已完成（2026-02-14）**：记忆检索已升级为动态评分裁剪（相似度+时效+重要度）并支持 `threshold` 过滤。
+- ✅ **已完成（2026-02-14）**：冲突更新策略已升级为“时间衰减+置信度加权”决策，并支持 `sourceType=direct_correction` 强制覆盖旧值。
 - ✅ **已完成（2026-02-14）**：Context Hydraulic Press 已注入 Agent Persona 路由策略（双流上下文 + 动态配额 + Priority-0 中断协议）。
 - ✅ **已完成（2026-02-14）**：存储层 `SQLite First` 已落地（`memory/memories.sqlite` + `memories` + `memories_vss`），并与现有 JSON 记忆写入路径自动同步（Cold/Hot 双层共存）。
-- ✅ **测试通过（2026-02-14）**：`bun test miya-src/src/agents/index.test.ts miya-src/src/companion/memory-sqlite.test.ts miya-src/src/companion/memory-vector.test.ts miya-src/src/companion/memory-reflect.test.ts`（31/31 通过）。
+- ✅ **测试通过（2026-02-14）**：`bun test miya-src/src/agents/index.test.ts miya-src/src/companion/memory-sqlite.test.ts miya-src/src/companion/memory-vector.test.ts miya-src/src/companion/memory-reflect.test.ts`（32/32 通过）。
 
 #### **1）存储层：SQLite First（避免引入重图数据库）**
 - V1 不引入 Nebula/Neo4j，使用 SQLite 模拟图结构 + 向量表。

@@ -13,6 +13,7 @@ export interface CompanionMemoryVector {
   confidence: number;
   tier: 'L1' | 'L2' | 'L3';
   sourceMessageID?: string;
+  sourceType?: 'manual' | 'conversation' | 'reflect' | 'direct_correction';
   status: 'pending' | 'active' | 'superseded';
   conflictKey?: string;
   conflictWizardID?: string;
@@ -79,6 +80,13 @@ function readStore(projectDir: string): MemoryVectorStore {
               typeof item.sourceMessageID === 'string' && item.sourceMessageID.trim()
                 ? item.sourceMessageID
                 : undefined,
+            sourceType:
+              item.sourceType === 'manual' ||
+              item.sourceType === 'conversation' ||
+              item.sourceType === 'reflect' ||
+              item.sourceType === 'direct_correction'
+                ? item.sourceType
+                : 'manual',
             status:
               item.status === 'active' ||
               item.status === 'pending' ||
@@ -198,6 +206,7 @@ export function upsertCompanionMemoryVector(
     confidence?: number;
     tier?: 'L1' | 'L2' | 'L3';
     sourceMessageID?: string;
+    sourceType?: 'manual' | 'conversation' | 'reflect' | 'direct_correction';
   },
 ): CompanionMemoryVector {
   const text = normalizeText(input.text);
@@ -245,6 +254,7 @@ export function upsertCompanionMemoryVector(
     confidence,
     tier: input.tier ?? (confidence >= 0.95 ? 'L1' : confidence >= 0.6 ? 'L2' : 'L3'),
     sourceMessageID: input.sourceMessageID,
+    sourceType: input.sourceType ?? 'manual',
     status: input.activate ? 'active' : 'pending',
     conflictKey: preference.key,
     accessCount: 0,
@@ -255,30 +265,52 @@ export function upsertCompanionMemoryVector(
   };
 
   if (preference.key && preference.polarity !== 'neutral') {
-    const conflicting: string[] = [];
+    const conflicting: CompanionMemoryVector[] = [];
     for (const item of store.items) {
       if (item.status === 'superseded') continue;
       const other = extractConflictKey(item.text);
       if (!other.key || other.key !== preference.key || other.polarity === 'neutral') continue;
       if (other.polarity !== preference.polarity) {
-        conflicting.push(item.id);
+        conflicting.push(item);
       }
     }
     if (conflicting.length > 0) {
-      const correctionStore = readCorrectionStore(projectDir);
-      const wizard: CompanionMemoryCorrection = {
-        id: `mcw_${randomUUID()}`,
-        conflictKey: preference.key,
-        candidateMemoryID: created.id,
-        existingMemoryIDs: conflicting,
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now,
-      };
-      correctionStore.items = [wizard, ...correctionStore.items].slice(0, 1000);
-      writeCorrectionStore(projectDir, correctionStore);
-      created.conflictWizardID = wizard.id;
-      created.status = 'pending';
+      const lambda = Math.log(2) / 30;
+      const newScore = created.confidence;
+      const scored = conflicting.map((item) => {
+        const ageDays = Math.max(0, (Date.now() - Date.parse(item.lastAccessedAt)) / (24 * 3600 * 1000));
+        const score = item.confidence * Math.exp(-lambda * ageDays);
+        return { item, score };
+      });
+      const strongestOld = scored.sort((a, b) => b.score - a.score)[0];
+      const threshold = 0.1;
+      const forceOverride = created.sourceType === 'direct_correction';
+      const shouldOverwrite =
+        forceOverride || (strongestOld ? newScore > strongestOld.score + threshold : false);
+
+      if (shouldOverwrite) {
+        created.status = 'active';
+        for (const other of conflicting) {
+          other.status = 'superseded';
+          other.supersededBy = created.id;
+          other.updatedAt = now;
+        }
+      } else {
+        const correctionStore = readCorrectionStore(projectDir);
+        const wizard: CompanionMemoryCorrection = {
+          id: `mcw_${randomUUID()}`,
+          conflictKey: preference.key,
+          candidateMemoryID: created.id,
+          existingMemoryIDs: conflicting.map((item) => item.id),
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now,
+        };
+        correctionStore.items = [wizard, ...correctionStore.items].slice(0, 1000);
+        writeCorrectionStore(projectDir, correctionStore);
+        created.conflictWizardID = wizard.id;
+        created.status = 'pending';
+      }
     }
   }
 
