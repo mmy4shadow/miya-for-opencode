@@ -149,6 +149,7 @@ interface GatewaySnapshot {
   updatedAt: string;
   gateway: GatewayState;
   daemon: ReturnType<typeof getLauncherDaemonSnapshot>;
+  policyHash: string;
   configCenter: Record<string, unknown>;
   killSwitch: ReturnType<typeof readKillSwitch>;
   safety: {
@@ -450,6 +451,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
     updatedAt: nowIso(),
     gateway: syncGatewayState(projectDir, runtime),
     daemon: getLauncherDaemonSnapshot(projectDir),
+    policyHash: currentPolicyHash(projectDir),
     configCenter: readConfig(projectDir),
     killSwitch: kill,
     safety: {
@@ -616,623 +618,151 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Miya 控制面板 | Control Plane</title>
+  <title>Miya Gateway React</title>
   <style>
-    :root {
-      --bg-primary: #0d1117;
-      --bg-secondary: #161b22;
-      --bg-tertiary: #21262d;
-      --border-color: #30363d;
-      --text-primary: #e6edf3;
-      --text-secondary: #7d8590;
-      --accent-blue: #2f81f7;
-      --accent-green: #3fb950;
-      --accent-red: #f85149;
-      --accent-yellow: #d29922;
-      --accent-purple: #a371f7;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      min-height: 100vh;
-    }
-    
-    /* Top Navigation Bar - OpenCode Style */
-    .top-nav {
-      background: var(--bg-secondary);
-      border-bottom: 1px solid var(--border-color);
-      padding: 0 24px;
-      height: 64px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    .nav-brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .nav-brand h1 {
-      font-size: 20px;
-      font-weight: 600;
-    }
-    .nav-brand .subtitle {
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-    .nav-tabs {
-      display: flex;
-      gap: 4px;
-      flex: 1;
-      justify-content: center;
-      max-width: 800px;
-    }
-    .nav-tab {
-      padding: 8px 16px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s;
-      font-size: 14px;
-      border: none;
-      background: transparent;
-      color: var(--text-secondary);
-    }
-    .nav-tab:hover { 
-      background: var(--bg-tertiary); 
-      color: var(--text-primary);
-    }
-    .nav-tab.active { 
-      background: var(--accent-blue); 
-      color: white;
-    }
-    .nav-actions {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-    .status-badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      border-radius: 12px;
-      font-size: 12px;
-      background: var(--bg-tertiary);
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-    }
-    .status-online { background: var(--accent-green); }
-    .status-warning { background: var(--accent-yellow); }
-    .status-error { background: var(--accent-red); }
-    
-    /* Main Content */
-    .main-content {
-      padding: 24px;
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-    
-    /* Header */
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 24px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border-color);
-    }
-    .header-left h2 { font-size: 24px; font-weight: 600; }
-    .header-actions { display: flex; gap: 12px; }
-    .btn {
-      padding: 8px 16px;
-      border-radius: 6px;
-      border: 1px solid var(--border-color);
-      background: var(--bg-secondary);
-      color: var(--text-primary);
-      cursor: pointer;
-      font-size: 14px;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .btn:hover { background: var(--bg-tertiary); }
-    .btn-primary { 
-      background: var(--accent-blue); 
-      border-color: var(--accent-blue);
-      color: white;
-    }
-    .btn-primary:hover { opacity: 0.9; }
-    .btn-danger { 
-      background: var(--accent-red); 
-      border-color: var(--accent-red);
-      color: white;
-    }
-    
-    /* Cards Grid */
-    .cards-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .stat-card {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-color);
-      border-radius: 12px;
-      padding: 20px;
-      transition: all 0.2s;
-    }
-    .stat-card:hover { border-color: var(--accent-blue); }
-    .stat-card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-    .stat-card-title {
-      font-size: 13px;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .stat-card-icon { font-size: 20px; }
-    .stat-card-value {
-      font-size: 32px;
-      font-weight: 700;
-      margin-bottom: 4px;
-    }
-    .stat-card-subtitle {
-      font-size: 13px;
-      color: var(--text-secondary);
-    }
-    
-    /* Content Sections */
-    .section {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border-color);
-      border-radius: 12px;
-      margin-bottom: 20px;
-      overflow: hidden;
-    }
-    .section-header {
-      padding: 16px 20px;
-      border-bottom: 1px solid var(--border-color);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .section-title {
-      font-size: 16px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .section-content {
-      padding: 20px;
-      font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      white-space: pre-wrap;
-      overflow-x: auto;
-      max-height: 500px;
-      overflow-y: auto;
-    }
-    
-    /* Agent Status */
-    .agent-list {
-      display: grid;
-      gap: 12px;
-    }
-    .agent-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 16px;
-      background: var(--bg-tertiary);
-      border-radius: 8px;
-      border: 1px solid transparent;
-    }
-    .agent-item:hover { border-color: var(--border-color); }
-    .agent-avatar {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      background: var(--accent-blue);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 600;
-      font-size: 14px;
-    }
-    .agent-info { flex: 1; }
-    .agent-name { font-weight: 500; margin-bottom: 2px; }
-    .agent-desc { font-size: 12px; color: var(--text-secondary); }
-    .agent-status {
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      background: var(--bg-secondary);
-    }
-    .agent-status.active { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
-    
-    /* Loop Progress */
-    .loop-indicator {
-      display: flex;
-      gap: 8px;
-      margin-top: 12px;
-    }
-    .loop-dot {
-      width: 32px;
-      height: 6px;
-      border-radius: 3px;
-      background: var(--bg-tertiary);
-      transition: all 0.3s;
-    }
-    .loop-dot.active { background: var(--accent-blue); }
-    .loop-dot.completed { background: var(--accent-green); }
-    
-    /* Kill Switch Banner */
-    .killswitch-banner {
-      background: var(--accent-red);
-      color: white;
-      padding: 12px 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-weight: 500;
-    }
-    
-    /* Responsive */
-    @media (max-width: 768px) {
-      .main-content { padding: 16px; }
-      .cards-grid { grid-template-columns: repeat(2, 1fr); }
-      .nav-tabs { display: none; }
-    }
-    
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: var(--bg-secondary); }
-    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+    body { margin: 0; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #0f172a; color: #e2e8f0; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); margin-bottom: 12px; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; }
+    .title { color: #93c5fd; font-size: 12px; text-transform: uppercase; }
+    .value { font-size: 20px; font-weight: 700; margin-top: 6px; }
+    .ok { color: #4ade80; }
+    .bad { color: #f87171; }
+    textarea { width: 100%; min-height: 220px; resize: vertical; background: #020617; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px; font-family: Consolas, monospace; }
+    button { background: #2563eb; color: #fff; border: none; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .line { margin: 6px 0; color: #cbd5e1; font-size: 13px; }
   </style>
 </head>
 <body>
-  <!-- Top Navigation - OpenCode Style -->
-  <nav class="top-nav">
-    <div class="nav-brand">
-      <h1>🤖 Miya <span style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">| Control Plane</span></h1>
-    </div>
-    <div class="nav-tabs">
-      <button class="nav-tab active" data-tab="overview" onclick="switchTab('overview')">📊 总览</button>
-      <button class="nav-tab" data-tab="agents" onclick="switchTab('agents')">👥 代理</button>
-      <button class="nav-tab" data-tab="autopilot" onclick="switchTab('autopilot')">🚀 自动运行</button>
-      <button class="nav-tab" data-tab="approval" onclick="switchTab('approval')">🔒 安全</button>
-      <button class="nav-tab" data-tab="jobs" onclick="switchTab('jobs')">⏰ 任务</button>
-      <button class="nav-tab" data-tab="nodes" onclick="switchTab('nodes')">🖥️ 节点</button>
-      <button class="nav-tab" data-tab="logs" onclick="switchTab('logs')">📋 日志</button>
-    </div>
-    <div class="nav-actions">
-      <div class="status-badge">
-        <span class="status-dot status-online" id="status-dot"></span>
-        <span id="status-text">运行中</span>
-      </div>
-      <button class="btn" onclick="refreshStatus()">🔄 刷新</button>
-      <button class="btn btn-danger" onclick="activateKillSwitch()">🛑 紧急停止</button>
-    </div>
-  </nav>
+  <div id="root"></div>
+  <script>window.__MIYA_SNAPSHOT__ = ${payload};</script>
+  <script type="module">
+    import React, { useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
+    import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 
-  <!-- Main Content -->
-  <main class="main-content">
-    <div id="killswitch-banner" style="display:none" class="killswitch-banner">
-      <span>⚠️ KILL SWITCH 已激活 - 所有副作用操作已被阻止</span>
-      <button class="btn" onclick="releaseKillSwitch()">解除 | Release</button>
-    </div>
-    
-    <div class="header">
-      <div class="header-left">
-        <h2 id="page-title">系统总览 | Overview</h2>
-      </div>
-      <div class="header-actions">
-        <!-- Actions moved to top nav -->
-      </div>
-    </div>
+    function App() {
+      const [state, setState] = useState(window.__MIYA_SNAPSHOT__);
+      const [patchText, setPatchText] = useState('{"set":{},"unset":[]}');
+      const [saveState, setSaveState] = useState("idle");
+      const wsRef = useRef(null);
+      const reqRef = useRef(1);
+      const pendingRef = useRef(new Map());
 
-    <!-- Stats Cards -->
-    <div class="cards-grid">
-      <div class="stat-card">
-        <div class="stat-card-header">
-          <span class="stat-card-title">活跃会话</span>
-          <span class="stat-card-icon">💬</span>
-        </div>
-        <div class="stat-card-value" id="stat-sessions">0</div>
-        <div class="stat-card-subtitle">Active Sessions</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-card-header">
-          <span class="stat-card-title">定时任务</span>
-          <span class="stat-card-icon">⏰</span>
-        </div>
-        <div class="stat-card-value" id="stat-jobs">0</div>
-        <div class="stat-card-subtitle">Scheduled Jobs</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-card-header">
-          <span class="stat-card-title">已连接节点</span>
-          <span class="stat-card-icon">🖥️</span>
-        </div>
-        <div class="stat-card-value" id="stat-nodes">0</div>
-        <div class="stat-card-subtitle">Connected Nodes</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-card-header">
-          <span class="stat-card-title">Daemon 状态</span>
-          <span class="stat-card-icon">🧠</span>
-        </div>
-        <div class="stat-card-value" id="stat-daemon">--</div>
-        <div class="stat-card-subtitle">CPU / VRAM / Uptime</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-card-header">
-          <span class="stat-card-title">循环次数</span>
-          <span class="stat-card-icon">🔄</span>
-        </div>
-        <div class="stat-card-value" id="stat-iterations">0/3</div>
-        <div class="loop-indicator">
-          <div class="loop-dot" id="loop-1"></div>
-          <div class="loop-dot" id="loop-2"></div>
-          <div class="loop-dot" id="loop-3"></div>
-        </div>
-      </div>
-    </div>
+      const daemonOk = Boolean(state?.daemon?.connected);
+      const daemonLabel = daemonOk ? "Miya Daemon Connected" : (state?.daemon?.statusText || "Miya Daemon Disconnected");
 
-    <!-- Agents Section -->
-    <div id="agents-section" class="section">
-      <div class="section-header">
-        <div class="section-title">
-          <span>👥</span>
-          <span>六代理状态 | Agent Status</span>
-        </div>
-      </div>
-      <div class="section-content">
-        <div class="agent-list" id="agent-list"></div>
-      </div>
-    </div>
+      const daemonStats = useMemo(() => {
+        const cpu = typeof state?.daemon?.cpuPercent === "number" ? state.daemon.cpuPercent.toFixed(1) + "%" : "--";
+        const vu = typeof state?.daemon?.vramUsedMB === "number" ? state.daemon.vramUsedMB : "--";
+        const vt = typeof state?.daemon?.vramTotalMB === "number" ? state.daemon.vramTotalMB : "--";
+        const up = typeof state?.daemon?.uptimeSec === "number" ? state.daemon.uptimeSec + "s" : "--";
+        return cpu + " | " + vu + "/" + vt + " MB | " + up;
+      }, [state]);
 
-    <!-- Main Panel -->
-    <div class="section">
-      <div class="section-header">
-        <div class="section-title">
-          <span id="panel-icon">📊</span>
-          <span id="panel-title">详细信息 | Details</span>
-        </div>
-      </div>
-      <div class="section-content" id="panel-content">Loading...</div>
-    </div>
-  </main>
+      const sendReq = (method, params) => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("ws_not_open"));
+        const id = "r-" + reqRef.current++;
+        ws.send(JSON.stringify({ type: "request", id, method, params }));
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            pendingRef.current.delete(id);
+            reject(new Error("request_timeout"));
+          }, 8000);
+          pendingRef.current.set(id, { resolve, reject, timer });
+        });
+      };
 
-<script>
-  const stateData = ${payload};
-  let currentTab = 'overview';
-  let state = stateData;
+      useEffect(() => {
+        const load = async () => {
+          try {
+            const res = await fetch("/api/status", { cache: "no-store" });
+            const data = await res.json();
+            setState(data);
+          } catch {}
+        };
+        load();
+        const timer = setInterval(load, 3000);
+        return () => clearInterval(timer);
+      }, []);
 
-  const tabs = {
-    overview: { title: '系统总览 | Overview', icon: '📊' },
-    agents: { title: '代理状态 | Agents', icon: '👥' },
-    autopilot: { title: '自动运行 | Autopilot', icon: '🚀' },
-    approval: { title: '安全状态 | Safety', icon: '🔒' },
-    jobs: { title: '定时任务 | Jobs', icon: '⏰' },
-    nodes: { title: '节点管理 | Nodes', icon: '🖥️' },
-    logs: { title: '系统日志 | Logs', icon: '📋' }
-  };
-
-  const agents = [
-    { id: '1-task-manager', name: 'Task Manager', desc: '指挥 - 任务分解与协调', color: '#2f81f7' },
-    { id: '2-code-search', name: 'Code Search', desc: '侦察 - 代码定位与现状分析', color: '#3fb950' },
-    { id: '3-docs-helper', name: 'Docs Helper', desc: '查证 - 文档证据与依据', color: '#d29922' },
-    { id: '4-architecture-advisor', name: 'Arch Advisor', desc: '决策 - 风险评估与方案选择', color: '#a371f7' },
-    { id: '5-code-fixer', name: 'Code Fixer', desc: '执行 - 代码实现与落地', color: '#f778ba' },
-    { id: '6-ui-designer', name: 'UI Designer', desc: '呈现 - 界面设计与交互', color: '#56d364' }
-  ];
-
-  function renderAgentList() {
-    const container = document.getElementById('agent-list');
-    if (!container) return;
-    
-    container.innerHTML = agents.map(agent => \`
-      <div class="agent-item">
-        <div class="agent-avatar" style="background: \${agent.color}">\${agent.id.split('-')[0]}</div>
-        <div class="agent-info">
-          <div class="agent-name">\${agent.name}</div>
-          <div class="agent-desc">\${agent.desc}</div>
-        </div>
-        <span class="agent-status active">就绪</span>
-      </div>
-    \`).join('');
-  }
-
-  function updateStats() {
-    document.getElementById('stat-sessions').textContent = state.sessions?.total || 0;
-    document.getElementById('stat-jobs').textContent = (state.jobs?.enabled || 0) + '/' + (state.jobs?.total || 0);
-    document.getElementById('stat-nodes').textContent = (state.nodes?.connected || 0) + '/' + (state.nodes?.total || 0);
-    const daemonConnected = Boolean(state.daemon?.connected);
-    const daemonCpu = typeof state.daemon?.cpuPercent === 'number' ? state.daemon.cpuPercent.toFixed(1) + '%' : '--';
-    const daemonVramUsed = typeof state.daemon?.vramUsedMB === 'number' ? state.daemon.vramUsedMB : '--';
-    const daemonVramTotal = typeof state.daemon?.vramTotalMB === 'number' ? state.daemon.vramTotalMB : '--';
-    const daemonUptime = typeof state.daemon?.uptimeSec === 'number' ? state.daemon.uptimeSec + 's' : '--';
-    document.getElementById('stat-daemon').textContent =
-      daemonConnected ? (daemonCpu + ' | ' + daemonVramUsed + '/' + daemonVramTotal + 'MB | ' + daemonUptime) : 'Offline';
-    const statusDot = document.getElementById('status-dot');
-    const statusText = document.getElementById('status-text');
-    if (statusDot) statusDot.className = daemonConnected ? 'status-dot status-online' : 'status-dot status-error';
-    if (statusText) statusText.textContent = daemonConnected ? 'Miya Daemon Connected' : (state.daemon?.statusText || 'Miya Daemon Disconnected');
-    
-    const iter = state.loop?.iterationCompleted || 0;
-    const maxIter = state.loop?.maxIterationsPerWindow || 3;
-    document.getElementById('stat-iterations').textContent = iter + '/' + maxIter;
-    
-    // Update loop dots
-    for (let i = 1; i <= 3; i++) {
-      const dot = document.getElementById('loop-' + i);
-      if (dot) {
-        dot.className = 'loop-dot';
-        if (i <= iter) dot.classList.add('completed');
-        else if (i === iter + 1) dot.classList.add('active');
-      }
-    }
-    
-    // Update kill switch banner
-    const ksBanner = document.getElementById('killswitch-banner');
-    if (ksBanner) {
-      ksBanner.style.display = state.killSwitch?.active ? 'flex' : 'none';
-    }
-  }
-
-  function renderPanel() {
-    const icon = document.getElementById('panel-icon');
-    const title = document.getElementById('panel-title');
-    const content = document.getElementById('panel-content');
-    
-    if (icon) icon.textContent = tabs[currentTab].icon;
-    if (title) title.textContent = tabs[currentTab].title;
-    
-    let data = {};
-    switch(currentTab) {
-      case 'overview':
-        data = {
-          gateway: state.gateway,
-          daemon: state.daemon,
-          configCenter: state.configCenter,
-          sessions: { total: state.sessions?.total, active: state.sessions?.active },
-          jobs: { enabled: state.jobs?.enabled, pending: state.jobs?.pendingApprovals },
-          loop: { 
-            enabled: state.loop?.loopEnabled,
-            iteration: state.loop?.iterationCompleted,
-            max: state.loop?.maxIterationsPerWindow
+      useEffect(() => {
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        const token = new URLSearchParams(location.search).get("token") || localStorage.getItem("miya_gateway_token") || "";
+        if (token) localStorage.setItem("miya_gateway_token", token);
+        const ws = new WebSocket(proto + "://" + location.host + "/ws");
+        wsRef.current = ws;
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "hello", role: "ui", protocolVersion: "1.0", auth: token ? { token } : undefined }));
+          ws.send(JSON.stringify({ type: "request", id: "sub", method: "gateway.subscribe", params: { events: ["*"] } }));
+        };
+        ws.onmessage = (evt) => {
+          try {
+            const frame = JSON.parse(evt.data);
+            if (frame.type === "event" && frame.event === "gateway.snapshot") {
+              setState(frame.payload);
+              return;
+            }
+            if (frame.type === "response") {
+              const pending = pendingRef.current.get(frame.id);
+              if (!pending) return;
+              pendingRef.current.delete(frame.id);
+              clearTimeout(pending.timer);
+              if (frame.ok) pending.resolve(frame.result);
+              else pending.reject(new Error(frame.error?.message || "request_failed"));
+            }
+          } catch {}
+        };
+        return () => {
+          for (const p of pendingRef.current.values()) {
+            clearTimeout(p.timer);
+            p.reject(new Error("ws_closed"));
           }
+          pendingRef.current.clear();
+          try { ws.close(); } catch {}
         };
-        break;
-      case 'autopilot':
-        data = state.loop || {};
-        break;
-      case 'approval':
-        data = {
-          killSwitch: state.killSwitch,
-          safety: state.safety,
-          doctor: state.doctor
-        };
-        break;
-      case 'jobs':
-        data = state.jobs || {};
-        break;
-      case 'nodes':
-        data = state.nodes || {};
-        break;
-      case 'logs':
-        data = {
-          background: state.background,
-          channel: state.channels,
-          daemon: state.daemon,
-          recentRuns: state.jobs?.recentRuns?.slice(0, 5)
-        };
-        break;
+      }, []);
+
+      const saveConfig = async () => {
+        setSaveState("saving");
+        try {
+          const patch = JSON.parse(patchText);
+          await sendReq("config.center.patch", { patch, policyHash: state?.policyHash });
+          setSaveState("ok");
+        } catch (err) {
+          setSaveState("error:" + String(err?.message || err));
+        }
+      };
+
+      return React.createElement("div", { className: "wrap" },
+        React.createElement("h2", null, "Miya Gateway (React Prototype)"),
+        React.createElement("div", { className: "line " + (daemonOk ? "ok" : "bad") }, daemonLabel),
+        React.createElement("div", { className: "row" },
+          React.createElement("div", { className: "card" },
+            React.createElement("div", { className: "title" }, "Daemon CPU/VRAM/Uptime"),
+            React.createElement("div", { className: "value" }, daemonStats)),
+          React.createElement("div", { className: "card" },
+            React.createElement("div", { className: "title" }, "Sessions"),
+            React.createElement("div", { className: "value" }, String(state?.sessions?.active || 0) + "/" + String(state?.sessions?.total || 0))),
+          React.createElement("div", { className: "card" },
+            React.createElement("div", { className: "title" }, "Jobs"),
+            React.createElement("div", { className: "value" }, String(state?.jobs?.enabled || 0) + "/" + String(state?.jobs?.total || 0))),
+          React.createElement("div", { className: "card" },
+            React.createElement("div", { className: "title" }, "Policy Hash"),
+            React.createElement("div", { className: "line" }, state?.policyHash || "--"))),
+        React.createElement("div", { className: "card" },
+          React.createElement("div", { className: "title" }, "Configuration Center (read/write .opencode/miya/config.json)"),
+          React.createElement("div", { className: "line" }, "Patch JSON format: { set: {\"ui.language\":\"zh-CN\"}, unset: [] }"),
+          React.createElement("textarea", { value: patchText, onChange: (e) => setPatchText(e.target.value) }),
+          React.createElement("div", { style: { marginTop: "8px", display: "flex", gap: "8px", alignItems: "center" } },
+            React.createElement("button", { onClick: saveConfig, disabled: saveState === "saving" }, "保存配置"),
+            React.createElement("span", { className: "line" }, saveState)),
+          React.createElement("pre", { className: "line", style: { whiteSpace: "pre-wrap", maxHeight: "220px", overflow: "auto" } }, JSON.stringify(state?.configCenter || {}, null, 2))));
     }
-    
-    if (content) content.textContent = JSON.stringify(data, null, 2);
-  }
 
-  function switchTab(tab) {
-    currentTab = tab;
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    document.querySelector('[data-tab="' + tab + '"]').classList.add('active');
-    document.getElementById('page-title').textContent = tabs[tab].title;
-    
-    const agentsSection = document.getElementById('agents-section');
-    if (agentsSection) {
-      agentsSection.style.display = tab === 'agents' ? 'block' : 'none';
-    }
-    
-    renderPanel();
-  }
-
-  function refreshStatus() {
-    fetch('/api/status', { cache: 'no-store' })
-      .then(r => r.json())
-      .then(data => { state = data; updateStats(); renderPanel(); })
-      .catch(console.error);
-  }
-
-  function activateKillSwitch() {
-    if (confirm('确定要激活 Kill Switch 吗？这将阻止所有副作用操作。')) {
-      fetch('/api/killswitch/activate', { method: 'POST' })
-        .then(() => refreshStatus())
-        .catch(console.error);
-    }
-  }
-
-  function releaseKillSwitch() {
-    fetch('/api/killswitch/release', { method: 'POST' })
-      .then(() => refreshStatus())
-      .catch(console.error);
-  }
-
-  // Initialize
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.addEventListener('click', () => switchTab(el.dataset.tab));
-  });
-
-  renderAgentList();
-  updateStats();
-  renderPanel();
-
-  // WebSocket connection
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(proto + '://' + location.host + '/ws');
-  
-  ws.onopen = () => {
-    const token = new URLSearchParams(location.search).get('token') || 
-                  localStorage.getItem('miya_gateway_token') || '';
-    if (token) localStorage.setItem('miya_gateway_token', token);
-    
-    ws.send(JSON.stringify({
-      type: 'hello',
-      role: 'ui',
-      protocolVersion: '1.0',
-      auth: token ? { token } : undefined
-    }));
-    ws.send(JSON.stringify({
-      type: 'request',
-      id: 'sub',
-      method: 'gateway.subscribe',
-      params: { events: ['*'] }
-    }));
-  };
-
-  ws.onmessage = (event) => {
-    try {
-      const frame = JSON.parse(event.data);
-      if (frame.type === 'event' && frame.event === 'gateway.snapshot') {
-        state = frame.payload;
-        updateStats();
-        renderPanel();
-      }
-    } catch (e) {}
-  };
-
-  // Auto refresh every 3 seconds
-  setInterval(refreshStatus, 3000);
-</script>
+    createRoot(document.getElementById("root")).render(React.createElement(App));
+  </script>
 </body>
 </html>`;
 }
@@ -2697,7 +2227,11 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       }
 
       const controlUiResponse = handleControlUiHttpRequest(request, controlUi);
-      if (controlUiResponse) return controlUiResponse;
+      if (controlUiResponse) {
+        const missingUiFallback =
+          controlUiResponse.status === 503 && controlUi.root?.kind !== 'resolved';
+        if (!missingUiFallback) return controlUiResponse;
+      }
 
       if (url.pathname === '/webchat') {
         return new Response(renderWebChatHtml(), {

@@ -137,7 +137,7 @@ function writeParentLock(runtime: LauncherRuntime): void {
 }
 
 function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void {
-  const url = `ws://127.0.0.1:${lock.wsPort}/ws?token=${encodeURIComponent(lock.token)}`;
+  const url = `ws://127.0.0.1:${lock.wsPort}/ws?token=${encodeURIComponent(runtime.daemonToken)}`;
   const ws = new WebSocket(url);
   runtime.ws = ws;
 
@@ -305,8 +305,9 @@ function ensureDaemonLaunched(runtime: LauncherRuntime): void {
     lock &&
     Number.isFinite(Date.parse(lock.updatedAt)) &&
     Date.now() - Date.parse(lock.updatedAt) < 30_000;
+  const lockOwnedByLauncher = Boolean(lock) && lock?.token === runtime.daemonToken;
 
-  if (!lockFresh) {
+  if (!lockFresh || !lockOwnedByLauncher) {
     spawnDaemon(runtime);
     scheduleReconnect(runtime);
     return;
@@ -381,6 +382,9 @@ export function stopMiyaLauncher(projectDir: string): void {
   const runtime = runtimes.get(projectDir);
   if (!runtime) return;
   cleanupRuntime(runtime);
+  try {
+    fs.rmSync(runtime.parentLockFile, { force: true });
+  } catch {}
   runtimes.delete(projectDir);
 }
 
@@ -392,4 +396,3 @@ process.on('exit', () => {
     } catch {}
   }
 });
-

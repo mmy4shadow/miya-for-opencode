@@ -14,7 +14,11 @@ import {
   startGatewayWithLog,
 } from './gateway';
 import { createIntakeTools } from './intake';
-import { ensureMiyaLauncher, getMiyaDaemonService } from './daemon';
+import {
+  ensureMiyaLauncher,
+  getLauncherDaemonSnapshot,
+  getMiyaDaemonService,
+} from './daemon';
 import {
   createLoopGuardHook,
   createPhaseReminderHook,
@@ -73,6 +77,22 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
   const daemonLaunch = ensureMiyaLauncher(ctx.directory);
   log('[miya-launcher] daemon bootstrap', daemonLaunch);
+  setTimeout(async () => {
+    try {
+      const daemon = getLauncherDaemonSnapshot(ctx.directory);
+      await ctx.client.tui.showToast({
+        query: { directory: ctx.directory },
+        body: {
+          title: 'Miya',
+          message: daemon.connected
+            ? 'Miya Daemon Connected'
+            : daemon.statusText || 'Miya Daemon Connecting',
+          variant: daemon.connected ? 'success' : 'info',
+          duration: 3000,
+        },
+      });
+    } catch {}
+  }, 4000);
   const daemonService = getMiyaDaemonService(ctx.directory);
   daemonService.start();
   const automationService = new MiyaAutomationService(ctx.directory);
