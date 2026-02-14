@@ -65,6 +65,13 @@ import {
   verifyOwnerPasswordOnly,
   verifyOwnerSecrets,
 } from '../security/owner-identity';
+import {
+  approveOwnerSyncToken,
+  consumeOwnerSyncToken,
+  detectOwnerSyncTokenFromText,
+  issueOwnerSyncToken,
+  verifyOwnerSyncToken,
+} from '../security/owner-sync';
 import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
 import {
   appendVoiceHistory,
@@ -680,6 +687,57 @@ async function enforceCriticalIntentGuard(
   return true;
 }
 
+function collectStringValues(input: unknown, maxItems = 40): string[] {
+  const out: string[] = [];
+  const stack: unknown[] = [input];
+  while (stack.length > 0 && out.length < maxItems) {
+    const current = stack.pop();
+    if (typeof current === 'string') {
+      const text = current.trim();
+      if (text.length > 0) out.push(text);
+      continue;
+    }
+    if (!current || typeof current !== 'object') continue;
+    if (Array.isArray(current)) {
+      for (const item of current) stack.push(item);
+      continue;
+    }
+    for (const value of Object.values(current as Record<string, unknown>)) {
+      stack.push(value);
+    }
+  }
+  return out;
+}
+
+function shouldGuardMethod(method: string): boolean {
+  if (method.startsWith('policy.') || method.startsWith('gateway.') || method.startsWith('doctor.')) {
+    return false;
+  }
+  return true;
+}
+
+async function invokeGatewayMethod(
+  projectDir: string,
+  runtime: GatewayRuntime,
+  method: string,
+  params: Record<string, unknown>,
+  context: GatewayMethodContext,
+): Promise<unknown> {
+  if (shouldGuardMethod(method)) {
+    const texts = collectStringValues(params);
+    for (const text of texts) {
+      if (await enforceCriticalIntentGuard(projectDir, {
+        sessionID: parseText(params.sessionID) || 'main',
+        text,
+        source: `method:${method}`,
+      })) {
+        throw new Error('kill_switch_triggered_by_critical_intent');
+      }
+    }
+  }
+  return runtime.methods.invoke(method, params, context);
+}
+
 interface GatewayDependencyRecommendation {
   package: string;
   recommendedVersion: string;
@@ -735,28 +793,46 @@ async function verifyVoiceprintWithLocalModel(
   projectDir: string,
   input: { mediaPath?: string; speakerHint?: string; speakerScore?: number },
 ): Promise<{ mode: 'owner' | 'guest' | 'unknown'; score?: number; source: string }> {
+  const strict = process.env.MIYA_VOICEPRINT_STRICT !== '0';
   const hintMode = resolveInteractionMode(projectDir, {
     speakerHint: input.speakerHint,
     speakerScore: input.speakerScore,
   });
   const audioPath = (input.mediaPath ?? '').trim();
   const cmdRaw = String(process.env.MIYA_VOICEPRINT_VERIFY_CMD ?? '').trim();
-  if (!cmdRaw || !audioPath || !fs.existsSync(audioPath)) {
+  if (!audioPath || !fs.existsSync(audioPath)) {
+    return { mode: strict ? 'unknown' : hintMode, score: input.speakerScore, source: 'no_audio' };
+  }
+  if (!cmdRaw) {
     return {
-      mode: hintMode,
+      mode: strict ? 'unknown' : hintMode,
       score: typeof input.speakerScore === 'number' ? input.speakerScore : undefined,
-      source: 'hint_fallback',
+      source: 'strict_no_cmd',
     };
   }
   const spec = parseExecSpec(cmdRaw);
   if (!spec) {
     return {
-      mode: hintMode,
+      mode: strict ? 'unknown' : hintMode,
       score: typeof input.speakerScore === 'number' ? input.speakerScore : undefined,
-      source: 'hint_fallback_invalid_cmd',
+      source: 'strict_invalid_cmd',
     };
   }
   const state = readOwnerIdentityState(projectDir);
+  if (!state.voiceprintModelPath || !fs.existsSync(state.voiceprintModelPath)) {
+    return {
+      mode: strict ? 'unknown' : hintMode,
+      score: input.speakerScore,
+      source: 'strict_model_missing',
+    };
+  }
+  if (!state.voiceprintSampleDir || !fs.existsSync(state.voiceprintSampleDir)) {
+    return {
+      mode: strict ? 'unknown' : hintMode,
+      score: input.speakerScore,
+      source: 'strict_samples_missing',
+    };
+  }
   const daemon = getMiyaClient(projectDir);
   const args = spec.args.map((item) =>
     item
@@ -775,21 +851,49 @@ async function verifyVoiceprintWithLocalModel(
       metadata: { stage: 'security.voiceprint.verify', audioPath },
     });
     if (result.exitCode !== 0) {
-      return { mode: hintMode, score: input.speakerScore, source: 'hint_fallback_cmd_failed' };
+      return {
+        mode: strict ? 'unknown' : hintMode,
+        score: input.speakerScore,
+        source: 'strict_cmd_failed',
+      };
     }
     const stdout = result.stdout.trim();
     const parsed = JSON.parse(stdout) as {
       speaker_score?: number;
+      liveness_score?: number;
+      diarization?: Array<{
+        speaker?: string;
+        score?: number;
+      }>;
       mode?: 'owner' | 'guest' | 'unknown';
     };
     const score =
       typeof parsed.speaker_score === 'number' ? Number(parsed.speaker_score) : input.speakerScore;
-    const mode = parsed.mode && ['owner', 'guest', 'unknown'].includes(parsed.mode)
-      ? parsed.mode
-      : resolveInteractionMode(projectDir, { speakerScore: score });
+    const liveness =
+      typeof parsed.liveness_score === 'number' ? Number(parsed.liveness_score) : undefined;
+    const diarization = Array.isArray(parsed.diarization) ? parsed.diarization : [];
+    const ownerSegments = diarization.filter(
+      (seg) => String(seg.speaker ?? '').toLowerCase() === 'owner',
+    ).length;
+    const diarizationLooksOwner =
+      diarization.length === 0 ? true : ownerSegments / diarization.length >= 0.7;
+    const mode =
+      parsed.mode && ['owner', 'guest', 'unknown'].includes(parsed.mode)
+        ? parsed.mode
+        : typeof score === 'number'
+          ? score >= 0.78 && (liveness ?? 1) >= 0.65 && diarizationLooksOwner
+            ? 'owner'
+            : score < 0.62 || (typeof liveness === 'number' && liveness < 0.55)
+              ? 'guest'
+              : 'unknown'
+          : 'unknown';
     return { mode, score, source: 'voiceprint_cmd' };
   } catch {
-    return { mode: hintMode, score: input.speakerScore, source: 'hint_fallback_cmd_error' };
+    return {
+      mode: strict ? 'unknown' : hintMode,
+      score: input.speakerScore,
+      source: 'strict_cmd_error',
+    };
   }
 }
 
@@ -933,6 +1037,7 @@ interface GuardedOutboundSendInput {
     physicalConfirmed?: boolean;
     password?: string;
     passphrase?: string;
+    ownerSyncToken?: string;
   };
 }
 
@@ -965,6 +1070,7 @@ async function sendChannelMessageGuarded(
   }
 
   const mediaPath = (input.mediaPath ?? '').trim();
+  const payloadHash = hashText(`${input.text}||${mediaPath}`);
   const archAdvisorApproved = Boolean(input.outboundCheck?.archAdvisorApproved);
   const intent = input.outboundCheck?.intent ?? 'initiate';
   const factorRecipientIsMeInput = input.outboundCheck?.factorRecipientIsMe;
@@ -993,6 +1099,48 @@ async function sendChannelMessageGuarded(
         requiresConfirmation: true,
         policyHash: currentPolicyHash(projectDir),
       };
+    }
+    const ownerSyncRequired = process.env.MIYA_OWNER_SYNC_REQUIRED !== '0';
+    if (ownerSyncRequired && !localGuestOverride) {
+      const providedOwnerSyncToken = String(input.confirmation?.ownerSyncToken ?? '').trim();
+      if (!providedOwnerSyncToken) {
+        const pending = issueOwnerSyncToken(projectDir, {
+          action: 'outbound.high_risk.send',
+          payloadHash,
+        });
+        return {
+          sent: false,
+          message: 'outbound_blocked:owner_sync_confirmation_required',
+          requiresConfirmation: true,
+          ownerSyncRequired: true,
+          ownerSyncToken: pending.token,
+          ownerSyncInstruction:
+            `请用本人档在 QQ/微信 回复: 同意 ${pending.token}（10分钟内有效）`,
+          policyHash: currentPolicyHash(projectDir),
+        };
+      }
+      const ownerSync = verifyOwnerSyncToken(projectDir, {
+        token: providedOwnerSyncToken,
+        action: 'outbound.high_risk.send',
+        payloadHash,
+      });
+      if (!ownerSync.ok) {
+        const pending = issueOwnerSyncToken(projectDir, {
+          action: 'outbound.high_risk.send',
+          payloadHash,
+        });
+        return {
+          sent: false,
+          message: `outbound_blocked:owner_sync_confirmation_required:${ownerSync.reason ?? 'invalid_token'}`,
+          requiresConfirmation: true,
+          ownerSyncRequired: true,
+          ownerSyncToken: pending.token,
+          ownerSyncInstruction:
+            `请用本人档在 QQ/微信 回复: 同意 ${pending.token}（10分钟内有效）`,
+          policyHash: currentPolicyHash(projectDir),
+        };
+      }
+      consumeOwnerSyncToken(projectDir, providedOwnerSyncToken);
     }
   }
 
@@ -1102,7 +1250,6 @@ async function sendChannelMessageGuarded(
     };
   }
 
-  const payloadHash = hashText(`${input.text}||${mediaPath}`);
   const outboundTicket = resolveApprovalTicket({
     projectDir,
     sessionID: input.sessionID,
@@ -1228,6 +1375,23 @@ async function notifySafetyReport(
       source: 'policy:incident',
     });
   } catch {}
+}
+
+function enforceInteractionModeIsolation(
+  projectDir: string,
+  mode: 'owner' | 'guest' | 'unknown',
+): void {
+  if (mode === 'owner') return;
+  transitionSafetyState(projectDir, {
+    source: 'interaction_mode_isolation',
+    reason: `interaction_mode_${mode}`,
+    domains: {
+      outbound_send: 'paused',
+      desktop_control: 'paused',
+      memory_write: 'paused',
+      memory_delete: 'paused',
+    },
+  });
 }
 
 function listBackground(projectDir: string): GatewaySnapshot['background'] {
@@ -1445,6 +1609,7 @@ async function routeSessionMessage(
     };
   }
   const interactionMode = readOwnerIdentityState(projectDir).mode;
+  enforceInteractionModeIsolation(projectDir, interactionMode);
   const payload = buildSessionPayloadByMode(interactionMode, input.text);
   const safeText = payload.payload;
   if (interactionMode === 'guest') {
@@ -1951,6 +2116,26 @@ async function onInboundMessage(
   runtime: GatewayRuntime,
   message: ChannelInboundMessage,
 ): Promise<void> {
+  if (message.channel === 'qq' || message.channel === 'wechat') {
+    const tier = getContactTier(projectDir, message.channel, message.senderID);
+    if (tier === 'owner') {
+      const token = detectOwnerSyncTokenFromText(message.text);
+      if (token) {
+        const approval = approveOwnerSyncToken(projectDir, {
+          token,
+          channel: message.channel,
+          senderID: message.senderID,
+        });
+        await notifySafetyReport(projectDir, 'main', [
+          approval.ok
+            ? `Miya 安全确认：已收到本人档同步确认 token=${token}`
+            : `Miya 安全确认失败：token=${token} reason=${approval.reason ?? 'unknown'}`,
+        ]);
+        maybeBroadcast(projectDir, runtime);
+        return;
+      }
+    }
+  }
   const sessionID = `${message.channel}:${message.conversationID}`;
   upsertSession(projectDir, {
     id: sessionID,
@@ -2248,6 +2433,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           confirmationRaw && typeof confirmationRaw.passphrase === 'string'
             ? String(confirmationRaw.passphrase)
             : undefined,
+        ownerSyncToken:
+          confirmationRaw && typeof confirmationRaw.ownerSyncToken === 'string'
+            ? String(confirmationRaw.ownerSyncToken)
+            : undefined,
       },
     });
   });
@@ -2294,6 +2483,17 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       passwordHash: '***',
       passphraseHash: '***',
     };
+  });
+
+  methods.register('security.owner_sync.issue', async (params) => {
+    const action = parseText(params.action) || 'outbound.high_risk.send';
+    const payloadHash = parseText(params.payloadHash);
+    if (!payloadHash) throw new Error('invalid_payload_hash');
+    return issueOwnerSyncToken(projectDir, {
+      action,
+      payloadHash,
+      ttlMs: typeof params.ttlMs === 'number' ? Number(params.ttlMs) : undefined,
+    });
   });
 
   methods.register('policy.get', async () => {
@@ -3038,21 +3238,27 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
   methods.register('companion.wizard.submit', async (params) => {
     if (Array.isArray(params.photoMediaIDs) || Array.isArray(params.imageMediaIDs)) {
-      return runtime.methods.invoke(
+      return invokeGatewayMethod(
+        projectDir,
+        runtime,
         'companion.wizard.photos.submit',
         params as Record<string, unknown>,
         { clientID: 'gateway', role: 'admin' },
       );
     }
     if (typeof params.mediaID === 'string' || typeof params.audioMediaID === 'string') {
-      return runtime.methods.invoke(
+      return invokeGatewayMethod(
+        projectDir,
+        runtime,
         'companion.wizard.voice.submit',
         params as Record<string, unknown>,
         { clientID: 'gateway', role: 'admin' },
       );
     }
     if (typeof params.personalityText === 'string') {
-      return runtime.methods.invoke(
+      return invokeGatewayMethod(
+        projectDir,
+        runtime,
         'companion.wizard.personality.submit',
         params as Record<string, unknown>,
         { clientID: 'gateway', role: 'admin' },
@@ -3826,7 +4032,9 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         }
 
         try {
-          const result = await runtime.methods.invoke(
+          const result = await invokeGatewayMethod(
+            projectDir,
+            runtime,
             frame.method,
             frame.params ?? {},
             {
