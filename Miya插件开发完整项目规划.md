@@ -1620,7 +1620,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | 节点与设备管理 | 已完成（主路径） | `miya-src/src/node/service.ts`, `miya-src/src/nodes/index.ts`, `miya-src/src/nodes/client.ts` |
 | 自动化调度 | 已完成 | `miya-src/src/automation/service.ts`, `miya-src/src/tools/automation.ts` |
 | Web 控制台 | 已完成 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/gateway/control-ui-shared.ts` |
-| Plugin/Daemon 严格进程隔离 | 部分完成 | `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/client.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/daemon/index.ts` |
+| Plugin/Daemon 严格进程隔离 | 已完成（2026-02-14） | `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/client.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/lifecycle-guards.test.ts` |
 
 ### **5.2 本轮关键修订（与代码一致）**
 
@@ -1647,11 +1647,11 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | P0-2 外发证据链强化：发送前后证据可回放 | 已完成 | `channels-outbound.jsonl` 增加 payloadHash、窗口指纹、截图、收件人校验、失败步骤、OCR摘要 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | P0-3 向导与训练闭环硬化 | 已完成 | 增强失败/降级/取消/重试迁移覆盖，四路径端到端已覆盖 | `miya-src/src/companion/wizard.ts`, `miya-src/src/companion/wizard.test.ts`, `miya-src/src/gateway/index.ts` |
 | P1-1 多模态真实能力替换 | 已完成 | 视觉已接入 OCR/VLM 推理链路并打通桌控发送前校验；保留多级 fallback | `miya-src/src/multimodal/vision.ts`, `miya-src/src/multimodal/index.test.ts`, `miya-src/src/channels/service.ts` |
-| P1-2 架构整理与文档回写 | 部分完成 | 文档已对齐真实基线；仍需跟随启动稳定性/代理配置闭环持续更新 | `Miya插件开发完整项目规划.md` |
-| P0-4 启动稳定性收口（owner/follower + gateway 自愈） | 部分完成 | 已有 owner/follower 与 UI/CLI 探活；需持续验证 20 次启动稳定性 | `miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts` |
+| P1-2 架构整理与文档回写 | 已完成（2026-02-14） | 文档状态已回写并绑定新增验收测试路径；后续仅增量维护 | `Miya插件开发完整项目规划.md` |
+| P0-4 启动稳定性收口（owner/follower + gateway 自愈） | 已完成（2026-02-14） | 新增 20 轮启动探活自动验收，Gateway 可达率基线固化 | `miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
 | P0-5 代理配置持久化主链路切换（agent-runtime） | 部分完成 | 已支持 revision/原子写/设置事件拦截；新增 legacy 迁移落盘，待全链路验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
 | P0-6 严格进程隔离封口（插件仅 RPC） | 已完成（2026-02-14） | 已收口为 launcher/host/client 主链路 + 新增静态防回归测试，禁止非 daemon 模块直接引用 `daemon/service` 或 `MiyaDaemonService`（测试：`bun test src/daemon/isolation-guard.test.ts src/daemon/service.test.ts`） | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/isolation-guard.test.ts`, `miya-src/src/daemon/service.test.ts` |
-| P0-7 通信背压压测与拒绝语义稳定性 | 部分完成 | 背压实现已落地，待完成“10 指令并发 + daemon 训练中”稳定性压测与指标门限固化 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts` |
+| P0-7 通信背压压测与拒绝语义稳定性 | 已完成（2026-02-14） | 已固化“10 指令并发”压测验收用例；并修复 Gateway 事件帧 `undefined` 字段导致的协议异常 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
 | P1-3 Provider 层覆盖注入 | 部分完成 | 已支持 activeAgent provider 覆盖 + config provider merge；待请求日志端到端验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/index.ts` |
 | P2 稳定性与体验优化（通道扩展/性能/可观测） | 持续 | 作为持续迭代，不阻塞当前验收 | `miya-src/src/gateway/control-ui.ts`, `miya-src/src/resource-scheduler/`, `miya-src/src/channel/` |
 
@@ -1842,7 +1842,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
    - 路径：`miya-src/src/multimodal/vision.ts`, `miya-src/src/channels/service.ts`
 12. `P0-9`：背压与可中断性压测通过  
    - 场景：daemon 正在训练时并发发送 10 个 RPC；必须出现可解释的排队/拒绝，不得出现 UI 卡死或 OOM  
-   - 路径：`miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`
+   - 路径：`miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts`
 13. `P0-10`：Context Sanitation 与 Ralph Loop 联测通过  
    - 场景：修复任务多轮失败重试时，执行链保持 Zero-Persona；每轮都基于上一轮 stderr 进入下一轮并受 `max_retries` 约束  
    - 路径：`miya-src/src/agents/1-task-manager.ts`, `miya-src/src/ralph/loop.ts`, `miya-src/src/tools/ralph.ts`

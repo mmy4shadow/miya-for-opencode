@@ -289,12 +289,14 @@ export function toResponseFrame(input: {
   errorMessage?: string;
   errorDetails?: unknown;
 }): ResponseFrame {
+  const result = toJsonCompatible(input.result);
+  const errorDetails = toJsonCompatible(input.errorDetails);
   if (input.ok) {
     return ResponseFrameSchema.parse({
       type: 'response',
       id: input.id,
       ok: true,
-      result: input.result,
+      result,
     });
   }
   return ResponseFrameSchema.parse({
@@ -304,7 +306,7 @@ export function toResponseFrame(input: {
     error: {
       code: input.errorCode ?? 'internal_error',
       message: input.errorMessage ?? 'Internal error',
-      details: input.errorDetails,
+      details: errorDetails,
     },
   });
 }
@@ -314,10 +316,11 @@ export function toEventFrame(input: {
   payload: unknown;
   stateVersion?: Record<string, number>;
 }): EventFrame {
+  const payload = toJsonCompatible(input.payload);
   return EventFrameSchema.parse({
     type: 'event',
     event: input.event,
-    payload: input.payload,
+    payload,
     stateVersion: input.stateVersion,
   });
 }
@@ -327,4 +330,25 @@ export function toPongFrame(ts: number): PongFrame {
     type: 'pong',
     ts,
   });
+}
+
+function toJsonCompatible(input: unknown): unknown {
+  if (input === undefined) return null;
+  if (input === null) return null;
+  if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') {
+    return input;
+  }
+  if (Array.isArray(input)) {
+    return input.map((item) => toJsonCompatible(item));
+  }
+  if (typeof input === 'object') {
+    const source = input as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(source)) {
+      if (value === undefined) continue;
+      next[key] = toJsonCompatible(value);
+    }
+    return next;
+  }
+  return String(input);
 }

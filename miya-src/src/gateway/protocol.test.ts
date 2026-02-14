@@ -183,4 +183,45 @@ describe('gateway protocol', () => {
     expect(event.type).toBe('event');
     expect(event.event).toBe('gateway.snapshot');
   });
+
+  test('sanitizes undefined fields in event payload', () => {
+    const event = toEventFrame({
+      event: 'gateway.snapshot',
+      payload: {
+        ok: true,
+        nested: {
+          value: 1,
+          missing: undefined,
+        },
+        list: [1, undefined, 2],
+      },
+    });
+    expect(event.payload).toEqual({
+      ok: true,
+      nested: {
+        value: 1,
+      },
+      list: [1, null, 2],
+    });
+  });
+
+  test('sanitizes undefined fields in response result', () => {
+    const frame = toResponseFrame({
+      id: 'x',
+      ok: true,
+      result: {
+        activeAgentId: undefined,
+        runtime: {
+          revision: 3,
+          missing: undefined,
+        },
+      },
+    });
+    expect(frame.ok).toBe(true);
+    expect(frame.result).toEqual({
+      runtime: {
+        revision: 3,
+      },
+    });
+  });
 });
