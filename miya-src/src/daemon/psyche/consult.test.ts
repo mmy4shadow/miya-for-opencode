@@ -59,6 +59,9 @@ describe('psyche consult service', () => {
     });
     expect(result.shouldProbeScreen).toBe(true);
     expect(result.decision).toBe('defer');
+    expect(result.fixability).toBe('need_evidence');
+    expect(result.budget.autoRetry).toBe(1);
+    expect(result.budget.humanEdit).toBe(1);
   });
 
   test('enforces interruption budget for non-user initiated focus', () => {

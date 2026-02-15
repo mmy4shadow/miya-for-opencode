@@ -467,7 +467,7 @@ export class PsycheConsultService {
     humanEdit: number;
   } {
     if (fixability === 'impossible') return { autoRetry: 0, humanEdit: 0 };
-    if (fixability === 'retry_later') return { autoRetry: 1, humanEdit: 0 };
+    if (fixability === 'retry_later') return { autoRetry: 1, humanEdit: 1 };
     return { autoRetry: 1, humanEdit: 1 };
   }
 

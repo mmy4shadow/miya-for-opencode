@@ -1821,7 +1821,7 @@ async function sendChannelMessageGuarded(
       runtime,
       negotiationID,
       fixability: 'retry_later',
-      budget: { autoRetry: 1, humanEdit: 0 },
+      budget: { autoRetry: 1, humanEdit: 1 },
       attemptType: input.outboundCheck?.retryAttemptType,
     });
     if (!budgetState.ok) {
@@ -1831,7 +1831,7 @@ async function sendChannelMessageGuarded(
         policyHash: resolvedPolicyHash,
         retryAfterSec: 120,
         fixability: 'retry_later',
-        budget: { autoRetry: 1, humanEdit: 0 },
+        budget: { autoRetry: 1, humanEdit: 1 },
         approvalMode: 'modal_approval',
         negotiationID,
       };
@@ -1842,7 +1842,7 @@ async function sendChannelMessageGuarded(
       policyHash: resolvedPolicyHash,
       retryAfterSec: 120,
       fixability: 'retry_later',
-      budget: { autoRetry: 1, humanEdit: 0 },
+      budget: { autoRetry: 1, humanEdit: 1 },
       approvalMode: 'toast_gate',
       negotiationID,
       psyche: {
@@ -1993,7 +1993,7 @@ async function sendChannelMessageGuarded(
           runtime,
           negotiationID,
           fixability: 'retry_later',
-          budget: { autoRetry: 1, humanEdit: 0 },
+          budget: { autoRetry: 1, humanEdit: 1 },
           attemptType: input.outboundCheck?.retryAttemptType,
         });
         if (!budgetState.ok) {
@@ -2003,7 +2003,7 @@ async function sendChannelMessageGuarded(
             policyHash: resolvedPolicyHash,
             retryAfterSec: 30,
             fixability: 'retry_later',
-            budget: { autoRetry: 1, humanEdit: 0 },
+            budget: { autoRetry: 1, humanEdit: 1 },
             approvalMode: 'modal_approval',
             negotiationID,
           };
@@ -2014,7 +2014,7 @@ async function sendChannelMessageGuarded(
           policyHash: resolvedPolicyHash,
           retryAfterSec: 30,
           fixability: 'retry_later',
-          budget: { autoRetry: 1, humanEdit: 0 },
+          budget: { autoRetry: 1, humanEdit: 1 },
           approvalMode: 'modal_approval',
           negotiationID,
           psyche: {

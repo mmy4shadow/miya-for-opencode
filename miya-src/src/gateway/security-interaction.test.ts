@@ -417,6 +417,7 @@ describe('gateway security interaction acceptance', () => {
       expect(Number(result.retryAfterSec ?? 0)).toBeGreaterThan(0);
       expect(result.fixability).toBe('retry_later');
       expect(Number(result.budget?.autoRetry ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(Number(result.budget?.humanEdit ?? 0)).toBeGreaterThanOrEqual(1);
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -495,6 +496,60 @@ describe('gateway security interaction acceptance', () => {
       })) as { sent: boolean; message: string };
       expect(third.sent).toBe(false);
       expect(third.message).toMatch(/negotiation_budget_exhausted/);
+
+      const humanNegotiationID = 'budget-loop-human-1';
+      const humanFirst = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在我忙的时候提醒我休息',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+          negotiationID: humanNegotiationID,
+        },
+      })) as { sent: boolean; fixability?: string; budget?: { humanEdit?: number } };
+      expect(humanFirst.sent).toBe(false);
+      expect(humanFirst.fixability).toBe('retry_later');
+      expect(Number(humanFirst.budget?.humanEdit ?? 0)).toBeGreaterThanOrEqual(1);
+
+      const humanSecond = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在我忙的时候提醒我休息',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+          negotiationID: humanNegotiationID,
+          retryAttemptType: 'human',
+        },
+      })) as { sent: boolean; message: string };
+      expect(humanSecond.sent).toBe(false);
+
+      const humanThird = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在我忙的时候提醒我休息',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+          negotiationID: humanNegotiationID,
+          retryAttemptType: 'human',
+        },
+      })) as { sent: boolean; message: string };
+      expect(humanThird.sent).toBe(false);
+      expect(humanThird.message).toMatch(/negotiation_budget_exhausted:human_edit_exhausted/);
     } finally {
       client.close();
       stopGateway(projectDir);
