@@ -166,6 +166,48 @@ describe('gateway security interaction acceptance', () => {
     }
   });
 
+  test('applies learning gate layers and enforces persistent approval policy', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      await client.request('security.identity.init', {
+        password: 'pw-learning',
+        passphrase: 'phrase-learning',
+      });
+      const gateUpdated = (await client.request('learning.gate.set', {
+        candidateMode: 'toast_gate',
+        persistentRequiresApproval: true,
+      })) as {
+        gate?: { candidateMode?: string; persistentRequiresApproval?: boolean };
+      };
+      expect(gateUpdated.gate?.candidateMode).toBe('toast_gate');
+      expect(gateUpdated.gate?.persistentRequiresApproval).toBe(true);
+
+      const snapshot = (await client.request('gateway.status.get')) as {
+        nexus?: {
+          learningGate?: {
+            candidateMode?: string;
+            persistentRequiresApproval?: boolean;
+          };
+        };
+      };
+      expect(snapshot.nexus?.learningGate?.candidateMode).toBe('toast_gate');
+      expect(snapshot.nexus?.learningGate?.persistentRequiresApproval).toBe(true);
+
+      const policy = (await client.request('policy.get')) as { hash: string };
+      const added = (await client.request('companion.memory.add', {
+        policyHash: policy.hash,
+        fact: '用户喜欢低打扰的提醒',
+      })) as { learningGate?: { stage?: string; approvalMode?: string } };
+      expect(added.learningGate?.stage).toBe('candidate');
+      expect(added.learningGate?.approvalMode).toBe('toast_gate');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
   test('speaker gate pauses outbound/desktop/memory_read in guest mode', async () => {
     const prevStrict = process.env.MIYA_VOICEPRINT_STRICT;
     process.env.MIYA_VOICEPRINT_STRICT = '0';

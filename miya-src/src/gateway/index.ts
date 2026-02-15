@@ -198,6 +198,11 @@ interface PsycheModeConfig {
   captureProbeEnabled: boolean;
 }
 
+interface LearningGateConfig {
+  candidateMode: 'toast_gate' | 'silent_audit';
+  persistentRequiresApproval: boolean;
+}
+
 interface GatewayDependencies {
   client?: PluginInput['client'];
   automationService?: MiyaAutomationService;
@@ -231,6 +236,7 @@ interface GatewayRuntime {
     trust?: NexusTrustSnapshot;
     trustMode: TrustModeConfig;
     psycheMode: PsycheModeConfig;
+    learningGate: LearningGateConfig;
     guardianSafeHoldReason?: string;
   };
 }
@@ -274,6 +280,7 @@ interface GatewaySnapshot {
     trust?: NexusTrustSnapshot;
     trustMode: TrustModeConfig;
     psycheMode: PsycheModeConfig;
+    learningGate: LearningGateConfig;
     guardianSafeHoldReason?: string;
   };
   safety: {
@@ -431,12 +438,21 @@ const DEFAULT_PSYCHE_MODE: PsycheModeConfig = {
   captureProbeEnabled: true,
 };
 
+const DEFAULT_LEARNING_GATE: LearningGateConfig = {
+  candidateMode: 'toast_gate',
+  persistentRequiresApproval: true,
+};
+
 function trustModeFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-trust-mode.json');
 }
 
 function psycheModeFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-psyche-mode.json');
+}
+
+function learningGateFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-learning-gate.json');
 }
 
 function normalizeTrustMode(input?: Partial<TrustModeConfig>): TrustModeConfig {
@@ -497,6 +513,45 @@ function writePsycheModeConfig(projectDir: string, config: Partial<PsycheModeCon
     ...config,
   });
   writeJsonAtomic(psycheModeFile(projectDir), normalized);
+  return normalized;
+}
+
+function normalizeLearningGate(input?: Partial<LearningGateConfig>): LearningGateConfig {
+  return {
+    candidateMode:
+      input?.candidateMode === 'silent_audit' ? 'silent_audit' : 'toast_gate',
+    persistentRequiresApproval:
+      typeof input?.persistentRequiresApproval === 'boolean'
+        ? input.persistentRequiresApproval
+        : DEFAULT_LEARNING_GATE.persistentRequiresApproval,
+  };
+}
+
+function readLearningGateConfig(projectDir: string): LearningGateConfig {
+  const raw = safeReadJsonObject(learningGateFile(projectDir));
+  if (!raw) return DEFAULT_LEARNING_GATE;
+  return normalizeLearningGate({
+    candidateMode:
+      raw.candidateMode === 'silent_audit' || raw.candidateMode === 'toast_gate'
+        ? raw.candidateMode
+        : undefined,
+    persistentRequiresApproval:
+      typeof raw.persistentRequiresApproval === 'boolean'
+        ? raw.persistentRequiresApproval
+        : undefined,
+  });
+}
+
+function writeLearningGateConfig(
+  projectDir: string,
+  config: Partial<LearningGateConfig>,
+): LearningGateConfig {
+  const current = readLearningGateConfig(projectDir);
+  const normalized = normalizeLearningGate({
+    ...current,
+    ...config,
+  });
+  writeJsonAtomic(learningGateFile(projectDir), normalized);
   return normalized;
 }
 
@@ -2022,6 +2077,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       trust: runtime.nexus.trust,
       trustMode: runtime.nexus.trustMode,
       psycheMode: runtime.nexus.psycheMode,
+      learningGate: runtime.nexus.learningGate,
       guardianSafeHoldReason: runtime.nexus.guardianSafeHoldReason,
     },
     safety: {
@@ -3543,6 +3599,32 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       consultEnabled: resolvePsycheConsultEnabled(projectDir, next),
     };
   });
+  methods.register('learning.gate.get', async () => {
+    const gate = readLearningGateConfig(projectDir);
+    runtime.nexus.learningGate = gate;
+    return { gate };
+  });
+  methods.register('learning.gate.set', async (params) => {
+    const next = writeLearningGateConfig(projectDir, {
+      candidateMode:
+        params.candidateMode === 'silent_audit' || params.candidateMode === 'toast_gate'
+          ? params.candidateMode
+          : undefined,
+      persistentRequiresApproval:
+        typeof params.persistentRequiresApproval === 'boolean'
+          ? Boolean(params.persistentRequiresApproval)
+          : undefined,
+    });
+    runtime.nexus.learningGate = next;
+    appendNexusInsight(runtime, {
+      text: `学习闸门已更新：candidate=${next.candidateMode}, persistent_requires_approval=${next.persistentRequiresApproval ? '1' : '0'}`,
+    });
+    publishGatewayEvent(runtime, 'learning.gate.update', {
+      at: nowIso(),
+      gate: next,
+    });
+    return { gate: next };
+  });
   methods.register('insight.append', async (params) => {
     const text = parseText(params.text);
     if (!text) throw new Error('invalid_insight_text');
@@ -4300,9 +4382,15 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           : 'conversation',
     });
     const profile = syncCompanionProfileMemoryFacts(projectDir);
+    const learningGate = runtime.nexus.learningGate;
     return {
       memory: created,
       stage: created.status,
+      learningGate: {
+        stage: 'candidate',
+        approvalMode: learningGate.candidateMode,
+        interruptsUser: false,
+      },
       needsCorrectionWizard: Boolean(created.conflictWizardID),
       message: created.conflictWizardID
         ? 'memory_pending_conflict_requires_correction_wizard'
@@ -4328,7 +4416,21 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
     const memoryID = parseText(params.memoryID);
+    const sessionID = parseText(params.sessionID) || 'main';
     if (!memoryID) throw new Error('invalid_memory_id');
+    if (runtime.nexus.learningGate.persistentRequiresApproval) {
+      const ticket = resolveApprovalTicket({
+        projectDir,
+        sessionID,
+        permission: 'memory_write',
+        patterns: [
+          'memory_stage=persistent',
+          `memory_id=${memoryID}`,
+          'action=confirm',
+        ],
+      });
+      if (!ticket.ok) throw new Error(`approval_required:${ticket.reason}`);
+    }
     const confirm = typeof params.confirm === 'boolean' ? Boolean(params.confirm) : true;
     const updated = confirmCompanionMemoryVector(projectDir, {
       memoryID,
@@ -4343,6 +4445,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return {
       memory: updated,
       stage: updated.status,
+      learningGate: {
+        stage: 'persistent',
+        approvalMode: runtime.nexus.learningGate.persistentRequiresApproval
+          ? 'modal_approval'
+          : 'toast_gate',
+        interruptsUser: runtime.nexus.learningGate.persistentRequiresApproval,
+      },
       profile,
     };
   });
@@ -4396,13 +4505,21 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const senderRaw = parseText(params.sender);
     const sender: 'user' | 'assistant' | 'system' =
       senderRaw === 'assistant' || senderRaw === 'system' ? senderRaw : 'user';
-    return appendShortTermMemoryLog(projectDir, {
+    const entry = appendShortTermMemoryLog(projectDir, {
       sessionID: parseText(params.sessionID) || 'main',
       sender,
       text,
       at: parseText(params.at) || undefined,
       messageID: parseText(params.messageID) || undefined,
     });
+    return {
+      entry,
+      learningGate: {
+        stage: 'ephemeral',
+        approvalMode: 'silent_audit',
+        interruptsUser: false,
+      },
+    };
   });
   methods.register('miya.memory.reflect', async (params) => {
     requireOwnerMode(projectDir);
@@ -4431,6 +4548,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const profile = syncCompanionProfileMemoryFacts(projectDir);
     return {
       ...result,
+      learningGate: {
+        stage: 'candidate',
+        approvalMode: runtime.nexus.learningGate.candidateMode,
+        interruptsUser: false,
+      },
       profile,
     };
   });
@@ -5088,6 +5210,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       trust: undefined,
       trustMode: readTrustModeConfig(projectDir),
       psycheMode: readPsycheModeConfig(projectDir),
+      learningGate: readLearningGateConfig(projectDir),
       guardianSafeHoldReason: undefined,
     },
   };
