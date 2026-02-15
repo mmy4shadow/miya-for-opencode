@@ -1392,6 +1392,16 @@ async function sendChannelMessageGuarded(
   }
 
   const psycheConsultEnabled = process.env.MIYA_PSYCHE_CONSULT_ENABLE === '1';
+  let psycheConsult:
+    | {
+        auditID: string;
+        intent: string;
+        urgency: 'low' | 'medium' | 'high' | 'critical';
+        channel?: string;
+        userInitiated: boolean;
+        state: 'FOCUS' | 'CONSUME' | 'PLAY' | 'AWAY' | 'UNKNOWN';
+      }
+    | null = null;
   if (psycheConsultEnabled) {
     try {
       const daemon = getMiyaClient(projectDir);
@@ -1402,7 +1412,30 @@ async function sendChannelMessageGuarded(
         userInitiated,
         signals: input.outboundCheck?.psycheSignals,
       });
+      psycheConsult = {
+        auditID: consult.auditID,
+        intent: consult.intent,
+        urgency: consult.urgency,
+        channel: consult.channel,
+        userInitiated: consult.userInitiated,
+        state: consult.state,
+      };
       if (consult.decision !== 'allow') {
+        try {
+          await daemon.psycheOutcome({
+            consultAuditID: consult.auditID,
+            intent: consult.intent,
+            urgency: consult.urgency,
+            channel: consult.channel,
+            userInitiated: consult.userInitiated,
+            state: consult.state,
+            delivered: false,
+            blockedReason:
+              consult.decision === 'deny'
+                ? 'outbound_blocked:psyche_denied'
+                : 'outbound_blocked:psyche_deferred',
+          });
+        } catch {}
         return {
           sent: false,
           message:
@@ -1480,6 +1513,21 @@ async function sendChannelMessageGuarded(
       policyHash: resolvedPolicyHash,
     },
   });
+  if (psycheConsultEnabled && psycheConsult) {
+    try {
+      const daemon = getMiyaClient(projectDir);
+      await daemon.psycheOutcome({
+        consultAuditID: psycheConsult.auditID,
+        intent: psycheConsult.intent,
+        urgency: psycheConsult.urgency,
+        channel: psycheConsult.channel,
+        userInitiated: psycheConsult.userInitiated,
+        state: psycheConsult.state,
+        delivered: Boolean((result as { sent?: boolean }).sent),
+        blockedReason: Boolean((result as { sent?: boolean }).sent) ? undefined : String(result.message ?? ''),
+      });
+    } catch {}
+  }
   const violationType =
     result.message === 'outbound_blocked:friend_tier_sensitive_content_denied'
       ? 'friend_tier_sensitive_violation'

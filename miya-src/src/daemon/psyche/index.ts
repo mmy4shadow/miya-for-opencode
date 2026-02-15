@@ -4,6 +4,8 @@ export {
   type PsycheConsultResult,
   type PsycheDecision,
   type PsycheUrgency,
+  type PsycheOutcomeRequest,
+  type PsycheOutcomeResult,
 } from './consult';
 export {
   inferSentinelState,

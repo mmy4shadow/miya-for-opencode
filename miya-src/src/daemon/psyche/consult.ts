@@ -31,6 +31,27 @@ export interface PsycheConsultResult {
   reasons: string[];
 }
 
+export interface PsycheOutcomeRequest {
+  consultAuditID: string;
+  intent: string;
+  urgency?: PsycheUrgency;
+  channel?: string;
+  userInitiated?: boolean;
+  state: SentinelState;
+  delivered: boolean;
+  blockedReason?: string;
+  explicitFeedback?: 'positive' | 'negative' | 'none';
+  userReplyWithinSec?: number;
+}
+
+export interface PsycheOutcomeResult {
+  at: string;
+  consultAuditID: string;
+  reward: 'positive' | 'negative';
+  score: number;
+  bucket: string;
+}
+
 interface BucketStats {
   alpha: number;
   beta: number;
@@ -113,6 +134,7 @@ export class PsycheConsultService {
   private readonly fastBrainPath: string;
   private readonly consultLogPath: string;
   private readonly budgetPath: string;
+  private readonly trainingDataLogPath: string;
   private readonly epsilon: number;
   private readonly random: RandomSource;
 
@@ -128,6 +150,7 @@ export class PsycheConsultService {
     this.fastBrainPath = path.join(psycheDir, 'fast-brain.json');
     this.consultLogPath = path.join(psycheDir, 'consult.jsonl');
     this.budgetPath = path.join(psycheDir, 'interruption-budget.json');
+    this.trainingDataLogPath = path.join(psycheDir, 'training-data.jsonl');
     this.epsilon = Math.max(0, Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()));
     this.random = options?.random ?? defaultRandomSource;
   }
@@ -213,7 +236,65 @@ export class PsycheConsultService {
       approved: decision === 'allow',
     });
     this.appendConsultLog(result);
+    this.appendTrainingObservation({
+      at,
+      state,
+      intent,
+      urgency,
+      channel: input.channel,
+      userInitiated,
+      confidence: sentinel.confidence,
+      decision,
+      shouldProbeScreen: sentinel.shouldProbeScreen,
+      reasons: sentinel.reasons,
+      signals: input.signals,
+    });
     return result;
+  }
+
+  registerOutcome(input: PsycheOutcomeRequest): PsycheOutcomeResult {
+    const at = nowIso();
+    const intent = String(input.intent ?? '').trim() || 'unknown_intent';
+    const urgency = asUrgency(input.urgency);
+    const userInitiated = input.userInitiated !== false;
+    const feedback = input.explicitFeedback ?? 'none';
+    const score = this.outcomeScore({
+      delivered: input.delivered,
+      blockedReason: input.blockedReason,
+      explicitFeedback: feedback,
+      userReplyWithinSec: input.userReplyWithinSec,
+    });
+    const reward = score >= 0 ? 'positive' : 'negative';
+    const key = fastBrainBucket({
+      state: input.state,
+      intent,
+      urgency,
+      channel: input.channel,
+      userInitiated,
+    });
+    this.adjustFastBrain(key, reward === 'positive' ? Math.abs(score) : 0, reward === 'negative' ? Math.abs(score) : 0);
+    this.appendTrainingOutcome({
+      at,
+      consultAuditID: input.consultAuditID,
+      state: input.state,
+      intent,
+      urgency,
+      channel: input.channel,
+      userInitiated,
+      delivered: input.delivered,
+      blockedReason: input.blockedReason,
+      explicitFeedback: feedback,
+      userReplyWithinSec: input.userReplyWithinSec,
+      score,
+      reward,
+    });
+    return {
+      at,
+      consultAuditID: input.consultAuditID,
+      reward,
+      score,
+      bucket: key,
+    };
   }
 
   private pickDecision(input: {
@@ -301,6 +382,82 @@ export class PsycheConsultService {
     fs.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}\n`, 'utf-8');
   }
 
+  private appendTrainingObservation(input: {
+    at: string;
+    state: SentinelState;
+    intent: string;
+    urgency: PsycheUrgency;
+    channel?: string;
+    userInitiated: boolean;
+    confidence: number;
+    decision: PsycheDecision;
+    shouldProbeScreen: boolean;
+    reasons: string[];
+    signals?: SentinelSignals;
+  }): void {
+    fs.appendFileSync(
+      this.trainingDataLogPath,
+      `${JSON.stringify({
+        t: Math.floor(Date.now() / 1000),
+        type: 'observation',
+        obs: {
+          at: input.at,
+          state: input.state,
+          intent: input.intent,
+          urgency: input.urgency,
+          channel: input.channel ?? 'none',
+          userInitiated: input.userInitiated,
+          confidence: input.confidence,
+          decision: input.decision,
+          shouldProbeScreen: input.shouldProbeScreen,
+          reasons: input.reasons,
+          signals: input.signals ?? {},
+        },
+      })}\n`,
+      'utf-8',
+    );
+  }
+
+  private appendTrainingOutcome(input: {
+    at: string;
+    consultAuditID: string;
+    state: SentinelState;
+    intent: string;
+    urgency: PsycheUrgency;
+    channel?: string;
+    userInitiated: boolean;
+    delivered: boolean;
+    blockedReason?: string;
+    explicitFeedback: 'positive' | 'negative' | 'none';
+    userReplyWithinSec?: number;
+    score: number;
+    reward: 'positive' | 'negative';
+  }): void {
+    fs.appendFileSync(
+      this.trainingDataLogPath,
+      `${JSON.stringify({
+        t: Math.floor(Date.now() / 1000),
+        type: 'action_outcome',
+        action: {
+          at: input.at,
+          consultAuditID: input.consultAuditID,
+          state: input.state,
+          intent: input.intent,
+          urgency: input.urgency,
+          channel: input.channel ?? 'none',
+          userInitiated: input.userInitiated,
+          delivered: input.delivered,
+          blockedReason: input.blockedReason ?? '',
+          explicitFeedback: input.explicitFeedback,
+          userReplyWithinSec: input.userReplyWithinSec,
+          score: Number(input.score.toFixed(3)),
+          reward: input.reward,
+        },
+      })}\n`,
+      'utf-8',
+    );
+  }
+
   private resolveEpsilonFromEnv(): number {
     const raw = Number(process.env.MIYA_PSYCHE_EPSILON ?? 0.01);
     if (!Number.isFinite(raw)) return 0.01;
@@ -328,6 +485,40 @@ export class PsycheConsultService {
     const total = alpha + beta;
     if (!Number.isFinite(total) || total <= 0) return 0.5;
     return Math.max(0, Math.min(1, alpha / total));
+  }
+
+  private adjustFastBrain(key: string, alphaDelta: number, betaDelta: number): void {
+    const store = safeReadJson<FastBrainStore>(this.fastBrainPath, DEFAULT_FAST_BRAIN);
+    const current = store.buckets[key] ?? {
+      alpha: 1,
+      beta: 1,
+      updatedAt: nowIso(),
+    };
+    const alpha = Number.isFinite(current.alpha) ? current.alpha : 1;
+    const beta = Number.isFinite(current.beta) ? current.beta : 1;
+    current.alpha = Math.max(1, alpha + Math.max(0, alphaDelta));
+    current.beta = Math.max(1, beta + Math.max(0, betaDelta));
+    current.updatedAt = nowIso();
+    store.buckets[key] = current;
+    fs.writeFileSync(this.fastBrainPath, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  }
+
+  private outcomeScore(input: {
+    delivered: boolean;
+    blockedReason?: string;
+    explicitFeedback: 'positive' | 'negative' | 'none';
+    userReplyWithinSec?: number;
+  }): number {
+    if (input.explicitFeedback === 'negative') return -1;
+    if (input.explicitFeedback === 'positive') return 1;
+    if (!input.delivered) {
+      return input.blockedReason ? -0.6 : -0.4;
+    }
+    if (typeof input.userReplyWithinSec === 'number' && input.userReplyWithinSec > 0) {
+      if (input.userReplyWithinSec <= 180) return 0.8;
+      if (input.userReplyWithinSec <= 600) return 0.4;
+    }
+    return 0.2;
   }
 
   private applyInterruptionBudget(

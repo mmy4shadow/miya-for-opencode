@@ -326,6 +326,70 @@ const server = Bun.serve({
         return;
       }
 
+      if (frame.method === 'daemon.psyche.outcome') {
+        try {
+          const explicitFeedbackRaw = String(params.explicitFeedback ?? 'none').trim().toLowerCase();
+          const explicitFeedback =
+            explicitFeedbackRaw === 'positive' || explicitFeedbackRaw === 'negative'
+              ? explicitFeedbackRaw
+              : 'none';
+          const outcome = daemonService.registerPsycheOutcome({
+            consultAuditID: String(params.consultAuditID ?? ''),
+            intent: String(params.intent ?? 'unknown_intent'),
+            urgency:
+              String(params.urgency ?? 'medium').trim().toLowerCase() === 'low'
+                ? 'low'
+                : String(params.urgency ?? 'medium').trim().toLowerCase() === 'high'
+                  ? 'high'
+                  : String(params.urgency ?? 'medium').trim().toLowerCase() === 'critical'
+                    ? 'critical'
+                    : 'medium',
+            channel: typeof params.channel === 'string' ? params.channel : undefined,
+            userInitiated: params.userInitiated === false ? false : true,
+            state:
+              params.state === 'FOCUS' ||
+              params.state === 'CONSUME' ||
+              params.state === 'PLAY' ||
+              params.state === 'AWAY' ||
+              params.state === 'UNKNOWN'
+                ? params.state
+                : 'UNKNOWN',
+            delivered: params.delivered === true,
+            blockedReason: typeof params.blockedReason === 'string' ? params.blockedReason : undefined,
+            explicitFeedback,
+            userReplyWithinSec:
+              typeof params.userReplyWithinSec === 'number' && Number.isFinite(params.userReplyWithinSec)
+                ? params.userReplyWithinSec
+                : undefined,
+          });
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result: outcome,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'daemon_psyche_outcome_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
       if (frame.method === 'daemon.python.env.get') {
         ws.send(
           JSON.stringify(

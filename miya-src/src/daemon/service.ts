@@ -11,6 +11,8 @@ import {
   PsycheConsultService,
   type PsycheConsultRequest,
   type PsycheConsultResult,
+  type PsycheOutcomeRequest,
+  type PsycheOutcomeResult,
 } from './psyche';
 import {
   ensurePythonRuntime,
@@ -248,6 +250,10 @@ export class MiyaDaemonService {
 
   consultPsyche(input: PsycheConsultRequest): PsycheConsultResult {
     return this.psyche.consult(input);
+  }
+
+  registerPsycheOutcome(input: PsycheOutcomeRequest): PsycheOutcomeResult {
+    return this.psyche.registerOutcome(input);
   }
 
   getModelLockStatus(): Record<string, { expected: string; ok: boolean; reason?: string }> {

@@ -1,6 +1,6 @@
 import { daemonInvoke, ensureMiyaLauncher } from './launcher';
 import type { ResourceTaskKind } from '../resource-scheduler';
-import type { PsycheConsultResult, SentinelSignals } from './psyche';
+import type { PsycheConsultResult, PsycheOutcomeResult, SentinelSignals } from './psyche';
 
 interface IsolatedProcessInput {
   kind: ResourceTaskKind;
@@ -169,6 +169,26 @@ export class MiyaClient {
       input as unknown as Record<string, unknown>,
       15_000,
     ) as Promise<PsycheConsultResult>;
+  }
+
+  async psycheOutcome(input: {
+    consultAuditID: string;
+    intent: string;
+    urgency?: 'low' | 'medium' | 'high' | 'critical';
+    channel?: string;
+    userInitiated?: boolean;
+    state: 'FOCUS' | 'CONSUME' | 'PLAY' | 'AWAY' | 'UNKNOWN';
+    delivered: boolean;
+    blockedReason?: string;
+    explicitFeedback?: 'positive' | 'negative' | 'none';
+    userReplyWithinSec?: number;
+  }): Promise<PsycheOutcomeResult> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.psyche.outcome',
+      input as unknown as Record<string, unknown>,
+      15_000,
+    ) as Promise<PsycheOutcomeResult>;
   }
 }
 
