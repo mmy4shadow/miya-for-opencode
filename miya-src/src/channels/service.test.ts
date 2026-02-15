@@ -275,4 +275,53 @@ describe('channel runtime send policy', () => {
     const p95 = samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.95))];
     expect(p95).toBeLessThan(50);
   });
+
+  test('releases input mutex when desktop runtime throws', async () => {
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(
+      projectDir,
+      {
+        onInbound: () => {},
+        onPairRequested: () => {},
+      },
+      {
+        sendQqDesktopMessage: async () => {
+          throw new Error('Desktop bridge crashed unexpectedly');
+        },
+      },
+    );
+    setContactTier(projectDir, 'qq', 'tester', 'owner');
+
+    const first = await runtime.sendMessage({
+      channel: 'qq',
+      destination: 'tester',
+      text: 'hello',
+      sessionID: 'sess-runtime-error',
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+      },
+    });
+    expect(first.sent).toBe(false);
+    expect(first.message).toContain('outbound_degraded:desktop_runtime_exception:');
+
+    const secondStart = Date.now();
+    const second = await runtime.sendMessage({
+      channel: 'qq',
+      destination: 'tester',
+      text: 'hello again',
+      sessionID: 'sess-runtime-error',
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+        bypassThrottle: true,
+      },
+    });
+    const elapsed = Date.now() - secondStart;
+
+    expect(second.sent).toBe(false);
+    expect(second.message).toContain('outbound_degraded:desktop_runtime_exception:');
+    expect(second.message).not.toContain('input_mutex_timeout');
+    expect(elapsed).toBeLessThan(1000);
+  });
 });

@@ -7,6 +7,7 @@ import { getMiyaRuntimeDir } from '../workflow';
 export interface SourcePack {
   sourcePackID: string;
   name: string;
+  skillName: string;
   repo?: string;
   localDir: string;
   branch: string;
@@ -34,10 +35,17 @@ export interface PinnedRelease {
   appliedAt: string;
 }
 
+export interface EcosystemBridgeConflict {
+  type: 'skill_name_collision';
+  skillName: string;
+  sourcePackIDs: string[];
+}
+
 export interface EcosystemBridgeListResult {
   sourcePacks: SourcePack[];
   importPlans: ImportPlan[];
   pinnedReleases: PinnedRelease[];
+  conflicts: EcosystemBridgeConflict[];
 }
 
 export interface SourcePackDiffResult {
@@ -235,6 +243,17 @@ function trustLevelForRepo(repo: string | undefined): SourcePack['trustLevel'] {
     : 'untrusted';
 }
 
+function resolveSkillName(localDir: string): string {
+  const manifest = path.join(localDir, 'SKILL.md');
+  if (!fs.existsSync(manifest)) return path.basename(localDir);
+  try {
+    const raw = fs.readFileSync(manifest, 'utf-8');
+    const heading = /^#\s+(.+)$/m.exec(raw)?.[1]?.trim();
+    if (heading) return heading;
+  } catch {}
+  return path.basename(localDir);
+}
+
 function readGitValue(
   options: EcosystemBridgeOptions | undefined,
   cwd: string,
@@ -312,6 +331,7 @@ function discoverSourcePacks(
     packs.push({
       sourcePackID,
       name: path.basename(localDir),
+      skillName: resolveSkillName(localDir),
       repo,
       localDir,
       branch,
@@ -394,6 +414,22 @@ export function listEcosystemBridge(
 ): EcosystemBridgeListResult {
   const state = readState(projectDir);
   const sourcePacks = discoverSourcePacks(projectDir, state, options);
+  const bySkillName = new Map<string, SourcePack[]>();
+  for (const pack of sourcePacks) {
+    const key = pack.skillName.toLowerCase();
+    const list = bySkillName.get(key) ?? [];
+    list.push(pack);
+    bySkillName.set(key, list);
+  }
+  const conflicts: EcosystemBridgeConflict[] = [];
+  for (const [, list] of bySkillName.entries()) {
+    if (list.length <= 1) continue;
+    conflicts.push({
+      type: 'skill_name_collision',
+      skillName: list[0].skillName,
+      sourcePackIDs: list.map((item) => item.sourcePackID).sort(),
+    });
+  }
   const importPlans = Object.values(state.importPlans).sort((a, b) =>
     a.sourcePackID.localeCompare(b.sourcePackID),
   );
@@ -404,6 +440,7 @@ export function listEcosystemBridge(
     sourcePacks,
     importPlans,
     pinnedReleases,
+    conflicts: conflicts.sort((a, b) => a.skillName.localeCompare(b.skillName)),
   };
 }
 

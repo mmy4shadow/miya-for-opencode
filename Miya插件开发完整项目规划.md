@@ -1,5 +1,5 @@
 # **Miya 插件开发深度研究报告与实施蓝图**
-
+核心点：1.像人类一样流畅控制电脑。2.极具特色的能不断适应的陪伴式聊天。3.深度绑定opencode，基于各种开源项目开发，充分利用开源项目不断更新的资源。比如说opencode不断更新增强的AI自主编程能力，openclaw的不断丰富的skills和工具等等。4.增强自主工作流，自动并行化——复杂任务由多代理合作完成，持久执行——直到任务被验证为完成或者重复失败才会放弃，成本优化——智能模型路由可节省30-50%的tokens，从经验中学习——自动提取并重复使用解决问题的模式。
 **核心设计哲学**：
 - **OpenCode原生优先**：充分利用OpenCode内置的permission体系（allow/ask/deny）和Agent/Skill系统，避免重复造轮子，并且必须兼容openclaw的生态，能直接使用他们成熟的工具和skill等资源。
 - **高度自主化工作**：通过OpenCode原生permission配置 + 可选的Self-Approval增强，实现工作流级别的审批自动化，非紧急情况不打断自主工作流；紧急情况直接暂停相关能力域并通过已有渠道（比如指定的微信和QQ账号，opencode界面同时发布通知和报告）。**补充（2026-02-13决策）**：若微信或QQ任意一个出问题，默认触发**按能力域停机**（至少 `outbound_send` / `desktop_control` 停止，`local_build` / `read_only_research` 可继续）；并在OpenCode上发给我报告（包括遇见了什么，为什么停止，现在哪些能力域停止，分别做到什么情况和下一步的计划等等）并等待我的指令。
@@ -902,12 +902,12 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - **情绪识别**：识别用户情绪状态并调整回复风格
 - **视觉生成**：利用本地FLUX.2 [klein] 4B模型生成图像
 **Miya融合目标**：
-- 人格系统框架（待实现）
-- 人格定制（待实现）
-- 记忆系统（待实现）
-- 情感响应（待实现）
-- 多模态交互（待实现）
-- 情感陪伴功能（待实现）
+- 人格系统框架（已实现基础：`companion profile + wizard + SOUL 挂载`）
+- 人格定制（已实现基础：`companion.profile.update` + 向导人格采集）
+- 记忆系统（已实现主链路：`pending/active/superseded + reflect + sqlite 同步`）
+- 情感响应（进行中：已接入短语/音频填充，自适应短语池持续增强）
+- 多模态交互（已实现主链路：图像/语音/视觉）
+- 情感陪伴功能（进行中：已具备主动与记忆驱动能力，持续做体验收敛）
 #### 4. Oh-my-opencode (https://github.com/code-yeongyu/oh-my-opencode.git)
 **核心特性**：
 - **Sisyphus/Atlas编排**：主编排者，维护全局任务列表
@@ -937,7 +937,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - **快速响应**：比庞大单体Agent更敏捷
 **Miya融合目标**：
 - 代码精简原则（持续优化）
-- MCP集成（部分实现）
+- MCP集成（已实现）
 - 快速响应（已实现）
 
 
@@ -1964,6 +1964,9 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 | Gateway/Daemon 背压队列与超时拒绝 | 已完成 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts` |
 | 输入互斥三振冷却与证据语义化摘要 | 已完成 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/policy/semantic-tags.ts` |
 | Context Sanitation（执行链 Zero-Persona） | 已完成（2026-02-14） | `miya-src/src/agents/1-task-manager.ts`, `miya-src/src/agents/context-sanitization.test.ts` |
+| 桌控异常健壮性补丁（互斥锁释放 + 错误详情解析） | 已完成（2026-02-15） | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/channels/service.test.ts`, `miya-src/src/channel/outbound/shared.test.ts` |
+| 陪伴自适应短语池接入（wake_words 动态加载） | 已完成（2026-02-15） | `miya-src/src/daemon/audio-filler.ts`, `miya-src/src/daemon/audio-filler.test.ts` |
+| Ecosystem Bridge 冲突检测（同名 Skill 导入碰撞） | 已完成（2026-02-15） | `miya-src/src/skills/sync.ts`, `miya-src/src/skills/sync.test.ts`, `miya-src/src/gateway/index.ts` |
 
 ---
 
@@ -2366,15 +2369,15 @@ Miya插件已经具备了坚实的架构基础：
 - ✅ 模型持久化（`config/agent-model-persistence.ts`）
 - ✅ MCP集成（`mcp/`）
 
-**待实现（参考开源项目）**：
-- 🔄 节点管理系统（OpenClaw）
-- 🔄 Autopilot模式增强（Oh-my-claudecode）
-- 🔄 SOUL.md人格系统（Clawra）
+**进行中/持续增强（参考开源项目）**：
+- 🔄 节点管理系统（OpenClaw，主路径已实现，持续补齐控制面与权限映射细节）
+- 🔄 Autopilot模式增强（Oh-my-claudecode，主链路已实现，持续做成功率与策略收敛）
+- 🔄 SOUL.md人格系统（Clawra，基础已实现：SOUL + companion profile，持续增强动态挂载）
 - 🔄 共鸣层（Resonance Gate）与 Psyche 慢脑训练（Clawra + 2_modified_v3 收敛，当前已完成 P0/P1 守门闭环，P2 继续推进）
-- 🔄 Ultrawork并行编排（Oh-my-opencode）
-- 🔄 智能路由增强（Oh-my-opencode）
-- 🔄 Inbound-only 通道治理增强（仅入站只读，维持“仅 QQ/微信可外发”铁律）
-- 🔄 MCP原生增强（Nanobot）
+- 🔄 Ultrawork并行编排（Oh-my-opencode，已有调度骨架，持续增强并行效率）
+- 🔄 智能路由增强（Oh-my-opencode，已有路由主链路，持续增强语义判定）
+- 🔄 Inbound-only 通道治理增强（仅入站只读，维持“仅 QQ/微信可外发”铁律，持续监控）
+- 🔄 MCP原生增强（Nanobot，MCP主链路已实现，持续增强生态接入深度）
 
 通过这些功能的融合，Miya将成为一个真正意义上的"全自动控制平面"，实现"你只给目标，它自动完成"的愿景，成为OpenCode 生态中第一个真正的“伴侣级”生产力工具
 

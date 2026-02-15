@@ -23,6 +23,21 @@ function safeValueFromSignal(signal: string, key: string): string | undefined {
   return text.length > 0 ? text : undefined;
 }
 
+export function deriveDesktopFailureDetail(input: {
+  signal: string;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  exitCode: number;
+}): string {
+  return (
+    safeValueFromSignal(input.signal, 'error') ??
+    (input.stderr.trim() || undefined) ??
+    (input.stdout.trim() || undefined) ??
+    (input.timedOut ? 'timeout' : `exit_${input.exitCode}`)
+  );
+}
+
 function buildEvidenceDir(projectDir: string, channel: 'qq' | 'wechat'): string {
   const root = getMiyaVisionTempDir(projectDir, channel);
   fs.mkdirSync(root, { recursive: true });
@@ -328,11 +343,13 @@ exit 0
     };
   }
 
-  const detail =
-    safeValueFromSignal(signal, 'error') ??
-    (stderr.trim() || undefined) ??
-    (stdout.trim() || undefined) ??
-    timedOut ? 'timeout' : `exit_${exitCode}`;
+  const detail = deriveDesktopFailureDetail({
+    signal,
+    stdout,
+    stderr,
+    timedOut,
+    exitCode,
+  });
   return {
     sent: false,
     message: `${input.channel}_desktop_send_failed:${detail}`,

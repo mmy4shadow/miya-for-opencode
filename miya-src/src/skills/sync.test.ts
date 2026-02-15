@@ -28,6 +28,7 @@ function setupSkillRepoFixture(): {
   rootDir: string;
   projectDir: string;
   seedDir: string;
+  remoteDir: string;
   cloneDir: string;
 } {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-sync-'));
@@ -52,7 +53,7 @@ function setupSkillRepoFixture(): {
   git(['--git-dir', remoteDir, 'symbolic-ref', 'HEAD', 'refs/heads/main'], rootDir);
   git(['clone', remoteDir, cloneDir], rootDir);
 
-  return { rootDir, projectDir, seedDir, cloneDir };
+  return { rootDir, projectDir, seedDir, remoteDir, cloneDir };
 }
 
 function pushRemoteUpdate(seedDir: string): string {
@@ -120,6 +121,25 @@ describe('ecosystem bridge sync', () => {
           options,
         ),
       ).toThrow('source_pack_dirty_worktree');
+    } finally {
+      fs.rmSync(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reports source-pack conflicts when skill names collide', () => {
+    const fixture = setupSkillRepoFixture();
+    try {
+      const options = {
+        sourceRoots: [path.join(fixture.projectDir, 'skills')],
+      };
+      const secondClone = path.join(fixture.projectDir, 'skills', 'ecosystem-pack-copy');
+      git(['clone', fixture.remoteDir, secondClone], fixture.rootDir);
+
+      const listed = listEcosystemBridge(fixture.projectDir, options);
+      expect(listed.sourcePacks.length).toBe(2);
+      expect(listed.conflicts.length).toBe(1);
+      expect(listed.conflicts[0]?.type).toBe('skill_name_collision');
+      expect(listed.conflicts[0]?.sourcePackIDs.length).toBe(2);
     } finally {
       fs.rmSync(fixture.rootDir, { recursive: true, force: true });
     }

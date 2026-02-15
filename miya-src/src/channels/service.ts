@@ -837,6 +837,63 @@ export class ChannelRuntime {
     return null;
   }
 
+  private normalizeDesktopRuntimeError(error: unknown): string {
+    const raw =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+          ? error
+          : 'unknown';
+    return raw
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9:_-]+/g, '_')
+      .slice(0, 120) || 'unknown';
+  }
+
+  private recordDesktopRuntimeFailure(input: {
+    channel: ChannelName;
+    destination: string;
+    textPreview: string;
+    archAdvisorApproved: boolean;
+    targetInAllowlist: boolean;
+    contactTier: 'owner' | 'friend' | null;
+    intent: 'reply' | 'initiate';
+    containsSensitive: boolean;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    policyHash?: string;
+    sendFingerprint?: string;
+    ticketSummary?: {
+      outboundSendTraceId: string;
+      desktopControlTraceId: string;
+      expiresAt: string;
+    };
+    payloadHash: string;
+    error: unknown;
+  }): { sent: false; message: string; auditID: string } {
+    const detail = this.normalizeDesktopRuntimeError(input.error);
+    const audit = this.recordOutboundAttempt({
+      channel: input.channel,
+      destination: input.destination,
+      textPreview: input.textPreview,
+      sent: false,
+      message: `outbound_degraded:desktop_runtime_exception:${detail}`,
+      reason: 'desktop_send_failed',
+      archAdvisorApproved: input.archAdvisorApproved,
+      targetInAllowlist: input.targetInAllowlist,
+      contactTier: input.contactTier,
+      intent: input.intent,
+      containsSensitive: input.containsSensitive,
+      riskLevel: input.riskLevel,
+      policyHash: input.policyHash,
+      sendFingerprint: input.sendFingerprint,
+      ticketSummary: input.ticketSummary,
+      payloadHash: input.payloadHash,
+      failureStep: 'desktop.runtime',
+    });
+    return { sent: false, message: audit.message, auditID: audit.id };
+  }
+
   async sendMessage(input: {
     channel: ChannelName;
     destination: string;
@@ -1124,171 +1181,189 @@ export class ChannelRuntime {
       }
     }
 
-    if (input.channel === 'qq') {
-      const result = await this.sendQqDesktopMessageImpl({
-        projectDir: this.projectDir,
-        destination: input.destination,
-        text,
-        mediaPath,
-      });
-      const visionCheck = await this.analyzeDesktopOutboundEvidenceImpl({
-        destination: input.destination,
-        preSendScreenshotPath: result.preSendScreenshotPath,
-        postSendScreenshotPath: result.postSendScreenshotPath,
-        visualPrecheck: result.visualPrecheck,
-        visualPostcheck: result.visualPostcheck,
-        receiptStatus: result.receiptStatus,
-        recipientTextCheck: result.recipientTextCheck,
-      });
-      if (visionCheck.recipientMatch === 'mismatch') {
-        result.sent = false;
-        result.message = 'outbound_blocked:recipient_text_mismatch';
-      }
-      if (visionCheck.sendStatusDetected === 'failed') {
-        result.sent = false;
-        result.message = 'outbound_blocked:receipt_uncertain';
-      }
-      if (visionCheck.uiStyleMismatch) {
-        result.sent = false;
-        result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
-      }
-      if (result.sent && result.receiptStatus !== 'confirmed') {
-        result.sent = false;
-        result.message = 'outbound_blocked:receipt_uncertain';
-      }
-      const audit = this.recordOutboundAttempt({
-        channel: 'qq',
-        destination: input.destination,
-        textPreview: text.slice(0, 200),
-        sent: result.sent,
-        message: result.message,
-        mediaPath: mediaPath || undefined,
-        reason: result.sent ? 'sent' : 'desktop_send_failed',
-        archAdvisorApproved,
-        targetInAllowlist,
-        contactTier: tier,
-        intent,
-        containsSensitive,
-        riskLevel,
-        policyHash,
-        sendFingerprint: input.sendFingerprint,
-        ticketSummary,
-        payloadHash: result.payloadHash ?? payloadHash,
-        windowFingerprint: result.windowFingerprint,
-        recipientTextCheck:
-          visionCheck.recipientMatch === 'matched' || visionCheck.recipientMatch === 'mismatch'
-            ? visionCheck.recipientMatch
-            : result.recipientTextCheck,
-        sendStatusCheck: visionCheck.sendStatusDetected,
-        preSendScreenshotPath: result.preSendScreenshotPath,
-        postSendScreenshotPath: result.postSendScreenshotPath,
-        failureStep: result.failureStep,
-        ocrSource: visionCheck.ocrSource,
-        ocrPreview: visionCheck.ocrPreview,
-        captureMethod: visionCheck.capture.method,
-        evidenceConfidence: visionCheck.capture.confidence,
-        evidenceLimitations: visionCheck.capture.limitations,
-        visualPrecheck: result.visualPrecheck,
-        visualPostcheck: result.visualPostcheck,
-        receiptStatus: result.receiptStatus,
-      });
-      if (result.sent) {
-        this.clearMutexStrike(sessionID);
-      }
-      if (!audit.evidenceBundle || !audit.semanticSummary) {
+    if (input.channel === 'qq' || input.channel === 'wechat') {
+      try {
+        if (input.channel === 'qq') {
+          const result = await this.sendQqDesktopMessageImpl({
+            projectDir: this.projectDir,
+            destination: input.destination,
+            text,
+            mediaPath,
+          });
+          const visionCheck = await this.analyzeDesktopOutboundEvidenceImpl({
+            destination: input.destination,
+            preSendScreenshotPath: result.preSendScreenshotPath,
+            postSendScreenshotPath: result.postSendScreenshotPath,
+            visualPrecheck: result.visualPrecheck,
+            visualPostcheck: result.visualPostcheck,
+            receiptStatus: result.receiptStatus,
+            recipientTextCheck: result.recipientTextCheck,
+          });
+          if (visionCheck.recipientMatch === 'mismatch') {
+            result.sent = false;
+            result.message = 'outbound_blocked:recipient_text_mismatch';
+          }
+          if (visionCheck.sendStatusDetected === 'failed') {
+            result.sent = false;
+            result.message = 'outbound_blocked:receipt_uncertain';
+          }
+          if (visionCheck.uiStyleMismatch) {
+            result.sent = false;
+            result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
+          }
+          if (result.sent && result.receiptStatus !== 'confirmed') {
+            result.sent = false;
+            result.message = 'outbound_blocked:receipt_uncertain';
+          }
+          const audit = this.recordOutboundAttempt({
+            channel: 'qq',
+            destination: input.destination,
+            textPreview: text.slice(0, 200),
+            sent: result.sent,
+            message: result.message,
+            mediaPath: mediaPath || undefined,
+            reason: result.sent ? 'sent' : 'desktop_send_failed',
+            archAdvisorApproved,
+            targetInAllowlist,
+            contactTier: tier,
+            intent,
+            containsSensitive,
+            riskLevel,
+            policyHash,
+            sendFingerprint: input.sendFingerprint,
+            ticketSummary,
+            payloadHash: result.payloadHash ?? payloadHash,
+            windowFingerprint: result.windowFingerprint,
+            recipientTextCheck:
+              visionCheck.recipientMatch === 'matched' || visionCheck.recipientMatch === 'mismatch'
+                ? visionCheck.recipientMatch
+                : result.recipientTextCheck,
+            sendStatusCheck: visionCheck.sendStatusDetected,
+            preSendScreenshotPath: result.preSendScreenshotPath,
+            postSendScreenshotPath: result.postSendScreenshotPath,
+            failureStep: result.failureStep,
+            ocrSource: visionCheck.ocrSource,
+            ocrPreview: visionCheck.ocrPreview,
+            captureMethod: visionCheck.capture.method,
+            evidenceConfidence: visionCheck.capture.confidence,
+            evidenceLimitations: visionCheck.capture.limitations,
+            visualPrecheck: result.visualPrecheck,
+            visualPostcheck: result.visualPostcheck,
+            receiptStatus: result.receiptStatus,
+          });
+          if (result.sent) {
+            this.clearMutexStrike(sessionID);
+          }
+          if (!audit.evidenceBundle || !audit.semanticSummary) {
+            return {
+              sent: false,
+              message: 'outbound_blocked:missing_evidence_bundle',
+              auditID: audit.id,
+            };
+          }
+          return { ...result, auditID: audit.id };
+        }
+
+        const result = await this.sendWechatDesktopMessageImpl({
+          projectDir: this.projectDir,
+          destination: input.destination,
+          text,
+          mediaPath,
+        });
+        const visionCheck = await this.analyzeDesktopOutboundEvidenceImpl({
+          destination: input.destination,
+          preSendScreenshotPath: result.preSendScreenshotPath,
+          postSendScreenshotPath: result.postSendScreenshotPath,
+          visualPrecheck: result.visualPrecheck,
+          visualPostcheck: result.visualPostcheck,
+          receiptStatus: result.receiptStatus,
+          recipientTextCheck: result.recipientTextCheck,
+        });
+        if (visionCheck.recipientMatch === 'mismatch') {
+          result.sent = false;
+          result.message = 'outbound_blocked:recipient_text_mismatch';
+        }
+        if (visionCheck.sendStatusDetected === 'failed') {
+          result.sent = false;
+          result.message = 'outbound_blocked:receipt_uncertain';
+        }
+        if (visionCheck.uiStyleMismatch) {
+          result.sent = false;
+          result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
+        }
+        if (result.sent && result.receiptStatus !== 'confirmed') {
+          result.sent = false;
+          result.message = 'outbound_blocked:receipt_uncertain';
+        }
+        const audit = this.recordOutboundAttempt({
+          channel: 'wechat',
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: result.sent,
+          message: result.message,
+          mediaPath: mediaPath || undefined,
+          reason: result.sent ? 'sent' : 'desktop_send_failed',
+          archAdvisorApproved,
+          targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
+          riskLevel,
+          policyHash,
+          sendFingerprint: input.sendFingerprint,
+          ticketSummary,
+          payloadHash: result.payloadHash ?? payloadHash,
+          windowFingerprint: result.windowFingerprint,
+          recipientTextCheck:
+            visionCheck.recipientMatch === 'matched' || visionCheck.recipientMatch === 'mismatch'
+              ? visionCheck.recipientMatch
+              : result.recipientTextCheck,
+          sendStatusCheck: visionCheck.sendStatusDetected,
+          preSendScreenshotPath: result.preSendScreenshotPath,
+          postSendScreenshotPath: result.postSendScreenshotPath,
+          failureStep: result.failureStep,
+          ocrSource: visionCheck.ocrSource,
+          ocrPreview: visionCheck.ocrPreview,
+          captureMethod: visionCheck.capture.method,
+          evidenceConfidence: visionCheck.capture.confidence,
+          evidenceLimitations: visionCheck.capture.limitations,
+          visualPrecheck: result.visualPrecheck,
+          visualPostcheck: result.visualPostcheck,
+          receiptStatus: result.receiptStatus,
+        });
+        if (result.sent) {
+          this.clearMutexStrike(sessionID);
+        }
+        if (!audit.evidenceBundle || !audit.semanticSummary) {
+          return {
+            sent: false,
+            message: 'outbound_blocked:missing_evidence_bundle',
+            auditID: audit.id,
+          };
+        }
+        return { ...result, auditID: audit.id };
+      } catch (error) {
+        return this.recordDesktopRuntimeFailure({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          archAdvisorApproved,
+          targetInAllowlist,
+          contactTier: tier,
+          intent,
+          containsSensitive,
+          riskLevel,
+          policyHash,
+          sendFingerprint: input.sendFingerprint,
+          ticketSummary,
+          payloadHash,
+          error,
+        });
+      } finally {
         mutexLease?.release();
-        return {
-          sent: false,
-          message: 'outbound_blocked:missing_evidence_bundle',
-          auditID: audit.id,
-        };
       }
-      mutexLease?.release();
-      return { ...result, auditID: audit.id };
     }
 
-    if (input.channel === 'wechat') {
-      const result = await this.sendWechatDesktopMessageImpl({
-        projectDir: this.projectDir,
-        destination: input.destination,
-        text,
-        mediaPath,
-      });
-      const visionCheck = await this.analyzeDesktopOutboundEvidenceImpl({
-        destination: input.destination,
-        preSendScreenshotPath: result.preSendScreenshotPath,
-        postSendScreenshotPath: result.postSendScreenshotPath,
-        visualPrecheck: result.visualPrecheck,
-        visualPostcheck: result.visualPostcheck,
-        receiptStatus: result.receiptStatus,
-        recipientTextCheck: result.recipientTextCheck,
-      });
-      if (visionCheck.recipientMatch === 'mismatch') {
-        result.sent = false;
-        result.message = 'outbound_blocked:recipient_text_mismatch';
-      }
-      if (visionCheck.sendStatusDetected === 'failed') {
-        result.sent = false;
-        result.message = 'outbound_blocked:receipt_uncertain';
-      }
-      if (visionCheck.uiStyleMismatch) {
-        result.sent = false;
-        result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
-      }
-      if (result.sent && result.receiptStatus !== 'confirmed') {
-        result.sent = false;
-        result.message = 'outbound_blocked:receipt_uncertain';
-      }
-      const audit = this.recordOutboundAttempt({
-        channel: 'wechat',
-        destination: input.destination,
-        textPreview: text.slice(0, 200),
-        sent: result.sent,
-        message: result.message,
-        mediaPath: mediaPath || undefined,
-        reason: result.sent ? 'sent' : 'desktop_send_failed',
-        archAdvisorApproved,
-        targetInAllowlist,
-        contactTier: tier,
-        intent,
-        containsSensitive,
-        riskLevel,
-        policyHash,
-        sendFingerprint: input.sendFingerprint,
-        ticketSummary,
-        payloadHash: result.payloadHash ?? payloadHash,
-        windowFingerprint: result.windowFingerprint,
-        recipientTextCheck:
-          visionCheck.recipientMatch === 'matched' || visionCheck.recipientMatch === 'mismatch'
-            ? visionCheck.recipientMatch
-            : result.recipientTextCheck,
-        sendStatusCheck: visionCheck.sendStatusDetected,
-        preSendScreenshotPath: result.preSendScreenshotPath,
-        postSendScreenshotPath: result.postSendScreenshotPath,
-        failureStep: result.failureStep,
-        ocrSource: visionCheck.ocrSource,
-        ocrPreview: visionCheck.ocrPreview,
-        captureMethod: visionCheck.capture.method,
-        evidenceConfidence: visionCheck.capture.confidence,
-        evidenceLimitations: visionCheck.capture.limitations,
-        visualPrecheck: result.visualPrecheck,
-        visualPostcheck: result.visualPostcheck,
-        receiptStatus: result.receiptStatus,
-      });
-      if (result.sent) {
-        this.clearMutexStrike(sessionID);
-      }
-      if (!audit.evidenceBundle || !audit.semanticSummary) {
-        mutexLease?.release();
-        return {
-          sent: false,
-          message: 'outbound_blocked:missing_evidence_bundle',
-          auditID: audit.id,
-        };
-      }
-      mutexLease?.release();
-      return { ...result, auditID: audit.id };
-    }
     mutexLease?.release();
     return {
       sent: false,

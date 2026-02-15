@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ResourceTaskKind } from '../resource-scheduler';
+import { getMiyaRuntimeDir } from '../workflow';
 
 export interface AudioFillerCue {
   cueID: string;
@@ -20,6 +21,7 @@ export interface AudioFillerDecision {
 }
 
 const AUDIO_FILLER_THRESHOLD_MS = 500;
+const RECENT_CUE_WINDOW = 3;
 
 const FALLBACK_FILLERS: Record<ResourceTaskKind, string[]> = {
   'training.image': ['先帮你后台训练一下，我在盯进度。'],
@@ -52,6 +54,90 @@ function fillersDir(projectDir: string): string {
   return path.join(projectDir, 'miya-src', 'assets', 'audio_fillers');
 }
 
+interface AdaptiveWakeWord {
+  path: string | undefined;
+  text: string;
+  weight: number;
+  tags: string[];
+}
+
+function wakeWordsFileCandidates(projectDir: string): string[] {
+  const runtimeDir = getMiyaRuntimeDir(projectDir);
+  return [
+    path.join(runtimeDir, 'model', 'sheng yin', 'cache', 'wake_words.json'),
+    path.join(runtimeDir, 'model', 'sheng_yin', 'cache', 'wake_words.json'),
+    path.join(runtimeDir, 'model', 'shengyin', 'cache', 'wake_words.json'),
+  ];
+}
+
+function safeArray(input: unknown): unknown[] {
+  return Array.isArray(input) ? input : [];
+}
+
+function parseAdaptiveWakeWords(projectDir: string): AdaptiveWakeWord[] {
+  const file = wakeWordsFileCandidates(projectDir).find((candidate) => fs.existsSync(candidate));
+  if (!file) return [];
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as
+      | unknown[]
+      | { items?: unknown[] };
+    const rows = Array.isArray(raw)
+      ? raw
+      : safeArray((raw as { items?: unknown[] }).items);
+    const baseDir = path.dirname(file);
+    const parsed = rows
+      .map((row) => {
+        const text = typeof (row as { text?: unknown })?.text === 'string'
+          ? (row as { text: string }).text.trim()
+          : '';
+        if (!text) return null;
+        const weightRaw = Number((row as { weight?: unknown })?.weight ?? 1);
+        const weight = Number.isFinite(weightRaw) && weightRaw > 0 ? weightRaw : 1;
+        const tags = safeArray((row as { tags?: unknown })?.tags)
+          .map((item) => String(item).trim().toLowerCase())
+          .filter(Boolean);
+        const cuePathRaw =
+          typeof (row as { path?: unknown })?.path === 'string'
+            ? (row as { path: string }).path.trim()
+            : '';
+        let cuePath: string | undefined;
+        if (cuePathRaw) {
+          cuePath = path.isAbsolute(cuePathRaw) ? cuePathRaw : path.join(baseDir, cuePathRaw);
+          if (!fs.existsSync(cuePath)) cuePath = undefined;
+        }
+        return {
+          text,
+          weight,
+          tags,
+          path: cuePath,
+        } satisfies AdaptiveWakeWord;
+      })
+      .filter((item): item is AdaptiveWakeWord => Boolean(item));
+    return parsed.slice(0, 500);
+  } catch {
+    return [];
+  }
+}
+
+function tagsForKind(kind: ResourceTaskKind): string[] {
+  switch (kind) {
+    case 'training.image':
+    case 'training.voice':
+      return ['work', 'training'];
+    case 'image.generate':
+      return ['creative', 'image'];
+    case 'vision.analyze':
+      return ['analysis', 'vision'];
+    case 'voice.tts':
+    case 'voice.asr':
+      return ['voice', 'chat'];
+    case 'shell.exec':
+      return ['work', 'coding'];
+    default:
+      return ['generic'];
+  }
+}
+
 function listAudioCandidates(projectDir: string, kind: ResourceTaskKind): string[] {
   const root = fillersDir(projectDir);
   const candidates: string[] = [];
@@ -78,16 +164,62 @@ function chooseRandom<T>(items: T[]): T | undefined {
   return items[idx];
 }
 
+function chooseWeighted<T extends { weight: number }>(
+  items: T[],
+  random: () => number,
+): T | undefined {
+  if (items.length === 0) return undefined;
+  const total = items.reduce((sum, item) => sum + Math.max(0.0001, item.weight), 0);
+  let cursor = random() * total;
+  for (const item of items) {
+    cursor -= Math.max(0.0001, item.weight);
+    if (cursor <= 0) return item;
+  }
+  return items[items.length - 1];
+}
+
 export class AudioFillerController {
-  constructor(private readonly projectDir: string) {}
+  private readonly random: () => number;
+  private readonly recentCueTexts: string[] = [];
+
+  constructor(
+    private readonly projectDir: string,
+    options?: {
+      random?: () => number;
+    },
+  ) {
+    this.random = options?.random ?? Math.random;
+  }
+
+  private pickAdaptiveCue(kind: ResourceTaskKind): AdaptiveWakeWord | undefined {
+    const cues = parseAdaptiveWakeWords(this.projectDir);
+    if (cues.length === 0) return undefined;
+    const wantedTags = tagsForKind(kind);
+    const matched = cues.filter(
+      (item) => item.tags.length === 0 || item.tags.some((tag) => wantedTags.includes(tag)),
+    );
+    const pool = matched.length > 0 ? matched : cues;
+    const notRecent = pool.filter((item) => !this.recentCueTexts.includes(item.text));
+    const selected = chooseWeighted(notRecent.length > 0 ? notRecent : pool, this.random);
+    if (!selected) return undefined;
+    this.recentCueTexts.unshift(selected.text);
+    if (this.recentCueTexts.length > RECENT_CUE_WINDOW) {
+      this.recentCueTexts.splice(RECENT_CUE_WINDOW);
+    }
+    return selected;
+  }
 
   decide(input: { kind: ResourceTaskKind; timeoutMs?: number }): AudioFillerDecision {
     const expectedLatencyMs = estimateLatencyMs(input.kind, input.timeoutMs);
     if (expectedLatencyMs <= AUDIO_FILLER_THRESHOLD_MS) {
       return { shouldFill: false, expectedLatencyMs };
     }
-    const clipPath = chooseRandom(listAudioCandidates(this.projectDir, input.kind));
+    const adaptiveCue = this.pickAdaptiveCue(input.kind);
+    const clipPath =
+      adaptiveCue?.path ??
+      chooseRandom(listAudioCandidates(this.projectDir, input.kind));
     const text =
+      adaptiveCue?.text ??
       chooseRandom(FALLBACK_FILLERS[input.kind] ?? FALLBACK_FILLERS.generic) ??
       FALLBACK_FILLERS.generic[0];
     return {
@@ -105,4 +237,3 @@ export class AudioFillerController {
     };
   }
 }
-
