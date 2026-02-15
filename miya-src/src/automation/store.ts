@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getMiyaRuntimeDir } from '../workflow/state';
+import { getMiyaAutomationDir } from '../model/paths';
 import type {
   MiyaApprovalRequest,
   MiyaAutomationState,
@@ -27,16 +27,12 @@ function randomId(prefix: string): string {
   return `${prefix}_${time}_${rand}`;
 }
 
-function getAutomationDir(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'automation');
-}
-
 function getStatePath(projectDir: string): string {
-  return path.join(getAutomationDir(projectDir), 'state.json');
+  return path.join(getMiyaAutomationDir(projectDir), 'state.json');
 }
 
 function getHistoryPath(projectDir: string): string {
-  return path.join(getAutomationDir(projectDir), 'history.jsonl');
+  return path.join(getMiyaAutomationDir(projectDir), 'history.jsonl');
 }
 
 export function readAutomationState(projectDir: string): MiyaAutomationState {

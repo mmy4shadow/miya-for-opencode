@@ -6,6 +6,7 @@ import sys
 import wave
 from pathlib import Path
 from typing import Optional
+from path_layout import sovits_dir
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -52,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-dir",
         default=_env(
             "MIYA_SOVITS_MODEL_DIR",
-            r"G:\pythonG\py\yun\.opencode\miya\model\sheng yin\GPT-SoVITS-v2pro-20250604",
+            str(sovits_dir()),
         ),
     )
     p.add_argument("--input-audio", help="voice conversion input audio path")

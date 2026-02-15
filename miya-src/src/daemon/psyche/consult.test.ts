@@ -26,7 +26,7 @@ describe('psyche consult service', () => {
   });
 
   test('defers non-user initiated outbound when state is focus', () => {
-    const service = new PsycheConsultService(tempProjectDir());
+    const service = new PsycheConsultService(tempProjectDir(), { shadowModeDays: 0 });
     const result = service.consult({
       intent: 'outbound.send.wechat',
       urgency: 'low',
@@ -43,7 +43,7 @@ describe('psyche consult service', () => {
   });
 
   test('holds non-user initiated action when screen probe is required', () => {
-    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0 });
+    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
     const result = service.consult({
       intent: 'outbound.send.wechat',
       urgency: 'medium',
@@ -65,7 +65,7 @@ describe('psyche consult service', () => {
   });
 
   test('enforces interruption budget for non-user initiated focus', () => {
-    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0 });
+    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
     const first = service.consult({
       intent: 'daily.checkin',
       urgency: 'critical',
@@ -94,6 +94,7 @@ describe('psyche consult service', () => {
   test('supports epsilon exploration for non-user initiated defer path', () => {
     const service = new PsycheConsultService(tempProjectDir(), {
       epsilon: 0.1,
+      shadowModeDays: 0,
       random: { next: () => 0 },
     });
     const result = service.consult({
@@ -111,7 +112,7 @@ describe('psyche consult service', () => {
   });
 
   test('returns fixability and zero budget for low-trust deny', () => {
-    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0 });
+    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
     service.registerOutcome({
       consultAuditID: 'seed-low-trust',
       intent: 'outbound.send.wechat',
@@ -149,7 +150,7 @@ describe('psyche consult service', () => {
 
   test('records delayed reward outcome and appends training data', () => {
     const projectDir = tempProjectDir();
-    const service = new PsycheConsultService(projectDir, { epsilon: 0 });
+    const service = new PsycheConsultService(projectDir, { epsilon: 0, shadowModeDays: 0 });
     const consult = service.consult({
       intent: 'outbound.send.wechat',
       urgency: 'medium',
@@ -170,7 +171,7 @@ describe('psyche consult service', () => {
       delivered: false,
       blockedReason: 'outbound_blocked:psyche_deferred',
     });
-    expect(outcome.reward).toBe('negative');
+    expect(outcome.reward).toBe('positive');
     const psycheDir = path.join(getMiyaRuntimeDir(projectDir), 'daemon', 'psyche');
     const trainingDataPath = path.join(psycheDir, 'training-data.jsonl');
     expect(fs.existsSync(trainingDataPath)).toBe(true);
@@ -189,7 +190,7 @@ describe('psyche consult service', () => {
     process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY = '1';
     process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC = '3600';
     try {
-      const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0 });
+      const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
       const first = service.consult({
         intent: 'outbound.send.wechat',
         urgency: 'medium',
@@ -223,5 +224,42 @@ describe('psyche consult service', () => {
       if (prevWindow === undefined) delete process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC;
       else process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC = prevWindow;
     }
+  });
+
+  test('defaults to shadow mode safe hold for cold start non-user actions', () => {
+    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0 });
+    const result = service.consult({
+      intent: 'outbound.send.wechat',
+      urgency: 'medium',
+      userInitiated: false,
+      channel: 'wechat',
+      signals: {
+        idleSec: 20,
+        foreground: 'browser',
+      },
+    });
+    expect(result.decision).toBe('defer');
+    expect(result.reasons).toContain('shadow_mode_safe_hold');
+  });
+
+  test('surfaces risk summary when probe is blocked by protected capture limits', () => {
+    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
+    const result = service.consult({
+      intent: 'outbound.send.wechat',
+      urgency: 'medium',
+      userInitiated: false,
+      channel: 'wechat',
+      captureLimitations: ['drm_protected'],
+      signals: {
+        idleSec: 140,
+        foreground: 'browser',
+        fullscreen: true,
+        audioActive: true,
+        screenProbe: 'black',
+      },
+    });
+    expect(result.state).toBe('UNKNOWN');
+    expect(result.risk.drmCaptureBlocked).toBe(true);
+    expect(result.risk.falseIdleUncertain).toBe(true);
   });
 });

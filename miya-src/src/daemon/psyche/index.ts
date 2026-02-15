@@ -5,6 +5,7 @@ export {
   type PsycheDecision,
   type PsycheApprovalMode,
   type PsycheFixability,
+  type PsycheRiskSummary,
   type PsycheUrgency,
   type PsycheOutcomeRequest,
   type PsycheOutcomeResult,

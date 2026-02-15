@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Optional
+from path_layout import sovits_dir
 
 
 STOP_EVENT = threading.Event()
@@ -105,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-dir",
         default=_env(
             "MIYA_SOVITS_MODEL_DIR",
-            r"G:\pythonG\py\yun\.opencode\miya\model\sheng yin\GPT-SoVITS-v2pro-20250604",
+            str(sovits_dir()),
         ),
     )
     p.add_argument("--output-path", default=_env("MIYA_TRAIN_ARTIFACT_PATH"))

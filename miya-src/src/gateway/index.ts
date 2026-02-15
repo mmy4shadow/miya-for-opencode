@@ -1504,10 +1504,19 @@ interface GuardedOutboundCheckInput {
   psycheSignals?: {
     idleSec?: number;
     foreground?: 'ide' | 'terminal' | 'browser' | 'player' | 'game' | 'chat' | 'other' | 'unknown';
+    foregroundTitle?: string;
     fullscreen?: boolean;
     audioActive?: boolean;
+    audioSessionActive?: boolean;
+    audioSessionCount?: number;
     gamepadActive?: boolean;
+    xinputActive?: boolean;
+    rawInputActive?: boolean;
+    apm?: number;
     windowSwitchPerMin?: number;
+    timeInStateSec?: number;
+    focusStreakSec?: number;
+    stateTransition?: string;
     screenProbe?: 'ok' | 'black' | 'error' | 'timeout' | 'not_run';
   };
 }
@@ -1874,6 +1883,7 @@ async function sendChannelMessageGuarded(
         userInitiated,
         allowScreenProbe: psycheMode.captureProbeEnabled,
         signals: input.outboundCheck?.psycheSignals,
+        captureLimitations: input.outboundCheck?.captureLimitations,
         trust: {
           target: `${input.channel}:${input.destination}`,
           source: `session:${input.sessionID}`,
@@ -1936,7 +1946,7 @@ async function sendChannelMessageGuarded(
             message: `outbound_blocked:negotiation_budget_exhausted:${budgetState.reason ?? 'unknown'}`,
             policyHash: resolvedPolicyHash,
             psyche: consult,
-            retryAfterSec: consult.retryAfterSec,
+            retryAfterSec: consult.nextCheckSec ?? consult.retryAfterSec,
             fixability: consult.fixability,
             budget: consult.budget,
             approvalMode: 'modal_approval',
@@ -1973,7 +1983,7 @@ async function sendChannelMessageGuarded(
               : 'outbound_blocked:psyche_deferred',
           policyHash: resolvedPolicyHash,
           psyche: consult,
-          retryAfterSec: consult.retryAfterSec,
+          retryAfterSec: consult.nextCheckSec ?? consult.retryAfterSec,
           fixability: consult.fixability,
           budget: consult.budget,
           approvalMode,

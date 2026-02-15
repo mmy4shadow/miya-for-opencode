@@ -6,6 +6,7 @@ import sys
 import threading
 from pathlib import Path
 from typing import Optional
+from path_layout import flux_schnell_dir
 
 
 STOP_EVENT = threading.Event()
@@ -51,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-dir",
         default=_env(
             "MIYA_FLUX_MODEL_DIR",
-            r"G:\pythonG\py\yun\.opencode\miya\model\tu pian\FLUX.1 schnell",
+            str(flux_schnell_dir()),
         ),
     )
     p.add_argument("--lora-path", default=_env("MIYA_FLUX_LORA_PATH"))

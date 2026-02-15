@@ -301,6 +301,9 @@ const server = Bun.serve({
               params.signals && typeof params.signals === 'object' && !Array.isArray(params.signals)
                 ? (params.signals as Record<string, unknown>)
                 : undefined,
+            captureLimitations: Array.isArray(params.captureLimitations)
+              ? params.captureLimitations.map(String)
+              : undefined,
             trust:
               params.trust && typeof params.trust === 'object' && !Array.isArray(params.trust)
                 ? {
@@ -385,6 +388,11 @@ const server = Bun.serve({
             userReplyWithinSec:
               typeof params.userReplyWithinSec === 'number' && Number.isFinite(params.userReplyWithinSec)
                 ? params.userReplyWithinSec
+                : undefined,
+            userInitiatedWithinSec:
+              typeof params.userInitiatedWithinSec === 'number' &&
+              Number.isFinite(params.userInitiatedWithinSec)
+                ? params.userInitiatedWithinSec
                 : undefined,
             trust:
               params.trust && typeof params.trust === 'object' && !Array.isArray(params.trust)

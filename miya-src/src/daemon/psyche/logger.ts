@@ -77,6 +77,7 @@ export function appendPsycheOutcome(
     blockedReason?: string;
     explicitFeedback: 'positive' | 'negative' | 'none';
     userReplyWithinSec?: number;
+    userInitiatedWithinSec?: number;
     score: number;
     reward: 'positive' | 'negative';
   },
@@ -96,6 +97,7 @@ export function appendPsycheOutcome(
       blockedReason: input.blockedReason ?? '',
       explicitFeedback: input.explicitFeedback,
       userReplyWithinSec: input.userReplyWithinSec,
+      userInitiatedWithinSec: input.userInitiatedWithinSec,
       score: Number(input.score.toFixed(3)),
       reward: input.reward,
     },

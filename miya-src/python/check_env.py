@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 from typing import Any
+from path_layout import flux_klein_dir, flux_schnell_dir, sovits_dir
 
 
 def _to_mb(v: int) -> float:
@@ -34,17 +35,17 @@ def _probe_torch() -> dict[str, Any]:
 
 
 def _probe_paths() -> dict[str, Any]:
-    flux_path = Path(os.getenv("MIYA_FLUX_MODEL_DIR", r"G:\pythonG\py\yun\.opencode\miya\model\tu pian\FLUX.1 schnell"))
+    flux_path = Path(os.getenv("MIYA_FLUX_MODEL_DIR", str(flux_schnell_dir())))
     flux2_path = Path(
         os.getenv(
             "MIYA_FLUX2_MODEL_DIR",
-            r"G:\pythonG\py\yun\.opencode\miya\model\tu pian\FLUX.2 [klein] 4B（Apache-2.0）",
+            str(flux_klein_dir()),
         )
     )
     sovits_path = Path(
         os.getenv(
             "MIYA_SOVITS_MODEL_DIR",
-            r"G:\pythonG\py\yun\.opencode\miya\model\sheng yin\GPT-SoVITS-v2pro-20250604",
+            str(sovits_dir()),
         )
     )
     return {

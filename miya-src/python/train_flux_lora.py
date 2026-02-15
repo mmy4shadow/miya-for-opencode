@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from path_layout import flux_schnell_dir
 
 
 STOP_EVENT = threading.Event()
@@ -158,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-dir",
         default=_env(
             "MIYA_FLUX_MODEL_DIR",
-            r"G:\pythonG\py\yun\.opencode\miya\model\tu pian\FLUX.1 schnell",
+            str(flux_schnell_dir()),
         ),
     )
     p.add_argument("--output-path", default=_env("MIYA_TRAIN_ARTIFACT_PATH"), help="lora safetensors output path")

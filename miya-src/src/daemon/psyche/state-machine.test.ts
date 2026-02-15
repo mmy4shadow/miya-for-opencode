@@ -57,4 +57,28 @@ describe('psyche sentinel state machine', () => {
     expect(state.reasons.join(',')).toContain('screen_probe_timeout');
     expect(state.reasons.join(',')).toContain('probe_failed_fallback_unknown');
   });
+
+  test('marks protected capture limits when probe returns black frame', () => {
+    const state = inferSentinelState({
+      idleSec: 160,
+      foreground: 'browser',
+      fullscreen: true,
+      audioActive: true,
+      screenProbe: 'black',
+      captureLimitations: ['drm_protected'],
+    });
+    expect(state.state).toBe('UNKNOWN');
+    expect(state.reasons.join(',')).toContain('screen_probe_capture_protected');
+  });
+
+  test('falls back to unknown on conflicting idle and input signals', () => {
+    const state = inferSentinelState({
+      idleSec: 240,
+      foreground: 'other',
+      rawInputActive: true,
+      windowSwitchPerMin: 12,
+    });
+    expect(state.state).toBe('UNKNOWN');
+    expect(state.reasons.join(',')).toContain('input_signal_conflict');
+  });
 });

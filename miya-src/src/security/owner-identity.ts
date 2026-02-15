@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getMiyaModelPath } from '../model/paths';
+import { getMiyaVoiceprintModelDir, getMiyaVoiceprintSampleDir } from '../model/paths';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export type InteractionMode = 'owner' | 'guest' | 'unknown';
@@ -116,11 +116,11 @@ function hashSecret(input: string): string {
 }
 
 function defaultVoiceprintModelPath(projectDir: string): string {
-  return process.env.MIYA_VOICEPRINT_MODEL_PATH || getMiyaModelPath(projectDir, 'shi bie', 'eres2net');
+  return process.env.MIYA_VOICEPRINT_MODEL_PATH || getMiyaVoiceprintModelDir(projectDir);
 }
 
 function defaultVoiceprintSampleDir(projectDir: string): string {
-  return process.env.MIYA_VOICEPRINT_SAMPLE_DIR || getMiyaModelPath(projectDir, 'shi bie', 'ben ren');
+  return process.env.MIYA_VOICEPRINT_SAMPLE_DIR || getMiyaVoiceprintSampleDir(projectDir);
 }
 
 export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {

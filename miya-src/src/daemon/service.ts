@@ -4,7 +4,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getResourceScheduler } from '../resource-scheduler';
 import type { ResourceTaskKind } from '../resource-scheduler';
-import { getMiyaModelPath, getMiyaModelRootDir } from '../model/paths';
+import {
+  MIYA_MODEL_BRANCH,
+  getMiyaFluxModelDir,
+  getMiyaModelPath,
+  getMiyaSovitsModelDir,
+} from '../model/paths';
 import { getMiyaRuntimeDir } from '../workflow';
 import { maybeAutoReflectCompanionMemory } from '../companion/memory-reflect';
 import {
@@ -699,8 +704,8 @@ export class MiyaDaemonService {
       embeddingTaskVramMB: 768,
       embeddingModelVramMB: 2048,
     });
-    const modelDir = getMiyaModelPath(this.projectDir, 'tu pian');
-    const fluxModelDir = path.join(modelDir, 'FLUX.1 schnell');
+    const modelDir = getMiyaModelPath(this.projectDir, MIYA_MODEL_BRANCH.image);
+    const fluxModelDir = getMiyaFluxModelDir(this.projectDir);
     this.assertModelVersion('flux_schnell', fluxModelDir);
     fs.mkdirSync(path.dirname(input.outputPath), { recursive: true });
     fs.mkdirSync(modelDir, { recursive: true });
@@ -773,11 +778,7 @@ export class MiyaDaemonService {
       embeddingTaskVramMB: 384,
       embeddingModelVramMB: 1536,
     });
-    const sovitsModelDir = getMiyaModelPath(
-      this.projectDir,
-      'sheng yin',
-      'GPT-SoVITS-v2pro-20250604',
-    );
+    const sovitsModelDir = getMiyaSovitsModelDir(this.projectDir);
     this.assertModelVersion('sovits_v2pro', sovitsModelDir);
     fs.mkdirSync(path.dirname(input.outputPath), { recursive: true });
     const proc = await this.runModelCommand({
@@ -833,7 +834,7 @@ export class MiyaDaemonService {
   }): Promise<TrainingRunResult> {
     const runtime = this.assertPythonRuntimeReady();
     this.assertTrainingAllowed();
-    const fluxModelDir = getMiyaModelPath(this.projectDir, 'tu pian', 'FLUX.1 schnell');
+    const fluxModelDir = getMiyaFluxModelDir(this.projectDir);
     this.assertModelVersion('flux_schnell', fluxModelDir);
     const preferred = this.resolveTierByBudget({
       kind: 'training.image',
@@ -879,11 +880,7 @@ export class MiyaDaemonService {
   }): Promise<TrainingRunResult> {
     const runtime = this.assertPythonRuntimeReady();
     this.assertTrainingAllowed();
-    const sovitsModelDir = getMiyaModelPath(
-      this.projectDir,
-      'sheng yin',
-      'GPT-SoVITS-v2pro-20250604',
-    );
+    const sovitsModelDir = getMiyaSovitsModelDir(this.projectDir);
     this.assertModelVersion('sovits_v2pro', sovitsModelDir);
     const preferred = this.resolveTierByBudget({
       kind: 'training.voice',
@@ -929,13 +926,9 @@ export class MiyaDaemonService {
   }
 
   private modelLockTargets(target?: string): Array<{ key: ModelLockKey; dir: string }> {
-    const root = getMiyaModelRootDir(this.projectDir);
     const all: Array<{ key: ModelLockKey; dir: string }> = [
-      { key: 'flux_schnell', dir: path.join(root, 'tu pian', 'FLUX.1 schnell') },
-      {
-        key: 'sovits_v2pro',
-        dir: path.join(root, 'sheng yin', 'GPT-SoVITS-v2pro-20250604'),
-      },
+      { key: 'flux_schnell', dir: getMiyaFluxModelDir(this.projectDir) },
+      { key: 'sovits_v2pro', dir: getMiyaSovitsModelDir(this.projectDir) },
     ];
     if (!target) return all;
     return all.filter((item) => item.key === target);

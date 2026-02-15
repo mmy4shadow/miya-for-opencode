@@ -163,6 +163,7 @@ export class MiyaClient {
     userInitiated?: boolean;
     allowScreenProbe?: boolean;
     signals?: SentinelSignals;
+    captureLimitations?: string[];
     trust?: {
       target?: string;
       source?: string;
@@ -189,6 +190,7 @@ export class MiyaClient {
     blockedReason?: string;
     explicitFeedback?: 'positive' | 'negative' | 'none';
     userReplyWithinSec?: number;
+    userInitiatedWithinSec?: number;
     trust?: {
       target?: string;
       source?: string;
