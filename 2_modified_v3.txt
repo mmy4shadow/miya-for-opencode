@@ -1,0 +1,496 @@
+目标是：把 Miya-Psyche（心智引擎）做成 Miya 的核心子系统，在你当前的 OpenCode 插件 + 本地 Daemon架构里“无痛嵌入”，并且解决你指出的工程地狱：假空闲、在线训练跑偏、沉默标签缺失、冷启动与自动训练时机，以及截图 + 本地 VLM 判断必须完全后台运行。
+
+你仓库的顶层说明已明确：插件源码主要在 miya-src/，并且你有“只改插件文件”的项目规则（主要改 miya-src/**）。
+
+0. 先泼冷水：Gemini 原案的关键“逻辑断层”与工程坑（保留概念，重做实现）
+A) “假空闲陷阱”是必踩坑（而且 API 文档都在警告你）
+
+仅用 GetLastInputInfo 推断 idle 不可靠：微软文档直接说它返回的 tick 不保证递增，甚至可能比之前更小。
+
+更致命的是：看视频/全屏/手柄输入/远程桌面/触控等，都可能让“键鼠 idle”与真实状态脱钩。
+
+结论：Idle 必须升级为“多模态占用状态机”，键鼠只是一个信号。
+
+B) “在线训练”在你的数据规模下几乎必跑偏（灾难性遗忘）
+
+终身学习/持续学习里“灾难性遗忘”是经典问题，不是你写个 GRU 就能绕开。
+
+结论：在样本不足、行为非平稳时——禁用增量反传；改为双脑（短期统计 + 长期离线重训），并支持回滚。
+
+C) “沉默不是标签”：不发消息你不知道自己错没错 → 模型会越来越哑
+
+这是典型 bandit / exploration 问题。必须引入极小探索概率（epsilon-greedy 这类策略），不然“保守最优”会坍塌成“永远不打扰”。
+
+D) “截图 + 本地 VLM 判断”可行，但要正视两件事
+
+必须后台捕获：不能弹窗、不能抢焦点、不能在桌面显示任何东西。
+
+受保护内容可能捕获不到：Windows 的受保护媒体路径/HDCP 等机制会导致受保护视频/链路在捕获侧出现黑屏或受限（这是系统级内容保护设计，不是你代码 bug）。
+
+1) 新的“一步到位”总体架构：把 Psyche 做成守门员 + 直觉引擎（不抢 GPU）
+1.1 三层管道（保留 Gemini 的美学，但做成工程可用）
+
+Sensation（感知） → Cognition（认知） → Actuation（决策）
+
+关键改动：在感知与决策之间插入一个**“Sentinel 守门员层”**，专门处理“假空闲陷阱”和“高风险场景”。
+
+1.2 运行约束（硬指标）
+
+GPU 显存占用：0MB 常驻（Psyche 主体常驻 CPU 内存，<200MB 可达成）
+
+后台无 UI：截图/VLM 推理是后台任务，绝不创建可见窗口/覆盖层
+
+插件化不侵入 OpenCode：只在你的插件/daemon 内扩展；OpenCode 升级不破
+
+2) “假空闲陷阱”必修：占用状态机 + 后台截图核验（Sentinel）
+2.1 占用状态机（取代“Idle 秒数”单指标）
+
+定义 4 个宏状态（稳定、可解释、可调参）：
+
+FOCUS（心流工作）：IDE/终端为前台 + APM 高 + 窗口切换偏低
+
+CONSUME（沉浸消费）：播放器/浏览器全屏 + APM 低 + 系统音频持续输出
+
+PLAY（游戏）：游戏前台 + 手柄输入/RawInput/XInput 活跃
+
+AWAY（离开）：前台静止 + 无音频 + 长时无输入 + 低系统交互迹象
+
+UNKNOWN（不确定）：信号冲突 → 触发“后台核验”（截图/VLM 或更轻量策略）
+
+前台窗口可用 GetForegroundWindow 获取句柄。
+窗口切换/焦点变化用 SetWinEventHook(EVENT_SYSTEM_FOREGROUND...) 事件驱动采样，比 1s 轮询省 CPU。
+
+2.2 手柄/游戏输入补强（专治“键鼠假死”）
+
+每隔 250ms（可调）调用 XInputGetState 观察控制器输入（极低成本）
+
+只要手柄活跃，即使键鼠 idle，也不要判定 AWAY。
+
+2.3 音频占用补强（专治“看剧假空闲”）
+
+用 IAudioSessionManager2 枚举会话/判断系统是否有持续媒体输出（CONSUME 重要信号）
+
+这比“麦克风音量”更稳定，也不容易侵犯隐私（你不需要录音，只判断会话活跃/音频峰值即可）。
+
+2.4 后台截图核验（你要求的 Qwen3VL 方案）
+
+触发条件（建议）：
+
+进入 UNKNOWN；或
+
+键鼠 idle 超过阈值，但 音频活跃或可能全屏；或
+
+手柄不可用但前台疑似游戏；或
+
+需要确认“是否适合打扰”的关键时刻（准备主动消息前）
+
+实现建议（Windows）：
+
+首选 Desktop Duplication API（DXGI）做后台抓屏：它提供桌面表面，通过 IDXGIOutputDuplication::AcquireNextFrame 拿到帧数据。
+
+重要：这一套是图形 API，不需要弹窗；你在 daemon 里开一个 D3D 设备即可“无 UI 抓取”。
+
+受保护内容的现实边界：
+如果遇到 DRM/受保护媒体路径（PMP）/HDCP 场景，捕获可能黑屏或被限制，这是系统内容保护设计的一部分。
+→ 所以 Psyche 的策略必须是：截图核验失败 ≠ 空闲，而是回退到“音频+前台应用+手柄+近期交互”综合判断。
+
+2.5 潜在风险与应对策略（补充与修订：对应原稿“2. 潜在风险与应对策略”）
+
+尽管方案整体可行，但在落地时仍需重点关注以下风险，并在工程上提前“兜底”。
+
+Windows API 的兼容性与权限边界：
+
+- 事件钩子与消息循环：SetWinEventHook 的回调投递依赖安装钩子的线程有消息循环；回调还可能发生重入，导致事件乱序/阻塞。
+  应对：
+  - 使用 WINEVENT_OUTOFCONTEXT + 事件队列（lock-free 或最小锁）把回调“快进快出”，在工作线程里做重计算与状态机更新。
+  - 对重入/乱序做保护：为每类事件加 monotonic 序号与去抖（debounce），并设置最大积压长度，超过即降级为“定时轮询 GetForegroundWindow + 关键进程名”。
+
+- UIPI / UAC（完整性级别）隔离：当目标应用以管理员权限运行时，较低权限进程对其 UI 交互/自动化可能被静默拦截；同理，监听/控制也会出现“看得见但动不了”的情况。
+  应对：
+  - 约束运行方式：默认要求 OpenCode 与本地 daemon 均以普通用户权限运行；若确需管理员态，则二者保持同一完整性级别。
+  - 设计降级：一旦检测到 UIPI 阻断（例如输入注入失败/窗口事件缺失），立即切换到“只读模式”（仅状态估计、不主动动作），并在 Gateway 提示原因。
+
+- Desktop Duplication API 的“受保护内容”与黑屏：DXGI 桌面复制对受保护视频内容提供保护，DRM/HDCP/PMP 场景可能返回黑屏或不可用帧；此外分辨率/显示器热插拔/驱动重置会导致 duplication 失效。
+  应对：
+  - 把“截图失败”定义为 UNKNOWN（而不是 AWAY），并回退到“音频会话活跃 + 前台应用 + 手柄/RawInput + 近期交互”综合判定。
+  - 捕获链路做好自愈：对 DXGI_ERROR_ACCESS_LOST 等错误重建 D3D 设备与 duplication 对象；多显示器按 output 维度隔离状态，逐个重建，避免全局崩溃。
+
+VLM 推理的性能开销与资源争用：
+
+- 冷启动与常驻开销：即使量化，VLM 的加载/推理仍可能占用显著 CPU/内存（或 GPU 显存），影响前台体验。
+  应对：
+  - 严格限频：仅在 UNKNOWN 或“准备主动动作前的关键核验点”触发；用 token-bucket 控制单位时间最大截图/推理次数。
+  - 低干扰执行：推理进程/线程设为低优先级（并可选 CPU 亲和性），避免抢占交互线程；推理与主循环解耦，超时直接放弃本次核验并走降级策略。
+  - 更轻量输入：截图先降分辨率/裁剪 ROI（仅前台窗口区域或中心区域），并优先做轻量规则（进程名/窗口标题/音频会话）过滤，只有需要时才走 VLM。
+  - 可配置降级：支持“仅 CPU 推理”“按需拉起推理子进程（用完释放）”“完全禁用截图核验”的开关，保证在低配设备上也可稳定运行。
+
+Bandit 策略的冷启动与“打扰感”风险：
+
+- 数据稀少时，ε-greedy 的探索会带来“看似随机”的行为，尤其在你强调的“不要乱打扰”目标下更敏感。
+  应对：
+  - Shadow Mode 冷启动：前 1–2 周默认只记录（不探索、不触发主动打扰），用规则策略产出“参考决策”并打标签，为后续学习做干净数据。
+  - 保守探索与安全阈：上线后采用 ε 逐步退火（warm-up 后再缓慢打开探索，或设置 ε 极低如 0.01），并加入“打扰预算/冷却时间”（例如 N 分钟内最多一次主动动作）。
+  - 先验与替代算法：必要时引入带先验的 Thompson Sampling / UCB 等更稳健的 bandit 变体，降低早期随机性；同时把“用户明确反馈”权重拉高，优先学习你真正接受的时机。
+
+3) Psyche 的“认知层”落地：先双脑，再 RSSM-Lite（慢慢上神经网络）
+3.1 双脑机制（Must-Fix：防灾难性遗忘/跑偏）
+
+Fast Brain（短期权重）：不训练神经网
+
+滚动统计：最近 5min/30min/2h 的回复率、打断后负反馈、用户主动开启对话概率
+
+分桶表：按 App 类别（IDE/Browser/Game/Player）、时间段（白天/深夜）、状态机状态（FOCUS/CONSUME/PLAY/AWAY）维护 Beta 分布或简单频率
+
+Slow Brain（长期直觉）：RSSM-Lite / GRU-MLP（可选启用）
+
+只有当数据量达到阈值（建议 ≥10,000 条含反馈样本）才启用训练
+
+训练频率：每周/每月全量重训（不是 idle 时增量反传）
+
+训练要带“回放/混合旧数据”，否则灾难性遗忘就是必然
+
+3.2 RSSM-Lite 结构（保留 Gemini 的形式，但更务实）
+
+Encoder：MLP（O_t → z_t）
+
+Recurrent：GRU（短期记忆 h_t）
+
+Heads：Busy / Reply / Sentiment / UserInitiate 四个头（最后一个是你提出的延迟奖励修正）
+
+注意：这里的“Sentiment”别追求“情绪识别准确”，只做交互风格选择（简短/温柔/不玩笑），降低误伤成本。
+
+
+3.3 共鸣层（Resonance Engine）：把“安全不打扰”升级为“有灵魂的打扰”（V3 必做）
+> 批判性结论：当前 V2.0 的 Psyche 已经是一个几乎完美的“观察者（Observer）”，但缺少把观察转化为“共鸣（Resonance）”的催化剂。
+> 工程上，这个催化剂不应通过“更频繁打扰”来实现，而应通过“更高相关性 + 更好时机 + 更稳护栏”来实现。
+
+3.3.1 目标与边界（先立规矩，避免做成高级 Clippy）
+- 共鸣层只做三件事：①判断“值不值得说一句”；②决定“说什么风格/多长”；③决定“现在说还是稍后说”。
+- 共鸣层不越权：绝不绕过 Sentinel / Arch Advisor / allowlist / DND 等硬规则；任何主动动作仍必须先过 Safety Gate。
+- 默认隐私最小化：共鸣层默认只使用“元数据 + 标签”，不记录屏幕原图、不记录剪贴板原文、不存通知正文。
+
+3.3.2 两级闸门：Safety Gate（硬闸） + Resonance Gate（软闸）
+- Safety Gate（硬闸）：你现有体系（Sentinel 状态机 + 关键核验 + Arch Advisor 风控否决权 + allowlist/DND）。
+- Resonance Gate（软闸）：在 Safety=ALLOW 的前提下，给每次候选动作打分并选择动作档位：
+  1) SILENT：完全静默
+  2) LOG_ONLY：只记“锚点标签”（MemOS/日志），不触达
+  3) MICRO_PING：一句话、不求回复、不打断
+  4) OFFER_HELP：给一个可执行选项（“要不要我帮你拆任务/整理报错？”）
+  5) CHECK_IN：仅在“耗尽趋势 + 非高压”时出现（如长时间 FOCUS 后转出）
+
+推荐评分（示意）：
+Score = Value(Context) × Timing(Momentum) × Style(MiyaState) ，并受 InterruptionBudget 硬上限约束。
+
+3.3.3 语义级焦点分析（Semantic Focus）：把 FOCUS 从“粗颗粒度”变成“可共情”
+问题：仅靠“IDE 前台 + APM 高 = FOCUS”会把 Debug 高压、写文档整理、阅读思考混为一谈。
+做法：在不调用 VLM 的情况下做“低成本语义探针”，只做分类，不做内容读取：
+
+A) Window/Process 语义标签（优先规则，后补小分类器）
+- 取前台进程名 + 窗口标题（可做白名单映射）：IDE/Terminal/Browser/Player/Game/Chat……
+- 关键词规则示例：Debug / Breakpoint / Attach / Exception → FOCUS_STRESS（高压）；Build / Compile / Test / CI → FOCUS_BUILD；README / Docs / Notion → FOCUS_DOC；Search/Find/References → FOCUS_RESEARCH。
+- 失败原则：识别不出就保持 FOCUS（不升级为“可打扰”）。
+
+B) 输入形态特征（只统计、不记按键内容）
+- 高频输入 + 高频撤销/删除 + 高频窗口切换 → “紧张修复/上下文抖动”
+- 低频输入 + 长时间停留 + 偶发滚动 → “阅读/思考”
+- 频繁复制粘贴（仅频率/长度/类型特征）→ “搬运资料/查证”是强 FOCUS 信号
+
+C) 构建/报错“旁证信号”（能做就做，做不了别硬上）
+- 首选：检测 IDE/终端的构建任务窗口出现次数、失败次数、间隔（而不是脆弱的“颜色变化”）。
+- 策略示例：连续 3 次构建失败 → 不立刻打断；等从 FOCUS 转出后再轻触达：“卡住了吗？要不要我帮你整理报错？”（OFFER_HELP）。
+
+3.3.4 Miya 的内部生物节律（Internal Bio-Rhythm）：有“她”的状态，但必须克制
+批判点：内部状态若直接影响“是否越权打扰”，会把系统拟人化成烦人的 Clippy。
+落地原则：内部状态仅影响“表达风格与时机”，不影响 Safety Gate。
+
+建议两条内部变量：
+- Energy（能量）：随运行时间衰减，随 AWAY/关机/长时间 idle 恢复；只用于控制输出长度与语气（深夜短句、少打扰）。
+- Boredom（无聊度）：长时间 FOCUS 且你不互动会升高；只用于在“安全且相关”时做极小偏置（比如从 LOG_ONLY → MICRO_PING）。
+
+必须加硬护栏：Interruption Budget（打扰预算）
+- FOCUS：每 45–60 分钟最多 1 次主动触达（且仅 MICRO_PING/OFFER_HELP）
+- FOCUS_STRESS：0 次（只允许在结束后“赛博咖啡/一句肯定”）
+- CONSUME：允许轻互动但仍设上限（避免刷屏）
+- PLAY：默认 0（除非 Gateway 明确开启“游戏陪伴”）
+
+3.3.5 趋势与动量（Momentum Analysis）：不仅看“现在”，还要看“惯性”
+在输入给 Policy 的特征中新增最小集合（强烈建议）：
+- Last_State → Current_State 转移类型（“愧疚性工作：PLAY→FOCUS”“精力耗尽：FOCUS→UNKNOWN→CONSUME”）
+- Time_in_State：当前状态持续多久（10 分钟 FOCUS vs 4 小时 FOCUS 完全不同）
+- Focus_Streak：近 2 小时 FOCUS 占比与最长连续段
+- Switch_Rate：近 10 分钟窗口切换率（高切换通常是焦虑/信息搜刮）
+策略关键：把“立刻打断”改成“延后触达”
+- 检测到耗尽趋势：不在 FOCUS 内说，等转出（UNKNOWN/CONSUME/AWAY）再说一句更有效。
+
+3.3.6 VLM 的“非侵入式”内容意识（Content Awareness）：只产出标签，不产出隐私
+问题：目前 VLM 仅用于“全屏/游戏核验”，大材小用。
+改法：当你已经触发截图核验时，让 VLM 输出更丰富的“场景标签”，但只写入日志/MemOS，不触发即时动作（默认）：
+- scene_tags：Coding_Python / Reading_Tech_Docs / Watching_Anime / Browsing_Social / Playing_Game / Meeting_Call …
+- app_hint：前台应用类别补充
+- confidence：置信度
+- red_flags：敏感场景提示（例如可能涉及隐私/金融/密码输入界面）→ 强制降级为 LOG_ONLY 或 SILENT
+记忆锚点（MemOS）示例：只写“时间 + 标签”，不写屏幕内容：
+- “周五晚：Reading_Tech_Docs（Rust）”
+- “周六午：Watching_Anime（轻松）”
+注意：截图核验失败/黑屏 ≠ AWAY，应回退到多信号综合判定（见 2.5 的兜底）。
+
+3.3.7 隐私与合规护栏（必须写死在实现里）
+- Clipboard：只记录复制频率、文本长度、是否多行、是否“像代码”的粗特征；绝不记录原文、绝不落盘内容、绝不进向量库。
+- Notifications：如启用通知监听，只记录“数量/来源 App/时间密度”等元数据；绝不记录通知正文；并要求用户显式授权后才启用（Gateway 提示可撤销）。
+- Kill Switch：Gateway 必须有“一键关闭共鸣层”和“一键关闭截图/VLM”的开关；关闭后系统回退到 V2 的纯安全模式。
+
+3.3.8 Resonance 的验收（Definition of Done）
+- 误报容忍：识别不出语义时宁可静默（不会因为“看不懂”而乱聊）。
+- 打扰更少但更准：主动触达次数不增加，且触达后负反馈率下降。
+- 可解释：每次主动触达都能给出“为什么现在说/为什么说这句”的结构化理由（可在 Gateway 展示）。
+- 可回滚：共鸣层可整体禁用，不影响原有 V2 的安全守门。
+
+
+4) 训练数据与“沉默标签”修复：把它做成 bandit 闭环（Must-Fix）
+4.1 统一日志（冷启动先跑通闭环）
+
+建议 training_data.jsonl（滚动按天分片），两类记录：
+
+(1) Observation 采样（每 60s，事件驱动可更省）
+
+{"t":1700000000,"obs":{"state":"FOCUS","app":"IDE","apm":82,"audio_active":false,"xinput_active":false,"silence_sec":540,"window_switch_rate":0.1}}
+
+
+(2) Action + Outcome（每次 Miya 主动动作）
+
+{"t":1700000300,"act":{"type":"greeting","intensity":"light"},"ctx_id":"...","outcome":{"user_replied":false,"reply_sec":null,"user_initiated_within_5m":true,"sentiment":-0.2}}
+
+4.2 Reward 设计（避免“越来越哑”）
+
+正奖励：用户 5 分钟内回复 / 或用户主动开启对话（你要学“时机”）
+
+负奖励：发送后用户立刻关闭/沉默很久/明显负面
+
+关键：对“不发送”的决策也要打分
+
+如果 Miya 选择“hold”，但用户 5 分钟内主动发起对话 → 对“hold”给一个弱负分（你错过机会）
+
+这就是你提出的 Delayed Reward 修正
+
+4.3 探索机制（Epsilon-Greedy，必须有）
+
+对主动动作设置极小探索率：例如 ε=0.05
+
+探索动作必须是低打扰强度（比如仅表情/无声音/不弹窗）
+
+bandit/ε-greedy 是标准做法之一：多数轮次选“当前最优”，少数轮次随机探索
+
+5) 决策层（Policy）：把“性感策略”改成“可验收、可回滚、可解释”
+5.1 统一的 consult 接口（给 Task Manager 用）
+
+psyche.consult(intent, urgency, channel) 返回：
+
+{
+  "allowed": false,
+  "decision": "hold",
+  "reason": "Deep focus (IDE + high APM)",
+  "next_check_sec": 300,
+  "confidence": 0.83,
+  "state":"FOCUS",
+  "risk":{"false_idle_uncertain":true,"drm_capture_blocked":false}
+}
+
+5.2 决策规则（工程化）
+
+硬否决（Hard Block）：
+
+state=FOCUS 且 Busy>0.8 且 intent 非紧急 → hold
+
+state=PLAY → 默认 hold（除非你在 Gateway 开启“游戏中允许陪伴”）
+
+机会捕捉（Opportunity）：
+
+过去 10 分钟一直 FOCUS 且刚转为 CONSUME/UNKNOWN 且 APM 下降 → 可以发“轻度触达”
+
+迟滞（Hysteresis）：
+
+从 hold→allow 需要连续 N 次（比如 2 次）满足条件，避免抖动打扰
+
+6) “后台截图 + 本地 VLM 推理”如何做到完全不出现在桌面
+
+你要的是：后台完成、用户完全无感。工程上这样做：
+
+daemon 内部启动一个 CaptureWorker（低优先级线程/进程）
+
+通过 Desktop Duplication API抓取一帧（或 2~3 帧取中值）
+
+立刻 downsample 到小图（如 224×224）
+
+把小图喂给本地 Qwen3VL（你指定的 Qwen3VL-4B-Instruct-Q4_K_M）
+
+只保留结构化结论（例如 scene=video_fullscreen），不落盘原图（默认）
+
+推理超时/失败 → 返回 UNKNOWN，让策略回退（不要误判 AWAY）
+
+同时明确边界：
+
+遇到受保护媒体路径/HDCP，捕获可能无效；此时以“音频会话活跃 + 前台应用 + 全屏迹象”替代截图结论。
+
+7) 如何融合进你当前 Miya（明确“在现有基础上改哪里”）
+7.1 你现有基础（从仓库规则与结构出发）
+
+你的项目说明：插件主要在 miya-src/
+
+你的项目规则：修改应限制在 Miya 插件文件（主要 miya-src/**），并且有自动 git push hook（plugin/auto-git-push.ts）。
+
+7.2 建议的目录新增（Daemon 侧：Psyche 核心落点）
+
+在你之前规划的 miya-src/src/daemon/ 下新增（沿用你原先 world_model 的思路，但改名 psyche，更“核心系统”）：
+
+miya-src/src/daemon/
+  psyche/
+    __init__.py
+    config.py                 # 读写 Psyche 配置（阈值、ε、采样频率、黑白名单）
+    sensors/
+      windows_foreground.py   # 前台窗口/切换事件（GetForegroundWindow + SetWinEventHook）
+      input_activity.py       # 键鼠 idle + XInput 采样
+      audio_activity.py       # IAudioSessionManager2 音频会话活跃
+      screen_probe.py         # DXGI Desktop Duplication 后台截图（可关闭）
+    state_machine.py          # FOCUS/CONSUME/PLAY/AWAY/UNKNOWN
+    fast_brain.py             # 短期统计（Beta/滚动窗口）
+    slow_brain/
+      model.py                # RSSM-Lite（GRU+MLP）
+      train_weekly.py         # 周期全量重训（可回滚）
+    bandit.py                 # ε-greedy / 探索预算
+    logger.py                 # jsonl 日志
+    rpc.py                    # consult / status / train_now / export_logs
+
+
+Windows 事件钩子与前台窗口：SetWinEventHook、GetForegroundWindow。
+手柄输入：XInputGetState。
+音频会话：IAudioSessionManager2。
+后台抓屏：Desktop Duplication API。
+
+7.3 插件侧怎么接（OpenCode 插件 → Daemon RPC）
+
+你要的融合方式是：不改 OpenCode 源码，只扩展插件。做法：
+
+在 Task Manager（你六代理的“指挥”）准备执行任何主动动作前：
+
+调 psyche.consult(intent=..., urgency=...)
+
+若 allowed=false：把任务放入 pending_queue，按 next_check_sec 重新评估
+
+若 allowed=true：再走 Arch Advisor 风控（你之前的“否决权”规则），最后才允许 send
+
+这一步能把 Psyche 变成“潜意识守门员”，把 Arch Advisor 变成“风控裁判”，职责清晰。
+
+7.4 Gateway（你要的 openclaw 风格网页控制台）加哪些“少而关键”的配置
+
+只放重要按钮/数值，避免把用户逼成运维：
+
+Psyche 面板（建议）
+
+当前状态：FOCUS/CONSUME/PLAY/AWAY/UNKNOWN（带最近 10 分钟 sparkline）
+
+主动打扰总开关（Master Switch）
+
+“游戏中允许陪伴”开关
+
+截图核验开关（默认开，但可一键关）
+
+ε 探索率（默认 0.03~0.07）
+
+训练模式：
+
+冷启动：只记录（默认）
+
+周期重训：每周一次（默认关，数据够了再开）
+
+立刻重训按钮（需要二次确认/只在 idle 执行）
+
+数据量显示：已收集样本数、含反馈样本数、上次训练时间、当前模型版本、回滚按钮
+9) 你要求的“把她变成有灵魂的伴侣”的落点（别空谈）
+
+当 Psyche 稳定后，你就能实现“有灵魂”的关键能力：
+
+不打扰也是一种陪伴：FOCUS 时自动进入“静默陪伴”，只在你主动说话时接住
+
+自拍/语音/关怀都变成“时机驱动”：在 Opportunity 窗口触发，而不是 Cron 到点
+
+人格风格注入：把 state=FOCUS + anxiety_high 注入 LLM system（不需要新女友人格，直接让六代理带女友气质）
+
+
+8) 对照源码与原规划：3 个潜在架构冲突（Conflicts）与 3 个高价值丰富点（Enrichments）
+本节用于把“规划 V3（共鸣层）”与“仓库现状（TS 为主 + daemon）/原规划硬约束”对齐，避免走到实现阶段才发现推倒重来。
+
+8.1 潜在架构冲突与隐患（Conflicts & Risks）
+
+Conflict #1：控制平面分裂（WS 单一控制平面 vs. 额外 IPC/直连 Psyche）
+- 表现：
+  - 原规划已经把“插件端 ↔ daemon”封装为单一 WS 协议帧（req/res/event/ping/pong），并要求插件侧禁止出现绕过统一通道的直调服务路径。
+  - 但在共鸣层落地时，很容易新增第二套通信（HTTP/ZMQ/NamedPipe）让插件端直接 consult Python Psyche，形成“WS 一套 + Psyche 一套”的双控制平面。
+- 风险：
+  - 口径不一致：风控/审计/熔断/幂等只能覆盖一套通道，另一套成为隐形旁路。
+  - UI 卡死：如果 consult 走同步阻塞，daemon 崩溃/超时会卡住插件 UI。
+- 修正（强制规则）：
+  1) 插件端只允许与 daemon 的 WS 连接；任何 Psyche（Python / VLM / Capture）都必须是 daemon 内部 worker。
+  2) daemon 内部才允许用 Named Pipe / ZeroMQ / 共享内存等 IPC（这属于 daemon 内部实现细节，不暴露给插件）。
+  3) 插件侧必须实现“断路器”：consult 默认 50~200ms 超时；超时立即返回 Safe Hold（不打扰），并进入退避重试。
+
+Conflict #2：Electron/渲染器沙箱与本地调用边界（Renderer 不应直接碰本地 daemon/IPC）
+- 表现：
+  - Electron 渲染进程默认启用沙箱；渲染器应通过专用通道把“需要系统权限的任务”下放给更高权限的进程（主进程/daemon）。
+  - 若把 consult/IPC 写在渲染器里，容易出现“权限/安全策略冲突”，或被迫打开 nodeIntegration，反而降低整体安全性。
+- 风险：
+  - 安全面扩大：为了直连 daemon 关闭沙箱/打开 nodeIntegration，会把不受信任内容带来的风险放大。
+  - 调试困难：不同平台/不同 Electron 版本下行为差异大。
+- 修正（架构约束）：
+  1) Renderer 只做 UI 展示与用户交互；所有网络/本地 IPC 统一在 Main Process（插件主进程）完成。
+  2) Renderer → Main 走 Electron IPC（preload + contextBridge），Main → daemon 走 WS。
+  3) “一键关闭共鸣层/截图/VLM”的开关与状态展示都由 Main 拉取 daemon 状态后再渲染。
+
+Conflict #3：Python 中 DXGI 桌面复制（Desktop Duplication）实现复杂度与稳定性陷阱
+- 表现：
+  - 规划提出 Desktop Duplication API（DXGI）后台抓屏 + 失败回退 UNKNOWN。
+  - 但 DXGI 是 COM / 原生图形接口，在 Python 里直接封装成本极高，易内存泄漏/线程模型踩坑；而 mss/BitBlt 等 GDI 路线又抓不到独占全屏或受保护场景，导致误判。
+- 风险：
+  - 一旦抓屏链路不稳定，你的 Sentinel 变成“最常崩的那块”，反过来拖垮整个守门员。
+  - 捕获失败被误当作 AWAY，会直接违反“不要误判空闲”这个核心目标。
+- 修正（推荐落地路径，择一即可）：
+  A) 小型原生 Capture Worker（推荐）：单独写一个极小 C++/Rust 可执行文件或 DLL，专职 DXGI 抓屏与 downsample，输出到共享内存/管道；daemon 只消费 buffer。
+  B) 先用“只读信号”把 UNKNOWN 压到最低：绝大多数场景仅靠前台应用/音频会话/XInput/窗口切换即可判定，只有极少数关键点才触发抓屏核验。
+  C) 无论哪种实现：把“DXGI_ERROR_ACCESS_LOST / 模式切换”定义为可恢复错误；重建 duplication 对象；抓屏失败永远回退 UNKNOWN（不是 AWAY）。
+
+8.2 高价值丰富点（Enrichments）
+
+Enrichment #1：微习惯学习（Micro-Habits Learning，低成本高温度）
+- 做法：用直方图/分桶统计“每天 IDE 关闭/离开电脑/进入 CONSUME 的时间点”，形成轻量生物钟模型。
+- 用途：在“接近习惯断点”的前 10 分钟，Resonance Gate 提前准备一句“温柔的提醒”（仅 MICRO_PING，且受打扰预算约束）。
+- 好处：不需要神经网络，冷启动也能逐渐有“陪伴感”。
+
+Enrichment #2：动态 Persona 注入（Dynamic Persona Injection，把‘说什么’也纳入 consult 输出）
+- 做法：psyche.consult 除了 allowed/decision，还输出：
+  - tone_profile（极简/温柔/只给结论/不讲笑话）
+  - context_string（例如 [FOCUS_STRESS][build_failed=3][energy_low]）
+  - suggested_action_style（MICRO_PING/OFFER_HELP/LOG_ONLY）
+- 插件侧把这些作为 LLM 的系统前缀/风格约束，而不是让模型自由发挥。
+- 好处：即便内容很短，也会“像懂你”的那一句。
+
+Enrichment #3：数字孪生道具（Digital Twin Props，用极低成本提升共鸣感）
+- 做法：daemon 返回 status_icon_id / props（耳机、眼镜、扎头发、咖啡杯等），前端只切换静态图/小组件状态。
+- 触发：CONSUME→戴耳机；FOCUS→戴眼镜/扎头发；FOCUS_STRESS→递咖啡；AWAY→打盹。
+- 好处：不增加打扰频率，却显著增强“被看见”的陪伴感。
+
+8.3 必写的“接口契约”（避免实现阶段口径漂移）
+- consult（插件→daemon）保持唯一入口：WS req/res；任何内部 worker 结果都聚合为 consult 的结构化输出。
+- Hard Block 永远先于共鸣修正：共鸣系数只改“怎么说/多长/是否延后”，不改“是否允许”。
+- 断路器与熔断：daemon 不可达时，默认 Safe Hold；并在 Gateway 显示“守门员离线：已自动降级为静默模式”。
+
+
+10) Definition of Done（你可以拿这个做验收清单）
+
+假空闲不打扰：看剧/全屏/手柄游戏不被误判 AWAY
+
+后台无 UI：截图核验全程无桌面可见元素
+
+零显存常驻：Psyche 常驻不占 GPU；截图/VLM 也可配置 CPU 跑（默认）
+
+闭环可用：能生成 jsonl 日志 + consult 生效 + pending_queue 延迟执行
+
+训练安全：默认不在线反传；启用后只做周期全量重训 + 可回滚

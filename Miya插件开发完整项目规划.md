@@ -42,11 +42,11 @@
 
 5. **统一事件 Hook 命名与调用链（强制）**  
    规划层统一事件链：  
-   - `tool.execute.before`  
-   - `tool.execute.after`  
-   - `on.agent.state.change`  
-   - `on.permission.request`  
-   约束：事件名禁止硬编码字符串常量，必须由官方 SDK 类型导出（或类型映射层）统一引用；中间阶段仅作为内部 phase 字段表达，不新增公开 Hook 名称。
+   - `tui.prompt.submit`（入口判定）  
+   - `tool.execute.before`（执行前闸门）  
+   - `tool.execute.after`（证据归档）  
+   - `permission.asked` / `permission.replied`（权限观测）  
+   约束：正文中历史口径 `user.message.before`、`permission.ask`、`tool.use.*` 一律标注为“历史草案名词”，实现必须以官方事件名为准。
 
 6. **工具注册与发现机制修正（强制）**  
    Miya 统一采用 OpenCode 官方插件目录规范，不引入平行 discover/register 协议：  
@@ -114,6 +114,70 @@
 ### 一句话总纲（冻结）
 
 Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode 原生权限与事件闭环 + Ecosystem Bridge 兼容层 + CI 门禁驱动的可验证交付体系**。
+
+### 2026-02-15 终裁冻结补丁 v2（口径冲突一次性收敛）
+
+本节为二级解释优先层；与正文冲突时，以本节冻结条款为准。原文不删，统一标记“历史草案/演进追溯”。
+
+#### A. 术语与实现口径终裁
+- 正文中“六大 Agent 独立 class + 自研路由 runtime”全部归类为历史草案，不再作为现行实现目标。
+- 文档中“Agent”统一定义为：OpenCode 原生 `primary/subagent` 配置 + Skill 组合，不再引入第二套 orchestrator runtime。
+- “多智能体协作”统一落地为：OpenCode `session + task/subagent`；Miya 仅负责观测、风控、调度、证据与控制平面。
+
+#### B. OpenCode SDK 已知限制（冻结条款）
+- 不再依赖 `permission.ask` 作为核心拦截点；权限询问仅以 `permission.asked/replied` 作为观测与提示链路。
+- `tool.execute.before/after` 不能被视为覆盖全部 subagent 的唯一屏障。
+- 强制双层门：
+- A 层：OpenCode 原生 permission（必须覆盖 primary 与 subagent）。
+- B 层：Miya `tool.execute.before`（仅作主 agent 额外闸门与证据校验）。
+
+#### C. 权限分层职责（硬规则）
+- OpenCode permission：最终执行授权（硬门），禁止绕过。
+- Miya Intake Gate：策略建议层（建议 allow/deny + 证据），不替代 OpenCode 授权。
+- Miya Tool Gate：执行前校验层（自审批 token / kill-switch / 证据模板校验）。
+
+#### D. PlanBundle v1（控制平面最小事务对象）
+- 所有自治执行必须绑定 `PlanBundle`，禁止“无单据执行”。
+- 字段冻结：`bundleId`、`goal`、`mode`、`riskTier`、`budget{time,cost,retries}`、`capabilitiesNeeded[]`、`steps[]`、`approvalPolicy`、`verificationPlan`、`policyHash`。
+- `steps[]` 子字段冻结：`intent`、`tools[]`、`expectedArtifacts[]`、`rollback`。
+- 状态机冻结：`draft -> proposed -> approved -> executing -> verifying -> done|failed -> postmortem`。
+
+#### E. 外发铁律工程化（唯一出口）
+- 新增统一出口约束：所有外发副作用必须经过 `OutboundRouter/OutboundGate`。
+- 除 `qq/wechat` 外，其他通道统一 `INBOUND_ONLY`（默认关闭发送能力），即使配置 token 也不得外发。
+- 非 QQ/微信 的 `slack/telegram/webchat` 仅允许观察/收件/检索；如需多通道外发，走 OpenClaw Gateway/Bridge，不在 Miya 主线实现。
+
+#### F. Doc Drift 零容忍闭环
+- CI 必须校验“规划中每个路径引用可 resolve（src 或 dist，且声明 source-of-truth）”。
+- 若路径迁移，必须追加“路径映射表”；禁止仅改代码不改规划。
+- 若保留 `dist/` 交付，必须声明 `src` 开发源与 `dist` 发布源的一一映射关系。
+
+#### G. 事件入口对齐（冻结）
+- 模式判定入口：`tui.prompt.submit`。
+- 执行闸门：`tool.execute.before`。
+- 证据归档：`tool.execute.after`。
+- 权限链路：`permission.asked/replied`（观测与交互提示）。
+
+#### H. 背景任务与子代理边界
+- 所有后台子代理固定 `mode=subagent`。
+- 默认权限硬收口：`permission.edit=deny`、`permission.bash=deny`、`permission.external_directory=deny`（除非显式审批模板放开）。
+- 每个后台作业必须绑定 `resource_budget`（max token / wall time / 并发 / VRAM）。
+
+#### I. Ralph Loop 工程化停止条件
+- 连续 N 轮无“可验证进展”必须停止或降级，不允许无尽重试。
+- `progress_metric` 至少包含：测试通过数变化、错误类型变化、关键断言、有效 diff。
+- `failure_taxonomy` 与 `semantic_reason_enum_v1` 合并统计，统一看板口径。
+
+#### J. 主动行为能力约束（伴侣人格落规）
+- 新增能力域 `proactive_ping`（主动问候/主动提醒/主动语音）。
+- 默认策略：`deny`（或仅本地 toast）；需用户显式启用才可执行。
+- 受 `quiet_hours`、全屏/会议/游戏态抑制、全局 kill-switch 管控。
+- 强制策略化约束：禁止敏感外泄、禁止财务/账号高危动作、禁止强制打扰。
+
+#### K. 生态桥接同步机制（新增冻结）
+- 新增三对象：`SourcePack`（上游来源+版本）、`ImportPlan`（导入规则+降权策略）、`PinnedRelease`（锁定与回滚）。
+- 管理命令冻结：`miya.sync list/pull/diff/apply/rollback`。
+- 外部能力默认降权只读，需通过证据包+验收测试后才能进入可执行域。
 
 ## 目录
 
@@ -406,6 +470,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 ## **1. 项目愿景与架构综述**
 
 ### **1.1 执行摘要**
+> 口径标注：本节出现的“多智能体插件/六大专职 Agent 微服务化架构”描述属于历史草案，用于追溯，不作为当前实现约束；当前实现以“单 Runtime + OpenCode agent 配置 + Skill 能力域映射”为准。
 
 本报告旨在为零基础开发者提供一份详尽的、百科全书式的技术指南，用于在 opencode 生态系统中构建名为“Miya”的高级多智能体（Multi-Agent）插件。该项目的设计蓝图源于一份手写架构草图，其核心愿景是利用 opencode 现有的强大基础设施（如 MCP 协议、Skill 系统、Session 管理），通过引入 OpenClaw 风格的“Gateway 双形态”（随 OpenCode 起落的终端进程 + 面向用户的 Web 控制面板）和六大专职 Agent（代理），构建一个既具备情感交互能力（Soul/Persona），又拥有企业级代码交付能力（Ralph Loop/Orchestration）的超级辅助系统。
 
@@ -851,6 +916,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 本章节将把抽象的概念转化为具体的工程设计。我们将采用**事件驱动架构（Event-Driven Architecture）**，这是处理异步 Agent 通信的最佳实践。
 
 ### **4.1 核心组件图解 (Mermaid Description)**
+> 口径标注：本节若出现“每个 Agent 独立 class 继承 BaseAgent/自研分发器”描述，统一按历史草案处理；现行实现不新增第二套 runtime。
 
 虽然本报告为纯文本，但我们可以通过描述构建心智模型。整个 Miya 插件由以下四个层级组成：
 

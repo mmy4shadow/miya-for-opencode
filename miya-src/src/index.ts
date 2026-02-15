@@ -31,6 +31,7 @@ import {
   subscribeLauncherEvents,
 } from './daemon';
 import { appendProviderOverrideAudit } from './config/provider-override-audit';
+import { assertRequiredHookHandlers } from './contracts/hook-contract';
 import {
   createContextGovernorHook,
   createLoopGuardHook,
@@ -305,33 +306,98 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
     output: { status?: 'allow' | 'ask' | 'deny' },
   ) => {
-    const intakeGate = shouldInterceptWriteAfterWebsearch(ctx.directory, {
-      sessionID: String(input.sessionID ?? 'main'),
-      permission: String(input.type ?? ''),
-    });
-    if (intakeGate.intercept) {
-      output.status = 'ask';
-      return;
-    }
-
+    const _ = output;
     const patterns = Array.isArray(input.pattern)
       ? input.pattern.map(String)
       : typeof input.pattern === 'string'
         ? [String(input.pattern)]
         : [];
-    const status = await handlePermissionAsk(ctx.directory, {
+    log('[miya] permission.ask observed', {
       sessionID: String(input.sessionID ?? 'main'),
       permission: String(input.type ?? ''),
-      patterns,
-      metadata:
-        input.metadata && typeof input.metadata === 'object'
-          ? (input.metadata as Record<string, unknown>)
-          : {},
       messageID: input.messageID ? String(input.messageID) : undefined,
-      toolCallID: input.callID ? String(input.callID) : undefined,
+      callID: input.callID ? String(input.callID) : undefined,
+      patterns,
     });
-    output.status = status.status;
   };
+
+  const onToolExecuteBefore = async (
+    input: {
+      tool?: string;
+      sessionID?: string;
+      callID?: string;
+    },
+    output: { args?: unknown },
+  ) => {
+    const tool = String(input.tool ?? '');
+    const sessionID = String(input.sessionID ?? 'main');
+    const callID = typeof input.callID === 'string' ? input.callID : undefined;
+    const argSummary: string[] = [];
+    if (output.args && typeof output.args === 'object') {
+      for (const [key, value] of Object.entries(output.args as Record<string, unknown>)) {
+        if (typeof value === 'string') {
+          argSummary.push(`${key}=${value.slice(0, 180)}`);
+          continue;
+        }
+        if (Array.isArray(value)) {
+          const items = value
+            .map((item) => (typeof item === 'string' ? item : ''))
+            .filter(Boolean)
+            .slice(0, 8)
+            .join(',');
+          if (items) argSummary.push(`${key}=[${items.slice(0, 180)}]`);
+        }
+      }
+    }
+
+    const intakeGate = shouldInterceptWriteAfterWebsearch(ctx.directory, {
+      sessionID,
+      permission: tool,
+    });
+    if (intakeGate.intercept) {
+      throw new Error('miya_intake_gate_blocked:write_after_websearch_requires_revalidation');
+    }
+
+    const safety = await handlePermissionAsk(ctx.directory, {
+      sessionID,
+      permission: tool,
+      patterns: argSummary,
+      metadata:
+        output.args && typeof output.args === 'object'
+          ? (output.args as Record<string, unknown>)
+          : {},
+      toolCallID: callID,
+    });
+    if (safety.status === 'deny') {
+      throw new Error(`miya_safety_gate_denied:${safety.reason}`);
+    }
+  };
+
+  const onToolExecuteAfter = async (
+    input: {
+      tool: string;
+      sessionID: string;
+      callID: string;
+    },
+    output: { title: string; output: string; metadata: Record<string, unknown> },
+  ) => {
+    await postReadNudgeHook['tool.execute.after'](input, output);
+    if (postWriteSimplicityEnabled) {
+      await postWriteSimplicityHook['tool.execute.after'](input, output);
+    }
+    await contextGovernorHook['tool.execute.after'](input, output);
+    trackWebsearchToolOutput(
+      typeof input.sessionID === 'string' ? input.sessionID : 'main',
+      String(input.tool ?? ''),
+      String(output.output ?? ''),
+    );
+  };
+
+  assertRequiredHookHandlers({
+    'tool.execute.before': onToolExecuteBefore,
+    'tool.execute.after': onToolExecuteAfter,
+    'permission.ask': onPermissionAsked,
+  });
 
   return {
     name: 'miya',
@@ -687,23 +753,14 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
 
     // Nudge after file reads to encourage delegation + track websearch usage for intake gate
-    'tool.execute.after': async (input, output) => {
-      await postReadNudgeHook['tool.execute.after'](input, output);
-      if (postWriteSimplicityEnabled) {
-        await postWriteSimplicityHook['tool.execute.after'](input, output);
-      }
-      await contextGovernorHook['tool.execute.after'](input, output);
-      trackWebsearchToolOutput(
-        typeof input.sessionID === 'string' ? input.sessionID : 'main',
-        String(input.tool ?? ''),
-        String(output.output ?? ''),
-      );
+    'tool.execute.before': async (input, output) => {
+      await onToolExecuteBefore(input, output);
     },
 
-    // Current OpenCode event key.
-    'permission.asked': onPermissionAsked,
+    // Nudge after file reads to encourage delegation + track websearch usage for intake gate
+    'tool.execute.after': onToolExecuteAfter,
 
-    // Backward compatibility for older runtimes.
+    // OpenCode permission hook key from @opencode-ai/plugin types.
     'permission.ask': onPermissionAsked,
   };
 };

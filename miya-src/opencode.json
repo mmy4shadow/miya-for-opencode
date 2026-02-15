@@ -1,0 +1,8 @@
+{
+  "$schema": "https://opencode.ai/plugin.json",
+  "name": "miya",
+  "version": "0.7.0",
+  "description": "Miya plugin manifest aligned with OpenCode official plugin/tool directory conventions",
+  "entry": "dist/index.js",
+  "source": "src/index.ts"
+}
