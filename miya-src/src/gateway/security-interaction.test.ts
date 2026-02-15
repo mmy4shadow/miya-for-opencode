@@ -194,6 +194,8 @@ describe('gateway security interaction acceptance', () => {
   });
 
   test('non-user initiated outbound is deferred by psyche consult guard', async () => {
+    const prevPsycheSwitch = process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+    process.env.MIYA_PSYCHE_CONSULT_ENABLE = '1';
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url);
@@ -227,6 +229,11 @@ describe('gateway security interaction acceptance', () => {
     } finally {
       client.close();
       stopGateway(projectDir);
+      if (prevPsycheSwitch === undefined) {
+        delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+      } else {
+        process.env.MIYA_PSYCHE_CONSULT_ENABLE = prevPsycheSwitch;
+      }
     }
   });
 });

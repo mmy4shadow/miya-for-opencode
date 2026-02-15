@@ -1391,38 +1391,44 @@ async function sendChannelMessageGuarded(
     };
   }
 
-  try {
-    const daemon = getMiyaClient(projectDir);
-    const consult = await daemon.psycheConsult({
-      intent: `outbound.send.${input.channel}`,
-      urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
-      channel: input.channel,
-      userInitiated,
-      signals: input.outboundCheck?.psycheSignals,
-    });
-    if (consult.decision !== 'allow') {
-      return {
-        sent: false,
-        message: consult.decision === 'deny' ? 'outbound_blocked:psyche_denied' : 'outbound_blocked:psyche_deferred',
-        policyHash: resolvedPolicyHash,
-        psyche: consult,
-        retryAfterSec: consult.retryAfterSec,
-      };
-    }
-  } catch (error) {
-    if (!userInitiated) {
-      return {
-        sent: false,
-        message: 'outbound_blocked:psyche_deferred',
-        policyHash: resolvedPolicyHash,
-        retryAfterSec: 30,
-        psyche: {
-          decision: 'defer',
-          reason: 'psyche_consult_unavailable',
-          state: 'UNKNOWN',
-          error: error instanceof Error ? error.message : String(error),
-        },
-      };
+  const psycheConsultEnabled = process.env.MIYA_PSYCHE_CONSULT_ENABLE === '1';
+  if (psycheConsultEnabled) {
+    try {
+      const daemon = getMiyaClient(projectDir);
+      const consult = await daemon.psycheConsult({
+        intent: `outbound.send.${input.channel}`,
+        urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
+        channel: input.channel,
+        userInitiated,
+        signals: input.outboundCheck?.psycheSignals,
+      });
+      if (consult.decision !== 'allow') {
+        return {
+          sent: false,
+          message:
+            consult.decision === 'deny'
+              ? 'outbound_blocked:psyche_denied'
+              : 'outbound_blocked:psyche_deferred',
+          policyHash: resolvedPolicyHash,
+          psyche: consult,
+          retryAfterSec: consult.retryAfterSec,
+        };
+      }
+    } catch (error) {
+      if (!userInitiated) {
+        return {
+          sent: false,
+          message: 'outbound_blocked:psyche_deferred',
+          policyHash: resolvedPolicyHash,
+          retryAfterSec: 30,
+          psyche: {
+            decision: 'defer',
+            reason: 'psyche_consult_unavailable',
+            state: 'UNKNOWN',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
     }
   }
 
