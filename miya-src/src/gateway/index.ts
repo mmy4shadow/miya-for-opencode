@@ -160,6 +160,13 @@ import {
 } from '../sessions';
 import { discoverSkills } from '../skills/loader';
 import { listEnabledSkills, setSkillEnabled } from '../skills/state';
+import {
+  applySourcePack,
+  diffSourcePack,
+  listEcosystemBridge,
+  pullSourcePack,
+  rollbackSourcePack,
+} from '../skills/sync';
 import { buildMcpServiceManifest, createBuiltinMcps } from '../mcp';
 import { log } from '../utils/logger';
 import { getMiyaRuntimeDir, getSessionState } from '../workflow';
@@ -1094,6 +1101,8 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'nodes.pair.list',
   'devices.list',
   'skills.status',
+  'miya.sync.list',
+  'miya.sync.diff',
   'mcp.capabilities.list',
   'media.get',
   'media.list',
@@ -4246,6 +4255,67 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     enabled: listEnabledSkills(projectDir),
     discovered: discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []),
   }));
+  methods.register('miya.sync.list', async () => listEcosystemBridge(projectDir));
+  methods.register('miya.sync.diff', async (params) => {
+    const sourcePackID = parseText(params.sourcePackID);
+    if (!sourcePackID) throw new Error('invalid_source_pack_id');
+    return diffSourcePack(projectDir, sourcePackID);
+  });
+  methods.register('miya.sync.pull', async (params) => {
+    const sourcePackID = parseText(params.sourcePackID);
+    const sessionID = parseText(params.sessionID) || 'main';
+    const policyHash = parseText(params.policyHash) || undefined;
+    if (!sourcePackID) throw new Error('invalid_source_pack_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'shell_exec');
+    requireDomainRunning(projectDir, 'fs_write');
+
+    const token = enforceToken({
+      projectDir,
+      sessionID,
+      permission: 'skills_install',
+      patterns: [`sourcePackID=${sourcePackID}`, 'action=pull'],
+    });
+    if (!token.ok) throw new Error(`approval_required:${token.reason}`);
+    return pullSourcePack(projectDir, sourcePackID);
+  });
+  methods.register('miya.sync.apply', async (params) => {
+    const sourcePackID = parseText(params.sourcePackID);
+    const revision = parseText(params.revision) || undefined;
+    const sessionID = parseText(params.sessionID) || 'main';
+    const policyHash = parseText(params.policyHash) || undefined;
+    if (!sourcePackID) throw new Error('invalid_source_pack_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'shell_exec');
+    requireDomainRunning(projectDir, 'fs_write');
+
+    const token = enforceToken({
+      projectDir,
+      sessionID,
+      permission: 'skills_install',
+      patterns: [`sourcePackID=${sourcePackID}`, `revision=${revision ?? 'latest'}`],
+    });
+    if (!token.ok) throw new Error(`approval_required:${token.reason}`);
+    return applySourcePack(projectDir, sourcePackID, { revision });
+  });
+  methods.register('miya.sync.rollback', async (params) => {
+    const sourcePackID = parseText(params.sourcePackID);
+    const sessionID = parseText(params.sessionID) || 'main';
+    const policyHash = parseText(params.policyHash) || undefined;
+    if (!sourcePackID) throw new Error('invalid_source_pack_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'shell_exec');
+    requireDomainRunning(projectDir, 'fs_write');
+
+    const token = enforceToken({
+      projectDir,
+      sessionID,
+      permission: 'skills_install',
+      patterns: [`sourcePackID=${sourcePackID}`, 'action=rollback'],
+    });
+    if (!token.ok) throw new Error(`approval_required:${token.reason}`);
+    return rollbackSourcePack(projectDir, sourcePackID);
+  });
   methods.register('mcp.capabilities.list', async (params) => {
     const disabled = Array.isArray(params.disabledMcps)
       ? params.disabledMcps.map(String)

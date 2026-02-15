@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { install } from './install';
 import { runNodeHost } from '../nodes/client';
+import { currentPolicyHash } from '../policy';
 import type { BooleanArg, InstallArgs } from './types';
 
 function parseInstallArgs(args: string[]): InstallArgs {
@@ -55,6 +56,7 @@ Usage:
   bunx miya channels <list|status|pairs|approve|reject|send>
   bunx miya nodes <list|status|describe|pairs|approve|reject|invoke>
   bunx miya skills <status|enable|disable|install|update>
+  bunx miya sync <list|pull|diff|apply|rollback>
   bunx miya cron <list|runs|add|run|remove|approvals|approve|reject>
   bunx miya voice <status|wake-on|wake-off|talk-start|talk-stop|ingest|history|clear>
   bunx miya canvas <status|list|get|open|render|close>
@@ -65,6 +67,7 @@ Examples:
   bunx miya sessions send webchat:main "hello"
   bunx miya channels send telegram 123456 "hi"
   bunx miya nodes invoke node-1 system.run '{"command":"pwd"}'
+  bunx miya sync list
   bunx miya node-host --gateway http://127.0.0.1:17321
   bunx miya install --no-tui --kimi=yes --openai=no --anthropic=no --copilot=no --zai-plan=no --antigravity=no --chutes=no --tmux=no --skills=yes --isolated=yes
 `);
@@ -375,6 +378,11 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
 
 async function runSubcommand(cwd: string, top: string, args: string[]): Promise<number> {
   const url = await ensureGatewayUrl(cwd);
+  const workspace = resolveWorkspaceDir(cwd);
+  const withPolicyHash = (params: Record<string, unknown>): Record<string, unknown> => ({
+    ...params,
+    policyHash: currentPolicyHash(workspace),
+  });
 
   const method = (() => {
     if (top === 'sessions') {
@@ -448,19 +456,50 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
       if (action === 'install')
         return [
           'skills.install',
-          {
+          withPolicyHash({
             repo: args[1],
             targetName: args[2],
             sessionID: args[3] ?? 'main',
-          },
+          }),
         ] as const;
       if (action === 'update')
         return [
           'skills.update',
-          {
+          withPolicyHash({
             dir: args[1],
             sessionID: args[2] ?? 'main',
-          },
+          }),
+        ] as const;
+    }
+
+    if (top === 'sync') {
+      const action = args[0] ?? 'list';
+      if (action === 'list') return ['miya.sync.list', {}] as const;
+      if (action === 'diff') return ['miya.sync.diff', { sourcePackID: args[1] }] as const;
+      if (action === 'pull')
+        return [
+          'miya.sync.pull',
+          withPolicyHash({
+            sourcePackID: args[1],
+            sessionID: args[2] ?? 'main',
+          }),
+        ] as const;
+      if (action === 'apply')
+        return [
+          'miya.sync.apply',
+          withPolicyHash({
+            sourcePackID: args[1],
+            revision: args[2],
+            sessionID: args[3] ?? 'main',
+          }),
+        ] as const;
+      if (action === 'rollback')
+        return [
+          'miya.sync.rollback',
+          withPolicyHash({
+            sourcePackID: args[1],
+            sessionID: args[2] ?? 'main',
+          }),
         ] as const;
     }
 
@@ -638,6 +677,7 @@ async function main(): Promise<void> {
     top === 'channels' ||
     top === 'nodes' ||
     top === 'skills' ||
+    top === 'sync' ||
     top === 'cron' ||
     top === 'voice' ||
     top === 'canvas' ||

@@ -485,8 +485,8 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 | Ralph Loop 执行闭环 | 已完成 | 已支持 stderr 回注与重试上限；继续做稳定性优化 | `miya-src/src/ralph/*`, `miya-src/src/tools/ralph.*` |
 | Psyche V3 守门员（Sentinel + consult + bandit） | 进行中 | `consult` 前置守门，不新增第二控制平面 | `miya-src/src/daemon/psyche/`（规划）, `miya-src/src/policy/decision-fusion.ts` |
 | Gateway V5（动态信任阈值 + Fixability + V5证据包） | 进行中 | 不放宽安全边界，仅优化审批体验与协商闭环 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/gateway/control-ui.ts` |
-| Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 待实现 | 低置信度自动升档；失败仅回退 `UNKNOWN` | `miya-src/src/multimodal/vision.ts` |
-| 学习闸门分层（Ephemeral/Candidate/Persistent） | 待实现 | 学习不得默认打断，仅长期写入强审批 | `miya-src/src/memory/*`, `miya-src/src/gateway/control-ui.ts` |
+| Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 进行中 | 低置信度自动升档；失败仅回退 `UNKNOWN` | `miya-src/src/multimodal/vision.ts` |
+| 学习闸门分层（Ephemeral/Candidate/Persistent） | 进行中 | 学习不得默认打断，仅长期写入强审批 | `miya-src/src/memory/*`, `miya-src/src/gateway/control-ui.ts` |
 | Inbound-only 通道治理（非主线） | 持续监控 | 可入站只读；严格禁止新增外发通道 | `miya-src/src/channel/`, `miya-src/src/gateway/index.ts` |
 | 质量与对抗回归（OCR/DPI/InputMutex/Context） | 持续监控 | 每次改动必须复跑对抗用例并审计 | `miya-src/src/channels/service.adversarial.test.ts`, `miya-src/src/agents/context-sanitization.test.ts` |
 
@@ -494,6 +494,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 1. 任一里程碑状态变更，必须先更新本矩阵再更新后文章节。  
 2. 新增能力域必须先在本矩阵登记状态与边界，再进入实现。  
 3. 禁止在后文出现“仅叙述不标状态”的任务条目。  
+4. 每次代码更改完成后、上传前，必须更新规划中“进行中/待实现”条目，且不得改动其他无关内容。  
 
 ---
 
@@ -2127,7 +2128,7 @@ miya-src/src/daemon/psyche/
 | Ralph Loop 持续优化（稳定性/可观测） | P1 | 1-2周 | Task Manager + 验证分层 | 主闭环已完成，聚焦指标化与回归稳定 |
 | QQ/微信桌面外发主链路（含证据包） | P0 | 2-3周 | desktop_control + outbound_send + Arch Advisor | 有Gateway/风控基础 |
 | Autopilot模式增强 | P1 | 1周 | Task Manager | 有编排基础，需补可观测与回退策略 |
-| Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | 具备 daemon 与策略引擎基础，待实现 psyche 子系统 |
+| Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | 已具备 daemon/psyche 子系统与策略引擎基础，持续完善联锁 |
 | 动态信任阈值（三档提示） | P0-P1 | 1-2周 | 审批事件统计 + Policy Engine | 有审批与10次窗口降权基础 |
 | Fixability 协商协议（防重试风暴） | P0 | 1周 | Gateway 协议帧 + Agent 重试器 | 有协议与拒绝语义基础 |
 | Evidence Pack V5（富媒体 + Simulation） | P1 | 2周 | 审计存储 + 前端预览组件 | 有证据链与Gateway UI基础 |
