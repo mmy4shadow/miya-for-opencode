@@ -43,15 +43,14 @@
 5. **统一事件 Hook 命名与调用链（强制）**  
    规划层统一事件链：  
    - `tool.execute.before`  
-   - `tool.execute.action`  
    - `tool.execute.after`  
    - `on.agent.state.change`  
    - `on.permission.request`  
-   约束：事件名禁止硬编码字符串常量，必须由官方 SDK 类型导出（或类型映射层）统一引用。
+   约束：事件名禁止硬编码字符串常量，必须由官方 SDK 类型导出（或类型映射层）统一引用；中间阶段仅作为内部 phase 字段表达，不新增公开 Hook 名称。
 
 6. **工具注册与发现机制修正（强制）**  
    Miya 统一采用 OpenCode 官方插件目录规范，不引入平行 discover/register 协议：  
-   - 必备结构：`opencode.json + package.json + tools/ + skills/`  
+   - 必备结构：`opencode.json + .opencode/plugins/ + .opencode/tools/ + .opencode/package.json`（与全局 `~/.config/opencode/**` 配置共同生效）  
    - manifest 必须包含 schema version、兼容版本区间、权限声明、能力标签、审计字段策略。
 
 ### 3. 开发流程与质量门禁（新增）
@@ -203,6 +202,22 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
       - 调用方式：OpenCode大模型通过Miya自定义工具→daemon→本地模型接口
       - 返回：文件路径+哈希+审计ID，不返回原始媒体数据到OpenCode
 
+#### **0.1.2 OpenCode 官方插件/工具目录约定（冻结，防口径冲突）**
+- 目标：彻底对齐 OpenCode 官方插件/工具机制，禁止“自建 discover/registerTool 口径”与官方机制并行。
+- **项目内目录（仓库级）**：
+  - `.opencode/plugins/`：本项目本地插件入口（开发态/调试态插件声明）。
+  - `.opencode/tools/`：本项目本地工具声明与元数据（受 OpenCode 官方工具加载机制约束）。
+  - `.opencode/package.json`：OpenCode 工作区级包与脚本入口（用于工具/插件运行依赖管理）。
+  - `opencode.json`：插件 manifest（能力、权限、版本兼容、入口声明），作为插件注册的唯一契约。
+- **全局目录（用户级）**：
+  - `~/.config/opencode/`：全局配置、规则与插件加载路径配置。
+  - `~/.config/opencode/skills/`：全局 skills 目录。
+  - `~/.config/opencode/rules/`：全局规则目录。
+- **执行约束**：
+  - 工具发现与执行一律走 OpenCode 官方机制，不再新增 `discoverTool()`/`registerTool()` 私有协议。
+  - Miya 只实现官方机制下的“工具实现与能力声明”，不实现平行发现层。
+  - 所有目录与 manifest 字段变更必须通过 `Doc Linter` 校验（规划口径与代码口径一致）。
+
 **补充（开机自启动，随 OpenCode 起落）**：
 - Miya 在 Gateway 提供“开机自启动 OpenCode”选项；启用后由系统启动项/计划任务拉起 OpenCode（从而拉起 Miya）。
 - 设计原则：不让 daemon 变成“脱离 OpenCode 的对话入口”；即使后台有作业队列，**所有对话与文本推理仍只发生在 OpenCode**。
@@ -246,6 +261,10 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
   - Task Manager 的内部调度/派工指令默认 Zero-Persona，仅在最终对外回复阶段启用人格润色
   - 对外呈现型 Agent（Manager/Designer）加载 full persona，并负责 Tone Rewriter（语气重写）
 - 同一聊天里可以编程也可以陪伴；编程时仍能"聊"，聊天时仍能利用自主编程优势完成任务
+- **冲突闭环定义（新增，冻结）**：
+  - “不新增 agent”的真实含义：**不引入第二套编排 runtime，不新增平行代理框架**。
+  - 文档中的“六大 Agent”统一解释为：单一运行时中的六个角色/能力域映射（Role/Skill Domain Mapping）。
+  - 对外体验始终是“单人格 Miya”，对内执行优先复用 OpenCode 原生 Agent/Skill 与既有调度能力。
 
 ### **0.3 安全与隐私铁律（工程化实现）**
 
@@ -475,6 +494,8 @@ Miya 项目提出的“Gateway \+ 6 大 Agent”架构，实际上是一种**微
 
 
 #### **1.3.5 六大 Agent 的职能映射（Hexagon of Competence）**
+
+> 术语对齐补丁：本节“六大 Agent”统一解释为**六个角色/能力域映射**，运行在同一 OpenCode 原生运行时中；不引入第二套自治 Agent orchestration。
 
 ----------------------------------------------------------------
 6 大 Agent 体系（不新增）与职责硬约束
@@ -740,6 +761,17 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 
 ### **3.5 参考项目速览（原文整理）**
 
+> 状态口径说明（冻结）：本节“已实现/部分实现/待实现”必须与第 0.4、`5.*`、`6.*` 的里程碑与基线矩阵一致；若冲突，以第 5/6 章矩阵为准并由 Doc Linter 报警。
+
+<details>
+<summary>修订前原文快照（审计追溯）</summary>
+
+- 编号存在断裂（1/2/3/4/6）。
+- MemOS 在附录参考列表中出现，但本节缺失独立条目。
+- 若干“已实现/待实现”与第 5/6 章基线状态存在漂移风险。
+
+</details>
+
 #### 1. OpenClaw (https://github.com/openclaw/openclaw.git)
 **核心特性**：
 - **Gateway控制平面**：常驻网关，统一管理所有节点和通道
@@ -791,6 +823,15 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - 并行执行（部分实现）
 - 智能路由（部分实现）
 - 上下文隔离（已实现）
+#### 5. MemOS (https://github.com/MemTensor/MemOS.git)
+**核心特性**：
+- **分层记忆管理**：工作记忆/长期记忆分层与检索增强
+- **记忆生命周期治理**：写入、衰减、召回、清理的标准化流程
+- **可解释记忆证据链**：记忆命中原因、来源证据与更新轨迹
+**Miya融合目标**：
+- Miya-MemOS 架构路线（已纳入 4.5.x，部分实现）
+- 记忆读写审计与来源证据绑定（部分实现）
+- 记忆漂移检测与回收策略（待实现）
 #### 6. Nanobot (https://github.com/HKUDS/nanobot.git)
 **核心特性**：
 - **极简架构**：仅4000行Python代码，挑战企业级框架臃肿
@@ -824,13 +865,17 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
    * 每个 Agent 都是一个独立的类（Class），继承自基类 BaseAgent。  
    * 每个 Agent 拥有独立的 System Prompt 和 Tool Set。  
 4. **工具层 (Tool Layer)：** MCP 客户端，本地工具和skills。（注意必须兼容来自opencode和openclaw的所有工具和skills）
-   - **自定义工具注册方式（对齐OpenCode官方）**：
-     - 工具定义文件位置：`miya-src/src/tools/` 目录下
-     - 入口注册：`miya-src/src/index.ts` 中通过 `registerTool()` 注册
-     - 工具必须导出：`name`, `description`, `inputSchema`, `execute` 四个字段
-     - OpenCode通过 `tool.discover` 发现工具，通过 `tool.execute` 调用
-     - 工具权限在 `.opencode/config.json` 中配置，遵循 `allow/ask/deny` 体系
-     - 详见OpenCode官方插件文档：`https://docs.opencode.ai/plugins/tools`
+   - **工具注册方式（修订：严格对齐 OpenCode 官方机制）**：
+     - 插件/工具元数据入口：`opencode.json`（manifest），并与 `.opencode/plugins/`、`.opencode/tools/`、`.opencode/package.json` 协同。
+     - 工具实现代码可位于 `miya-src/src/tools/`，但**发现与装载**必须由 OpenCode 官方插件机制完成。
+     - 禁止新增私有 `discoverTool()`、私有 `registerTool()` 协议作为并行注册链路。
+     - 工具权限继续遵循 OpenCode `allow/ask/deny`，并要求每个工具携带 permission metadata。
+     - 详见 OpenCode 官方插件文档：`https://docs.opencode.ai/plugins/tools`
+   - **官方口径防漂移（新增）**：
+     - 事件/工具清单不得硬编码在文档或代码常量中，必须可从 `@opencode-ai/plugin` 类型定义或官方 schema 自动校验。
+     - CI 必须包含 “type-level event/tool contract check + doc schema check（Doc Linter）”。
+   - **修订前快照（审计）**：
+     - 原文使用了“`miya-src/src/index.ts` 中通过 `registerTool()` 注册 + `tool.discover` 发现”的表达，现统一收敛到官方 manifest/目录机制，原文语义保留在本条审计说明中。
    - **关键原则**：不直接调用底层API，全部通过OpenCode标准工具接口暴露给模型  
    * **Filesystem Tools:** 读写文件（受限）。  
    * **Shell Tools:** 执行命令（受限）。  
@@ -1696,10 +1741,23 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 - `user.message.after` - 用户消息发送后
 - `agent.message.before` - Agent消息发送前
 - `agent.message.after` - Agent消息发送后
-- `tool.use.before` - 工具使用前
-- `tool.use.after` - 工具使用后
+- `tool.execute.before` - 工具执行前（风险分级、参数审计、权限联锁）
+- `tool.execute.after` - 工具执行后（证据归档、结果验真、回退判定）
 - `session.start` - 会话开始
 - `session.end` - 会话结束
+
+**事件口径补丁（冻结）**：
+- 文档中曾混用 `tool.use.*` 与 `tool.execute.*`；自本补丁起统一以 `tool.execute.before/after` 为主口径。
+- 若需要中间态事件，使用内部阶段字段（如 action phase）表达，不扩展为第二套公开 Hook 名称。
+- **防漂移约束（强制）**：事件清单不得硬编码，必须可从 `@opencode-ai/plugin` types 或官方事件 schema 自动校验；校验失败阻断 CI。
+
+<details>
+<summary>修订前原文快照（审计追溯）</summary>
+
+- `tool.use.before` - 工具使用前
+- `tool.use.after` - 工具使用后
+
+</details>
 
 **Gateway生命周期管理**（明确与OpenCode进程绑定，非独立常驻）：
 1. **启动与停止**：
@@ -1735,6 +1793,27 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 这种设计的优势在于它完全透明。用户感觉不到 Gateway 的存在，但它在后台默默地管理着上下文窗口，防止 irrelevant 的信息（例如 Docs-Helper 刚刚搜到的 5000 字文档）污染 Code Fixer 的上下文。Gateway 负责**上下文清洗（Context Sanitation）**，只传递关键信息。
 
 ---
+
+### **4.11 生态兼容闭环（Ecosystem Bridge + Doc Linter，新增冻结）**
+
+#### **4.11.1 Ecosystem Bridge（导入/隔离/版本锁/合规）**
+- 目标：让 Miya 能持续吸收 OpenCode/OpenClaw/oh-my-opencode 生态能力，而不是一次性复制后失联。
+- Bridge 责任：
+  - **导入控制**：外部 Skill/Tool 导入前做来源校验、版本锁定（pin）与哈希记录。
+  - **隔离执行**：非官方依赖默认 sandbox；高风险能力域必须显式 permission metadata。
+  - **信任评估**：建立 dependency allow-list；未通过评估的依赖不可进入生产执行链。
+  - **许可合规**：记录许可证类型、限制条款与再分发条件；不明许可默认拒绝。
+  - **权限映射**：外部能力映射到 OpenCode `allow/ask/deny`，禁止越权直达。
+  - **冲突检测**：同名能力、版本不兼容、schema 冲突必须在导入阶段阻断并给出回退建议。
+
+#### **4.11.2 Doc Linter（规划 <-> 代码 <-> 测试一致性门禁）**
+- 目标：避免“文档说已实现、代码未实现”或“代码更新后规划失真”。
+- 必过门禁：
+  - 校验规划中的目录/能力/事件清单是否与源码实际结构一致。
+  - 校验 `opencode.json`、`.opencode/plugins/`、`.opencode/tools/`、`.opencode/package.json` 的声明一致性。
+  - 校验事件名是否来自 `@opencode-ai/plugin` 类型口径（禁止私有硬编码漂移）。
+  - 校验第 3.5 参考状态与第 5/6 章矩阵状态是否一致（状态漂移检测）。
+- CI 规则：Doc Linter 或 contract check 任一失败即禁止 merge/release。
 
 
 ## **5. 现有源码架构分析（真实基线，2026-02-14）**
