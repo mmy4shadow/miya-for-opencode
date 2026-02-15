@@ -1472,6 +1472,9 @@ async function sendChannelMessageGuarded(
     factorRecipientIsMe,
     factorIntentSuspicious,
     confidenceIntent: confidenceIntentRaw,
+    trustMinScore: runtime.nexus.trust?.minScore,
+    trustMode: runtime.nexus.trustMode,
+    evidenceConfidence: confidenceIntentRaw,
   });
   if (fusion.action === 'hard_fuse') {
     const safetyState = transitionSafetyState(projectDir, {

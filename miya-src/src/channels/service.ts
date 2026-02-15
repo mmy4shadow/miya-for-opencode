@@ -103,8 +103,12 @@ export interface ChannelOutboundAudit {
   failureStep?: string;
   ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
   ocrPreview?: string;
+  captureMethod?: 'wgc_hwnd' | 'print_window' | 'dxgi_duplication' | 'uia_only' | 'unknown';
+  evidenceConfidence?: number;
+  evidenceLimitations?: string[];
   evidenceBundle?: {
     kind: 'desktop_outbound';
+    version: 'v5';
     destination: string;
     payloadHash?: string;
     ticketTraceIds?: string[];
@@ -119,6 +123,22 @@ export interface ChannelOutboundAudit {
       failureStep?: string;
       ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
       ocrPreview?: string;
+    };
+    meta: {
+      captureMethod:
+        | 'wgc_hwnd'
+        | 'print_window'
+        | 'dxgi_duplication'
+        | 'uia_only'
+        | 'unknown';
+      confidence: number;
+      limitations: string[];
+      policyHash?: string;
+    };
+    simulation: {
+      status: 'captured' | 'not_available';
+      clickTargets?: Array<{ x: number; y: number; label?: string }>;
+      reason?: string;
     };
   };
   semanticSummary?: {
@@ -253,6 +273,7 @@ function buildEvidenceBundle(
   ].filter((item): item is string => typeof item === 'string' && item.length > 0);
   return {
     kind: 'desktop_outbound',
+    version: 'v5',
     destination: row.destination,
     payloadHash: row.payloadHash,
     ticketTraceIds: ticketTraceIds.length > 0 ? ticketTraceIds : undefined,
@@ -268,6 +289,22 @@ function buildEvidenceBundle(
       ocrSource: row.ocrSource,
       ocrPreview: row.ocrPreview,
     },
+    meta: {
+      captureMethod: row.captureMethod ?? 'unknown',
+      confidence: Number.isFinite(row.evidenceConfidence) ? Number(row.evidenceConfidence) : 0,
+      limitations: row.evidenceLimitations ?? [],
+      policyHash: row.policyHash,
+    },
+    simulation:
+      screenshots.length > 0
+        ? {
+            status: 'captured',
+            clickTargets: [],
+          }
+        : {
+            status: 'not_available',
+            reason: 'desktop_screenshots_missing',
+          },
   };
 }
 
@@ -677,6 +714,9 @@ export class ChannelRuntime {
       failureStep: row.failureStep,
       ocrSource: row.ocrSource,
       ocrPreview: row.ocrPreview,
+      captureMethod: row.captureMethod,
+      evidenceConfidence: row.evidenceConfidence,
+      evidenceLimitations: row.evidenceLimitations,
       evidenceBundle: buildEvidenceBundle(row),
       semanticSummary: buildSemanticSummary(row),
       semanticTags,
@@ -1119,6 +1159,9 @@ export class ChannelRuntime {
         failureStep: result.failureStep,
         ocrSource: visionCheck.ocrSource,
         ocrPreview: visionCheck.ocrPreview,
+        captureMethod: visionCheck.capture.method,
+        evidenceConfidence: visionCheck.capture.confidence,
+        evidenceLimitations: visionCheck.capture.limitations,
         visualPrecheck: result.visualPrecheck,
         visualPostcheck: result.visualPostcheck,
         receiptStatus: result.receiptStatus,
@@ -1199,6 +1242,9 @@ export class ChannelRuntime {
         failureStep: result.failureStep,
         ocrSource: visionCheck.ocrSource,
         ocrPreview: visionCheck.ocrPreview,
+        captureMethod: visionCheck.capture.method,
+        evidenceConfidence: visionCheck.capture.confidence,
+        evidenceLimitations: visionCheck.capture.limitations,
         visualPrecheck: result.visualPrecheck,
         visualPostcheck: result.visualPostcheck,
         receiptStatus: result.receiptStatus,

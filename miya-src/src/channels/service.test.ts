@@ -70,8 +70,17 @@ describe('channel runtime send policy', () => {
       failureStep?: string;
       evidenceBundle?: {
         kind?: string;
+        version?: string;
         destination?: string;
         screenshots?: string[];
+        meta?: {
+          captureMethod?: string;
+          confidence?: number;
+          limitations?: string[];
+        };
+        simulation?: {
+          status?: string;
+        };
       };
       semanticSummary?: {
         conclusion?: string;
@@ -88,8 +97,13 @@ describe('channel runtime send policy', () => {
     expect(first.receiptStatus).toBe('uncertain');
     expect(typeof first.failureStep).toBe('string');
     expect(first.evidenceBundle?.kind).toBe('desktop_outbound');
+    expect(first.evidenceBundle?.version).toBe('v5');
     expect(first.evidenceBundle?.destination).toBe('tester');
     expect(Array.isArray(first.evidenceBundle?.screenshots)).toBe(true);
+    expect(typeof first.evidenceBundle?.meta?.captureMethod).toBe('string');
+    expect(typeof first.evidenceBundle?.meta?.confidence).toBe('number');
+    expect(Array.isArray(first.evidenceBundle?.meta?.limitations)).toBe(true);
+    expect(typeof first.evidenceBundle?.simulation?.status).toBe('string');
     expect(typeof first.semanticSummary?.conclusion).toBe('string');
     expect(typeof first.semanticSummary?.keyAssertion).toBe('string');
     expect(typeof first.semanticSummary?.recovery).toBe('string');

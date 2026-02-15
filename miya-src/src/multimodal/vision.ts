@@ -133,6 +133,14 @@ export interface DesktopOcrSignals {
   sendStatusDetected: 'sent' | 'failed' | 'uncertain';
 }
 
+export type CaptureMethod = 'wgc_hwnd' | 'print_window' | 'dxgi_duplication' | 'uia_only' | 'unknown';
+
+export interface CaptureCapabilityReport {
+  method: CaptureMethod;
+  confidence: number;
+  limitations: string[];
+}
+
 export function parseDesktopOcrSignals(
   ocrText: string,
   expectedRecipient: string,
@@ -198,19 +206,32 @@ export async function analyzeDesktopOutboundEvidence(
   ocrPreview: string;
   uiStyleMismatch: boolean;
   retries: number;
+  capture: CaptureCapabilityReport;
 }> {
+  const capture = resolveCaptureCapability(input);
   const candidates = [
     input.postSendScreenshotPath,
     input.preSendScreenshotPath,
   ].filter((item): item is string => typeof item === 'string' && fs.existsSync(item));
   if (candidates.length === 0) {
+    const recipientMatch = input.recipientTextCheck ?? 'uncertain';
+    const sendStatusDetected = input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain';
     return {
-      recipientMatch: input.recipientTextCheck ?? 'uncertain',
-      sendStatusDetected: input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain',
+      recipientMatch,
+      sendStatusDetected,
       ocrSource: 'none',
       ocrPreview: '',
       uiStyleMismatch: true,
       retries: 0,
+      capture: {
+        method: capture.method,
+        confidence: capture.confidence,
+        limitations: mergeCaptureLimitations(capture.limitations, {
+          uiStyleMismatch: true,
+          recipientMatch,
+          sendStatusDetected,
+        }),
+      },
     };
   }
 
@@ -269,6 +290,16 @@ export async function analyzeDesktopOutboundEvidence(
 
   const stableRecipient =
     uiStyleMismatch && mergedRecipient === 'mismatch' ? 'uncertain' : mergedRecipient;
+  const confidence = estimateEvidenceConfidence({
+    ocrSource: inferred.source,
+    uiStyleMismatch,
+    recipientMatch: stableRecipient,
+    sendStatusDetected: mergedStatus,
+    retries,
+  });
+  if (confidence < 0.45) {
+    uiStyleMismatch = true;
+  }
 
   return {
     recipientMatch: stableRecipient,
@@ -277,7 +308,85 @@ export async function analyzeDesktopOutboundEvidence(
     ocrPreview: inferred.text.slice(0, 300),
     uiStyleMismatch,
     retries,
+    capture: {
+      method: capture.method,
+      confidence,
+      limitations: mergeCaptureLimitations(capture.limitations, {
+        uiStyleMismatch,
+        recipientMatch: stableRecipient,
+        sendStatusDetected: mergedStatus,
+      }),
+    },
   };
+}
+
+function resolveCaptureCapability(input: {
+  preSendScreenshotPath?: string;
+  postSendScreenshotPath?: string;
+}): CaptureCapabilityReport {
+  const hasScreenshots =
+    (typeof input.preSendScreenshotPath === 'string' &&
+      input.preSendScreenshotPath.length > 0 &&
+      fs.existsSync(input.preSendScreenshotPath)) ||
+    (typeof input.postSendScreenshotPath === 'string' &&
+      input.postSendScreenshotPath.length > 0 &&
+      fs.existsSync(input.postSendScreenshotPath));
+  const raw = String(process.env.MIYA_CAPTURE_METHOD ?? '').trim().toLowerCase();
+  const method: CaptureMethod =
+    raw === 'wgc' || raw === 'wgc_hwnd'
+      ? 'wgc_hwnd'
+      : raw === 'printwindow' || raw === 'print_window'
+        ? 'print_window'
+        : raw === 'dxgi' || raw === 'dxgi_duplication'
+        ? 'dxgi_duplication'
+        : raw === 'uia' || raw === 'uia_only'
+          ? 'uia_only'
+          : hasScreenshots
+              ? 'unknown'
+              : 'uia_only';
+  const limitations: string[] = [];
+  if (!hasScreenshots) {
+    limitations.push('no_desktop_screenshot');
+  }
+  if (method === 'unknown') limitations.push('capture_method_unspecified');
+  if (method === 'uia_only') limitations.push('pixel_evidence_unavailable');
+  return {
+    method,
+    confidence: 0.3,
+    limitations,
+  };
+}
+
+function estimateEvidenceConfidence(input: {
+  ocrSource: 'remote_vlm' | 'tesseract' | 'none';
+  uiStyleMismatch: boolean;
+  recipientMatch: 'matched' | 'mismatch' | 'uncertain';
+  sendStatusDetected: 'sent' | 'failed' | 'uncertain';
+  retries: number;
+}): number {
+  let score = input.ocrSource === 'remote_vlm' ? 0.86 : input.ocrSource === 'tesseract' ? 0.72 : 0.35;
+  if (input.uiStyleMismatch) score -= 0.32;
+  if (input.recipientMatch === 'matched') score += 0.08;
+  if (input.sendStatusDetected === 'sent' || input.sendStatusDetected === 'failed') score += 0.04;
+  if (input.retries > 0) score -= 0.05;
+  if (score < 0) return 0;
+  if (score > 1) return 1;
+  return Number(score.toFixed(2));
+}
+
+function mergeCaptureLimitations(
+  base: string[],
+  input: {
+    uiStyleMismatch: boolean;
+    recipientMatch: 'matched' | 'mismatch' | 'uncertain';
+    sendStatusDetected: 'sent' | 'failed' | 'uncertain';
+  },
+): string[] {
+  const result = [...base];
+  if (input.uiStyleMismatch) result.push('ui_style_mismatch');
+  if (input.recipientMatch === 'uncertain') result.push('recipient_unverified');
+  if (input.sendStatusDetected === 'uncertain') result.push('delivery_unverified');
+  return [...new Set(result)];
 }
 
 export async function analyzeVision(
