@@ -92,6 +92,55 @@ async function connectGateway(url: string): Promise<GatewayWsClient> {
 }
 
 describe('gateway security interaction acceptance', () => {
+  test('supports control-plane killswitch mode switching', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      const switched = (await client.request('killswitch.set_mode', {
+        mode: 'outbound_only',
+      })) as { mode: string };
+      expect(switched.mode).toBe('outbound_only');
+      const domains = (await client.request('policy.domains.list')) as {
+        domains: Array<{ domain: string; status: string }>;
+      };
+      const byName = new Map(domains.domains.map((item) => [item.domain, item.status]));
+      expect(byName.get('outbound_send')).toBe('paused');
+      expect(byName.get('desktop_control')).toBe('running');
+
+      const released = (await client.request('killswitch.set_mode', {
+        mode: 'off',
+      })) as { mode: string };
+      expect(released.mode).toBe('off');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
+  test('updates trust mode thresholds and exposes them in snapshot', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      const updated = (await client.request('trust.set_mode', {
+        silentMin: 95,
+        modalMax: 42,
+      })) as { mode?: { silentMin?: number; modalMax?: number } };
+      expect(updated.mode?.silentMin).toBe(95);
+      expect(updated.mode?.modalMax).toBe(42);
+
+      const snapshot = (await client.request('gateway.status.get')) as {
+        nexus?: { trustMode?: { silentMin?: number; modalMax?: number } };
+      };
+      expect(snapshot.nexus?.trustMode?.silentMin).toBe(95);
+      expect(snapshot.nexus?.trustMode?.modalMax).toBe(42);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
   test('speaker gate pauses outbound/desktop/memory_read in guest mode', async () => {
     const prevStrict = process.env.MIYA_VOICEPRINT_STRICT;
     process.env.MIYA_VOICEPRINT_STRICT = '0';

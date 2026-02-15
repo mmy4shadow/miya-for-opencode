@@ -27,6 +27,7 @@ import {
   findApprovalToken,
   listRecentSelfApprovalRecords,
   readKillSwitch,
+  releaseKillSwitch,
 } from '../safety/store';
 import { isDomainExecutionAllowed, transitionSafetyState } from '../safety/state-machine';
 import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
@@ -179,6 +180,19 @@ export interface GatewayState {
   status: GatewayStatus;
 }
 
+interface NexusTrustSnapshot {
+  target: number;
+  source: number;
+  action: number;
+  minScore: number;
+  tier: 'high' | 'medium' | 'low';
+}
+
+interface TrustModeConfig {
+  silentMin: number;
+  modalMax: number;
+}
+
 interface GatewayDependencies {
   client?: PluginInput['client'];
   automationService?: MiyaAutomationService;
@@ -209,13 +223,8 @@ interface GatewayRuntime {
     pendingTickets: number;
     killSwitchMode: 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
     insights: Array<{ at: string; text: string; auditID?: string }>;
-    trust?: {
-      target: number;
-      source: number;
-      action: number;
-      minScore: number;
-      tier: 'high' | 'medium' | 'low';
-    };
+    trust?: NexusTrustSnapshot;
+    trustMode: TrustModeConfig;
   };
 }
 
@@ -255,13 +264,8 @@ interface GatewaySnapshot {
     pendingTickets: number;
     killSwitchMode: 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
     insights: Array<{ at: string; text: string; auditID?: string }>;
-    trust?: {
-      target: number;
-      source: number;
-      action: number;
-      minScore: number;
-      tier: 'high' | 'medium' | 'low';
-    };
+    trust?: NexusTrustSnapshot;
+    trustMode: TrustModeConfig;
   };
   safety: {
     recentSelfApproval: ReturnType<typeof listRecentSelfApprovalRecords>;
@@ -355,6 +359,19 @@ function resolveKillSwitchMode(projectDir: string, kill: ReturnType<typeof readK
   return 'off';
 }
 
+function resolvePsycheApprovalMode(input: {
+  decision: 'allow' | 'defer' | 'deny';
+  urgency: 'low' | 'medium' | 'high' | 'critical';
+  trust: NexusTrustSnapshot;
+  mode: TrustModeConfig;
+}): 'silent_audit' | 'toast_gate' | 'modal_approval' {
+  if (input.decision !== 'allow') return 'modal_approval';
+  if (input.urgency === 'high' || input.urgency === 'critical') return 'modal_approval';
+  if (input.trust.minScore >= input.mode.silentMin) return 'silent_audit';
+  if (input.trust.minScore <= input.mode.modalMax) return 'modal_approval';
+  return 'toast_gate';
+}
+
 function appendNexusInsight(
   runtime: GatewayRuntime,
   input: { text: string; auditID?: string; at?: string },
@@ -393,6 +410,42 @@ export function registerGatewayDependencies(
 
 function gatewayFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway.json');
+}
+
+const DEFAULT_TRUST_MODE: TrustModeConfig = {
+  silentMin: 90,
+  modalMax: 50,
+};
+
+function trustModeFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-trust-mode.json');
+}
+
+function normalizeTrustMode(input?: Partial<TrustModeConfig>): TrustModeConfig {
+  const silentMinRaw = Number(input?.silentMin ?? DEFAULT_TRUST_MODE.silentMin);
+  const modalMaxRaw = Number(input?.modalMax ?? DEFAULT_TRUST_MODE.modalMax);
+  const silentMin = Math.max(0, Math.min(100, Number.isFinite(silentMinRaw) ? silentMinRaw : DEFAULT_TRUST_MODE.silentMin));
+  const modalMax = Math.max(0, Math.min(100, Number.isFinite(modalMaxRaw) ? modalMaxRaw : DEFAULT_TRUST_MODE.modalMax));
+  const correctedSilentMin = Math.max(Math.ceil(modalMax), Math.round(silentMin));
+  return {
+    silentMin: correctedSilentMin,
+    modalMax: Math.round(modalMax),
+  };
+}
+
+function readTrustModeConfig(projectDir: string): TrustModeConfig {
+  const raw = safeReadJsonObject(trustModeFile(projectDir));
+  if (!raw) return DEFAULT_TRUST_MODE;
+  return normalizeTrustMode({
+    silentMin: typeof raw.silentMin === 'number' ? raw.silentMin : undefined,
+    modalMax: typeof raw.modalMax === 'number' ? raw.modalMax : undefined,
+  });
+}
+
+function writeTrustModeConfig(projectDir: string, config: TrustModeConfig): TrustModeConfig {
+  const normalized = normalizeTrustMode(config);
+  writeJsonAtomic(trustModeFile(projectDir), normalized);
+  return normalized;
 }
 
 function gatewayOwnerLockFile(projectDir: string): string {
@@ -1482,6 +1535,12 @@ async function sendChannelMessageGuarded(
         userInitiated: consult.userInitiated,
         state: consult.state,
       };
+      const approvalMode = resolvePsycheApprovalMode({
+        decision: consult.decision,
+        urgency: consult.urgency,
+        trust: consult.trust,
+        mode: runtime.nexus.trustMode,
+      });
       runtime.nexus.trust = consult.trust;
       runtime.nexus.sessionId = input.sessionID;
       runtime.nexus.permission = 'external_message';
@@ -1499,6 +1558,7 @@ async function sendChannelMessageGuarded(
         at: consult.at,
         auditID: consult.auditID,
         trust: consult.trust,
+        mode: runtime.nexus.trustMode,
       });
       if (consult.decision !== 'allow') {
         try {
@@ -1534,7 +1594,7 @@ async function sendChannelMessageGuarded(
           retryAfterSec: consult.retryAfterSec,
           fixability: consult.fixability,
           budget: consult.budget,
-          approvalMode: consult.approvalMode,
+          approvalMode,
         };
       }
     } catch (error) {
@@ -1870,6 +1930,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       killSwitchMode: resolveKillSwitchMode(projectDir, kill),
       insights: runtime.nexus.insights.slice(-10),
       trust: runtime.nexus.trust,
+      trustMode: runtime.nexus.trustMode,
     },
     safety: {
       recentSelfApproval: listRecentSelfApprovalRecords(projectDir, 15),
@@ -3270,6 +3331,109 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       domain,
       status: state.domains[domain] === 'running' ? 'running' : 'paused',
       hash: currentPolicyHash(projectDir),
+    };
+  });
+  methods.register('killswitch.set_mode', async (params) => {
+    const modeRaw = parseText(params.mode)?.toLowerCase();
+    const mode =
+      modeRaw === 'all_stop' ||
+      modeRaw === 'outbound_only' ||
+      modeRaw === 'desktop_only' ||
+      modeRaw === 'off'
+        ? modeRaw
+        : null;
+    if (!mode) throw new Error('invalid_killswitch_mode');
+    const reason = parseText(params.reason) || `manual_mode:${mode}`;
+    if (mode === 'all_stop') {
+      const traceID = randomUUID();
+      activateKillSwitch(projectDir, reason, traceID);
+      transitionSafetyState(projectDir, {
+        source: 'killswitch.set_mode',
+        reason,
+        traceID,
+        policyHash: currentPolicyHash(projectDir),
+        globalState: 'killed',
+        domains: {
+          outbound_send: 'killed',
+          desktop_control: 'killed',
+        },
+      });
+    } else if (mode === 'off') {
+      releaseKillSwitch(projectDir);
+      transitionSafetyState(projectDir, {
+        source: 'killswitch.set_mode',
+        reason,
+        policyHash: currentPolicyHash(projectDir),
+        globalState: 'running',
+        domains: {
+          outbound_send: 'running',
+          desktop_control: 'running',
+        },
+      });
+    } else {
+      releaseKillSwitch(projectDir);
+      transitionSafetyState(projectDir, {
+        source: 'killswitch.set_mode',
+        reason,
+        policyHash: currentPolicyHash(projectDir),
+        globalState: 'running',
+        domains: {
+          outbound_send: mode === 'desktop_only' ? 'running' : 'paused',
+          desktop_control: mode === 'outbound_only' ? 'running' : 'paused',
+        },
+      });
+    }
+    runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, readKillSwitch(projectDir));
+    appendNexusInsight(runtime, {
+      text: `KillSwitch mode -> ${runtime.nexus.killSwitchMode}`,
+    });
+    publishGatewayEvent(runtime, 'gateway.killswitch.mode', {
+      mode: runtime.nexus.killSwitchMode,
+      at: nowIso(),
+    });
+    return {
+      mode: runtime.nexus.killSwitchMode,
+      hash: currentPolicyHash(projectDir),
+    };
+  });
+  methods.register('trust.set_mode', async (params) => {
+    const silentMinRaw = Number(params.silentMin);
+    const modalMaxRaw = Number(params.modalMax);
+    if (!Number.isFinite(silentMinRaw) || !Number.isFinite(modalMaxRaw)) {
+      throw new Error('invalid_trust_mode_thresholds');
+    }
+    const next = writeTrustModeConfig(projectDir, {
+      silentMin: silentMinRaw,
+      modalMax: modalMaxRaw,
+    });
+    runtime.nexus.trustMode = next;
+    appendNexusInsight(runtime, {
+      text: `Trust mode updated: silent>=${next.silentMin}, modal<=${next.modalMax}`,
+    });
+    publishGatewayEvent(runtime, 'trust.mode.update', {
+      at: nowIso(),
+      mode: next,
+    });
+    return {
+      mode: next,
+    };
+  });
+  methods.register('insight.append', async (params) => {
+    const text = parseText(params.text);
+    if (!text) throw new Error('invalid_insight_text');
+    const at = parseText(params.at) || nowIso();
+    const auditID = parseText(params.auditID);
+    appendNexusInsight(runtime, { text, at, auditID: auditID || undefined });
+    publishGatewayEvent(runtime, 'insight.append', {
+      at,
+      text,
+      auditID: auditID || undefined,
+    });
+    return {
+      ok: true,
+      at,
+      text,
+      auditID: auditID || undefined,
     };
   });
 
@@ -4797,6 +4961,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       killSwitchMode: 'off',
       insights: [],
       trust: undefined,
+      trustMode: readTrustModeConfig(projectDir),
     },
   };
 
