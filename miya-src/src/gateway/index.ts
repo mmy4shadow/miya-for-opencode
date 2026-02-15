@@ -32,6 +32,7 @@ import {
 } from '../safety/store';
 import { isDomainExecutionAllowed, transitionSafetyState } from '../safety/state-machine';
 import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
+import type { SafetyTier } from '../safety/tier';
 import {
   assertPolicyHash,
   currentPolicyHash,
@@ -1147,10 +1148,10 @@ function appendInterventionAudit(
   return id;
 }
 
-function normalizeApprovalTier(input: string): 'low' | 'medium' | 'high' {
-  if (input === 'high') return 'high';
-  if (input === 'low') return 'low';
-  return 'medium';
+function normalizeApprovalTier(input: string): SafetyTier {
+  if (input === 'high' || input === 'thorough') return 'THOROUGH';
+  if (input === 'low' || input === 'light') return 'LIGHT';
+  return 'STANDARD';
 }
 
 async function invokeGatewayMethod(

@@ -89,6 +89,42 @@ function deepMergeObject(
 
 const autoUiOpenAtByDir = new Map<string, number>();
 
+function autoUiOpenGuardFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'ui-auto-open.guard.json');
+}
+
+function readLastAutoUiOpenAt(projectDir: string): number {
+  const file = autoUiOpenGuardFile(projectDir);
+  if (!fs.existsSync(file)) return 0;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown };
+    const atMs = Number(parsed?.atMs ?? 0);
+    return Number.isFinite(atMs) ? atMs : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeLastAutoUiOpenAt(projectDir: string, atMs: number): void {
+  const file = autoUiOpenGuardFile(projectDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}\n`,
+    'utf-8',
+  );
+}
+
+function isPidAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function openUrlSilently(url: string): void {
   if (process.platform === 'win32') {
     const child = spawn('cmd', ['/c', 'start', '', url], {
@@ -116,6 +152,19 @@ function openUrlSilently(url: string): void {
 
 function launchDockSilently(projectDir: string): void {
   if (process.platform !== 'win32') return;
+  const pidFile = path.join(
+    projectDir,
+    'miya-src',
+    'tools',
+    'miya-dock',
+    'miya-dock.pid',
+  );
+  if (fs.existsSync(pidFile)) {
+    try {
+      const pid = Number(fs.readFileSync(pidFile, 'utf-8').trim());
+      if (isPidAlive(pid)) return;
+    } catch {}
+  }
   const bat = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-launch.bat');
   if (!fs.existsSync(bat)) return;
   const child = spawn('cmd', ['/c', bat], {
@@ -127,12 +176,20 @@ function launchDockSilently(projectDir: string): void {
   child.unref();
 }
 
-function shouldAutoOpenUi(projectDir: string): boolean {
+function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
   const last = autoUiOpenAtByDir.get(projectDir) ?? 0;
+  const persistedLast = readLastAutoUiOpenAt(projectDir);
   const now = Date.now();
+  const minCooldownMs = Math.max(10_000, Math.min(cooldownMs, 24 * 60_000));
   if (now - last < 10_000) return false;
+  if (now - persistedLast < minCooldownMs) return false;
   autoUiOpenAtByDir.set(projectDir, now);
+  writeLastAutoUiOpenAt(projectDir, now);
   return true;
+}
+
+function isInteractiveSession(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
 const MiyaPlugin: Plugin = async (ctx) => {
@@ -160,14 +217,29 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
   startGatewayWithLog(ctx.directory);
   const gatewayOwner = isGatewayOwner(ctx.directory);
-  const autoOpenEnabled =
+  const dashboardConfig =
     ((config.ui as Record<string, unknown> | undefined)?.dashboard as
       | Record<string, unknown>
-      | undefined)?.openOnStart !== false;
+      | undefined) ?? {};
+  const autoOpenEnabled = dashboardConfig.openOnStart !== false;
+  const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === '0';
+  const autoOpenCooldownMs =
+    typeof dashboardConfig.autoOpenCooldownMs === 'number'
+      ? Math.max(10_000, Math.min(24 * 60_000, Math.floor(Number(dashboardConfig.autoOpenCooldownMs))))
+      : 2 * 60_000;
+  const dockAutoLaunch =
+    process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
+    dashboardConfig.dockAutoLaunch === true;
+  const interactiveSession = isInteractiveSession();
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);
     log('[miya-launcher] daemon bootstrap', daemonLaunch);
-    if (autoOpenEnabled && shouldAutoOpenUi(ctx.directory)) {
+    if (
+      autoOpenEnabled &&
+      !autoOpenBlockedByEnv &&
+      interactiveSession &&
+      shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
+    ) {
       setTimeout(async () => {
         try {
           const state = ensureGatewayRunning(ctx.directory);
@@ -176,16 +248,28 @@ const MiyaPlugin: Plugin = async (ctx) => {
             log('[miya] auto ui open skipped: gateway unhealthy', { url: state.url });
             return;
           }
-          // Windows: try dock bootstrap (side panel) and always open fallback web UI.
-          launchDockSilently(ctx.directory);
+          if (dockAutoLaunch) {
+            launchDockSilently(ctx.directory);
+          }
           openUrlSilently(state.url);
-          log('[miya] auto ui open triggered', { url: state.url });
+          log('[miya] auto ui open triggered', {
+            url: state.url,
+            dockAutoLaunch,
+            cooldownMs: autoOpenCooldownMs,
+          });
         } catch (error) {
           log('[miya] auto ui open failed', {
             error: error instanceof Error ? error.message : String(error),
           });
         }
       }, 1_200);
+    } else {
+      log('[miya] auto ui open skipped', {
+        autoOpenEnabled,
+        autoOpenBlockedByEnv,
+        interactiveSession,
+        cooldownMs: autoOpenCooldownMs,
+      });
     }
     setTimeout(async () => {
       try {

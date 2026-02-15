@@ -31,6 +31,7 @@ global Config := Map(
   "openCodeWaitMs", 15000,
   "openCodeRetryMs", 150,
   "openCodeLostHideDelayMs", 1800,
+  "autoStartGatewayOnExpand", false,
   "terminalTitleLooseMatch", true,
   "openCodeTitle", "OpenCode",
   "openCodeExe", "",
@@ -291,7 +292,9 @@ BeginExpand(reason := "") {
 
   if !IsGatewayReachable(DockState.gatewayUrl) {
     ShowGatewayHint()
-    TryStartGatewayCommand()
+    if Config["autoStartGatewayOnExpand"] {
+      TryStartGatewayCommand()
+    }
   }
 }
 

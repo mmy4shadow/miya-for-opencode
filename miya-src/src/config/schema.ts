@@ -87,6 +87,8 @@ export const UiConfigSchema = z.object({
   dashboard: z
     .object({
       openOnStart: z.boolean().optional(),
+      dockAutoLaunch: z.boolean().optional(),
+      autoOpenCooldownMs: z.number().min(10_000).max(24 * 60_000).optional(),
     })
     .optional(),
 });

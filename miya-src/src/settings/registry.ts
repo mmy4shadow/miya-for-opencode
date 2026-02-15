@@ -104,6 +104,22 @@ export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
     description: '启动时自动打开控制台。',
   }),
   entry({
+    key: 'ui.dashboard.dockAutoLaunch',
+    type: 'boolean',
+    defaultValue: false,
+    risk: 'LOW',
+    description: '启动时自动拉起 Windows Dock（默认关闭，避免反复拉起）。',
+  }),
+  entry({
+    key: 'ui.dashboard.autoOpenCooldownMs',
+    type: 'integer',
+    minimum: 10000,
+    maximum: 1440000,
+    defaultValue: 120000,
+    risk: 'LOW',
+    description: '自动打开控制台的跨进程冷却时间（毫秒）。',
+  }),
+  entry({
     key: 'ui.dashboard.startPage',
     type: 'enum',
     enumValues: [

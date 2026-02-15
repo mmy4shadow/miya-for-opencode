@@ -68,9 +68,11 @@ function Try-StartGatewayViaOpenCode {
     return $false
   }
 
+  $escapedExe = '"' + $opencode.Source.Replace('"', '""') + '"'
+  $commandLine = 'set "MIYA_AUTO_UI_OPEN=0" && set "MIYA_DOCK_AUTO_LAUNCH=0" && ' + $escapedExe + ' run --command "miya-gateway-start"'
   $proc = Start-Process `
-    -FilePath $opencode.Source `
-    -ArgumentList @("run", "--command", "miya-gateway-start") `
+    -FilePath $Env:ComSpec `
+    -ArgumentList @("/d", "/c", $commandLine) `
     -WorkingDirectory $WorkingDirectory `
     -PassThru `
     -WindowStyle Hidden

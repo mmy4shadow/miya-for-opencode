@@ -59,6 +59,7 @@ Edit `tools/miya-dock/miya-dock.ahk` header:
 - `keepTopmostWhenOpenCodeActive` (topmost only when OpenCode context is active)
 - `stripWindowFrame` (off by default to avoid Chromium repaint glitches)
 - `openCodeLostHideDelayMs` (delay before hiding dock when OpenCode detection is temporarily lost)
+- `autoStartGatewayOnExpand` (default `false`; when `true`, Dock will run `opencode run --command "miya-gateway-start"` if Gateway is unreachable)
 - `terminalTitleLooseMatch` (keep current bound terminal window even if tab title changes)
 - `openCodeTitle` (primary matcher, default `OpenCode`)
 - `openCodeExe` / `openCodeClass` (fallback matcher)
@@ -80,7 +81,7 @@ These are excluded from git by repository `.gitignore`.
 2. `gateway.json` missing or URL unreachable
 - In OpenCode run command: `/miya-gateway-start`
 - Then re-run `miya-launch.bat`.
-- Dock also shows tooltip `Gateway not running` when expanding and will try `opencode run --command "miya-gateway-start"` in background.
+- Dock默认只提示 `Gateway not running`，不会自动后台拉起 OpenCode，避免终端闪烁/重试风暴。
 
 3. Edge path not found
 - Install Edge, or set `EdgePath` in `miya-dock.ahk` to full `msedge.exe` path.
