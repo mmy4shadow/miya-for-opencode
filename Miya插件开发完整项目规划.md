@@ -1703,6 +1703,58 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 4. 依赖故障修复冻结：调用 OpenCode 已配置模型输出依赖推荐（含版本与冲突说明）并生成可执行修复命令。  
 5. 依赖推荐必须是“可解释+可执行”：至少包含 `推荐版本`、`为什么推荐`、`与当前环境冲突点`、`一键修复命令`。  
 
+### **6.4 Psyche V3 增强方案并入（基于 2_modified_v3 的批判性收敛）**
+
+#### **6.4.1 收敛结论（必须落地 / 暂缓 / 禁止）**
+
+1. 必须落地：`Idle 秒数` 不再作为单一判定依据，改为 Sentinel 多信号状态机（`FOCUS/CONSUME/PLAY/AWAY/UNKNOWN`），并将 `UNKNOWN` 作为安全默认分支。  
+2. 必须落地：主动动作前统一走 `psyche.consult(intent, urgency, channel)`，且只通过现有 daemon WS 控制平面返回决策，不新增插件侧旁路通道。  
+3. 必须落地：截图/VLM 仅作为“关键核验”能力，触发需限频；核验失败或黑屏时必须回退 `UNKNOWN`，严禁推断 `AWAY`。  
+4. 必须落地：训练策略采用“双脑分层”  
+   - Fast Brain：滚动统计 + 分桶 Beta（即时可用，不做在线反传）  
+   - Slow Brain：达到反馈样本阈值后按周/月全量重训，支持版本回滚  
+5. 暂缓：RSSM-Lite 全量建模、复杂情绪头、高频 VLM 语义标签化先作为 P2 研究项，不阻塞 P0/P1 守门能力交付。  
+6. 禁止：在数据稀疏阶段执行“持续在线增量训练”；禁止 Renderer 直连本地高权限能力；禁止新增第二套控制平面（HTTP/ZMQ 对插件直暴露）。  
+
+#### **6.4.2 架构落位（与现有隔离拓扑对齐）**
+
+- 插件侧：仅保留 `consult` 请求与策略消费，不做本地系统 API 调用。  
+- daemon 侧：在 `miya-src/src/daemon/` 新增 `psyche/` 子系统（sensors/state_machine/bandit/logger/rpc），并保持 host.ts 统一路由。  
+- worker 侧：截图捕获与 VLM 推理作为 daemon 内部 worker；发生超时/错误时返回结构化降级原因，不抛到 UI 线程。  
+
+推荐新增目录（规划态）：
+
+```text
+miya-src/src/daemon/psyche/
+  config.ts
+  state-machine.ts
+  bandit.ts
+  fast-brain.ts
+  consult.ts
+  logger.ts
+  sensors/
+    foreground.ts
+    input-activity.ts
+    audio-activity.ts
+    screen-probe.ts
+```
+
+#### **6.4.3 批判性风险修订（从方案到工程约束）**
+
+1. 假空闲风险：`GetLastInputInfo` 仅作弱信号；必须与前台窗口、音频会话、窗口切换、XInput 组合判定。  
+2. 资源争用风险：VLM 核验采用 token-bucket 限流 + 低优先级执行 + 超时即降级，避免抢占前台交互。  
+3. 冷启动打扰风险：先启用 `Shadow Mode`（仅记录不主动触达），再小步开启低 ε 探索，并启用打扰预算。  
+4. 兼容性风险：DXGI 捕获链路需内建重建机制（显示模式切换/设备丢失后自愈），失败保持 `UNKNOWN`。  
+5. 控制面漂移风险：继续执行“插件只走 WS，daemon 内部可多 IPC”的单入口原则，确保审计、熔断、权限口径一致。  
+
+#### **6.4.4 分期实施与验收（新增）**
+
+| 阶段 | 范围 | 验收口径 |
+|----|----|----|
+| P0 | Sentinel 状态机 + consult 硬闸 + Safe Hold 降级 | 看剧/全屏/手柄场景不误判 AWAY；daemon 超时不阻塞 UI |
+| P1 | Fast Brain + bandit 闭环 + 统一 jsonl 日志 | “不发送但用户主动发起”可被 delayed reward 学到；负反馈率可观测 |
+| P2 | Resonance Gate + 语义焦点增强 + 可回滚 Slow Brain | 主动触达总量不增加且负反馈下降；共鸣层可一键关闭并回退到纯守门 |
+
 ---
 
 ## **7. 功能优先级矩阵**
@@ -1713,6 +1765,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现"常驻"和"不重复造
 | Ralph Loop完整实现 | P0 | 2周 | Task Manager + 验证分层 | 已有loop-guard与编排基础 |
 | QQ/微信桌面外发主链路（含证据包） | P0 | 2-3周 | desktop_control + outbound_send + Arch Advisor | 有Gateway/风控基础 |
 | Autopilot模式 | P0 | 1周 | Task Manager | 有编排基础 |
+| Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | 具备 daemon 与策略引擎基础，待实现 psyche 子系统 |
 | SOUL.md人格 | P1 | 1周 | 无 | 无 |
 | Ultrawork并行编排 | P2 | 2周 | 开源范式验证后 | 复用oh-my-opencode已验证模式 |
 | 智能路由 | P1 | 1周 | Agent分类 | 有代理分类 |
