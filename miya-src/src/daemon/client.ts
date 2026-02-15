@@ -162,6 +162,12 @@ export class MiyaClient {
     channel?: string;
     userInitiated?: boolean;
     signals?: SentinelSignals;
+    trust?: {
+      target?: string;
+      source?: string;
+      action?: string;
+      evidenceConfidence?: number;
+    };
   }): Promise<PsycheConsultResult> {
     return daemonInvoke(
       this.projectDir,
@@ -182,6 +188,13 @@ export class MiyaClient {
     blockedReason?: string;
     explicitFeedback?: 'positive' | 'negative' | 'none';
     userReplyWithinSec?: number;
+    trust?: {
+      target?: string;
+      source?: string;
+      action?: string;
+      evidenceConfidence?: number;
+      highRiskRollback?: boolean;
+    };
   }): Promise<PsycheOutcomeResult> {
     return daemonInvoke(
       this.projectDir,

@@ -222,10 +222,14 @@ describe('gateway security interaction acceptance', () => {
         sent: boolean;
         message: string;
         retryAfterSec?: number;
+        fixability?: string;
+        budget?: { autoRetry?: number; humanEdit?: number };
       };
       expect(result.sent).toBe(false);
       expect(result.message).toBe('outbound_blocked:psyche_deferred');
       expect(Number(result.retryAfterSec ?? 0)).toBeGreaterThan(0);
+      expect(result.fixability).toBe('retry_later');
+      expect(Number(result.budget?.autoRetry ?? 0)).toBeGreaterThanOrEqual(1);
     } finally {
       client.close();
       stopGateway(projectDir);

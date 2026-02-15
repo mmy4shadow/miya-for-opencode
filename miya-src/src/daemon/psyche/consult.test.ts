@@ -107,6 +107,43 @@ describe('psyche consult service', () => {
     expect(result.reason).toContain('epsilon_exploration');
   });
 
+  test('returns fixability and zero budget for low-trust deny', () => {
+    const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0 });
+    service.registerOutcome({
+      consultAuditID: 'seed-low-trust',
+      intent: 'outbound.send.wechat',
+      urgency: 'medium',
+      channel: 'wechat',
+      userInitiated: false,
+      state: 'UNKNOWN',
+      delivered: false,
+      blockedReason: 'outbound_blocked:incident',
+      trust: {
+        target: 'wechat:risky-target',
+        highRiskRollback: true,
+      },
+    });
+    const result = service.consult({
+      intent: 'outbound.send.wechat',
+      urgency: 'medium',
+      userInitiated: false,
+      channel: 'wechat',
+      trust: {
+        target: 'wechat:risky-target',
+      },
+      signals: {
+        idleSec: 30,
+        foreground: 'browser',
+      },
+    });
+    expect(result.decision).toBe('deny');
+    expect(result.fixability).toBe('impossible');
+    expect(result.budget.autoRetry).toBe(0);
+    expect(result.budget.humanEdit).toBe(0);
+    expect(result.approvalMode).toBe('modal_approval');
+    expect(result.insightText.length).toBeGreaterThan(10);
+  });
+
   test('records delayed reward outcome and appends training data', () => {
     const projectDir = tempProjectDir();
     const service = new PsycheConsultService(projectDir, { epsilon: 0 });

@@ -11,6 +11,12 @@ import {
 } from './bandit';
 import { appendPsycheObservation, appendPsycheOutcome } from './logger';
 import { consumeProbeBudget } from './probe-budget';
+import {
+  getTrustScore,
+  trustTierFromScore,
+  updateTrustScore,
+  type TrustTier,
+} from './trust';
 
 export type PsycheUrgency = 'low' | 'medium' | 'high' | 'critical';
 export type PsycheDecision = 'allow' | 'defer' | 'deny';
@@ -21,7 +27,16 @@ export interface PsycheConsultRequest {
   channel?: string;
   userInitiated?: boolean;
   signals?: SentinelSignals;
+  trust?: {
+    target?: string;
+    source?: string;
+    action?: string;
+    evidenceConfidence?: number;
+  };
 }
+
+export type PsycheApprovalMode = 'silent_audit' | 'toast_gate' | 'modal_approval';
+export type PsycheFixability = 'impossible' | 'rewrite' | 'reduce_scope' | 'need_evidence' | 'retry_later';
 
 export interface PsycheConsultResult {
   auditID: string;
@@ -37,6 +52,20 @@ export interface PsycheConsultResult {
   retryAfterSec: number;
   shouldProbeScreen: boolean;
   reasons: string[];
+  approvalMode: PsycheApprovalMode;
+  fixability: PsycheFixability;
+  budget: {
+    autoRetry: number;
+    humanEdit: number;
+  };
+  trust: {
+    target: number;
+    source: number;
+    action: number;
+    minScore: number;
+    tier: TrustTier;
+  };
+  insightText: string;
 }
 
 export interface PsycheOutcomeRequest {
@@ -50,6 +79,13 @@ export interface PsycheOutcomeRequest {
   blockedReason?: string;
   explicitFeedback?: 'positive' | 'negative' | 'none';
   userReplyWithinSec?: number;
+  trust?: {
+    target?: string;
+    source?: string;
+    action?: string;
+    evidenceConfidence?: number;
+    highRiskRollback?: boolean;
+  };
 }
 
 export interface PsycheOutcomeResult {
@@ -105,6 +141,7 @@ export class PsycheConsultService {
   private readonly budgetPath: string;
   private readonly probeBudgetPath: string;
   private readonly trainingDataLogPath: string;
+  private readonly trustPath: string;
   private readonly epsilon: number;
   private readonly random: RandomSource;
 
@@ -122,6 +159,7 @@ export class PsycheConsultService {
     this.budgetPath = path.join(psycheDir, 'interruption-budget.json');
     this.probeBudgetPath = path.join(psycheDir, 'probe-budget.json');
     this.trainingDataLogPath = path.join(psycheDir, 'training-data.jsonl');
+    this.trustPath = path.join(psycheDir, 'trust-score.json');
     this.epsilon = Math.max(0, Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()));
     this.random = options?.random ?? defaultRandomSource;
   }
@@ -147,6 +185,11 @@ export class PsycheConsultService {
       channel: input.channel,
       userInitiated,
     });
+    const trustTarget = getTrustScore(this.trustPath, { kind: 'target', value: input.trust?.target });
+    const trustSource = getTrustScore(this.trustPath, { kind: 'source', value: input.trust?.source });
+    const trustAction = getTrustScore(this.trustPath, { kind: 'action', value: input.trust?.action });
+    const minTrust = Math.min(trustTarget, trustSource, trustAction);
+    const trustTier = trustTierFromScore(minTrust);
 
     const decisionSeed = this.pickDecision({
       state,
@@ -155,6 +198,7 @@ export class PsycheConsultService {
       userInitiated,
       shouldProbeScreen: needsProbe,
       fastBrainScore,
+      trustTier,
     });
 
     let decision = decisionSeed;
@@ -187,6 +231,30 @@ export class PsycheConsultService {
         explorationApplied ? 'epsilon_exploration' : '',
       ].filter((item) => item.length > 0),
     });
+    const fixability = this.resolveFixability({
+      decision,
+      state,
+      reasons: [
+        ...sentinel.reasons,
+        needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
+      ].filter((item) => item.length > 0),
+      trustTier,
+      userInitiated,
+    });
+    const approvalMode = this.resolveApprovalMode({
+      decision,
+      urgency,
+      trustTier,
+    });
+    const budget = this.resolveNegotiationBudget(fixability);
+    const insightText = this.buildInsightText({
+      decision,
+      state,
+      trustTier,
+      approvalMode,
+      fixability,
+      shouldProbeScreen,
+    });
 
     const result: PsycheConsultResult = {
       auditID,
@@ -205,6 +273,17 @@ export class PsycheConsultService {
         ...sentinel.reasons,
         needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
       ].filter((item) => item.length > 0),
+      approvalMode,
+      fixability,
+      budget,
+      trust: {
+        target: trustTarget,
+        source: trustSource,
+        action: trustAction,
+        minScore: minTrust,
+        tier: trustTier,
+      },
+      insightText,
     };
 
     touchFastBrain(this.fastBrainPath, {
@@ -228,6 +307,9 @@ export class PsycheConsultService {
       shouldProbeScreen,
       reasons: result.reasons,
       signals: input.signals,
+      approvalMode: result.approvalMode,
+      fixability: result.fixability,
+      trust: result.trust,
     });
     return result;
   }
@@ -273,6 +355,39 @@ export class PsycheConsultService {
       score,
       reward,
     });
+    const approved = input.delivered && feedback !== 'negative';
+    const confidence = Number.isFinite(input.trust?.evidenceConfidence)
+      ? Number(input.trust?.evidenceConfidence)
+      : typeof input.userReplyWithinSec === 'number' && input.userReplyWithinSec > 0
+        ? 0.9
+        : 0.7;
+    if (input.trust?.target) {
+      updateTrustScore(this.trustPath, {
+        kind: 'target',
+        value: input.trust.target,
+        approved,
+        confidence,
+        highRiskRollback: input.trust.highRiskRollback,
+      });
+    }
+    if (input.trust?.source) {
+      updateTrustScore(this.trustPath, {
+        kind: 'source',
+        value: input.trust.source,
+        approved,
+        confidence,
+        highRiskRollback: input.trust.highRiskRollback,
+      });
+    }
+    if (input.trust?.action) {
+      updateTrustScore(this.trustPath, {
+        kind: 'action',
+        value: input.trust.action,
+        approved,
+        confidence,
+        highRiskRollback: input.trust.highRiskRollback,
+      });
+    }
     return {
       at,
       consultAuditID: input.consultAuditID,
@@ -289,14 +404,17 @@ export class PsycheConsultService {
     userInitiated: boolean;
     shouldProbeScreen: boolean;
     fastBrainScore: number;
+    trustTier: TrustTier;
   }): PsycheDecision {
-    const { state, urgency, userInitiated, shouldProbeScreen, fastBrainScore } = input;
+    const { state, urgency, userInitiated, shouldProbeScreen, fastBrainScore, trustTier } = input;
     if (userInitiated) {
       if (state === 'UNKNOWN' && urgency === 'low') return 'defer';
+      if (trustTier === 'low' && urgency === 'low') return 'defer';
       return 'allow';
     }
 
     if (shouldProbeScreen && urgency !== 'critical') return 'defer';
+    if (trustTier === 'low' && urgency !== 'critical') return 'deny';
     if (urgency === 'critical') return 'allow';
     if (state === 'FOCUS' || state === 'PLAY' || state === 'UNKNOWN') return 'defer';
     if (state === 'CONSUME') {
@@ -304,6 +422,67 @@ export class PsycheConsultService {
       return fastBrainScore >= 0.6 ? 'allow' : 'defer';
     }
     return fastBrainScore >= 0.3 ? 'allow' : 'defer';
+  }
+
+  private resolveFixability(input: {
+    decision: PsycheDecision;
+    state: SentinelState;
+    reasons: string[];
+    trustTier: TrustTier;
+    userInitiated: boolean;
+  }): PsycheFixability {
+    if (input.decision === 'deny') {
+      if (input.trustTier === 'low' && !input.userInitiated) return 'impossible';
+      return 'reduce_scope';
+    }
+    if (input.reasons.some((item) => item.includes('probe'))) {
+      return 'need_evidence';
+    }
+    if (input.state === 'FOCUS' || input.state === 'PLAY' || input.state === 'UNKNOWN') {
+      return 'retry_later';
+    }
+    return 'rewrite';
+  }
+
+  private resolveApprovalMode(input: {
+    decision: PsycheDecision;
+    urgency: PsycheUrgency;
+    trustTier: TrustTier;
+  }): PsycheApprovalMode {
+    if (input.decision !== 'allow') return 'modal_approval';
+    if (input.trustTier === 'high' && input.urgency === 'low') return 'silent_audit';
+    if (input.trustTier === 'low' || input.urgency === 'high' || input.urgency === 'critical') {
+      return 'modal_approval';
+    }
+    return 'toast_gate';
+  }
+
+  private resolveNegotiationBudget(fixability: PsycheFixability): {
+    autoRetry: number;
+    humanEdit: number;
+  } {
+    if (fixability === 'impossible') return { autoRetry: 0, humanEdit: 0 };
+    if (fixability === 'retry_later') return { autoRetry: 1, humanEdit: 0 };
+    return { autoRetry: 1, humanEdit: 1 };
+  }
+
+  private buildInsightText(input: {
+    decision: PsycheDecision;
+    state: SentinelState;
+    trustTier: TrustTier;
+    approvalMode: PsycheApprovalMode;
+    fixability: PsycheFixability;
+    shouldProbeScreen: boolean;
+  }): string {
+    const parts = [
+      `state=${input.state}`,
+      `trust=${input.trustTier}`,
+      `decision=${input.decision}`,
+      `gate=${input.approvalMode}`,
+      `fix=${input.fixability}`,
+    ];
+    if (input.shouldProbeScreen) parts.push('probe=required');
+    return `Psyche: ${parts.join(' | ')}`;
   }
 
   private buildReason(input: {

@@ -38,6 +38,15 @@ type GatewayStatus = {
   jobs?: {
     total?: number;
     enabled?: number;
+    pendingApprovals?: number;
+  };
+  nexus?: {
+    sessionId?: string;
+    activeTool?: string;
+    permission?: string;
+    pendingTickets?: number;
+    killSwitchMode?: 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
+    insights?: Array<{ at?: string; text?: string; auditID?: string }>;
   };
 };
 
@@ -102,6 +111,12 @@ export default function App() {
   const sessionsTotal = status.sessions?.total ?? 0;
   const jobs = status.jobs?.enabled ?? 0;
   const jobsTotal = status.jobs?.total ?? 0;
+  const pendingTickets = status.nexus?.pendingTickets ?? status.jobs?.pendingApprovals ?? 0;
+  const sessionId = status.nexus?.sessionId ?? 'main';
+  const activeTool = status.nexus?.activeTool ?? 'gateway.status.get';
+  const permission = status.nexus?.permission ?? 'none';
+  const killSwitchMode = status.nexus?.killSwitchMode ?? 'off';
+  const insights = status.nexus?.insights ?? [];
   const latency = mode === 'deep' ? 1280 : mode === 'creative' ? 740 : 320;
   const tps = useMemo(() => {
     const base = mode === 'deep' ? 37 : mode === 'creative' ? 61 : 88;
@@ -217,6 +232,18 @@ export default function App() {
             </h3>
             <div className="space-y-2 text-sm text-slate-200">
               <p className="flex items-center justify-between">
+                <span>Session</span>
+                <span>{sessionId}</span>
+              </p>
+              <p className="flex items-center justify-between">
+                <span>Active Tool</span>
+                <span>{activeTool}</span>
+              </p>
+              <p className="flex items-center justify-between">
+                <span>Permission</span>
+                <span>{permission}</span>
+              </p>
+              <p className="flex items-center justify-between">
                 <span>CPU Load</span>
                 <span>{cpu.toFixed(1)}%</span>
               </p>
@@ -240,6 +267,14 @@ export default function App() {
                 <span>Progress</span>
                 <span>{status.daemon?.activeJobProgress ?? 0}%</span>
               </p>
+              <p className="flex items-center justify-between">
+                <span>Pending Tickets</span>
+                <span>{pendingTickets}</span>
+              </p>
+              <p className="flex items-center justify-between">
+                <span>Kill Switch</span>
+                <span>{killSwitchMode}</span>
+              </p>
             </div>
           </div>
           <div className="rounded-3xl border border-white/10 bg-miya-card/35 p-5 backdrop-blur-md">
@@ -255,6 +290,11 @@ export default function App() {
                 >
                   {item.word}
                 </span>
+              ))}
+            </div>
+            <div className="mt-4 space-y-1 text-xs text-slate-300">
+              {insights.slice(-3).map((item, idx) => (
+                <p key={`${item.auditID ?? 'ins'}-${idx}`}>{item.text ?? 'n/a'}</p>
               ))}
             </div>
           </div>

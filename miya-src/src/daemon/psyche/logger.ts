@@ -1,6 +1,12 @@
 import * as fs from 'node:fs';
-import type { PsycheDecision, PsycheUrgency } from './consult';
+import type {
+  PsycheApprovalMode,
+  PsycheDecision,
+  PsycheFixability,
+  PsycheUrgency,
+} from './consult';
 import type { SentinelSignals, SentinelState } from './state-machine';
+import type { TrustTier } from './trust';
 
 function nowUnixSec(): number {
   return Math.floor(Date.now() / 1000);
@@ -24,6 +30,15 @@ export function appendPsycheObservation(
     shouldProbeScreen: boolean;
     reasons: string[];
     signals?: SentinelSignals;
+    approvalMode: PsycheApprovalMode;
+    fixability: PsycheFixability;
+    trust: {
+      target: number;
+      source: number;
+      action: number;
+      minScore: number;
+      tier: TrustTier;
+    };
   },
 ): void {
   appendJsonl(trainingDataLogPath, {
@@ -41,6 +56,9 @@ export function appendPsycheObservation(
       shouldProbeScreen: input.shouldProbeScreen,
       reasons: input.reasons,
       signals: input.signals ?? {},
+      approvalMode: input.approvalMode,
+      fixability: input.fixability,
+      trust: input.trust,
     },
   });
 }

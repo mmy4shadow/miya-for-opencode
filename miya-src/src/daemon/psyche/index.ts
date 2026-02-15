@@ -3,6 +3,8 @@ export {
   type PsycheConsultRequest,
   type PsycheConsultResult,
   type PsycheDecision,
+  type PsycheApprovalMode,
+  type PsycheFixability,
   type PsycheUrgency,
   type PsycheOutcomeRequest,
   type PsycheOutcomeResult,
@@ -25,3 +27,11 @@ export {
 } from './bandit';
 export { appendPsycheObservation, appendPsycheOutcome } from './logger';
 export { consumeProbeBudget, type ProbeBudgetConfig } from './probe-budget';
+export {
+  getTrustScore,
+  updateTrustScore,
+  trustTierFromScore,
+  type TrustEntityKind,
+  type TrustEntityScore,
+  type TrustTier,
+} from './trust';

@@ -158,4 +158,27 @@ describe('gateway milestone acceptance', () => {
       stopGateway(projectDir);
     }
   });
+
+  test('exposes nexus runtime fields for control ui telemetry', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      const snapshot = (await client.request('gateway.status.get')) as {
+        nexus?: {
+          sessionId?: string;
+          pendingTickets?: number;
+          killSwitchMode?: string;
+          insights?: Array<{ text?: string }>;
+        };
+      };
+      expect(typeof snapshot.nexus?.sessionId).toBe('string');
+      expect(typeof snapshot.nexus?.pendingTickets).toBe('number');
+      expect(typeof snapshot.nexus?.killSwitchMode).toBe('string');
+      expect(Array.isArray(snapshot.nexus?.insights)).toBe(true);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
 });

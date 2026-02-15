@@ -202,6 +202,21 @@ interface GatewayRuntime {
   wizardRunnerBusy?: boolean;
   dependencyAssistHashes: Set<string>;
   daemonLauncherUnsubscribe?: () => void;
+  nexus: {
+    sessionId: string;
+    activeTool?: string;
+    permission?: string;
+    pendingTickets: number;
+    killSwitchMode: 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
+    insights: Array<{ at: string; text: string; auditID?: string }>;
+    trust?: {
+      target: number;
+      source: number;
+      action: number;
+      minScore: number;
+      tier: 'high' | 'medium' | 'low';
+    };
+  };
 }
 
 interface GatewayWsData {
@@ -233,6 +248,21 @@ interface GatewaySnapshot {
   policyHash: string;
   configCenter: Record<string, unknown>;
   killSwitch: ReturnType<typeof readKillSwitch>;
+  nexus: {
+    sessionId: string;
+    activeTool?: string;
+    permission?: string;
+    pendingTickets: number;
+    killSwitchMode: 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
+    insights: Array<{ at: string; text: string; auditID?: string }>;
+    trust?: {
+      target: number;
+      source: number;
+      action: number;
+      minScore: number;
+      tier: 'high' | 'medium' | 'low';
+    };
+  };
   safety: {
     recentSelfApproval: ReturnType<typeof listRecentSelfApprovalRecords>;
   };
@@ -313,6 +343,32 @@ interface GatewayOwnerLock {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function resolveKillSwitchMode(projectDir: string, kill: ReturnType<typeof readKillSwitch>): 'all_stop' | 'outbound_only' | 'desktop_only' | 'off' {
+  if (kill.active) return 'all_stop';
+  const outbound = isDomainExecutionAllowed(projectDir, 'outbound_send');
+  const desktop = isDomainExecutionAllowed(projectDir, 'desktop_control');
+  if (!outbound && !desktop) return 'all_stop';
+  if (!outbound) return 'outbound_only';
+  if (!desktop) return 'desktop_only';
+  return 'off';
+}
+
+function appendNexusInsight(
+  runtime: GatewayRuntime,
+  input: { text: string; auditID?: string; at?: string },
+): void {
+  const trimmed = input.text.trim();
+  if (!trimmed) return;
+  runtime.nexus.insights.push({
+    at: input.at ?? nowIso(),
+    text: trimmed,
+    auditID: input.auditID,
+  });
+  if (runtime.nexus.insights.length > 30) {
+    runtime.nexus.insights.splice(0, runtime.nexus.insights.length - 30);
+  }
 }
 
 function shouldEmitThrottledLog(cache: Map<string, number>, key: string, windowMs: number): boolean {
@@ -1411,6 +1467,12 @@ async function sendChannelMessageGuarded(
         channel: input.channel,
         userInitiated,
         signals: input.outboundCheck?.psycheSignals,
+        trust: {
+          target: `${input.channel}:${input.destination}`,
+          source: `session:${input.sessionID}`,
+          action: `outbound.send.${input.channel}`,
+          evidenceConfidence: confidenceIntentRaw,
+        },
       });
       psycheConsult = {
         auditID: consult.auditID,
@@ -1420,6 +1482,24 @@ async function sendChannelMessageGuarded(
         userInitiated: consult.userInitiated,
         state: consult.state,
       };
+      runtime.nexus.trust = consult.trust;
+      runtime.nexus.sessionId = input.sessionID;
+      runtime.nexus.permission = 'external_message';
+      appendNexusInsight(runtime, {
+        text: consult.insightText,
+        auditID: consult.auditID,
+        at: consult.at,
+      });
+      publishGatewayEvent(runtime, 'insight.append', {
+        at: consult.at,
+        text: consult.insightText,
+        auditID: consult.auditID,
+      });
+      publishGatewayEvent(runtime, 'trust.update', {
+        at: consult.at,
+        auditID: consult.auditID,
+        trust: consult.trust,
+      });
       if (consult.decision !== 'allow') {
         try {
           await daemon.psycheOutcome({
@@ -1434,6 +1514,13 @@ async function sendChannelMessageGuarded(
               consult.decision === 'deny'
                 ? 'outbound_blocked:psyche_denied'
                 : 'outbound_blocked:psyche_deferred',
+            trust: {
+              target: `${input.channel}:${input.destination}`,
+              source: `session:${input.sessionID}`,
+              action: `outbound.send.${input.channel}`,
+              evidenceConfidence: confidenceIntentRaw,
+              highRiskRollback: riskLevel === 'HIGH' && consult.decision === 'deny',
+            },
           });
         } catch {}
         return {
@@ -1445,6 +1532,9 @@ async function sendChannelMessageGuarded(
           policyHash: resolvedPolicyHash,
           psyche: consult,
           retryAfterSec: consult.retryAfterSec,
+          fixability: consult.fixability,
+          budget: consult.budget,
+          approvalMode: consult.approvalMode,
         };
       }
     } catch (error) {
@@ -1454,6 +1544,9 @@ async function sendChannelMessageGuarded(
           message: 'outbound_blocked:psyche_deferred',
           policyHash: resolvedPolicyHash,
           retryAfterSec: 30,
+          fixability: 'retry_later',
+          budget: { autoRetry: 1, humanEdit: 0 },
+          approvalMode: 'modal_approval',
           psyche: {
             decision: 'defer',
             reason: 'psyche_consult_unavailable',
@@ -1525,6 +1618,13 @@ async function sendChannelMessageGuarded(
         state: psycheConsult.state,
         delivered: Boolean((result as { sent?: boolean }).sent),
         blockedReason: Boolean((result as { sent?: boolean }).sent) ? undefined : String(result.message ?? ''),
+        trust: {
+          target: `${input.channel}:${input.destination}`,
+          source: `session:${input.sessionID}`,
+          action: `outbound.send.${input.channel}`,
+          evidenceConfidence: confidenceIntentRaw,
+          highRiskRollback: riskLevel === 'HIGH' && !Boolean((result as { sent?: boolean }).sent),
+        },
       });
     } catch {}
   }
@@ -1745,6 +1845,8 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const ownerIdentity = readOwnerIdentityState(projectDir);
   const persistedRuntime = readPersistedAgentRuntime(projectDir);
   const owner = ownerSummary(projectDir);
+  runtime.nexus.pendingTickets = approvals.filter((item) => item.status === 'pending').length;
+  runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, kill);
 
   const base: Omit<GatewaySnapshot, 'doctor'> = {
     updatedAt: nowIso(),
@@ -1760,6 +1862,15 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
     policyHash: currentPolicyHash(projectDir),
     configCenter: readConfig(projectDir),
     killSwitch: kill,
+    nexus: {
+      sessionId: runtime.nexus.sessionId,
+      activeTool: runtime.nexus.activeTool,
+      permission: runtime.nexus.permission,
+      pendingTickets: runtime.nexus.pendingTickets,
+      killSwitchMode: resolveKillSwitchMode(projectDir, kill),
+      insights: runtime.nexus.insights.slice(-10),
+      trust: runtime.nexus.trust,
+    },
     safety: {
       recentSelfApproval: listRecentSelfApprovalRecords(projectDir, 15),
     },
@@ -4611,6 +4722,12 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
           }
         }
 
+        runtime.nexus.activeTool = frame.method;
+        const frameSessionID = parseText(frame.params?.sessionID);
+        if (frameSessionID) {
+          runtime.nexus.sessionId = frameSessionID;
+        }
+
         try {
           const result = await invokeGatewayMethod(
             projectDir,
@@ -4672,6 +4789,15 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     wizardRunnerBusy: false,
     dependencyAssistHashes: new Set(),
     daemonLauncherUnsubscribe: undefined,
+    nexus: {
+      sessionId: 'main',
+      activeTool: undefined,
+      permission: undefined,
+      pendingTickets: 0,
+      killSwitchMode: 'off',
+      insights: [],
+      trust: undefined,
+    },
   };
 
   runtime.methods = createMethods(projectDir, runtime);

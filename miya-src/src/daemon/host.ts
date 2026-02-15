@@ -297,6 +297,27 @@ const server = Bun.serve({
               params.signals && typeof params.signals === 'object' && !Array.isArray(params.signals)
                 ? (params.signals as Record<string, unknown>)
                 : undefined,
+            trust:
+              params.trust && typeof params.trust === 'object' && !Array.isArray(params.trust)
+                ? {
+                    target:
+                      typeof (params.trust as Record<string, unknown>).target === 'string'
+                        ? String((params.trust as Record<string, unknown>).target)
+                        : undefined,
+                    source:
+                      typeof (params.trust as Record<string, unknown>).source === 'string'
+                        ? String((params.trust as Record<string, unknown>).source)
+                        : undefined,
+                    action:
+                      typeof (params.trust as Record<string, unknown>).action === 'string'
+                        ? String((params.trust as Record<string, unknown>).action)
+                        : undefined,
+                    evidenceConfidence:
+                      typeof (params.trust as Record<string, unknown>).evidenceConfidence === 'number'
+                        ? Number((params.trust as Record<string, unknown>).evidenceConfidence)
+                        : undefined,
+                  }
+                : undefined,
           });
           ws.send(
             JSON.stringify(
@@ -360,6 +381,29 @@ const server = Bun.serve({
             userReplyWithinSec:
               typeof params.userReplyWithinSec === 'number' && Number.isFinite(params.userReplyWithinSec)
                 ? params.userReplyWithinSec
+                : undefined,
+            trust:
+              params.trust && typeof params.trust === 'object' && !Array.isArray(params.trust)
+                ? {
+                    target:
+                      typeof (params.trust as Record<string, unknown>).target === 'string'
+                        ? String((params.trust as Record<string, unknown>).target)
+                        : undefined,
+                    source:
+                      typeof (params.trust as Record<string, unknown>).source === 'string'
+                        ? String((params.trust as Record<string, unknown>).source)
+                        : undefined,
+                    action:
+                      typeof (params.trust as Record<string, unknown>).action === 'string'
+                        ? String((params.trust as Record<string, unknown>).action)
+                        : undefined,
+                    evidenceConfidence:
+                      typeof (params.trust as Record<string, unknown>).evidenceConfidence === 'number'
+                        ? Number((params.trust as Record<string, unknown>).evidenceConfidence)
+                        : undefined,
+                    highRiskRollback:
+                      (params.trust as Record<string, unknown>).highRiskRollback === true,
+                  }
                 : undefined,
           });
           ws.send(
