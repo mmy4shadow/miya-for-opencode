@@ -34,6 +34,13 @@ export interface DaemonJobProgressEvent {
   phase: string;
   updatedAt: string;
   etaSec?: number;
+  audioCue?: {
+    cueID: string;
+    text: string;
+    clipPath?: string;
+    source: 'asset' | 'fallback';
+    expectedLatencyMs: number;
+  };
 }
 
 export interface DaemonRuntimeState {

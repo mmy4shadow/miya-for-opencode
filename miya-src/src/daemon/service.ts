@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getResourceScheduler } from '../resource-scheduler';
@@ -19,6 +19,13 @@ import {
   readPythonRuntimeStatus,
   type PythonRuntimeStatus,
 } from './python-runtime';
+import { AudioFillerController } from './audio-filler';
+import {
+  VramMutex,
+  classifyTrafficLane,
+  shouldPreemptLowLane,
+  type VramTrafficLane,
+} from './vram-mutex';
 import { appendDaemonJob, writeDaemonRuntimeState } from './store';
 import type {
   DaemonJobRecord,
@@ -101,11 +108,26 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+interface TaskRuntimeContext {
+  jobID: string;
+  setTerminator: (input: {
+    terminateSoft?: () => void;
+    terminateHard?: () => void;
+  }) => void;
+}
+
+interface TaskRunHooks {
+  onJobRunning?: (context: TaskRuntimeContext) => void;
+}
+
 export class MiyaDaemonService {
   private readonly projectDir: string;
   private readonly sessionID: string;
   private readonly onProgress?: (event: DaemonJobProgressEvent) => void;
   private readonly psyche: PsycheConsultService;
+  private readonly audioFiller: AudioFillerController;
+  private readonly vramMutex = new VramMutex();
+  private readonly activeTrainingJobIDs = new Set<string>();
   private started = false;
   private startedAtIso = '';
   private pythonRuntime?: PythonRuntimeStatus;
@@ -120,6 +142,7 @@ export class MiyaDaemonService {
     this.sessionID = toSessionID(projectDir);
     this.onProgress = options?.onProgress;
     this.psyche = new PsycheConsultService(projectDir);
+    this.audioFiller = new AudioFillerController(projectDir);
   }
 
   private cancelMarkerPath(jobID: string): string {
@@ -150,6 +173,7 @@ export class MiyaDaemonService {
     status: string;
     phase: string;
     etaSec?: number;
+    audioCue?: DaemonJobProgressEvent['audioCue'];
   }): void {
     this.onProgress?.({
       jobID: input.jobID,
@@ -158,8 +182,76 @@ export class MiyaDaemonService {
       status: input.status,
       phase: input.phase,
       etaSec: input.etaSec,
+      audioCue: input.audioCue,
       updatedAt: nowIso(),
     });
+  }
+
+  private maybeEmitAudioFiller(input: {
+    jobID: string;
+    kind: ResourceTaskKind;
+    timeoutMs?: number;
+  }): void {
+    const decision = this.audioFiller.decide({ kind: input.kind, timeoutMs: input.timeoutMs });
+    if (!decision.shouldFill || !decision.cue) return;
+    this.emitProgress({
+      jobID: input.jobID,
+      kind: input.kind,
+      progress: 3,
+      status: 'AudioFiller',
+      phase: 'audio.filler',
+      audioCue: {
+        cueID: decision.cue.cueID,
+        text: decision.cue.text,
+        clipPath: decision.cue.clipPath,
+        source: decision.cue.source,
+        expectedLatencyMs: decision.cue.expectedLatencyMs,
+      },
+    });
+  }
+
+  private async preemptLowLaneIfNeeded(input: {
+    kind: ResourceTaskKind;
+    lane: VramTrafficLane;
+  }): Promise<void> {
+    if (!shouldPreemptLowLane(input.lane)) return;
+    for (const trainingJobID of this.activeTrainingJobIDs) {
+      this.requestTrainingCancel(trainingJobID);
+    }
+    const targets = this.vramMutex.lowLaneTargets();
+    if (targets.length === 0) return;
+    for (const target of targets) {
+      this.emitProgress({
+        jobID: target.daemonJobID,
+        kind: target.kind,
+        progress: 99,
+        status: 'Preempting',
+        phase: `preempt.soft_by_${input.kind}`,
+      });
+      try {
+        target.terminateSoft?.();
+      } catch {}
+      if (target.trainingJobID) {
+        this.requestTrainingCancel(target.trainingJobID);
+      }
+    }
+    await delay(2_000);
+    for (const target of targets) {
+      if (!this.vramMutex.hasActiveJob(target.daemonJobID)) continue;
+      this.emitProgress({
+        jobID: target.daemonJobID,
+        kind: target.kind,
+        progress: 100,
+        status: 'Preempted',
+        phase: `preempt.hard_by_${input.kind}`,
+      });
+      try {
+        target.terminateHard?.();
+      } catch {}
+      if (target.trainingJobID) {
+        this.requestTrainingCancel(target.trainingJobID);
+      }
+    }
   }
 
   private getPythonRuntime(): PythonRuntimeStatus {
@@ -352,9 +444,13 @@ export class MiyaDaemonService {
   async runTask<T>(
     input: DaemonJobRequest,
     fn: () => Promise<T> | T,
+    hooks?: TaskRunHooks,
   ): Promise<DaemonRunResult<T>> {
     if (!this.started) this.start();
     const scheduler = getResourceScheduler(this.projectDir);
+    const lane = classifyTrafficLane(input.kind);
+    const trainingJobID =
+      typeof input.metadata?.jobID === 'string' ? String(input.metadata.jobID) : undefined;
     const job: DaemonJobRecord = {
       id: `djob_${randomUUID()}`,
       kind: input.kind,
@@ -371,6 +467,16 @@ export class MiyaDaemonService {
       progress: 2,
       status: 'Queued',
       phase: 'queued',
+    });
+    this.maybeEmitAudioFiller({
+      jobID: job.id,
+      kind: input.kind,
+      timeoutMs:
+        typeof input.resource?.timeoutMs === 'number' ? Number(input.resource.timeoutMs) : undefined,
+    });
+    await this.preemptLowLaneIfNeeded({
+      kind: input.kind,
+      lane,
     });
 
     const normalizedVramMB = Math.max(0, Math.floor(input.resource?.vramMB ?? 0));
@@ -405,6 +511,20 @@ export class MiyaDaemonService {
       progress: 10,
       status: 'Running',
       phase: 'running',
+    });
+    this.vramMutex.register({
+      daemonJobID: runningJob.id,
+      kind: input.kind,
+      trainingJobID,
+    });
+    hooks?.onJobRunning?.({
+      jobID: runningJob.id,
+      setTerminator: ({ terminateSoft, terminateHard }) => {
+        this.vramMutex.updateTerminators(runningJob.id, {
+          terminateSoft,
+          terminateHard,
+        });
+      },
     });
 
     try {
@@ -444,6 +564,7 @@ export class MiyaDaemonService {
       });
       throw error;
     } finally {
+      this.vramMutex.unregister(runningJob.id);
       lease.release();
     }
   }
@@ -465,6 +586,7 @@ export class MiyaDaemonService {
     stderr: string;
     timedOut: boolean;
   }> {
+    let childRef: ChildProcess | null = null;
     const wrapped = await this.runTask(
       {
         kind: input.kind,
@@ -487,6 +609,7 @@ export class MiyaDaemonService {
             env: { ...process.env, ...(input.env ?? {}) },
             stdio: ['pipe', 'pipe', 'pipe'],
           });
+          childRef = child;
 
           let stdout = '';
           let stderr = '';
@@ -517,7 +640,7 @@ export class MiyaDaemonService {
 
           const timeout = setTimeout(() => {
             timedOut = true;
-            child.kill();
+            child.kill('SIGTERM');
           }, Math.max(1000, input.timeoutMs ?? 10 * 60 * 1000));
 
           child.on('close', (code) => {
@@ -537,6 +660,20 @@ export class MiyaDaemonService {
             });
           });
         }),
+      {
+        onJobRunning: ({ setTerminator }) => {
+          setTerminator({
+            terminateSoft: () => {
+              if (!childRef || childRef.killed) return;
+              childRef.kill('SIGTERM');
+            },
+            terminateHard: () => {
+              if (!childRef || childRef.killed) return;
+              childRef.kill('SIGKILL');
+            },
+          });
+        },
+      },
     );
     return wrapped.result;
   }
@@ -940,100 +1077,105 @@ export class MiyaDaemonService {
     resourceByTier: Record<ModelTier, { priority: number; vramMB: number; modelID: string; modelVramMB: number }>;
   }): Promise<TrainingRunResult> {
     this.clearTrainingCancel(input.jobID);
-    const attempts: ModelTier[] =
-      input.preferredTier === 'lora'
-        ? ['lora', 'embedding', 'reference']
-        : input.preferredTier === 'embedding'
-          ? ['embedding', 'reference']
-          : ['reference'];
-    const checkpointPath =
-      input.checkpointPath || path.join(input.profileDir, 'checkpoints', `${input.jobID}.json`);
-    let resumeStep = this.readCheckpointStep(checkpointPath);
+    this.activeTrainingJobIDs.add(input.jobID);
+    try {
+      const attempts: ModelTier[] =
+        input.preferredTier === 'lora'
+          ? ['lora', 'embedding', 'reference']
+          : input.preferredTier === 'embedding'
+            ? ['embedding', 'reference']
+            : ['reference'];
+      const checkpointPath =
+        input.checkpointPath || path.join(input.profileDir, 'checkpoints', `${input.jobID}.json`);
+      let resumeStep = this.readCheckpointStep(checkpointPath);
 
-    for (const tier of attempts) {
-      const artifactPath = input.artifactByTier[tier];
-      fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
-      const proc = await this.runModelCommand({
-        kind: input.kind,
-        envKey: input.envKey,
-        pythonPath: input.pythonPath,
-        scriptPath: input.scriptPath,
-        tier,
-        timeoutMs: 30 * 60 * 1000,
-        resourceByTier: input.resourceByTier,
-        env: {
-          ...input.envBase,
-          MIYA_PARENT_STDIN_MONITOR: '1',
-          MIYA_TRAIN_JOB_ID: input.jobID,
-          MIYA_TRAIN_TIER: tier,
-          MIYA_PROFILE_DIR: input.profileDir,
-          MIYA_TRAIN_ARTIFACT_PATH: artifactPath,
-          MIYA_TRAIN_CHECKPOINT_PATH: checkpointPath,
-          MIYA_TRAIN_RESUME_STEP: String(resumeStep),
-        },
-        metadata: { stage: 'daemon.training', jobID: input.jobID, tier },
-        progress: {
+      for (const tier of attempts) {
+        const artifactPath = input.artifactByTier[tier];
+        fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+        const proc = await this.runModelCommand({
+          kind: input.kind,
+          envKey: input.envKey,
+          pythonPath: input.pythonPath,
+          scriptPath: input.scriptPath,
+          tier,
+          timeoutMs: 30 * 60 * 1000,
+          resourceByTier: input.resourceByTier,
+          env: {
+            ...input.envBase,
+            MIYA_PARENT_STDIN_MONITOR: '1',
+            MIYA_TRAIN_JOB_ID: input.jobID,
+            MIYA_TRAIN_TIER: tier,
+            MIYA_PROFILE_DIR: input.profileDir,
+            MIYA_TRAIN_ARTIFACT_PATH: artifactPath,
+            MIYA_TRAIN_CHECKPOINT_PATH: checkpointPath,
+            MIYA_TRAIN_RESUME_STEP: String(resumeStep),
+          },
+          metadata: { stage: 'daemon.training', jobID: input.jobID, tier },
+          progress: {
+            jobID: input.jobID,
+            phase: `training.${input.kind}`,
+            startProgress: 12,
+            endProgress: 92,
+          },
+        });
+        if (proc.executed && proc.exitCode === 0) {
+          if (!fs.existsSync(artifactPath)) {
+            fs.writeFileSync(
+              artifactPath,
+              `${JSON.stringify({ tier, generatedAt: nowIso(), jobID: input.jobID })}\n`,
+              'utf-8',
+            );
+          }
+          this.clearTrainingCancel(input.jobID);
+          return {
+            status: tier === 'lora' ? 'completed' : 'degraded',
+            tier,
+            message: tier === 'lora' ? 'training_completed' : 'training_completed_with_degrade',
+            artifactPath,
+            checkpointPath,
+          };
+        }
+        const fallback = await this.runBuiltinTrainingRunner({
           jobID: input.jobID,
-          phase: `training.${input.kind}`,
-          startProgress: 12,
-          endProgress: 92,
-        },
-      });
-      if (proc.executed && proc.exitCode === 0) {
-        if (!fs.existsSync(artifactPath)) {
+          tier,
+          artifactPath,
+          checkpointPath,
+          resumeStep,
+          preset: input.preset,
+        });
+        if (fallback.status === 'canceled') {
+          return fallback;
+        }
+        if (fallback.status === 'completed' || fallback.status === 'degraded') {
+          this.clearTrainingCancel(input.jobID);
+          return fallback;
+        }
+        resumeStep = this.readCheckpointStep(checkpointPath);
+        if (!proc.executed && tier === 'reference') {
           fs.writeFileSync(
             artifactPath,
-            `${JSON.stringify({ tier, generatedAt: nowIso(), jobID: input.jobID })}\n`,
+            `${JSON.stringify({ tier: 'reference', generatedAt: nowIso(), jobID: input.jobID, fallback: true })}\n`,
             'utf-8',
           );
+          this.clearTrainingCancel(input.jobID);
+          return {
+            status: 'degraded',
+            tier: 'reference',
+            message: 'training_degraded_reference_command_missing',
+            artifactPath,
+            checkpointPath,
+          };
         }
-        this.clearTrainingCancel(input.jobID);
-        return {
-          status: tier === 'lora' ? 'completed' : 'degraded',
-          tier,
-          message: tier === 'lora' ? 'training_completed' : 'training_completed_with_degrade',
-          artifactPath,
-          checkpointPath,
-        };
       }
-      const fallback = await this.runBuiltinTrainingRunner({
-        jobID: input.jobID,
-        tier,
-        artifactPath,
+      return {
+        status: 'failed',
+        tier: input.preferredTier,
+        message: 'training_failed_all_tiers',
         checkpointPath,
-        resumeStep,
-        preset: input.preset,
-      });
-      if (fallback.status === 'canceled') {
-        return fallback;
-      }
-      if (fallback.status === 'completed' || fallback.status === 'degraded') {
-        this.clearTrainingCancel(input.jobID);
-        return fallback;
-      }
-      resumeStep = this.readCheckpointStep(checkpointPath);
-      if (!proc.executed && tier === 'reference') {
-        fs.writeFileSync(
-          artifactPath,
-          `${JSON.stringify({ tier: 'reference', generatedAt: nowIso(), jobID: input.jobID, fallback: true })}\n`,
-          'utf-8',
-        );
-        this.clearTrainingCancel(input.jobID);
-        return {
-          status: 'degraded',
-          tier: 'reference',
-          message: 'training_degraded_reference_command_missing',
-          artifactPath,
-          checkpointPath,
-        };
-      }
+      };
+    } finally {
+      this.activeTrainingJobIDs.delete(input.jobID);
     }
-    return {
-      status: 'failed',
-      tier: input.preferredTier,
-      message: 'training_failed_all_tiers',
-      checkpointPath,
-    };
   }
 
   private readCheckpointStep(checkpointPath: string): number {

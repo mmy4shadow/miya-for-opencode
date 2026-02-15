@@ -3,9 +3,27 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { MiyaDaemonService } from './service';
+import type { DaemonJobProgressEvent } from './types';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-daemon-test-'));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function longSleepCommand(): { command: string; args: string[] } {
+  if (process.platform === 'win32') {
+    return {
+      command: 'powershell',
+      args: ['-NoProfile', '-Command', 'Start-Sleep -Seconds 30'],
+    };
+  }
+  return {
+    command: 'sh',
+    args: ['-lc', 'sleep 30'],
+  };
 }
 
 describe('daemon service', () => {
@@ -51,5 +69,57 @@ describe('daemon service', () => {
 
     const nextPlan = daemon.getModelUpdatePlan();
     expect(nextPlan.pending).toBe(0);
+  });
+
+  test('emits audio filler cue for tasks expected to exceed 500ms', async () => {
+    const events: DaemonJobProgressEvent[] = [];
+    const daemon = new MiyaDaemonService(tempProjectDir(), {
+      onProgress: (event) => events.push(event),
+    });
+    daemon.start();
+    await daemon.runTask(
+      {
+        kind: 'image.generate',
+        resource: { priority: 80, vramMB: 0, timeoutMs: 2_000 },
+      },
+      async () => 'ok',
+    );
+    const filler = events.find((event) => event.phase === 'audio.filler');
+    expect(filler).toBeDefined();
+    expect(filler?.audioCue?.expectedLatencyMs).toBeGreaterThan(500);
+  });
+
+  test('preempts running low-lane training process for high-priority interaction', async () => {
+    const daemon = new MiyaDaemonService(tempProjectDir());
+    daemon.start();
+
+    const slow = longSleepCommand();
+    const lowPromise = daemon.runIsolatedProcess({
+      kind: 'training.image',
+      command: slow.command,
+      args: slow.args,
+      timeoutMs: 60_000,
+      metadata: { jobID: 'train-preempt-1' },
+      resource: { priority: 10, vramMB: 0 },
+    });
+    await sleep(250);
+    await daemon.runTask(
+      {
+        kind: 'vision.analyze',
+        resource: { priority: 100, vramMB: 0, timeoutMs: 2_000 },
+      },
+      async () => 'interaction-ok',
+    );
+    const lowResult = await Promise.race([
+      lowPromise,
+      new Promise<{
+        exitCode: number | null;
+        stdout: string;
+        stderr: string;
+        timedOut: boolean;
+      }>((_, reject) => setTimeout(() => reject(new Error('preempt_timeout')), 8_000)),
+    ]);
+    expect(lowResult.timedOut).toBe(false);
+    expect(lowResult.exitCode === 0).toBe(false);
   });
 });

@@ -177,6 +177,7 @@ import {
   type NegotiationBudgetState,
   type NegotiationFixability,
 } from './negotiation-budget';
+import { sanitizeGatewayContext } from './sanitizer';
 import {
   GatewayMethodRegistry,
   parseIncomingFrame,
@@ -2454,7 +2455,10 @@ async function routeSessionMessage(
   const interactionMode = readOwnerIdentityState(projectDir).mode;
   enforceInteractionModeIsolation(projectDir, interactionMode);
   const payload = buildSessionPayloadByMode(interactionMode, input.text);
-  const safeText = payload.payload;
+  const sanitized = sanitizeGatewayContext({
+    text: payload.payload,
+  });
+  const safeText = sanitized.payload;
   appendShortTermMemoryLog(projectDir, {
     sessionID: input.sessionID,
     sender: 'user',
@@ -5786,6 +5790,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === 'job.progress') {
       publishGatewayEvent(runtime, 'daemon.job_progress', event);
+      const phase = String(event.payload?.phase ?? '');
+      if (phase === 'audio.filler') {
+        publishGatewayEvent(runtime, 'daemon.audio_filler', event);
+      }
       const config = readConfig(projectDir);
       const notifyOnTerminal =
         ((config.runtime as Record<string, unknown> | undefined)?.notifications as

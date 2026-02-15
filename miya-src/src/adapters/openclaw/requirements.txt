@@ -1,0 +1,4 @@
+# Optional adapter-side dependencies.
+# Keep this list separate from miya-src/python/requirements.txt so adapter upgrades do not
+# destabilize core training/inference runtime.
+requests>=2.32.0
