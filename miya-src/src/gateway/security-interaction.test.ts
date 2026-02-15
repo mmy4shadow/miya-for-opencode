@@ -100,6 +100,12 @@ describe('gateway security interaction acceptance', () => {
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url, 'ui');
     try {
+      const domains = (await client.request('policy.domains.list')) as {
+        domains?: Array<{ domain: string; status: string }>;
+      };
+      expect(Array.isArray(domains.domains)).toBe(true);
+      expect((domains.domains ?? []).length).toBeGreaterThan(0);
+
       const annotated = (await client.request('intervention.annotate', {
         text: 'manual note',
       })) as { status?: string };

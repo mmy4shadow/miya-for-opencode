@@ -5414,16 +5414,6 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     websocket: {
       open(ws) {
         ensureWsData(runtime, ws);
-        ws.subscribe('miya:broadcast');
-        ws.send(
-          JSON.stringify(
-            toEventFrame({
-              event: 'gateway.snapshot',
-              payload: buildSnapshot(projectDir, runtime),
-              stateVersion: { gateway: runtime.stateVersion },
-            }),
-          ),
-        );
       },
       close(ws) {
         const wsData = ensureWsData(runtime, ws);
@@ -5506,6 +5496,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         }
 
         if (frame.method === 'gateway.subscribe') {
+          ws.subscribe('miya:broadcast');
           wsData.subscriptions = new Set(
             Array.isArray(frame.params?.events) ? frame.params.events.map(String) : ['*'],
           );
@@ -5520,6 +5511,20 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
               }),
             ),
           );
+          // Send initial snapshot after subscribe acknowledgement to keep RPC-only sockets fast.
+          setTimeout(() => {
+            try {
+              ws.send(
+                JSON.stringify(
+                  toEventFrame({
+                    event: 'gateway.snapshot',
+                    payload: buildSnapshot(projectDir, runtime),
+                    stateVersion: { gateway: runtime.stateVersion },
+                  }),
+                ),
+              );
+            } catch {}
+          }, 0);
           return;
         }
 
