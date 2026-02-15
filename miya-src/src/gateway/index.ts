@@ -30,7 +30,11 @@ import {
   releaseKillSwitch,
   saveApprovalToken,
 } from '../safety/store';
-import { isDomainExecutionAllowed, transitionSafetyState } from '../safety/state-machine';
+import {
+  isDomainExecutionAllowed,
+  readSafetyState,
+  transitionSafetyState,
+} from '../safety/state-machine';
 import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
 import type { SafetyTier } from '../safety/tier';
 import {
@@ -3702,6 +3706,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const domain = parseText(params.domain);
     if (!isPolicyDomain(domain)) {
       throw new Error('invalid_policy_domain');
+    }
+    const kill = readKillSwitch(projectDir);
+    const safety = readSafetyState(projectDir);
+    if (kill.active || safety.globalState === 'killed') {
+      throw new Error('kill_switch_active');
     }
     const state = transitionSafetyState(projectDir, {
       source: 'policy.domain.resume',

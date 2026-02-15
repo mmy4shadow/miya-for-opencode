@@ -155,6 +155,40 @@ describe('gateway security interaction acceptance', () => {
     }
   });
 
+  test('blocks domain resume while kill-switch is globally active', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      const switched = (await client.request('killswitch.set_mode', {
+        mode: 'all_stop',
+      })) as { mode: string };
+      expect(switched.mode).toBe('all_stop');
+
+      let blockedError = '';
+      try {
+        await client.request('policy.domain.resume', { domain: 'outbound_send' });
+      } catch (error) {
+        blockedError = String(error instanceof Error ? error.message : error);
+      }
+      expect(blockedError).toBe('kill_switch_active');
+
+      const domains = (await client.request('policy.domains.list')) as {
+        domains: Array<{ domain: string; status: string }>;
+      };
+      const byName = new Map(domains.domains.map((item) => [item.domain, item.status]));
+      expect(byName.get('outbound_send')).toBe('paused');
+
+      const released = (await client.request('killswitch.set_mode', {
+        mode: 'off',
+      })) as { mode: string };
+      expect(released.mode).toBe('off');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
   test('updates trust mode thresholds and exposes them in snapshot', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
