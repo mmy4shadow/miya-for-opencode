@@ -6,6 +6,7 @@ import {
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
   listCompanionMemoryCorrections,
+  listCompanionMemoryVectors,
   listPendingCompanionMemoryVectors,
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
@@ -111,5 +112,59 @@ describe('companion memory vectors', () => {
     expect(pendingCorrections.length).toBe(0);
     const storeHit = searchCompanionMemoryVectors(projectDir, '不喜欢 抹茶拿铁', 5, { threshold: 0 });
     expect(storeHit.some((item) => item.id === corrected.id)).toBe(true);
+  });
+
+  test('supports domain-separated retrieval', () => {
+    const projectDir = tempProjectDir();
+    upsertCompanionMemoryVector(projectDir, {
+      text: 'Fix TypeScript build pipeline',
+      source: 'test',
+      activate: true,
+      domain: 'work',
+    });
+    upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢抹茶拿铁',
+      source: 'test',
+      activate: true,
+      domain: 'relationship',
+    });
+    const work = searchCompanionMemoryVectors(projectDir, 'TypeScript', 5, {
+      threshold: 0,
+      domain: 'work',
+    });
+    const relationship = searchCompanionMemoryVectors(projectDir, '抹茶拿铁', 5, {
+      threshold: 0,
+      domain: 'relationship',
+    });
+    expect(work.every((item) => item.domain === 'work')).toBe(true);
+    expect(relationship.every((item) => item.domain === 'relationship')).toBe(true);
+  });
+
+  test('requires evidence to activate cross-domain memory writes', () => {
+    const projectDir = tempProjectDir();
+    const created = upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢咖啡',
+      source: 'test',
+      domain: 'work',
+      activate: true,
+    });
+    expect(created.status).toBe('pending');
+    expect(created.crossDomainWrite?.requiresApproval).toBe(true);
+    expect(listPendingCompanionMemoryVectors(projectDir, 'work').length).toBe(1);
+    expect(() =>
+      confirmCompanionMemoryVector(projectDir, {
+        memoryID: created.id,
+        confirm: true,
+      }),
+    ).toThrow('cross_domain_evidence_required');
+    const activated = confirmCompanionMemoryVector(projectDir, {
+      memoryID: created.id,
+      confirm: true,
+      evidence: ['mode=mixed', 'user_explicit_memory_write=1'],
+    });
+    expect(activated?.status).toBe('active');
+    expect(activated?.crossDomainWrite?.requiresApproval).toBe(false);
+    const vectors = listCompanionMemoryVectors(projectDir, 'work');
+    expect(vectors.some((item) => item.id === created.id)).toBe(true);
   });
 });

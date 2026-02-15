@@ -118,6 +118,8 @@ import {
 import {
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
+  getCompanionMemoryVector,
+  inferMemoryDomain,
   listCompanionMemoryCorrections,
   listCompanionMemoryVectors,
   listPendingCompanionMemoryVectors,
@@ -160,6 +162,7 @@ import {
   upsertSession,
 } from '../sessions';
 import {
+  analyzeRouteComplexity,
   buildRouteExecutionPlan,
   getRouteCostSummary,
   listRouteCostRecords,
@@ -198,6 +201,19 @@ import {
   type NegotiationFixability,
 } from './negotiation-budget';
 import { sanitizeGatewayContext } from './sanitizer';
+import { evaluateModeKernel } from './mode-kernel';
+import {
+  arbitrateCortex,
+  buildLeftBrainActionPlan,
+  buildRightBrainResponsePlan,
+  detectUserExplicitIntent,
+} from './cortex-arbiter';
+import {
+  detectNegativeFeedbackText,
+  readModeObservability,
+  recordModeObservability,
+} from './mode-observability';
+import { appendTurnEvidencePack } from './turn-evidence';
 import {
   GATEWAY_PROTOCOL_VERSION,
   LEGACY_GATEWAY_PROTOCOL_VERSION,
@@ -401,6 +417,7 @@ interface GatewaySnapshot {
     forcedStage?: string;
     cost: ReturnType<typeof getRouteCostSummary>;
     recent: ReturnType<typeof listRouteCostRecords>;
+    mode: ReturnType<typeof readModeObservability>;
   };
   learning: {
     stats: ReturnType<typeof getLearningStats>;
@@ -1104,6 +1121,21 @@ function parseText(value: unknown): string {
 
 function parseChannel(value: unknown): ChannelName | null {
   return isChannelName(value) ? value : null;
+}
+
+function parseMemoryDomain(value: unknown): 'work' | 'relationship' | undefined {
+  const raw = parseText(value).trim().toLowerCase();
+  if (raw === 'work') return 'work';
+  if (raw === 'relationship') return 'relationship';
+  return undefined;
+}
+
+function parseEvidenceList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item ?? '').trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 20);
 }
 
 const WIZARD_PROMPT_PHOTOS = '给我展示我应该是什么样子。发送1到5张照片。';
@@ -2635,6 +2667,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const routingMode = readRouterModeConfig(projectDir);
   const routingCost = getRouteCostSummary(projectDir, 500);
   const routingRecent = listRouteCostRecords(projectDir, 20);
+  const modeObservability = readModeObservability(projectDir);
   const learningStats = getLearningStats(projectDir);
   const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
     id: item.id,
@@ -2747,6 +2780,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       forcedStage: routingMode.forcedStage,
       cost: routingCost,
       recent: routingRecent,
+      mode: modeObservability,
     },
     learning: {
       stats: learningStats,
@@ -2851,11 +2885,42 @@ async function routeSessionMessage(
       reason: 'kill_switch_triggered_by_critical_intent',
     };
   }
+  const modeObs = readModeObservability(projectDir);
   const interactionMode = readOwnerIdentityState(projectDir).mode;
   enforceInteractionModeIsolation(projectDir, interactionMode);
   const payload = buildSessionPayloadByMode(interactionMode, input.text);
+  const session =
+    getSession(projectDir, input.sessionID) ??
+    upsertSession(projectDir, {
+      id: input.sessionID,
+      kind: input.sessionID.startsWith('opencode:') ? 'opencode' : 'channel',
+      groupId: input.sessionID,
+      routingSessionID: 'main',
+      agent: '1-task-manager',
+    });
+  const loopState = getSessionState(projectDir, input.sessionID);
+  const routeComplexity = analyzeRouteComplexity(payload.payload);
+  const modeKernel = evaluateModeKernel({
+    text: payload.payload,
+    routeComplexity,
+    sessionState: {
+      activation: session.policy.activation,
+      reply: session.policy.reply,
+      queueLength: session.queue.length,
+      awaitingConfirmation: loopState.awaitingConfirmation,
+      loopEnabled: loopState.loopEnabled,
+    },
+    lastMode: modeObs.lastMode,
+  });
+  const turnID = `turn_${randomUUID()}`;
+  const userExplicit = detectUserExplicitIntent(payload.payload);
+  const rightBrain = buildRightBrainResponsePlan({
+    text: payload.payload,
+    modeKernel,
+  });
   const sanitized = sanitizeGatewayContext({
     text: payload.payload,
+    modeHint: modeKernel.mode,
   });
   const safeText = sanitized.payload;
   appendShortTermMemoryLog(projectDir, {
@@ -2870,40 +2935,6 @@ async function routeSessionMessage(
       sessionID: input.sessionID,
     });
   }
-  const session =
-    getSession(projectDir, input.sessionID) ??
-    upsertSession(projectDir, {
-      id: input.sessionID,
-      kind: input.sessionID.startsWith('opencode:') ? 'opencode' : 'channel',
-      groupId: input.sessionID,
-      routingSessionID: 'main',
-      agent: '1-task-manager',
-    });
-
-  if (session.policy.activation !== 'active' || session.policy.reply !== 'auto') {
-    enqueueSessionMessage(projectDir, input.sessionID, {
-      text: safeText,
-      source: input.source,
-    });
-    return {
-      delivered: false,
-      queued: true,
-      reason: `policy_${session.policy.activation}_${session.policy.reply}`,
-    };
-  }
-
-  const client = deps.client;
-  if (!client) {
-    enqueueSessionMessage(projectDir, input.sessionID, {
-      text: safeText,
-      source: input.source,
-    });
-    return {
-      delivered: false,
-      queued: true,
-      reason: 'client_unavailable',
-    };
-  }
 
   const pinnedAgent =
     session.routing.agent && session.routing.agent !== '1-task-manager'
@@ -2916,34 +2947,199 @@ async function routeSessionMessage(
     availableAgents,
     pinnedAgent,
   });
-  if (plan.executionMode === 'human_gate') {
+
+  const leftBrain = buildLeftBrainActionPlan({
+    routePlan: plan,
+    modeKernel,
+  });
+  const arbiter = arbitrateCortex({
+    modeKernel,
+    safety: {
+      blocked: plan.executionMode === 'human_gate',
+      reason: plan.executionMode === 'human_gate' ? `routing_human_gate_required:${plan.fixabilityHint}` : undefined,
+    },
+    userExplicit,
+    leftBrain,
+    rightBrain,
+  });
+  const effectiveSafeText =
+    arbiter.mode === modeKernel.mode
+      ? safeText
+      : sanitizeGatewayContext({
+          text: payload.payload,
+          modeHint: arbiter.mode,
+        }).payload;
+
+  const modeMemoryDomains =
+    arbiter.mode === 'work'
+      ? (['work'] as const)
+      : arbiter.mode === 'chat'
+        ? (['relationship'] as const)
+        : (['work', 'relationship'] as const);
+  const memoryBlocks: string[] = [];
+  for (const domain of modeMemoryDomains) {
+    const hits = searchCompanionMemoryVectors(projectDir, payload.payload, 2, {
+      threshold: 0.18,
+      domain,
+    });
+    if (hits.length === 0) continue;
+    memoryBlocks.push(
+      `[MIYA_${domain.toUpperCase()}_MEMORY]\n${hits
+        .map((item) => `- ${item.text} (score=${item.rankScore.toFixed(3)})`)
+        .join('\n')}`,
+    );
+  }
+  const memoryContext = memoryBlocks.join('\n\n');
+
+  const learning = arbiter.executeWork
+    ? buildLearningInjection(projectDir, effectiveSafeText, {
+        threshold: 0.66,
+        limit: 2,
+      })
+    : { snippet: '', matchedDraftIDs: [] as string[] };
+  const turnMeta = [
+    `[MIYA_TURN turn_id=${turnID}]`,
+    `[MIYA_MODE_KERNEL] mode=${modeKernel.mode} confidence=${modeKernel.confidence} why=${modeKernel.why.join('|')}`,
+    `[MIYA_CORTEX_ARBITER] mode=${arbiter.mode} execute_work=${arbiter.executeWork ? '1' : '0'} priority=${arbiter.priorityTrail.join('>')}`,
+    `[MIYA_EXECUTION_TRACK] ${arbiter.executionTrack}`,
+    arbiter.responseHints.length > 0
+      ? `[MIYA_RESPONSE_HINTS]\n${arbiter.responseHints.map((item) => `- ${item}`).join('\n')}`
+      : '',
+    arbiter.mode === 'mixed'
+      ? '[MIYA_MIXED_POLICY] 同一轮同时完成工作执行与情感回应，禁止拆分上下文。'
+      : '',
+  ]
+    .filter((item) => item.length > 0)
+    .join('\n');
+
+  const enrichedText = [
+    turnMeta,
+    memoryContext,
+    learning.snippet,
+    effectiveSafeText,
+  ]
+    .filter((item) => item && item.trim().length > 0)
+    .join('\n\n---\n\n');
+
+  const finalStage = !arbiter.executeWork ? 'low' : arbiter.mode === 'chat' ? 'low' : plan.stage;
+  const finalAgent = !arbiter.executeWork || arbiter.mode === 'chat' ? '1-task-manager' : plan.agent;
+  const payloadPlan = prepareRoutePayload(projectDir, {
+    text: enrichedText,
+    stage: finalStage,
+  });
+
+  const finalizeTurn = (result: {
+    delivered: boolean;
+    queued: boolean;
+    reason?: string;
+  }): { delivered: boolean; queued: boolean; reason?: string } => {
+    appendTurnEvidencePack(projectDir, {
+      turnID,
+      at: nowIso(),
+      sessionID: input.sessionID,
+      source: input.source,
+      modeKernel: {
+        mode: modeKernel.mode,
+        confidence: modeKernel.confidence,
+        why: modeKernel.why,
+      },
+      arbiter: {
+        mode: arbiter.mode,
+        executeWork: arbiter.executeWork,
+        rightBrainSuppressed: arbiter.rightBrainSuppressed,
+        priorityTrail: arbiter.priorityTrail,
+        why: arbiter.why,
+      },
+      tracks: {
+        work: {
+          planned: arbiter.mode === 'work' || arbiter.mode === 'mixed',
+          executed: result.delivered && arbiter.executeWork,
+        },
+        emotional: {
+          planned: arbiter.mode === 'chat' || arbiter.mode === 'mixed',
+          executed: result.delivered,
+        },
+      },
+      outcome: result,
+      leftBrain: {
+        objective: leftBrain.objective,
+        executeWork: leftBrain.executeWork,
+        risk: leftBrain.risk,
+        requiredGates: leftBrain.requiredGates,
+        why: leftBrain.why,
+      },
+      rightBrain: {
+        tone: rightBrain.tone,
+        suggestions: rightBrain.suggestions,
+        highRiskToolSuggestion: rightBrain.highRiskToolSuggestion,
+        why: rightBrain.why,
+      },
+      routing: {
+        intent: plan.intent,
+        complexity: plan.complexity,
+        stage: plan.stage,
+        finalStage,
+        agent: plan.agent,
+        finalAgent,
+        reasons: plan.reasons,
+      },
+    });
+    recordModeObservability(projectDir, {
+      turnID,
+      finalMode: arbiter.mode,
+      rollback: arbiter.mode !== modeKernel.mode,
+      autonomousAttempt: arbiter.executeWork,
+      autonomousSuccess: arbiter.executeWork && result.delivered,
+      negativeFeedback: detectNegativeFeedbackText(input.text),
+    });
+    return result;
+  };
+
+  if (session.policy.activation !== 'active' || session.policy.reply !== 'auto') {
     enqueueSessionMessage(projectDir, input.sessionID, {
-      text: safeText,
+      text: effectiveSafeText,
       source: input.source,
     });
-    return {
+    return finalizeTurn({
+      delivered: false,
+      queued: true,
+      reason: `policy_${session.policy.activation}_${session.policy.reply}`,
+    });
+  }
+
+  const client = deps.client;
+  if (!client) {
+    enqueueSessionMessage(projectDir, input.sessionID, {
+      text: effectiveSafeText,
+      source: input.source,
+    });
+    return finalizeTurn({
+      delivered: false,
+      queued: true,
+      reason: 'client_unavailable',
+    });
+  }
+
+  if (plan.executionMode === 'human_gate') {
+    enqueueSessionMessage(projectDir, input.sessionID, {
+      text: effectiveSafeText,
+      source: input.source,
+    });
+    return finalizeTurn({
       delivered: false,
       queued: true,
       reason: `routing_human_gate_required:${plan.fixabilityHint}`,
-    };
+    });
   }
-  const learning = buildLearningInjection(projectDir, safeText, {
-    threshold: 0.66,
-    limit: 2,
-  });
-  const enrichedText = learning.snippet
-    ? `${learning.snippet}\n\n---\n\n${safeText}`
-    : safeText;
-  const payloadPlan = prepareRoutePayload(projectDir, {
-    text: enrichedText,
-    stage: plan.stage,
-  });
 
   try {
+    if (arbiter.executeWork) {
+      requireDomainRunning(projectDir, 'local_build');
+    }
     await client.session.prompt({
       path: { id: session.routing.opencodeSessionID },
       body: {
-        agent: plan.agent,
+        agent: finalAgent,
         parts: [{ type: 'text', text: payloadPlan.text }],
       },
       query: { directory: projectDir },
@@ -2953,8 +3149,8 @@ async function routeSessionMessage(
       sessionID: input.sessionID,
       intent: plan.intent,
       complexity: plan.complexity,
-      stage: plan.stage,
-      agent: plan.agent,
+      stage: finalStage,
+      agent: finalAgent,
       success: true,
       inputTokens: payloadPlan.inputTokens,
       outputTokensEstimate: payloadPlan.outputTokensEstimate,
@@ -2969,15 +3165,15 @@ async function routeSessionMessage(
       }
     }
     dequeueSessionMessage(projectDir, input.sessionID);
-    return { delivered: true, queued: false };
+    return finalizeTurn({ delivered: true, queued: false });
   } catch (error) {
     recordRouteExecutionOutcome({
       projectDir,
       sessionID: input.sessionID,
       intent: plan.intent,
       complexity: plan.complexity,
-      stage: plan.stage,
-      agent: plan.agent,
+      stage: finalStage,
+      agent: finalAgent,
       success: false,
       inputTokens: payloadPlan.inputTokens,
       outputTokensEstimate: payloadPlan.outputTokensEstimate,
@@ -2993,14 +3189,14 @@ async function routeSessionMessage(
       }
     }
     enqueueSessionMessage(projectDir, input.sessionID, {
-      text: safeText,
+      text: effectiveSafeText,
       source: input.source,
     });
-    return {
+    return finalizeTurn({
       delivered: false,
       queued: true,
       reason: error instanceof Error ? error.message : String(error),
-    };
+    });
   }
 }
 
@@ -3744,6 +3940,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       mode,
       cost: getRouteCostSummary(projectDir, Math.max(1, Math.min(1000, limit))),
       recent: listRouteCostRecords(projectDir, Math.max(1, Math.min(100, limit))),
+      modeObservability: readModeObservability(projectDir),
     };
   });
   methods.register('learning.drafts.stats', async () => ({
@@ -5629,12 +5826,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const policyHash = parseText(params.policyHash) || undefined;
     const fact = parseText(params.fact);
     if (!fact) throw new Error('invalid_memory_fact');
+    const domain = parseMemoryDomain(params.domain) ?? inferMemoryDomain(fact);
+    const evidence = parseEvidenceList(params.evidence);
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
     const created = upsertCompanionMemoryVector(projectDir, {
       text: fact,
+      domain,
       source: 'conversation',
       activate: false,
+      evidence,
       sourceType:
         parseText(params.sourceType) === 'direct_correction'
           ? 'direct_correction'
@@ -5650,20 +5851,30 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         approvalMode: learningGate.candidateMode,
         interruptsUser: false,
       },
+      domain: created.domain,
+      crossDomainWrite: created.crossDomainWrite,
       needsCorrectionWizard: Boolean(created.conflictWizardID),
-      message: created.conflictWizardID
-        ? 'memory_pending_conflict_requires_correction_wizard'
-        : 'memory_pending_confirmation_required',
+      message: created.crossDomainWrite?.requiresApproval
+        ? 'memory_pending_cross_domain_approval_required'
+        : created.conflictWizardID
+          ? 'memory_pending_conflict_requires_correction_wizard'
+          : 'memory_pending_confirmation_required',
       profile,
     };
   });
-  methods.register('companion.memory.list', async () => {
+  methods.register('companion.memory.list', async (params) => {
     requireOwnerMode(projectDir);
+    const domain = parseMemoryDomain(params.domain);
+    if (domain) {
+      return listCompanionMemoryVectors(projectDir, domain)
+        .filter((item) => item.status === 'active')
+        .map((item) => item.text);
+    }
     return readCompanionProfile(projectDir).memoryFacts;
   });
-  methods.register('companion.memory.pending.list', async () => {
+  methods.register('companion.memory.pending.list', async (params) => {
     requireOwnerMode(projectDir);
-    return listPendingCompanionMemoryVectors(projectDir);
+    return listPendingCompanionMemoryVectors(projectDir, parseMemoryDomain(params.domain));
   });
   methods.register('companion.memory.corrections.list', async () => {
     requireOwnerMode(projectDir);
@@ -5677,7 +5888,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const memoryID = parseText(params.memoryID);
     const sessionID = parseText(params.sessionID) || 'main';
     if (!memoryID) throw new Error('invalid_memory_id');
-    if (runtime.nexus.learningGate.persistentRequiresApproval) {
+    const target = getCompanionMemoryVector(projectDir, memoryID);
+    if (!target) throw new Error('memory_not_found');
+    const evidence = parseEvidenceList(params.evidence);
+    const crossDomainRequiresApproval = Boolean(target.crossDomainWrite?.requiresApproval);
+    if (crossDomainRequiresApproval && evidence.length === 0) {
+      throw new Error('cross_domain_evidence_required');
+    }
+    const requiresApproval =
+      runtime.nexus.learningGate.persistentRequiresApproval || crossDomainRequiresApproval;
+    if (requiresApproval) {
       const ticket = resolveApprovalTicket({
         projectDir,
         sessionID,
@@ -5686,6 +5906,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           'memory_stage=persistent',
           `memory_id=${memoryID}`,
           'action=confirm',
+          `memory_domain=${target.domain}`,
+          crossDomainRequiresApproval
+            ? `cross_domain_from=${target.crossDomainWrite?.from ?? 'unknown'}`
+            : 'cross_domain_from=none',
+          `evidence_count=${evidence.length}`,
         ],
       });
       if (!ticket.ok) throw new Error(`approval_required:${ticket.reason}`);
@@ -5694,6 +5919,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const updated = confirmCompanionMemoryVector(projectDir, {
       memoryID,
       confirm,
+      evidence,
       supersedeConflicts:
         typeof params.supersedeConflicts === 'boolean'
           ? Boolean(params.supersedeConflicts)
@@ -5706,10 +5932,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       stage: updated.status,
       learningGate: {
         stage: 'persistent',
-        approvalMode: runtime.nexus.learningGate.persistentRequiresApproval
-          ? 'modal_approval'
-          : 'toast_gate',
-        interruptsUser: runtime.nexus.learningGate.persistentRequiresApproval,
+        approvalMode: requiresApproval ? 'modal_approval' : 'toast_gate',
+        interruptsUser: requiresApproval,
       },
       profile,
     };
@@ -5730,9 +5954,17 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       typeof params.recencyHalfLifeDays === 'number' && params.recencyHalfLifeDays > 0
         ? Number(params.recencyHalfLifeDays)
         : undefined;
+    const domain = parseMemoryDomain(params.domain);
+    const domains = Array.isArray(params.domains)
+      ? params.domains
+          .map((item) => parseMemoryDomain(item))
+          .filter((item): item is 'work' | 'relationship' => Boolean(item))
+      : undefined;
     return searchCompanionMemoryVectors(projectDir, query, limit, {
       threshold,
       recencyHalfLifeDays,
+      domain,
+      domains,
     });
   });
   methods.register('companion.memory.decay', async (params) => {
@@ -5746,9 +5978,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         : 30;
     return decayCompanionMemoryVectors(projectDir, halfLifeDays);
   });
-  methods.register('companion.memory.vector.list', async () => {
+  methods.register('companion.memory.vector.list', async (params) => {
     requireOwnerMode(projectDir);
-    return listCompanionMemoryVectors(projectDir);
+    return listCompanionMemoryVectors(projectDir, parseMemoryDomain(params.domain));
   });
   methods.register('miya.memory.sqlite.stats', async () => {
     requireOwnerMode(projectDir);

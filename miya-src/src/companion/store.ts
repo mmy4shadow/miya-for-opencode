@@ -109,10 +109,11 @@ export function addCompanionMemoryFact(
   if (!normalized) return current;
   upsertCompanionMemoryVector(projectDir, {
     text: normalized,
+    domain: 'relationship',
     source: 'profile_fact',
     activate: false,
   });
-  const memoryFacts = listCompanionMemoryVectors(projectDir)
+  const memoryFacts = listCompanionMemoryVectors(projectDir, 'relationship')
     .filter((item) => item.status === 'active')
     .map((item) => item.text)
     .slice(0, 300);
@@ -150,7 +151,7 @@ export function resetCompanionProfile(projectDir: string): CompanionProfile {
 
 export function syncCompanionProfileMemoryFacts(projectDir: string): CompanionProfile {
   const current = readCompanionProfile(projectDir);
-  const memoryFacts = listCompanionMemoryVectors(projectDir)
+  const memoryFacts = listCompanionMemoryVectors(projectDir, 'relationship')
     .filter((item) => item.status === 'active')
     .map((item) => item.text)
     .slice(0, 300);

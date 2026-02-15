@@ -4,9 +4,20 @@ import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import { syncCompanionMemoriesToSqlite } from './memory-sqlite';
 
+export type MemoryDomain = 'work' | 'relationship';
+
 export interface CompanionMemoryVector {
   id: string;
   text: string;
+  domain: MemoryDomain;
+  inferredDomain?: MemoryDomain;
+  crossDomainWrite?: {
+    from: MemoryDomain;
+    to: MemoryDomain;
+    requiresApproval: boolean;
+    evidence: string[];
+    approvedAt?: string;
+  };
   memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
   source: string;
   embedding: number[];
@@ -94,6 +105,34 @@ function readStore(projectDir: string): MemoryVectorStore {
               item.memoryKind === 'UserPreference'
                 ? item.memoryKind
                 : undefined,
+            domain:
+              item.domain === 'work' || item.domain === 'relationship'
+                ? item.domain
+                : 'relationship',
+            inferredDomain:
+              item.inferredDomain === 'work' || item.inferredDomain === 'relationship'
+                ? item.inferredDomain
+                : undefined,
+            crossDomainWrite:
+              item.crossDomainWrite &&
+              typeof item.crossDomainWrite === 'object' &&
+              (item.crossDomainWrite.from === 'work' ||
+                item.crossDomainWrite.from === 'relationship') &&
+              (item.crossDomainWrite.to === 'work' ||
+                item.crossDomainWrite.to === 'relationship')
+                ? {
+                    from: item.crossDomainWrite.from,
+                    to: item.crossDomainWrite.to,
+                    requiresApproval: item.crossDomainWrite.requiresApproval !== false,
+                    evidence: Array.isArray(item.crossDomainWrite.evidence)
+                      ? item.crossDomainWrite.evidence.map((entry) => String(entry)).slice(0, 20)
+                      : [],
+                    approvedAt:
+                      typeof item.crossDomainWrite.approvedAt === 'string'
+                        ? item.crossDomainWrite.approvedAt
+                        : undefined,
+                  }
+                : undefined,
             status:
               item.status === 'active' ||
               item.status === 'pending' ||
@@ -145,6 +184,13 @@ function writeStore(projectDir: string, store: MemoryVectorStore): MemoryVectorS
 
 function normalizeText(text: string): string {
   return text.trim().replace(/\s+/g, ' ');
+}
+
+const WORK_DOMAIN_HINT =
+  /(bug|fix|error|code|commit|branch|build|deploy|api|test|typescript|python|sql|修复|报错|代码|编译|部署|接口|脚本|函数|测试)/i;
+
+export function inferMemoryDomain(text: string): MemoryDomain {
+  return WORK_DOMAIN_HINT.test(text) ? 'work' : 'relationship';
 }
 
 function textToEmbedding(text: string, dims = 64): number[] {
@@ -208,8 +254,10 @@ export function upsertCompanionMemoryVector(
   projectDir: string,
   input: {
     text: string;
+    domain?: MemoryDomain;
     source?: string;
     activate?: boolean;
+    evidence?: string[];
     confidence?: number;
     tier?: 'L1' | 'L2' | 'L3';
     sourceMessageID?: string;
@@ -224,9 +272,15 @@ export function upsertCompanionMemoryVector(
   const store = readStore(projectDir);
   const embedding = textToEmbedding(text);
   const now = nowIso();
+  const inferredDomain = inferMemoryDomain(text);
+  const requestedDomain = input.domain ?? inferredDomain;
+  const crossDomain = requestedDomain !== inferredDomain;
+  const crossDomainEvidence = Array.isArray(input.evidence)
+    ? input.evidence.map((item) => normalizeText(String(item))).filter(Boolean).slice(0, 20)
+    : [];
 
   const near = store.items
-    .filter((item) => item.status === 'active')
+    .filter((item) => item.status === 'active' && item.domain === requestedDomain)
     .map((item) => ({
       item,
       sim: cosine(item.embedding, embedding),
@@ -256,6 +310,16 @@ export function upsertCompanionMemoryVector(
   const created: CompanionMemoryVector = {
     id: `mem_${randomUUID()}`,
     text,
+    domain: requestedDomain,
+    inferredDomain,
+    crossDomainWrite: crossDomain
+      ? {
+          from: inferredDomain,
+          to: requestedDomain,
+          requiresApproval: true,
+          evidence: crossDomainEvidence,
+        }
+      : undefined,
     source: input.source?.trim() || 'manual',
     embedding,
     score: 1,
@@ -264,7 +328,7 @@ export function upsertCompanionMemoryVector(
     sourceMessageID: input.sourceMessageID,
     sourceType: input.sourceType ?? 'manual',
     memoryKind: input.memoryKind,
-    status: input.activate ? 'active' : 'pending',
+    status: crossDomain ? 'pending' : input.activate ? 'active' : 'pending',
     conflictKey: preference.key,
     accessCount: 0,
     isArchived: false,
@@ -297,7 +361,7 @@ export function upsertCompanionMemoryVector(
       const shouldOverwrite =
         forceOverride || (strongestOld ? newScore > strongestOld.score + threshold : false);
 
-      if (shouldOverwrite) {
+      if (shouldOverwrite && !crossDomain) {
         created.status = 'active';
         for (const other of conflicting) {
           other.status = 'superseded';
@@ -338,6 +402,8 @@ export function searchCompanionMemoryVectors(
     alpha?: number;
     beta?: number;
     gamma?: number;
+    domain?: MemoryDomain;
+    domains?: MemoryDomain[];
   },
 ): Array<CompanionMemoryVector & { similarity: number; rankScore: number }> {
   const q = normalizeText(query);
@@ -350,6 +416,15 @@ export function searchCompanionMemoryVectors(
   const beta = options?.beta ?? 0.2;
   const gamma = options?.gamma ?? 0.2;
   const threshold = Math.max(0, options?.threshold ?? 0.15);
+  const domainAllow = new Set<MemoryDomain>();
+  if (options?.domain === 'work' || options?.domain === 'relationship') {
+    domainAllow.add(options.domain);
+  }
+  if (Array.isArray(options?.domains)) {
+    for (const item of options.domains) {
+      if (item === 'work' || item === 'relationship') domainAllow.add(item);
+    }
+  }
 
   const importanceFromTier = (tier: 'L1' | 'L2' | 'L3'): number =>
     tier === 'L1' ? 1 : tier === 'L2' ? 0.7 : 0.4;
@@ -361,7 +436,11 @@ export function searchCompanionMemoryVectors(
   };
 
   const results = store.items
-    .filter((item) => item.status === 'active' && !item.isArchived)
+    .filter((item) => {
+      if (item.status !== 'active' || item.isArchived) return false;
+      if (domainAllow.size > 0 && !domainAllow.has(item.domain)) return false;
+      return true;
+    })
     .map((item) => {
       const similarity = cosine(item.embedding, qEmb);
       const importance = importanceFromTier(item.tier) * item.score * item.confidence;
@@ -381,14 +460,20 @@ export function searchCompanionMemoryVectors(
   return results;
 }
 
-export function listCompanionMemoryVectors(projectDir: string): CompanionMemoryVector[] {
-  return readStore(projectDir).items;
+export function listCompanionMemoryVectors(
+  projectDir: string,
+  domain?: MemoryDomain,
+): CompanionMemoryVector[] {
+  return readStore(projectDir).items.filter((item) => !domain || item.domain === domain);
 }
 
 export function listPendingCompanionMemoryVectors(
   projectDir: string,
+  domain?: MemoryDomain,
 ): CompanionMemoryVector[] {
-  return readStore(projectDir).items.filter((item) => item.status === 'pending');
+  return readStore(projectDir).items.filter(
+    (item) => item.status === 'pending' && (!domain || item.domain === domain),
+  );
 }
 
 export function listCompanionMemoryCorrections(
@@ -403,6 +488,7 @@ export function confirmCompanionMemoryVector(
     memoryID: string;
     confirm: boolean;
     supersedeConflicts?: boolean;
+    evidence?: string[];
   },
 ): CompanionMemoryVector | null {
   const store = readStore(projectDir);
@@ -414,6 +500,20 @@ export function confirmCompanionMemoryVector(
     target.status = 'superseded';
     target.updatedAt = now;
   } else {
+    if (target.crossDomainWrite?.requiresApproval) {
+      const evidence = Array.isArray(input.evidence)
+        ? input.evidence.map((item) => normalizeText(String(item))).filter(Boolean)
+        : [];
+      if (evidence.length === 0) {
+        throw new Error('cross_domain_evidence_required');
+      }
+      target.crossDomainWrite = {
+        ...target.crossDomainWrite,
+        requiresApproval: false,
+        evidence: Array.from(new Set([...target.crossDomainWrite.evidence, ...evidence])).slice(0, 30),
+        approvedAt: now,
+      };
+    }
     target.status = 'active';
     target.updatedAt = now;
     target.lastAccessedAt = now;
@@ -448,4 +548,11 @@ export function confirmCompanionMemoryVector(
     writeCorrectionStore(projectDir, corrections);
   }
   return target;
+}
+
+export function getCompanionMemoryVector(
+  projectDir: string,
+  memoryID: string,
+): CompanionMemoryVector | null {
+  return readStore(projectDir).items.find((item) => item.id === memoryID) ?? null;
 }

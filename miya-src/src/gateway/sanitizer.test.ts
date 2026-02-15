@@ -31,5 +31,13 @@ describe('gateway sanitizer', () => {
     expect(out.payload.includes('src/gateway/index.ts')).toBe(false);
     expect(out.removedSignals).toContain('code_context_line');
   });
-});
 
+  test('supports mixed mode envelope', () => {
+    const out = sanitizeGatewayContext({
+      text: '边做边聊：请修复报错，也陪我一下',
+      modeHint: 'mixed',
+    });
+    expect(out.mode).toBe('mixed');
+    expect(out.payload).toContain('[Context Mode: MIXED]');
+  });
+});

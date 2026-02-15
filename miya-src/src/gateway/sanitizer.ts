@@ -1,13 +1,16 @@
 export type ContextMode = 'work' | 'chat';
+export type GatewayMode = ContextMode | 'mixed';
 
 export interface SanitizedGatewayContext {
-  mode: ContextMode;
+  mode: GatewayMode;
   payload: string;
   removedSignals: string[];
 }
 
 const WORK_INSTRUCTION = 'You are a technical coding assistant. No small talk.';
 const CHAT_INSTRUCTION = 'You are Miya, a girlfriend assistant. Be gentle and cute.';
+const MIXED_INSTRUCTION =
+  'You are Miya. Execute work rigorously and respond with concise emotional warmth in the same turn.';
 
 const WORK_HINTS = [
   /```/,
@@ -89,7 +92,7 @@ function sanitizeChatContext(text: string): { text: string; removed: string[] } 
 
 export function sanitizeGatewayContext(input: {
   text: string;
-  modeHint?: ContextMode;
+  modeHint?: GatewayMode;
 }): SanitizedGatewayContext {
   const mode = input.modeHint ?? inferContextMode(input.text);
   if (mode === 'chat') {
@@ -100,6 +103,16 @@ export function sanitizeGatewayContext(input: {
       removedSignals: sanitized.removed,
     };
   }
+  if (mode === 'mixed') {
+    const work = sanitizeWorkContext(input.text);
+    return {
+      mode,
+      payload: ['[Context Mode: MIXED]', MIXED_INSTRUCTION, work.text]
+        .filter(Boolean)
+        .join('\n'),
+      removedSignals: [...work.removed],
+    };
+  }
   const sanitized = sanitizeWorkContext(input.text);
   return {
     mode,
@@ -107,4 +120,3 @@ export function sanitizeGatewayContext(input: {
     removedSignals: sanitized.removed,
   };
 }
-

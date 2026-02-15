@@ -492,6 +492,11 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 | Kill-Switch（按能力域停机）与风控联锁 | 已完成 | `outbound_send/desktop_control` 可独立停机 | `miya-src/src/safety/*`, `miya-src/src/policy/*` |
 | 多模态主链路（图像/语音/视觉） | 已完成 | 主链路可用，允许 fallback；遵守本地推理边界 | `miya-src/src/multimodal/*` |
 | 记忆主链路（pending/reflect/衰减） | 已完成 | 写入仍属副作用动作，需审批与审计 | `miya-src/src/companion/*`, `miya-src/src/gateway/index.ts` |
+| 统一模式核（Mode Kernel：work/chat/mixed） | 已完成（2026-02-15） | 统一判定口径；融合 sanitizer/复杂度/psyche/会话态；低置信按保守策略 | `miya-src/src/gateway/mode-kernel.ts`, `miya-src/src/gateway/index.ts` |
+| Cortex Arbiter（双脑并行评估，单轨执行） | 已完成（2026-02-15） | 固定优先级合并：Safety > User explicit > Work objective > Emotional optimization | `miya-src/src/gateway/cortex-arbiter.ts`, `miya-src/src/gateway/index.ts` |
+| mixed 同轮并行 + turn 证据包 | 已完成（2026-02-15） | 同轮允许“执行工作+情感回应”，共享单一 `turn_id` 防上下文分裂 | `miya-src/src/gateway/turn-evidence.ts`, `miya-src/src/gateway/index.ts` |
+| 记忆分域（work/relationship）与跨域审批证据 | 已完成（2026-02-15） | 跨域写入必须审批与证据，沿用 pending->active 流程 | `miya-src/src/companion/memory-vector.ts`, `miya-src/src/companion/store.ts`, `miya-src/src/gateway/index.ts` |
+| 模式可观测闭环（mode metrics） | 已完成（2026-02-15） | 输出模式切换频率/误判回滚率/自主任务完成率/用户负反馈率 | `miya-src/src/gateway/mode-observability.ts`, `miya-src/src/gateway/index.ts` |
 | Ralph Loop 执行闭环 | 已完成 | 已支持 stderr 回注与重试上限；继续做稳定性优化 | `miya-src/src/ralph/*`, `miya-src/src/tools/ralph.*` |
 | Psyche V3 守门员（Sentinel + consult + bandit） | 进行中 | `consult` 前置守门，不新增第二控制平面 | `miya-src/src/daemon/psyche/`（规划）, `miya-src/src/policy/decision-fusion.ts` |
 | Gateway V5（动态信任阈值 + Fixability + V5证据包） | 进行中 | 不放宽安全边界，仅优化审批体验与协商闭环 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/gateway/control-ui.ts` |
@@ -1028,6 +1033,7 @@ Miya 通过随 OpenCode 启动/退出的轻量 daemon 获得“精简版 OpenCla
 #### **4.2.1 工作/对话自主判定（Mode Router，用户无需选择）**
 > 目标：你不需要手动切换“工作/对话”；Miya 必须自主判断，并且在不确定时优先安全。
 
+- **落实状态（2026-02-15）**：已升级为 **Mode Kernel（统一模式核）**，统一输出 `mode/confidence/why`，并融合 `sanitizer + 路由复杂度 + psyche 信号 + 会话状态`；替代此前分散判定。
 - **输出**：`mode` ∈ {`work`, `chat`, `mixed`} + `confidence`（0~1）+ `why`（可解释要点）。
 - **输入信号（建议组合）**：
   - 文本特征：代码块/命令/报错/文件路径/“修复/测试/PR”等关键词 → 倾向 `work`
@@ -1464,6 +1470,8 @@ S_old = C_old * exp(-lambda * (t_now - t_old))
 - ✅ **已完成（2026-02-14）**：冲突更新策略已升级为“时间衰减+置信度加权”决策，并支持 `sourceType=direct_correction` 强制覆盖旧值。
 - ✅ **已完成（2026-02-14）**：Context Hydraulic Press 已注入 Agent Persona 路由策略（双流上下文 + 动态配额 + Priority-0 中断协议）。
 - ✅ **已完成（2026-02-14）**：存储层 `SQLite First` 已落地（`memory/memories.sqlite` + `memories` + `memories_vss`），并与现有 JSON 记忆写入路径自动同步（Cold/Hot 双层共存）。
+- ✅ **已完成（2026-02-15）**：记忆向量层新增 `work_memory/relationship_memory` 分域检索与写入，Gateway 已按模式做分域读取注入（`miya-src/src/companion/memory-vector.ts`, `miya-src/src/gateway/index.ts`）。
+- ✅ **已完成（2026-02-15）**：跨域写入新增审批与证据约束（`crossDomainWrite.requiresApproval + evidence`），并复用 pending->active 激活链路（`miya-src/src/companion/memory-vector.ts`, `miya-src/src/gateway/index.ts`）。
 - ✅ **测试通过（2026-02-14）**：`bun test miya-src/src/agents/index.test.ts miya-src/src/companion/memory-sqlite.test.ts miya-src/src/companion/memory-vector.test.ts miya-src/src/companion/memory-reflect.test.ts`（32/32 通过）。
 
 #### **1）存储层：SQLite First（避免引入重图数据库）**
@@ -2179,6 +2187,9 @@ miya-src/src/daemon/psyche/
 | 自主工作流状态机（Autoflow：执行→验证→修复闭环） | P0 | 1周 | Ultrawork DAG + verification/fix command | 首版已实现（`miya-src/src/autoflow/*`, `miya-src/src/tools/autoflow.ts`） |
 | 持久执行接管 stop 事件（Persistent Autoflow Hook） | P1 | 1周 | `session.status` 事件流 + Autoflow 状态机 | 首版已实现（`miya-src/src/hooks/persistent-autoflow/index.ts`, `miya-src/src/autoflow/persistent.ts`） |
 | 运行时模型路由 + EcoMode + Token/Cost 计量 | P2 | 1-2周 | Router runtime + Gateway routeSessionMessage | 首版已实现（`miya-src/src/router/runtime.ts`, `miya-src/src/tools/router.ts`, `miya-src/src/gateway/index.ts`） |
+| 统一模式核（Mode Kernel）+ mixed 路由 | P0 | 已完成（2026-02-15） | Gateway routeSessionMessage + sanitizer + psyche 信号 | 已实现（`miya-src/src/gateway/mode-kernel.ts`, `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/sanitizer.ts`） |
+| Cortex Arbiter（双脑并行评估，单轨执行） | P0 | 已完成（2026-02-15） | Left/Right plan 合并仲裁 + 策略闸门 | 已实现（`miya-src/src/gateway/cortex-arbiter.ts`, `miya-src/src/gateway/index.ts`） |
+| 模式可观测闭环（mode metrics） | P1 | 已完成（2026-02-15） | Gateway 统计快照 + 负反馈检测 | 已实现（`miya-src/src/gateway/mode-observability.ts`, `miya-src/src/gateway/index.ts`） |
 | 学习闭环产品化（Ralph/Reflect -> 技能草案） | P3 | 1-2周 | Ralph Loop + memory-reflect + learning store | 首版已实现（`miya-src/src/learning/skill-drafts.ts`, `miya-src/src/tools/learning.ts`） |
 | 控制面可观测（阶段/并行/重试/token/cost/学习命中） | P4 | 1周 | Gateway snapshot + Console 面板 | 首版已实现（`miya-src/src/gateway/index.ts`） |
 | Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | 已具备 daemon/psyche 子系统与策略引擎基础，持续完善联锁 |
@@ -2383,6 +2394,12 @@ Miya插件已经具备了坚实的架构基础：
 - ✅ AST-grep工具（`tools/grep/`）
 - ✅ 模型持久化（`config/agent-model-persistence.ts`）
 - ✅ MCP集成（`mcp/`）
+- ✅ 统一模式核（Mode Kernel：`work/chat/mixed + confidence + why`，融合 sanitizer/复杂度/psyche/会话态）
+- ✅ Cortex Arbiter（左脑 action_plan + 右脑 response_plan，固定优先级单仲裁）
+- ✅ 双脑并行评估、单轨执行（右脑仅建议，左脑执行必须过网关/策略闸门）
+- ✅ mixed 同轮并行（工作执行 + 情感回应共享同一 `turn_id` 证据包）
+- ✅ 记忆分域检索（`work_memory` / `relationship_memory`）与跨域写入审批证据
+- ✅ 模式可观测指标（mode 切换频率、误判回滚率、自主任务完成率、用户负反馈率）
 
 **进行中/持续增强（参考开源项目）**：
 - 🔄 节点管理系统（OpenClaw，主路径已实现，持续补齐控制面与权限映射细节）
