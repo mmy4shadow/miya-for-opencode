@@ -151,6 +151,7 @@ export interface ChannelOutboundAudit {
 function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
   if (message.includes('target_not_in_allowlist')) return ['recipient_mismatch'];
   if (message.includes('recipient_text_mismatch')) return ['recipient_mismatch'];
+  if (message.includes('arch_advisor_denied')) return ['privilege_barrier'];
   if (message.includes('input_mutex_timeout')) return ['input_mutex_timeout'];
   if (message.includes('receipt_uncertain')) return ['receipt_uncertain'];
   if (message.includes('blocked_by_privilege') || message.includes('privilege')) {
@@ -237,6 +238,13 @@ function buildSemanticSummary(row: Omit<ChannelOutboundAudit, 'id' | 'at'>): Cha
       conclusion: 'Outbound send completed with verifiable desktop evidence.',
       keyAssertion: `recipient_check=${row.recipientTextCheck ?? 'uncertain'}, send_status=${row.sendStatusCheck ?? 'uncertain'}`,
       recovery: 'No recovery needed.',
+    };
+  }
+  if (row.message.includes('arch_advisor_denied')) {
+    return {
+      conclusion: 'Outbound send blocked by Arch Advisor approval gate.',
+      keyAssertion: 'Arch Advisor approval flag was false, so outbound flow was denied before desktop execution.',
+      recovery: 'Re-issue approval ticket via Arch Advisor and retry only after policy checks pass.',
     };
   }
   if (row.message.includes('input_mutex_timeout')) {

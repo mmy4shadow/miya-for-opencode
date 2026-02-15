@@ -127,6 +127,28 @@ describe('channel runtime send policy', () => {
 
     expect(result.sent).toBe(false);
     expect(result.message).toBe('outbound_blocked:arch_advisor_denied');
+
+    const auditFile = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'channels-outbound.jsonl',
+    );
+    const rows = fs
+      .readFileSync(auditFile, 'utf-8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) =>
+        JSON.parse(line) as {
+          message?: string;
+          semanticTags?: string[];
+          semanticSummary?: { conclusion?: string };
+        },
+      );
+    const row = rows[0];
+    expect(row?.message).toBe('outbound_blocked:arch_advisor_denied');
+    expect(row?.semanticTags?.includes('privilege_barrier')).toBe(true);
+    expect(String(row?.semanticSummary?.conclusion ?? '')).toContain('Arch Advisor');
   });
 
   test('blocks outbound send when destination is not in allowlist', async () => {
