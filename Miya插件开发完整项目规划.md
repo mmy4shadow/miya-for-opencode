@@ -115,6 +115,37 @@
 
 Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode 原生权限与事件闭环 + Ecosystem Bridge 兼容层 + CI 门禁驱动的可验证交付体系**。
 
+### 2026-02-15 控制平面强约束补丁 v3（Gateway vs Console / 生命周期双模式 / 远程批准）
+
+本节为三级解释优先层；与正文冲突时，以本节为准。
+
+#### 1) Gateway vs Console 契约写死（强制）
+- `Gateway` 是**状态机 + 事件总线**，唯一持有任务/会话/审计/证据包/策略裁决状态。
+- `Gateway` 对外只暴露**一个 WS RPC + 事件流**；控制面不得出现第二套执行口径。
+- `Web Console` 是**无状态客户端**：只做订阅事件、渲染状态、提交人工干预指令（`approve/pause/kill/annotate`）。
+- `Web Console` 不得直接执行工具，不得绕过 Gateway 状态机。
+
+#### 2) 生命周期采用“双模式”（默认不变）
+- 默认模式：`Coupled Mode`（冻结）：随 OpenCode 起落（OpenCode 启动即拉起，退出即回收）。
+- 实验模式：`Service Mode (experimental)`（新增开关）：
+- Gateway 可由 `systemd/launchd` 常驻拉起，OpenCode TUI/Web Console 作为控制面客户端 attach。
+- 即使是 Service Mode，最终权限裁决仍使用 OpenCode permission/skill 体系（`allow/ask/deny`），不得自造平行权限系统。
+
+#### 3) 远程批准/远程查看必须基于 OpenCode permission 票据
+- 硬规则不变：所有副作用动作必须在执行点经过 OpenCode permission hook，不得旁路。
+- Web Console 的 `approve` 只允许写入审批信息到可验证票据（ticket/grant）存储，不得直接触发工具执行。
+- 实际工具执行前由 OpenCode 在 permission 执行点核验票据有效性；无票据或票据不匹配即拒绝。
+
+#### 4) 端口与协议边界（强制）
+- 控制指令/状态变更：只允许 WS（含鉴权、审计、幂等键）。
+- HTTP 仅允许静态资源与健康检查；禁止任何“执行类/改状态类 HTTP API”。
+- 目标：坚持单控制平面，避免双口径与审计分叉。
+
+#### 5) 安全硬化（设备配对与远程访问）
+- 远程访问建议默认走内网零信任通道（如 WireGuard/Tailscale 等）并与 Gateway 鉴权叠加。
+- 新设备接入 WS 必须一次性配对批准（pairing/one-time approve），未配对设备不得进入控制面。
+- 审批与配对都必须写入审计链路，做到可追溯、可复盘。
+
 ### 2026-02-15 终裁冻结补丁 v2（口径冲突一次性收敛）
 
 本节为二级解释优先层；与正文冲突时，以本节冻结条款为准。原文不删，统一标记“历史草案/演进追溯”。

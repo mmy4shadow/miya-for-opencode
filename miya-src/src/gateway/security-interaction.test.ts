@@ -7,7 +7,10 @@ interface GatewayWsClient {
   close(): void;
 }
 
-async function connectGateway(url: string): Promise<GatewayWsClient> {
+async function connectGateway(
+  url: string,
+  role: 'ui' | 'admin' | 'node' | 'channel' | 'unknown' = 'admin',
+): Promise<GatewayWsClient> {
   const wsUrl = `${url.replace('http://', 'ws://')}/ws`;
   const ws = new WebSocket(wsUrl);
   let requestID = 0;
@@ -23,7 +26,7 @@ async function connectGateway(url: string): Promise<GatewayWsClient> {
   const ready = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('gateway_ws_hello_timeout')), 10_000);
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'hello', role: 'ui', clientID: 'security-test-client' }));
+      ws.send(JSON.stringify({ type: 'hello', role, clientID: 'security-test-client' }));
     };
     ws.onerror = () => {
       clearTimeout(timeout);
@@ -92,6 +95,34 @@ async function connectGateway(url: string): Promise<GatewayWsClient> {
 }
 
 describe('gateway security interaction acceptance', () => {
+  test('ui role is stateless and restricted to intervention methods', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, 'ui');
+    try {
+      const annotated = (await client.request('intervention.annotate', {
+        text: 'manual note',
+      })) as { status?: string };
+      expect(annotated.status).toBe('recorded');
+
+      const approved = (await client.request('intervention.approve', {
+        sessionID: 'main',
+        permission: 'external_message',
+        patterns: ['*'],
+        tier: 'medium',
+      })) as {
+        status?: string;
+        grant?: { permission?: string; sessionID?: string };
+      };
+      expect(approved.status).toBe('recorded');
+      expect(approved.grant?.permission).toBe('external_message');
+      expect(approved.grant?.sessionID).toBe('main');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
   test('supports control-plane killswitch mode switching', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);

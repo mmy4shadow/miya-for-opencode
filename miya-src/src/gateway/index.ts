@@ -28,6 +28,7 @@ import {
   listRecentSelfApprovalRecords,
   readKillSwitch,
   releaseKillSwitch,
+  saveApprovalToken,
 } from '../safety/store';
 import { isDomainExecutionAllowed, transitionSafetyState } from '../safety/state-machine';
 import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
@@ -1058,6 +1059,100 @@ function shouldGuardMethod(method: string): boolean {
   return true;
 }
 
+const UI_ALLOWED_METHODS = new Set<string>([
+  'gateway.status.get',
+  'gateway.backpressure.stats',
+  'daemon.backpressure.stats',
+  'doctor.run',
+  'config.center.get',
+  'provider.override.audit.list',
+  'sessions.list',
+  'sessions.get',
+  'cron.list',
+  'cron.runs.list',
+  'cron.approvals.list',
+  'channels.list',
+  'channels.status',
+  'channels.pair.list',
+  'channels.contact.tier.get',
+  'channels.contact.tier.list',
+  'security.identity.status',
+  'security.voiceprint.threshold.get',
+  'policy.get',
+  'policy.domains.list',
+  'policy.incidents.list',
+  'psyche.mode.get',
+  'learning.gate.get',
+  'nodes.list',
+  'nodes.status',
+  'nodes.describe',
+  'nodes.pair.list',
+  'devices.list',
+  'skills.status',
+  'mcp.capabilities.list',
+  'media.get',
+  'media.list',
+  'voice.status',
+  'voice.history.list',
+  'canvas.status',
+  'canvas.list',
+  'canvas.get',
+  'companion.status',
+  'companion.wizard.status',
+  'companion.memory.list',
+  'companion.memory.pending.list',
+  'companion.memory.corrections.list',
+  'companion.memory.search',
+  'companion.memory.vector.list',
+  'miya.memory.sqlite.stats',
+  'daemon.vram.budget',
+  // Stateless console may only observe or submit human interventions.
+  'intervention.approve',
+  'intervention.pause',
+  'intervention.kill',
+  'intervention.annotate',
+]);
+
+function assertConsoleMethodAllowed(method: string, context: GatewayMethodContext): void {
+  if (context.role !== 'ui') return;
+  if (UI_ALLOWED_METHODS.has(method)) return;
+  throw new Error(`console_method_forbidden:${method}`);
+}
+
+function interventionAuditFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'audit', 'intervention.jsonl');
+}
+
+function appendInterventionAudit(
+  projectDir: string,
+  input: {
+    command: 'approve' | 'pause' | 'kill' | 'annotate';
+    actor: string;
+    sourceRole: GatewayClientRole;
+    payload: Record<string, unknown>;
+  },
+): string {
+  const id = `intervention_${randomUUID()}`;
+  const file = interventionAuditFile(projectDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(
+    file,
+    `${JSON.stringify({
+      id,
+      at: nowIso(),
+      ...input,
+    })}\n`,
+    'utf-8',
+  );
+  return id;
+}
+
+function normalizeApprovalTier(input: string): 'low' | 'medium' | 'high' {
+  if (input === 'high') return 'high';
+  if (input === 'low') return 'low';
+  return 'medium';
+}
+
 async function invokeGatewayMethod(
   projectDir: string,
   runtime: GatewayRuntime,
@@ -1065,6 +1160,7 @@ async function invokeGatewayMethod(
   params: Record<string, unknown>,
   context: GatewayMethodContext,
 ): Promise<unknown> {
+  assertConsoleMethodAllowed(method, context);
   if (shouldGuardMethod(method)) {
     const texts = collectStringValues(params);
     for (const text of texts) {
@@ -3692,6 +3788,153 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       hash: currentPolicyHash(projectDir),
     };
   });
+  methods.register('intervention.approve', async (params, context) => {
+    const sessionID = parseText(params.sessionID) || 'main';
+    const permission = parseText(params.permission) || 'external_message';
+    const action = parseText(params.action) || `intervention_approve:${permission}`;
+    const tierText = normalizeApprovalTier(parseText(params.tier).toLowerCase());
+    const patternsRaw = Array.isArray(params.patterns) ? params.patterns : ['*'];
+    const patterns = patternsRaw.map((item) => String(item).trim()).filter(Boolean);
+    const normalizedPatterns = patterns.length > 0 ? patterns : ['*'];
+    const requestHash = buildRequestHash(
+      {
+        permission,
+        patterns: normalizedPatterns,
+        toolCallID: '',
+        messageID: '',
+      },
+      false,
+    );
+    const token = saveApprovalToken(projectDir, sessionID, {
+      trace_id: randomUUID(),
+      request_hash: requestHash,
+      tier: tierText,
+      action,
+    });
+    const auditID = appendInterventionAudit(projectDir, {
+      command: 'approve',
+      actor: context.clientID,
+      sourceRole: context.role,
+      payload: {
+        sessionID,
+        permission,
+        patterns: normalizedPatterns,
+        tier: tierText,
+        requestHash,
+        tokenExpiresAt: token.expires_at,
+      },
+    });
+    appendNexusInsight(runtime, {
+      text: `Intervention approve -> ${permission} (${sessionID})`,
+      auditID,
+    });
+    publishGatewayEvent(runtime, 'intervention.approve', {
+      at: nowIso(),
+      auditID,
+      sessionID,
+      permission,
+      tier: tierText,
+      tokenExpiresAt: token.expires_at,
+    });
+    return {
+      status: 'recorded',
+      auditID,
+      grant: {
+        sessionID,
+        permission,
+        requestHash,
+        expiresAt: token.expires_at,
+      },
+    };
+  });
+  methods.register('intervention.pause', async (params, context) => {
+    const domain = parseText(params.domain);
+    if (!isPolicyDomain(domain)) throw new Error('invalid_policy_domain');
+    const result = (await methods.invoke(
+      'policy.domain.pause',
+      { domain },
+      { clientID: context.clientID, role: 'admin' },
+    )) as Record<string, unknown>;
+    const auditID = appendInterventionAudit(projectDir, {
+      command: 'pause',
+      actor: context.clientID,
+      sourceRole: context.role,
+      payload: { domain, result },
+    });
+    publishGatewayEvent(runtime, 'intervention.pause', {
+      at: nowIso(),
+      auditID,
+      domain,
+      result,
+    });
+    return {
+      status: 'recorded',
+      auditID,
+      domain,
+      result,
+    };
+  });
+  methods.register('intervention.kill', async (params, context) => {
+    const reason = parseText(params.reason) || 'intervention_kill';
+    const result = (await methods.invoke(
+      'killswitch.set_mode',
+      { mode: 'all_stop', reason },
+      { clientID: context.clientID, role: 'admin' },
+    )) as Record<string, unknown>;
+    const auditID = appendInterventionAudit(projectDir, {
+      command: 'kill',
+      actor: context.clientID,
+      sourceRole: context.role,
+      payload: { reason, result },
+    });
+    publishGatewayEvent(runtime, 'intervention.kill', {
+      at: nowIso(),
+      auditID,
+      reason,
+      result,
+    });
+    return {
+      status: 'recorded',
+      auditID,
+      result,
+    };
+  });
+  methods.register('intervention.annotate', async (params, context) => {
+    const text = parseText(params.text);
+    if (!text) throw new Error('invalid_annotation_text');
+    const at = parseText(params.at) || nowIso();
+    const targetAuditID = parseText(params.auditID) || undefined;
+    const annotation = (await methods.invoke(
+      'insight.append',
+      {
+        text,
+        at,
+        auditID: targetAuditID,
+      },
+      { clientID: context.clientID, role: 'admin' },
+    )) as Record<string, unknown>;
+    const auditID = appendInterventionAudit(projectDir, {
+      command: 'annotate',
+      actor: context.clientID,
+      sourceRole: context.role,
+      payload: {
+        text,
+        at,
+        targetAuditID,
+      },
+    });
+    publishGatewayEvent(runtime, 'intervention.annotate', {
+      at,
+      auditID,
+      targetAuditID,
+      text,
+    });
+    return {
+      status: 'recorded',
+      auditID,
+      annotation,
+    };
+  });
   methods.register('trust.set_mode', async (params) => {
     const silentMinRaw = Number(params.silentMin);
     const modalMaxRaw = Number(params.modalMax);
@@ -5147,7 +5390,13 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       }
 
       if (url.pathname.startsWith('/api/webhooks/')) {
-        return handleWebhook(projectDir, runtime, url.pathname, request);
+        return new Response('HTTP control API disabled; use WebSocket RPC (/ws).', {
+          status: 410,
+          headers: {
+            'content-type': 'text/plain; charset=utf-8',
+            'cache-control': 'no-store',
+          },
+        });
       }
 
       if (url.pathname === '/' || url.pathname === '/index.html') {

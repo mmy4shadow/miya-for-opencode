@@ -23,6 +23,7 @@ interface DaemonLockState {
 export interface DaemonConnectionSnapshot {
   connected: boolean;
   statusText: string;
+  lifecycleMode?: 'coupled' | 'service_experimental';
   port?: number;
   pid?: number;
   uptimeSec?: number;
@@ -55,6 +56,7 @@ type DaemonLauncherListener = (event: DaemonLauncherEvent) => void;
 
 interface LauncherRuntime {
   projectDir: string;
+  lifecycleMode: 'coupled' | 'service_experimental';
   daemonToken: string;
   parentLockFile: string;
   daemonLockFile: string;
@@ -193,8 +195,21 @@ function resolveBunBinary(): string | null {
   return null;
 }
 
+function resolveLifecycleMode(projectDir: string): 'coupled' | 'service_experimental' {
+  if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === 'service') return 'service_experimental';
+  if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === 'coupled') return 'coupled';
+  const config = readConfig(projectDir);
+  const runtime = (config.runtime as Record<string, unknown> | undefined) ?? {};
+  return runtime.service_mode_experimental === true ? 'service_experimental' : 'coupled';
+}
+
 function spawnDaemon(runtime: LauncherRuntime): boolean {
   if (runtime.retryHalted) {
+    return false;
+  }
+  if (runtime.lifecycleMode === 'service_experimental') {
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = 'Miya Daemon Service Mode (attach only)';
     return false;
   }
   const now = Date.now();
@@ -490,9 +505,19 @@ function ensureDaemonLaunched(runtime: LauncherRuntime): void {
     lock &&
     Number.isFinite(Date.parse(lock.updatedAt)) &&
     Date.now() - Date.parse(lock.updatedAt) < 30_000;
-  const lockOwnedByLauncher = Boolean(lock) && lock?.token === runtime.daemonToken;
+  const lockOwnedByLauncher =
+    runtime.lifecycleMode === 'service_experimental'
+      ? Boolean(lock) &&
+        (runtime.daemonToken ? lock?.token === runtime.daemonToken : true)
+      : Boolean(lock) && lock?.token === runtime.daemonToken;
 
   if (!lockFresh || !lockOwnedByLauncher) {
+    if (runtime.lifecycleMode === 'service_experimental') {
+      runtime.snapshot.connected = false;
+      runtime.snapshot.statusText = 'Miya Daemon Service Mode (waiting for daemon lock)';
+      scheduleReconnect(runtime);
+      return;
+    }
     if (runtime.reconnectTimer) {
       return;
     }
@@ -538,6 +563,7 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
   if (existing) return { ...existing.snapshot };
 
   ensureDaemonDir(projectDir);
+  const lifecycleMode = resolveLifecycleMode(projectDir);
   const config = readConfig(projectDir);
   const backpressure = (config.runtime as Record<string, unknown> | undefined)?.backpressure as
     | Record<string, unknown>
@@ -550,9 +576,14 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     typeof backpressure?.daemon_max_consecutive_failures === 'number'
       ? Number(backpressure.daemon_max_consecutive_failures)
       : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
+  const daemonToken =
+    lifecycleMode === 'service_experimental'
+      ? String(process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? '')
+      : randomUUID();
   const runtime: LauncherRuntime = {
     projectDir,
-    daemonToken: randomUUID(),
+    lifecycleMode,
+    daemonToken,
     parentLockFile: path.join(daemonDir(projectDir), 'parent.lock.json'),
     daemonLockFile: path.join(daemonDir(projectDir), 'daemon.lock.json'),
     reconnectBackoffMs: 1_000,
@@ -573,7 +604,13 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     maxConsecutiveLaunchFailures: Math.max(1, Math.floor(configuredMaxFailures)),
     snapshot: {
       connected: false,
-      statusText: 'Miya Daemon Booting',
+      statusText:
+        lifecycleMode === 'service_experimental'
+          ? daemonToken
+            ? 'Miya Daemon Service Mode (attach only)'
+            : 'Miya Daemon Service Mode (token missing)'
+          : 'Miya Daemon Booting',
+      lifecycleMode,
       pendingRequests: 0,
       rejectedRequests: 0,
       startedAt: nowIso(),
