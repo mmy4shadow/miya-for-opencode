@@ -1,5 +1,13 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
+  "files": {
+    "includes": [
+      "src/**/*.ts",
+      "tools/**/*.ts",
+      "gateway-ui/src/**/*.ts",
+      "gateway-ui/src/**/*.tsx"
+    ]
+  },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "vcs": {
     "enabled": true,

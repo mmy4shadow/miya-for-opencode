@@ -1,0 +1,6 @@
+# Local-only runtime artifacts
+*.log
+*.tmp
+.tmp/
+.cache/
+coverage/

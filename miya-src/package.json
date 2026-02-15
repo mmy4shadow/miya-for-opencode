@@ -46,7 +46,7 @@
     "lint": "biome lint .",
     "format": "biome format . --write",
     "check": "biome check --write .",
-    "check:ci": "bun run check:contracts && bun run doc:lint && biome check .",
+    "check:ci": "bun run check:contracts && bun run doc:lint && biome lint .",
     "dev": "bun run build && opencode",
     "prepublishOnly": "bun run build",
     "release:patch": "npm version patch && git push --follow-tags && npm publish",

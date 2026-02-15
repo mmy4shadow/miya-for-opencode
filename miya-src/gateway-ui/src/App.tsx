@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 interface NexusTrustSnapshot {
   target: number;
@@ -204,7 +204,7 @@ export default function App() {
     captureProbeEnabled: true,
   });
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const [statusRes, domainsResult] = await Promise.all([
         fetch('/api/status', { cache: 'no-store' }),
@@ -232,7 +232,7 @@ export default function App() {
       setConnected(false);
       setErrorText(error instanceof Error ? error.message : String(error));
     }
-  };
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -240,7 +240,7 @@ export default function App() {
       void refresh();
     }, 2500);
     return () => clearInterval(timer);
-  }, []);
+  }, [refresh]);
 
   const killSwitchMode = snapshot.nexus?.killSwitchMode ?? 'off';
   const trust = snapshot.nexus?.trust;
