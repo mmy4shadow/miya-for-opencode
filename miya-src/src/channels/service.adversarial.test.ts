@@ -122,6 +122,50 @@ describe('channel runtime adversarial cases', () => {
     ).toBe(true);
   });
 
+  test('downgrades to ui_style_mismatch draft-only under OCR/DPI evidence drift', async () => {
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(projectDir, {
+      onInbound: () => {},
+      onPairRequested: () => {},
+    });
+    setContactTier(projectDir, 'qq', 'owner-user', 'owner');
+    forceSendSuccess = true;
+
+    const result = await runtime.sendMessage({
+      channel: 'qq',
+      destination: 'owner-user',
+      text: 'hello',
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+        bypassThrottle: true,
+        bypassDuplicateGuard: true,
+      },
+      sessionID: 'case-ocr-dpi-mismatch',
+    });
+
+    expect(result.sent).toBe(false);
+    expect(result.message).toBe('outbound_degraded:ui_style_mismatch:draft_only');
+
+    const auditFile = path.join(projectDir, '.opencode', 'miya', 'channels-outbound.jsonl');
+    const rows = fs
+      .readFileSync(auditFile, 'utf-8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            message?: string;
+            semanticTags?: string[];
+            evidenceLimitations?: string[];
+          },
+      );
+    const row = rows.find((item) => item.message === result.message);
+    expect(Boolean(row)).toBe(true);
+    expect(row?.semanticTags?.includes('ui_style_mismatch')).toBe(true);
+    expect(row?.evidenceLimitations?.includes('ui_style_mismatch')).toBe(true);
+  });
+
   test('triggers input_mutex_timeout under sustained session contention', async () => {
     const projectDir = tempProjectDir();
     const runtime = new ChannelRuntime(projectDir, {

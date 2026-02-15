@@ -118,5 +118,15 @@
     "ocrText": "tom\n输入中",
     "expectedRecipientMatch": "matched",
     "expectedSendStatus": "uncertain"
+  },
+  {
+    "id": "qq-high-dpi-spaced-sent-1",
+    "app": "qq",
+    "theme": "dark",
+    "dpi": "175",
+    "destination": "小明",
+    "ocrText": "聊 天 对 象 : 小 明\n已 发 送",
+    "expectedRecipientMatch": "matched",
+    "expectedSendStatus": "sent"
   }
 ]

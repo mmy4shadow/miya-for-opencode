@@ -104,4 +104,16 @@ describe('multimodal', () => {
     expect(signals.recipientMatch).toBe('matched');
     expect(signals.sendStatusDetected).toBe('uncertain');
   });
+
+  test('matches recipient and sent status with DPI whitespace noise', () => {
+    const signals = parseDesktopOcrSignals('聊 天 对 象 : 小 明\\n已 发 送', '小明');
+    expect(signals.recipientMatch).toBe('matched');
+    expect(signals.sendStatusDetected).toBe('sent');
+  });
+
+  test('detects failed status with fragmented OCR tokens', () => {
+    const signals = parseDesktopOcrSignals('chat with alex\\ns e n d   f a i l e d retry', 'alex');
+    expect(signals.recipientMatch).toBe('matched');
+    expect(signals.sendStatusDetected).toBe('failed');
+  });
 });

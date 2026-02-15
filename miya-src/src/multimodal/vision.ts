@@ -141,6 +141,10 @@ export interface CaptureCapabilityReport {
   limitations: string[];
 }
 
+function compactOcrText(text: string): string {
+  return (text || '').replace(/\s+/g, '').toLowerCase();
+}
+
 export function parseDesktopOcrSignals(
   ocrText: string,
   expectedRecipient: string,
@@ -148,7 +152,15 @@ export function parseDesktopOcrSignals(
   const normalized = (ocrText || '').replace(/\s+/g, ' ').trim();
   const recipient = expectedRecipient.trim();
   const lowered = normalized.toLowerCase();
-  const recipientDetected = recipient && normalized.includes(recipient) ? recipient : '';
+  const compactNormalized = compactOcrText(normalized);
+  const compactRecipient = compactOcrText(recipient);
+  const recipientDetected =
+    recipient &&
+    (normalized.includes(recipient) ||
+      lowered.includes(recipient.toLowerCase()) ||
+      (compactRecipient.length > 0 && compactNormalized.includes(compactRecipient)))
+      ? recipient
+      : '';
 
   const sentHints = [
     '发送成功',
@@ -167,8 +179,14 @@ export function parseDesktopOcrSignals(
     '未发送',
   ];
 
-  const hasSent = sentHints.some((item) => lowered.includes(item.toLowerCase()));
-  const hasFail = failHints.some((item) => lowered.includes(item.toLowerCase()));
+  const hasSent = sentHints.some((item) => {
+    const loweredHint = item.toLowerCase();
+    return lowered.includes(loweredHint) || compactNormalized.includes(compactOcrText(loweredHint));
+  });
+  const hasFail = failHints.some((item) => {
+    const loweredHint = item.toLowerCase();
+    return lowered.includes(loweredHint) || compactNormalized.includes(compactOcrText(loweredHint));
+  });
   const sendStatusDetected: DesktopOcrSignals['sendStatusDetected'] = hasFail
     ? 'failed'
     : hasSent
