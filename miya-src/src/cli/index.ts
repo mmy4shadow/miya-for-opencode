@@ -273,6 +273,14 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
   const action = args[0] ?? 'status';
 
   if (action === 'start') {
+    const allowCliStart =
+      args.includes('--force') || process.env.MIYA_GATEWAY_CLI_START_ENABLE === '1';
+    if (!allowCliStart) {
+      console.error(
+        'gateway_start_blocked:safety_guard (use `miya gateway start --force` or set MIYA_GATEWAY_CLI_START_ENABLE=1)',
+      );
+      return 2;
+    }
     const ok = await runGatewayStart(cwd);
     return ok ? 0 : 1;
   }
