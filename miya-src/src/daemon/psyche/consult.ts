@@ -3,6 +3,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../../workflow';
 import { inferSentinelState, type SentinelSignals, type SentinelState } from './state-machine';
+import {
+  adjustFastBrain,
+  fastBrainBucket,
+  readFastBrainScore,
+  touchFastBrain,
+} from './bandit';
+import { appendPsycheObservation, appendPsycheOutcome } from './logger';
 
 export type PsycheUrgency = 'low' | 'medium' | 'high' | 'critical';
 export type PsycheDecision = 'allow' | 'defer' | 'deny';
@@ -52,18 +59,6 @@ export interface PsycheOutcomeResult {
   bucket: string;
 }
 
-interface BucketStats {
-  alpha: number;
-  beta: number;
-  updatedAt: string;
-}
-
-interface FastBrainStore {
-  buckets: Record<string, BucketStats>;
-}
-
-const DEFAULT_FAST_BRAIN: FastBrainStore = { buckets: {} };
-const MAX_BUCKETS = 1200;
 const DEFAULT_BUDGETS: Record<
   SentinelState,
   {
@@ -99,35 +94,8 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function safeReadJson<T>(filePath: string, fallback: T): T {
-  if (!fs.existsSync(filePath)) return fallback;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 function asUrgency(value: unknown): PsycheUrgency {
   return value === 'low' || value === 'high' || value === 'critical' ? value : 'medium';
-}
-
-function fastBrainBucket(input: {
-  state: SentinelState;
-  intent: string;
-  urgency: PsycheUrgency;
-  channel?: string;
-  userInitiated: boolean;
-}): string {
-  const normalizedIntent = input.intent.trim().toLowerCase() || 'unknown_intent';
-  const channel = (input.channel || 'none').trim().toLowerCase() || 'none';
-  return [
-    `state=${input.state}`,
-    `intent=${normalizedIntent}`,
-    `urgency=${input.urgency}`,
-    `channel=${channel}`,
-    `user=${input.userInitiated ? '1' : '0'}`,
-  ].join('|');
 }
 
 export class PsycheConsultService {
@@ -164,7 +132,7 @@ export class PsycheConsultService {
     const auditID = randomUUID();
     const at = nowIso();
 
-    const fastBrainScore = this.readFastBrainScore({
+    const fastBrainScore = readFastBrainScore(this.fastBrainPath, {
       state,
       intent,
       urgency,
@@ -227,7 +195,7 @@ export class PsycheConsultService {
       reasons: sentinel.reasons,
     };
 
-    this.touchFastBrain({
+    touchFastBrain(this.fastBrainPath, {
       state,
       intent,
       urgency,
@@ -236,7 +204,7 @@ export class PsycheConsultService {
       approved: decision === 'allow',
     });
     this.appendConsultLog(result);
-    this.appendTrainingObservation({
+    appendPsycheObservation(this.trainingDataLogPath, {
       at,
       state,
       intent,
@@ -272,8 +240,13 @@ export class PsycheConsultService {
       channel: input.channel,
       userInitiated,
     });
-    this.adjustFastBrain(key, reward === 'positive' ? Math.abs(score) : 0, reward === 'negative' ? Math.abs(score) : 0);
-    this.appendTrainingOutcome({
+    adjustFastBrain(
+      this.fastBrainPath,
+      key,
+      reward === 'positive' ? Math.abs(score) : 0,
+      reward === 'negative' ? Math.abs(score) : 0,
+    );
+    appendPsycheOutcome(this.trainingDataLogPath, {
       at,
       consultAuditID: input.consultAuditID,
       state: input.state,
@@ -382,82 +355,6 @@ export class PsycheConsultService {
     fs.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}\n`, 'utf-8');
   }
 
-  private appendTrainingObservation(input: {
-    at: string;
-    state: SentinelState;
-    intent: string;
-    urgency: PsycheUrgency;
-    channel?: string;
-    userInitiated: boolean;
-    confidence: number;
-    decision: PsycheDecision;
-    shouldProbeScreen: boolean;
-    reasons: string[];
-    signals?: SentinelSignals;
-  }): void {
-    fs.appendFileSync(
-      this.trainingDataLogPath,
-      `${JSON.stringify({
-        t: Math.floor(Date.now() / 1000),
-        type: 'observation',
-        obs: {
-          at: input.at,
-          state: input.state,
-          intent: input.intent,
-          urgency: input.urgency,
-          channel: input.channel ?? 'none',
-          userInitiated: input.userInitiated,
-          confidence: input.confidence,
-          decision: input.decision,
-          shouldProbeScreen: input.shouldProbeScreen,
-          reasons: input.reasons,
-          signals: input.signals ?? {},
-        },
-      })}\n`,
-      'utf-8',
-    );
-  }
-
-  private appendTrainingOutcome(input: {
-    at: string;
-    consultAuditID: string;
-    state: SentinelState;
-    intent: string;
-    urgency: PsycheUrgency;
-    channel?: string;
-    userInitiated: boolean;
-    delivered: boolean;
-    blockedReason?: string;
-    explicitFeedback: 'positive' | 'negative' | 'none';
-    userReplyWithinSec?: number;
-    score: number;
-    reward: 'positive' | 'negative';
-  }): void {
-    fs.appendFileSync(
-      this.trainingDataLogPath,
-      `${JSON.stringify({
-        t: Math.floor(Date.now() / 1000),
-        type: 'action_outcome',
-        action: {
-          at: input.at,
-          consultAuditID: input.consultAuditID,
-          state: input.state,
-          intent: input.intent,
-          urgency: input.urgency,
-          channel: input.channel ?? 'none',
-          userInitiated: input.userInitiated,
-          delivered: input.delivered,
-          blockedReason: input.blockedReason ?? '',
-          explicitFeedback: input.explicitFeedback,
-          userReplyWithinSec: input.userReplyWithinSec,
-          score: Number(input.score.toFixed(3)),
-          reward: input.reward,
-        },
-      })}\n`,
-      'utf-8',
-    );
-  }
-
   private resolveEpsilonFromEnv(): number {
     const raw = Number(process.env.MIYA_PSYCHE_EPSILON ?? 0.01);
     if (!Number.isFinite(raw)) return 0.01;
@@ -467,40 +364,6 @@ export class PsycheConsultService {
   private shouldExplore(): boolean {
     if (this.epsilon <= 0) return false;
     return this.random.next() < this.epsilon;
-  }
-
-  private readFastBrainScore(input: {
-    state: SentinelState;
-    intent: string;
-    urgency: PsycheUrgency;
-    channel?: string;
-    userInitiated: boolean;
-  }): number {
-    const store = safeReadJson<FastBrainStore>(this.fastBrainPath, DEFAULT_FAST_BRAIN);
-    const key = fastBrainBucket(input);
-    const stats = store.buckets[key];
-    if (!stats) return 0.5;
-    const alpha = Number.isFinite(stats.alpha) ? stats.alpha : 1;
-    const beta = Number.isFinite(stats.beta) ? stats.beta : 1;
-    const total = alpha + beta;
-    if (!Number.isFinite(total) || total <= 0) return 0.5;
-    return Math.max(0, Math.min(1, alpha / total));
-  }
-
-  private adjustFastBrain(key: string, alphaDelta: number, betaDelta: number): void {
-    const store = safeReadJson<FastBrainStore>(this.fastBrainPath, DEFAULT_FAST_BRAIN);
-    const current = store.buckets[key] ?? {
-      alpha: 1,
-      beta: 1,
-      updatedAt: nowIso(),
-    };
-    const alpha = Number.isFinite(current.alpha) ? current.alpha : 1;
-    const beta = Number.isFinite(current.beta) ? current.beta : 1;
-    current.alpha = Math.max(1, alpha + Math.max(0, alphaDelta));
-    current.beta = Math.max(1, beta + Math.max(0, betaDelta));
-    current.updatedAt = nowIso();
-    store.buckets[key] = current;
-    fs.writeFileSync(this.fastBrainPath, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
   }
 
   private outcomeScore(input: {
@@ -530,7 +393,7 @@ export class PsycheConsultService {
       return { blocked: true };
     }
     const now = Date.now();
-    const store = safeReadJson<InterruptionBudgetStore>(this.budgetPath, { byState: {} });
+    const store = this.readBudgetStore();
     const current = store.byState[state];
     let active: InterruptionBudgetState;
     if (!current) {
@@ -553,5 +416,14 @@ export class PsycheConsultService {
     store.byState[state] = active;
     fs.writeFileSync(this.budgetPath, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
     return { blocked };
+  }
+
+  private readBudgetStore(): InterruptionBudgetStore {
+    if (!fs.existsSync(this.budgetPath)) return { byState: {} };
+    try {
+      return JSON.parse(fs.readFileSync(this.budgetPath, 'utf-8')) as InterruptionBudgetStore;
+    } catch {
+      return { byState: {} };
+    }
   }
 }

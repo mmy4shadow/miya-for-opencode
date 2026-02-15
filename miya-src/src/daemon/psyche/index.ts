@@ -15,3 +15,12 @@ export {
   type SentinelForegroundCategory,
   type ScreenProbeStatus,
 } from './state-machine';
+export {
+  fastBrainBucket,
+  readFastBrainScore,
+  touchFastBrain,
+  adjustFastBrain,
+  type BucketStats,
+  type FastBrainStore,
+} from './bandit';
+export { appendPsycheObservation, appendPsycheOutcome } from './logger';
