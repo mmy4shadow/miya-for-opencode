@@ -90,6 +90,8 @@ function resolveRootState(projectDir: string): ControlUiRootState {
   const candidates = envRoot
     ? [envRoot]
     : [
+        path.join(projectDir, 'miya-src', 'gateway-ui', 'dist'),
+        path.join(projectDir, 'gateway-ui', 'dist'),
         path.join(projectDir, '.opencode', 'miya', 'gateway-ui', 'dist'),
         path.join(projectDir, '.opencode', 'miya', 'gateway-ui'),
       ];
@@ -160,4 +162,3 @@ export function handleControlUiHttpRequest(
     headers,
   });
 }
-
