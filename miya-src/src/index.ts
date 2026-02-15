@@ -32,6 +32,7 @@ import {
 } from './daemon';
 import { appendProviderOverrideAudit } from './config/provider-override-audit';
 import {
+  createContextGovernorHook,
   createLoopGuardHook,
   createPhaseReminderHook,
   createPostReadNudgeHook,
@@ -287,6 +288,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
   // Initialize post-read nudge hook
   const postReadNudgeHook = createPostReadNudgeHook();
   const postWriteSimplicityHook = createPostWriteSimplicityHook();
+  const contextGovernorHook = createContextGovernorHook(config.contextGovernance);
   const slimCompatEnabled = config.slimCompat?.enabled ?? true;
   const postWriteSimplicityEnabled =
     slimCompatEnabled &&
@@ -681,6 +683,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       );
       await loopGuardHook['experimental.chat.messages.transform'](input, output);
       await phaseReminderHook['experimental.chat.messages.transform'](input, output);
+      await contextGovernorHook['experimental.chat.messages.transform'](input, output);
     },
 
     // Nudge after file reads to encourage delegation + track websearch usage for intake gate
@@ -689,6 +692,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       if (postWriteSimplicityEnabled) {
         await postWriteSimplicityHook['tool.execute.after'](input, output);
       }
+      await contextGovernorHook['tool.execute.after'](input, output);
       trackWebsearchToolOutput(
         typeof input.sessionID === 'string' ? input.sessionID : 'main',
         String(input.tool ?? ''),

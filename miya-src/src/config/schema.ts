@@ -102,6 +102,19 @@ export const SlimCompatConfigSchema = z.object({
 
 export type SlimCompatConfig = z.infer<typeof SlimCompatConfigSchema>;
 
+export const ContextGovernanceConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  toolOutputMaxChars: z.number().min(1200).max(200000).default(12000),
+  toolOutputHeadChars: z.number().min(200).max(100000).default(4200),
+  toolOutputTailChars: z.number().min(100).max(100000).default(2800),
+  recordTtlMs: z.number().min(10000).max(86_400_000).default(12 * 60 * 1000),
+  maxRecordsPerSession: z.number().min(5).max(200).default(30),
+  maxInjectedRecords: z.number().min(1).max(20).default(3),
+  maxInjectedChars: z.number().min(400).max(20_000).default(2400),
+});
+
+export type ContextGovernanceConfig = z.infer<typeof ContextGovernanceConfigSchema>;
+
 export const FailoverConfigSchema = z.object({
   enabled: z.boolean().default(true),
   timeoutMs: z.number().min(1000).max(120000).default(15000),
@@ -122,6 +135,7 @@ export const PluginConfigSchema = z.object({
   background: BackgroundTaskConfigSchema.optional(),
   fallback: FailoverConfigSchema.optional(),
   slimCompat: SlimCompatConfigSchema.optional(),
+  contextGovernance: ContextGovernanceConfigSchema.optional(),
 });
 
 export type PluginConfig = z.infer<typeof PluginConfigSchema>;

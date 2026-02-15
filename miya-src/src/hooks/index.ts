@@ -1,3 +1,4 @@
+export { createContextGovernorHook } from './context-governor';
 export { createLoopGuardHook } from './loop-guard';
 export { createPhaseReminderHook } from './phase-reminder';
 export { createPostReadNudgeHook } from './post-read-nudge';
