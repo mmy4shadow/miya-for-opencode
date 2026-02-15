@@ -69,8 +69,25 @@ describe('outbound decision fusion', () => {
       evidenceConfidence: 0.2,
     });
     expect(result.action).toBe('allow');
-    expect(result.zone).toBe('safe');
+    expect(result.zone).toBe('gray');
     expect(result.reason).toBe('decision_fusion_low_evidence_confirmation_required');
     expect(result.approvalMode).toBe('modal_approval');
+  });
+
+  test('normalizes invalid trust thresholds and preserves toast band', () => {
+    const result = evaluateOutboundDecisionFusion({
+      factorTextSensitive: false,
+      factorRecipientIsMe: true,
+      factorIntentSuspicious: false,
+      confidenceIntent: 0.95,
+      trustMinScore: 70,
+      trustMode: {
+        silentMin: 60,
+        modalMax: 80,
+      },
+    });
+    expect(result.action).toBe('allow');
+    expect(result.zone).toBe('safe');
+    expect(result.approvalMode).toBe('toast_gate');
   });
 });

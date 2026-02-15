@@ -33,6 +33,37 @@ function normalizeTrustScore(value: number | undefined): number {
   return Math.round(value as number);
 }
 
+function normalizeTrustMode(input?: {
+  silentMin: number;
+  modalMax: number;
+}): { silentMin: number; modalMax: number } {
+  let silentMin = Math.max(
+    0,
+    Math.min(100, Math.round(input?.silentMin ?? 90)),
+  );
+  let modalMax = Math.max(
+    0,
+    Math.min(100, Math.round(input?.modalMax ?? 50)),
+  );
+
+  if (silentMin <= modalMax) {
+    const pivot = Math.round((silentMin + modalMax) / 2);
+    silentMin = Math.min(100, pivot + 1);
+    modalMax = Math.max(0, pivot - 1);
+  }
+
+  // Keep an integer gap so `toast_gate` remains reachable between modal/silent thresholds.
+  if (silentMin - modalMax < 2) {
+    if (silentMin < 100) silentMin += 1;
+    else if (modalMax > 0) modalMax -= 1;
+  }
+
+  if (silentMin <= modalMax) {
+    return { silentMin: 90, modalMax: 50 };
+  }
+  return { silentMin, modalMax };
+}
+
 function resolveApprovalMode(input: {
   action: 'allow' | 'soft_fuse' | 'hard_fuse';
   trustScore: number;
@@ -42,14 +73,9 @@ function resolveApprovalMode(input: {
   };
 }): 'silent_audit' | 'toast_gate' | 'modal_approval' {
   if (input.action !== 'allow') return 'modal_approval';
-  const silentMin = Math.max(
-    0,
-    Math.min(100, Math.round(input.trustMode?.silentMin ?? 90)),
-  );
-  const modalMax = Math.max(
-    0,
-    Math.min(100, Math.round(input.trustMode?.modalMax ?? 50)),
-  );
+  const thresholds = normalizeTrustMode(input.trustMode);
+  const silentMin = thresholds.silentMin;
+  const modalMax = thresholds.modalMax;
   if (input.trustScore >= silentMin) return 'silent_audit';
   if (input.trustScore <= modalMax) return 'modal_approval';
   return 'toast_gate';
@@ -74,7 +100,7 @@ export function evaluateOutboundDecisionFusion(
       : 'allow';
     return {
       expressionMatched,
-      zone: action === 'hard_fuse' ? 'danger' : action === 'soft_fuse' ? 'gray' : 'safe',
+      zone: action === 'hard_fuse' ? 'danger' : 'gray',
       action,
       approvalMode: 'modal_approval',
       reason:
