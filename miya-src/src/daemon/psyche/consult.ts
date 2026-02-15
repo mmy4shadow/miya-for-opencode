@@ -10,6 +10,7 @@ import {
   touchFastBrain,
 } from './bandit';
 import { appendPsycheObservation, appendPsycheOutcome } from './logger';
+import { consumeProbeBudget } from './probe-budget';
 
 export type PsycheUrgency = 'low' | 'medium' | 'high' | 'critical';
 export type PsycheDecision = 'allow' | 'defer' | 'deny';
@@ -102,6 +103,7 @@ export class PsycheConsultService {
   private readonly fastBrainPath: string;
   private readonly consultLogPath: string;
   private readonly budgetPath: string;
+  private readonly probeBudgetPath: string;
   private readonly trainingDataLogPath: string;
   private readonly epsilon: number;
   private readonly random: RandomSource;
@@ -118,6 +120,7 @@ export class PsycheConsultService {
     this.fastBrainPath = path.join(psycheDir, 'fast-brain.json');
     this.consultLogPath = path.join(psycheDir, 'consult.jsonl');
     this.budgetPath = path.join(psycheDir, 'interruption-budget.json');
+    this.probeBudgetPath = path.join(psycheDir, 'probe-budget.json');
     this.trainingDataLogPath = path.join(psycheDir, 'training-data.jsonl');
     this.epsilon = Math.max(0, Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()));
     this.random = options?.random ?? defaultRandomSource;
@@ -128,6 +131,11 @@ export class PsycheConsultService {
     const urgency = asUrgency(input.urgency);
     const userInitiated = input.userInitiated !== false;
     const sentinel = inferSentinelState(input.signals);
+    const needsProbe = sentinel.shouldProbeScreen;
+    const probeBudget = needsProbe
+      ? consumeProbeBudget(this.probeBudgetPath, this.probeBudgetConfig())
+      : { allowed: false, remainingTokens: 0 };
+    const shouldProbeScreen = needsProbe && probeBudget.allowed;
     const state = sentinel.state;
     const auditID = randomUUID();
     const at = nowIso();
@@ -145,7 +153,7 @@ export class PsycheConsultService {
       urgency,
       intent,
       userInitiated,
-      shouldProbeScreen: sentinel.shouldProbeScreen,
+      shouldProbeScreen: needsProbe,
       fastBrainScore,
     });
 
@@ -173,6 +181,7 @@ export class PsycheConsultService {
       intent,
       reasons: [
         ...sentinel.reasons,
+        needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
         `fast_brain_score=${fastBrainScore.toFixed(2)}`,
         budgetHint,
         explorationApplied ? 'epsilon_exploration' : '',
@@ -191,8 +200,11 @@ export class PsycheConsultService {
       decision,
       reason,
       retryAfterSec: decision === 'allow' ? 0 : urgency === 'critical' ? 10 : 90,
-      shouldProbeScreen: sentinel.shouldProbeScreen,
-      reasons: sentinel.reasons,
+      shouldProbeScreen,
+      reasons: [
+        ...sentinel.reasons,
+        needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
+      ].filter((item) => item.length > 0),
     };
 
     touchFastBrain(this.fastBrainPath, {
@@ -213,8 +225,8 @@ export class PsycheConsultService {
       userInitiated,
       confidence: sentinel.confidence,
       decision,
-      shouldProbeScreen: sentinel.shouldProbeScreen,
-      reasons: sentinel.reasons,
+      shouldProbeScreen,
+      reasons: result.reasons,
       signals: input.signals,
     });
     return result;
@@ -315,44 +327,19 @@ export class PsycheConsultService {
     return `${base}:${markers.join(';')}`;
   }
 
-  private touchFastBrain(input: {
-    state: SentinelState;
-    intent: string;
-    urgency: PsycheUrgency;
-    channel?: string;
-    userInitiated: boolean;
-    approved: boolean;
-  }): void {
-    const store = safeReadJson<FastBrainStore>(this.fastBrainPath, DEFAULT_FAST_BRAIN);
-    const key = fastBrainBucket(input);
-    const current = store.buckets[key] ?? {
-      alpha: 1,
-      beta: 1,
-      updatedAt: nowIso(),
-    };
-    if (input.approved) {
-      current.alpha += 1;
-    } else {
-      current.beta += 1;
-    }
-    current.updatedAt = nowIso();
-    store.buckets[key] = current;
-
-    const keys = Object.keys(store.buckets);
-    if (keys.length > MAX_BUCKETS) {
-      keys
-        .sort((a, b) => Date.parse(store.buckets[a].updatedAt) - Date.parse(store.buckets[b].updatedAt))
-        .slice(0, keys.length - MAX_BUCKETS)
-        .forEach((keyToDelete) => {
-          delete store.buckets[keyToDelete];
-        });
-    }
-
-    fs.writeFileSync(this.fastBrainPath, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
-  }
-
   private appendConsultLog(result: PsycheConsultResult): void {
     fs.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}\n`, 'utf-8');
+  }
+
+  private probeBudgetConfig(): { capacity: number; refillPerSec: number } {
+    const capacityRaw = Number(process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY ?? 2);
+    const windowSecRaw = Number(process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC ?? 60);
+    const capacity = Number.isFinite(capacityRaw) ? Math.max(1, Math.floor(capacityRaw)) : 2;
+    const windowSec = Number.isFinite(windowSecRaw) ? Math.max(1, windowSecRaw) : 60;
+    return {
+      capacity,
+      refillPerSec: capacity / windowSec,
+    };
   }
 
   private resolveEpsilonFromEnv(): number {

@@ -24,3 +24,4 @@ export {
   type FastBrainStore,
 } from './bandit';
 export { appendPsycheObservation, appendPsycheOutcome } from './logger';
+export { consumeProbeBudget, type ProbeBudgetConfig } from './probe-budget';

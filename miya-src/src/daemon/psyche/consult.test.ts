@@ -142,4 +142,46 @@ describe('psyche consult service', () => {
     expect(rows.some((row) => row.type === 'observation')).toBe(true);
     expect(rows.some((row) => row.type === 'action_outcome')).toBe(true);
   });
+
+  test('rate limits probe execution but keeps safe-hold defer', () => {
+    const prevCapacity = process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY;
+    const prevWindow = process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC;
+    process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY = '1';
+    process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC = '3600';
+    try {
+      const service = new PsycheConsultService(tempProjectDir(), { epsilon: 0 });
+      const first = service.consult({
+        intent: 'outbound.send.wechat',
+        urgency: 'medium',
+        userInitiated: false,
+        channel: 'wechat',
+        signals: {
+          idleSec: 160,
+          foreground: 'browser',
+          audioActive: true,
+        },
+      });
+      const second = service.consult({
+        intent: 'outbound.send.wechat',
+        urgency: 'medium',
+        userInitiated: false,
+        channel: 'wechat',
+        signals: {
+          idleSec: 170,
+          foreground: 'browser',
+          audioActive: true,
+        },
+      });
+      expect(first.shouldProbeScreen).toBe(true);
+      expect(second.shouldProbeScreen).toBe(false);
+      expect(first.decision).toBe('defer');
+      expect(second.decision).toBe('defer');
+      expect(second.reasons).toContain('probe_rate_limited');
+    } finally {
+      if (prevCapacity === undefined) delete process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY;
+      else process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY = prevCapacity;
+      if (prevWindow === undefined) delete process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC;
+      else process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC = prevWindow;
+    }
+  });
 });
