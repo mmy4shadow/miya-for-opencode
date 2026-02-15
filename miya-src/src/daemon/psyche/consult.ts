@@ -43,6 +43,36 @@ interface FastBrainStore {
 
 const DEFAULT_FAST_BRAIN: FastBrainStore = { buckets: {} };
 const MAX_BUCKETS = 1200;
+const DEFAULT_BUDGETS: Record<
+  SentinelState,
+  {
+    maxActions: number;
+    windowSec: number;
+  }
+> = {
+  FOCUS: { maxActions: 1, windowSec: 3600 },
+  CONSUME: { maxActions: 1, windowSec: 2400 },
+  PLAY: { maxActions: 0, windowSec: 3600 },
+  AWAY: { maxActions: 2, windowSec: 3600 },
+  UNKNOWN: { maxActions: 0, windowSec: 1800 },
+};
+
+interface InterruptionBudgetState {
+  windowStartedAt: string;
+  used: number;
+}
+
+interface InterruptionBudgetStore {
+  byState: Partial<Record<SentinelState, InterruptionBudgetState>>;
+}
+
+interface RandomSource {
+  next(): number;
+}
+
+const defaultRandomSource: RandomSource = {
+  next: () => Math.random(),
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -82,12 +112,24 @@ function fastBrainBucket(input: {
 export class PsycheConsultService {
   private readonly fastBrainPath: string;
   private readonly consultLogPath: string;
+  private readonly budgetPath: string;
+  private readonly epsilon: number;
+  private readonly random: RandomSource;
 
-  constructor(private readonly projectDir: string) {
+  constructor(
+    private readonly projectDir: string,
+    options?: {
+      epsilon?: number;
+      random?: RandomSource;
+    },
+  ) {
     const psycheDir = path.join(getMiyaRuntimeDir(projectDir), 'daemon', 'psyche');
     fs.mkdirSync(psycheDir, { recursive: true });
     this.fastBrainPath = path.join(psycheDir, 'fast-brain.json');
     this.consultLogPath = path.join(psycheDir, 'consult.jsonl');
+    this.budgetPath = path.join(psycheDir, 'interruption-budget.json');
+    this.epsilon = Math.max(0, Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()));
+    this.random = options?.random ?? defaultRandomSource;
   }
 
   consult(input: PsycheConsultRequest): PsycheConsultResult {
@@ -99,12 +141,38 @@ export class PsycheConsultService {
     const auditID = randomUUID();
     const at = nowIso();
 
-    const decision = this.pickDecision({
+    const fastBrainScore = this.readFastBrainScore({
+      state,
+      intent,
+      urgency,
+      channel: input.channel,
+      userInitiated,
+    });
+
+    const decisionSeed = this.pickDecision({
       state,
       urgency,
       intent,
       userInitiated,
+      shouldProbeScreen: sentinel.shouldProbeScreen,
+      fastBrainScore,
     });
+
+    let decision = decisionSeed;
+    let budgetHint = '';
+    if (!userInitiated) {
+      const budget = this.applyInterruptionBudget(state, decision === 'allow');
+      if (decision === 'allow' && budget.blocked) {
+        decision = 'defer';
+        budgetHint = `budget_exhausted:${state}`;
+      }
+    }
+
+    let explorationApplied = false;
+    if (!userInitiated && decision === 'defer' && this.shouldExplore()) {
+      decision = 'allow';
+      explorationApplied = true;
+    }
 
     const reason = this.buildReason({
       decision,
@@ -112,7 +180,12 @@ export class PsycheConsultService {
       userInitiated,
       urgency,
       intent,
-      reasons: sentinel.reasons,
+      reasons: [
+        ...sentinel.reasons,
+        `fast_brain_score=${fastBrainScore.toFixed(2)}`,
+        budgetHint,
+        explorationApplied ? 'epsilon_exploration' : '',
+      ].filter((item) => item.length > 0),
     });
 
     const result: PsycheConsultResult = {
@@ -148,17 +221,23 @@ export class PsycheConsultService {
     urgency: PsycheUrgency;
     intent: string;
     userInitiated: boolean;
+    shouldProbeScreen: boolean;
+    fastBrainScore: number;
   }): PsycheDecision {
-    const { state, urgency, userInitiated } = input;
+    const { state, urgency, userInitiated, shouldProbeScreen, fastBrainScore } = input;
     if (userInitiated) {
       if (state === 'UNKNOWN' && urgency === 'low') return 'defer';
       return 'allow';
     }
 
+    if (shouldProbeScreen && urgency !== 'critical') return 'defer';
     if (urgency === 'critical') return 'allow';
     if (state === 'FOCUS' || state === 'PLAY' || state === 'UNKNOWN') return 'defer';
-    if (state === 'CONSUME') return urgency === 'high' ? 'allow' : 'defer';
-    return 'allow';
+    if (state === 'CONSUME') {
+      if (urgency === 'high') return fastBrainScore >= 0.35 ? 'allow' : 'defer';
+      return fastBrainScore >= 0.6 ? 'allow' : 'defer';
+    }
+    return fastBrainScore >= 0.3 ? 'allow' : 'defer';
   }
 
   private buildReason(input: {
@@ -220,5 +299,68 @@ export class PsycheConsultService {
 
   private appendConsultLog(result: PsycheConsultResult): void {
     fs.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}\n`, 'utf-8');
+  }
+
+  private resolveEpsilonFromEnv(): number {
+    const raw = Number(process.env.MIYA_PSYCHE_EPSILON ?? 0.01);
+    if (!Number.isFinite(raw)) return 0.01;
+    return raw;
+  }
+
+  private shouldExplore(): boolean {
+    if (this.epsilon <= 0) return false;
+    return this.random.next() < this.epsilon;
+  }
+
+  private readFastBrainScore(input: {
+    state: SentinelState;
+    intent: string;
+    urgency: PsycheUrgency;
+    channel?: string;
+    userInitiated: boolean;
+  }): number {
+    const store = safeReadJson<FastBrainStore>(this.fastBrainPath, DEFAULT_FAST_BRAIN);
+    const key = fastBrainBucket(input);
+    const stats = store.buckets[key];
+    if (!stats) return 0.5;
+    const alpha = Number.isFinite(stats.alpha) ? stats.alpha : 1;
+    const beta = Number.isFinite(stats.beta) ? stats.beta : 1;
+    const total = alpha + beta;
+    if (!Number.isFinite(total) || total <= 0) return 0.5;
+    return Math.max(0, Math.min(1, alpha / total));
+  }
+
+  private applyInterruptionBudget(
+    state: SentinelState,
+    consumeToken: boolean,
+  ): { blocked: boolean } {
+    const policy = DEFAULT_BUDGETS[state] ?? DEFAULT_BUDGETS.UNKNOWN;
+    if (policy.maxActions <= 0) {
+      return { blocked: true };
+    }
+    const now = Date.now();
+    const store = safeReadJson<InterruptionBudgetStore>(this.budgetPath, { byState: {} });
+    const current = store.byState[state];
+    let active: InterruptionBudgetState;
+    if (!current) {
+      active = { windowStartedAt: nowIso(), used: 0 };
+    } else {
+      const startedAtMs = Date.parse(current.windowStartedAt);
+      if (!Number.isFinite(startedAtMs) || now - startedAtMs >= policy.windowSec * 1000) {
+        active = { windowStartedAt: nowIso(), used: 0 };
+      } else {
+        active = {
+          windowStartedAt: current.windowStartedAt,
+          used: Math.max(0, Math.floor(current.used ?? 0)),
+        };
+      }
+    }
+    const blocked = active.used >= policy.maxActions;
+    if (!blocked && consumeToken) {
+      active.used += 1;
+    }
+    store.byState[state] = active;
+    fs.writeFileSync(this.budgetPath, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+    return { blocked };
   }
 }

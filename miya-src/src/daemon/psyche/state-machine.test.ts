@@ -22,6 +22,17 @@ describe('psyche sentinel state machine', () => {
     expect(state.state).toBe('PLAY');
   });
 
+  test('requires probe when game foreground is idle without input signals', () => {
+    const state = inferSentinelState({
+      idleSec: 400,
+      foreground: 'game',
+      gamepadActive: false,
+      audioActive: false,
+    });
+    expect(state.state).toBe('UNKNOWN');
+    expect(state.shouldProbeScreen).toBe(true);
+  });
+
   test('falls back to unknown when screen probe fails under media signal', () => {
     const state = inferSentinelState({
       idleSec: 140,

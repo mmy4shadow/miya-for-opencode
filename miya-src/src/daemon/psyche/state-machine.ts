@@ -65,6 +65,17 @@ export function inferSentinelState(input?: SentinelSignals): SentinelInference {
     };
   }
 
+  if (foreground === 'game' && !gamepadActive && (idleSec ?? 0) >= 240 && !audioActive) {
+    shouldProbeScreen = true;
+    reasons.push('foreground_game_without_input_needs_probe');
+    return {
+      state: 'UNKNOWN',
+      confidence: toConfidence(0.48),
+      reasons,
+      shouldProbeScreen,
+    };
+  }
+
   if (gamepadActive || foreground === 'game') {
     reasons.push(gamepadActive ? 'gamepad_active' : 'foreground_game');
     return {
