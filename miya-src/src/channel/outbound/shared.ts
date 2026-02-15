@@ -271,10 +271,8 @@ exit 0
 `.trim();
 
   const proc = Bun.spawn(
-    ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+    ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
     {
-      stdout: 'pipe',
-      stderr: 'pipe',
       env: {
         ...process.env,
         MIYA_DESTINATION: destination,
@@ -285,18 +283,19 @@ exit 0
         MIYA_TRACE_ID: traceID,
         MIYA_EVIDENCE_DIR: evidenceDir,
       },
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
   let timedOut = false;
   const timeout = setTimeout(() => {
     timedOut = true;
     try {
-      proc.kill();
+      proc.kill('SIGTERM');
     } catch {}
   }, 15_000);
   const exitCode = await proc.exited;
   clearTimeout(timeout);
-
   const stdout = (await new Response(proc.stdout).text()).trim();
   const stderr = (await new Response(proc.stderr).text()).trim();
   const signal = stdout || stderr;

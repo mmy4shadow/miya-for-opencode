@@ -74,6 +74,7 @@ interface LauncherRuntime {
   lastRejectReason?: string;
   listeners: Set<DaemonLauncherListener>;
   snapshot: DaemonConnectionSnapshot;
+  lastSpawnAttemptAtMs: number;
 }
 
 export interface DaemonBackpressureStats {
@@ -161,9 +162,37 @@ function resolveHostScriptPath(): string {
   return jsFile;
 }
 
-function spawnDaemon(runtime: LauncherRuntime): void {
+function resolveBunBinary(): string | null {
+  const byWhich = Bun.which('bun') ?? Bun.which('bun.exe');
+  if (byWhich) return byWhich;
+  const execBase = path.basename(process.execPath).toLowerCase();
+  if (execBase === 'bun' || execBase === 'bun.exe') return process.execPath;
+  return null;
+}
+
+function spawnDaemon(runtime: LauncherRuntime): boolean {
+  const now = Date.now();
+  if (now - runtime.lastSpawnAttemptAtMs < 3_000) {
+    return false;
+  }
+  runtime.lastSpawnAttemptAtMs = now;
   cleanupExistingDaemon(runtime.projectDir);
-  const bunBinary = Bun.which('bun') ?? process.execPath;
+  const bunBinary = resolveBunBinary();
+  if (!bunBinary) {
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = 'Miya Daemon Disabled (bun_not_found)';
+    runtime.lastRejectReason = 'bun_not_found';
+    syncBackpressureSnapshot(runtime);
+    return false;
+  }
+  const binaryBase = path.basename(bunBinary).toLowerCase();
+  if (binaryBase.includes('powershell') || binaryBase === 'pwsh.exe') {
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = 'Miya Daemon Disabled (invalid_runtime_binary)';
+    runtime.lastRejectReason = 'invalid_runtime_binary';
+    syncBackpressureSnapshot(runtime);
+    return false;
+  }
   const hostScript = resolveHostScriptPath();
   spawn(
     bunBinary,
@@ -183,6 +212,7 @@ function spawnDaemon(runtime: LauncherRuntime): void {
       windowsHide: true,
     },
   ).unref();
+  return true;
 }
 
 function readPidFile(projectDir: string): number | null {
@@ -430,7 +460,10 @@ function ensureDaemonLaunched(runtime: LauncherRuntime): void {
   const lockOwnedByLauncher = Boolean(lock) && lock?.token === runtime.daemonToken;
 
   if (!lockFresh || !lockOwnedByLauncher) {
-    spawnDaemon(runtime);
+    const spawned = spawnDaemon(runtime);
+    if (!spawned) {
+      runtime.reconnectBackoffMs = Math.max(runtime.reconnectBackoffMs, 15_000);
+    }
     scheduleReconnect(runtime);
     return;
   }
@@ -489,6 +522,7 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     rejectedRequests: 0,
     lastRejectReason: undefined,
     listeners: new Set(),
+    lastSpawnAttemptAtMs: 0,
     snapshot: {
       connected: false,
       statusText: 'Miya Daemon Booting',
