@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
+import { createSkillDraftsFromReflect } from '../learning';
 import { upsertCompanionMemoryVector, type CompanionMemoryVector } from './memory-vector';
 
 export interface MemoryShortTermLog {
@@ -329,6 +330,9 @@ export function reflectCompanionMemory(
     createdMemories,
     archivedLogs: moved.length,
   };
+  createSkillDraftsFromReflect(projectDir, {
+    createdMemories,
+  });
   fs.appendFileSync(reflectJobPath(projectDir), `${JSON.stringify({ ...result, at: processedAt })}\n`, 'utf-8');
   writeReflectState(projectDir, {
     lastReflectAt: now,

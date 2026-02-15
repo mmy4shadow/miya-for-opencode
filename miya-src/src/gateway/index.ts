@@ -158,6 +158,14 @@ import {
   setSessionPolicy,
   upsertSession,
 } from '../sessions';
+import {
+  buildRouteExecutionPlan,
+  getRouteCostSummary,
+  listRouteCostRecords,
+  prepareRoutePayload,
+  recordRouteExecutionOutcome,
+  readRouterModeConfig,
+} from '../router';
 import { discoverSkills } from '../skills/loader';
 import { listEnabledSkills, setSkillEnabled } from '../skills/state';
 import {
@@ -170,6 +178,17 @@ import {
 import { buildMcpServiceManifest, createBuiltinMcps } from '../mcp';
 import { log } from '../utils/logger';
 import { getMiyaRuntimeDir, getSessionState } from '../workflow';
+import {
+  buildLearningInjection,
+  getLearningStats,
+  listSkillDrafts,
+  setSkillDraftStatus,
+} from '../learning';
+import {
+  readAutoflowPersistentConfig,
+  getAutoflowPersistentRuntimeSnapshot,
+  listAutoflowSessions,
+} from '../autoflow';
 import { createControlUiRequestOptions, handleControlUiHttpRequest } from './control-ui';
 import {
   applyNegotiationBudget,
@@ -314,6 +333,59 @@ interface GatewaySnapshot {
     recentRuns: ReturnType<MiyaAutomationService['listHistory']>;
   };
   loop: ReturnType<typeof getSessionState>;
+  autoflow: {
+    active: number;
+    sessions: Array<{
+      sessionID: string;
+      phase: string;
+      goal: string;
+      fixRound: number;
+      maxFixRounds: number;
+      updatedAt: string;
+      progressPct: number;
+      retryReason?: string;
+      lastError?: string;
+      lastDag?: {
+        total: number;
+        completed: number;
+        failed: number;
+        blocked: number;
+      };
+    }>;
+    persistent: {
+      enabled: boolean;
+      resumeCooldownMs: number;
+      maxAutoResumes: number;
+      maxConsecutiveResumeFailures: number;
+      resumeTimeoutMs: number;
+      sessions: Array<{
+        sessionID: string;
+        resumeAttempts: number;
+        resumeFailures: number;
+        userStopped: boolean;
+        lastOutcomePhase?: string;
+        lastOutcomeSummary?: string;
+      }>;
+    };
+  };
+  routing: {
+    ecoMode: boolean;
+    forcedStage?: string;
+    cost: ReturnType<typeof getRouteCostSummary>;
+    recent: ReturnType<typeof listRouteCostRecords>;
+  };
+  learning: {
+    stats: ReturnType<typeof getLearningStats>;
+    topDrafts: Array<{
+      id: string;
+      status: string;
+      source: string;
+      confidence: number;
+      uses: number;
+      hitRate: number;
+      title: string;
+    }>;
+  };
   background: {
     total: number;
     running: number;
@@ -1121,6 +1193,11 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'companion.memory.vector.list',
   'miya.memory.sqlite.stats',
   'daemon.vram.budget',
+  'autoflow.status.get',
+  'routing.stats.get',
+  'learning.drafts.stats',
+  'learning.drafts.list',
+  'learning.drafts.recommend',
   // Stateless console may only observe or submit human interventions.
   'intervention.approve',
   'intervention.pause',
@@ -2331,6 +2408,22 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const ownerIdentity = readOwnerIdentityState(projectDir);
   const persistedRuntime = readPersistedAgentRuntime(projectDir);
   const owner = ownerSummary(projectDir);
+  const autoflowSessions = listAutoflowSessions(projectDir, 30);
+  const autoflowPersistentConfig = readAutoflowPersistentConfig(projectDir);
+  const autoflowPersistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, 30);
+  const routingMode = readRouterModeConfig(projectDir);
+  const routingCost = getRouteCostSummary(projectDir, 500);
+  const routingRecent = listRouteCostRecords(projectDir, 20);
+  const learningStats = getLearningStats(projectDir);
+  const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
+    id: item.id,
+    status: item.status,
+    source: item.source,
+    confidence: item.confidence,
+    uses: item.uses,
+    hitRate: item.uses > 0 ? Number((item.hits / item.uses).toFixed(3)) : 0,
+    title: item.title,
+  }));
   runtime.nexus.pendingTickets = approvals.filter((item) => item.status === 'pending').length;
   runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, kill);
 
@@ -2371,6 +2464,73 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       recentRuns,
     },
     loop: getSessionState(projectDir, 'main'),
+    autoflow: {
+      active: autoflowSessions.filter((item) =>
+        item.phase === 'planning' ||
+        item.phase === 'execution' ||
+        item.phase === 'verification' ||
+        item.phase === 'fixing',
+      ).length,
+      sessions: autoflowSessions.map((item) => {
+        const phaseProgress =
+          item.phase === 'planning'
+            ? 10
+            : item.phase === 'execution'
+              ? 45
+              : item.phase === 'verification'
+                ? 70
+                : item.phase === 'fixing'
+                  ? 80
+                  : item.phase === 'completed'
+                    ? 100
+                    : item.phase === 'failed'
+                      ? 100
+                      : 0;
+        const fixProgress =
+          item.maxFixRounds > 0 ? Math.min(20, Math.floor((item.fixRound / item.maxFixRounds) * 20)) : 0;
+        const retryReason = [...item.history]
+          .reverse()
+          .find((row) => row.event === 'verification_failed' || row.event === 'execution_failed')
+          ?.summary;
+        return {
+          sessionID: item.sessionID,
+          phase: item.phase,
+          goal: item.goal,
+          fixRound: item.fixRound,
+          maxFixRounds: item.maxFixRounds,
+          updatedAt: item.updatedAt,
+          progressPct: Math.min(100, phaseProgress + fixProgress),
+          retryReason,
+          lastError: item.lastError,
+          lastDag: item.lastDag,
+        };
+      }),
+      persistent: {
+        enabled: autoflowPersistentConfig.enabled,
+        resumeCooldownMs: autoflowPersistentConfig.resumeCooldownMs,
+        maxAutoResumes: autoflowPersistentConfig.maxAutoResumes,
+        maxConsecutiveResumeFailures: autoflowPersistentConfig.maxConsecutiveResumeFailures,
+        resumeTimeoutMs: autoflowPersistentConfig.resumeTimeoutMs,
+        sessions: autoflowPersistentSessions.map((item) => ({
+          sessionID: item.sessionID,
+          resumeAttempts: item.resumeAttempts,
+          resumeFailures: item.resumeFailures,
+          userStopped: item.userStopped,
+          lastOutcomePhase: item.lastOutcomePhase,
+          lastOutcomeSummary: item.lastOutcomeSummary,
+        })),
+      },
+    },
+    routing: {
+      ecoMode: routingMode.ecoMode,
+      forcedStage: routingMode.forcedStage,
+      cost: routingCost,
+      recent: routingRecent,
+    },
+    learning: {
+      stats: learningStats,
+      topDrafts: learningTopDrafts,
+    },
     background: listBackground(projectDir),
     sessions: {
       total: sessions.length,
@@ -2454,6 +2614,14 @@ async function routeSessionMessage(
     source: string;
   },
 ): Promise<{ delivered: boolean; queued: boolean; reason?: string }> {
+  const availableAgents = [
+    '1-task-manager',
+    '2-code-search',
+    '3-docs-helper',
+    '4-architecture-advisor',
+    '5-code-fixer',
+    '6-ui-designer',
+  ];
   const deps = depsOf(projectDir);
   if (await enforceCriticalIntentGuard(projectDir, input)) {
     return {
@@ -2516,18 +2684,79 @@ async function routeSessionMessage(
     };
   }
 
+  const pinnedAgent =
+    session.routing.agent && session.routing.agent !== '1-task-manager'
+      ? session.routing.agent
+      : undefined;
+  const plan = buildRouteExecutionPlan({
+    projectDir,
+    sessionID: input.sessionID,
+    text: safeText,
+    availableAgents,
+    pinnedAgent,
+  });
+  const learning = buildLearningInjection(projectDir, safeText, {
+    threshold: 0.66,
+    limit: 2,
+  });
+  const enrichedText = learning.snippet
+    ? `${learning.snippet}\n\n---\n\n${safeText}`
+    : safeText;
+  const payloadPlan = prepareRoutePayload(projectDir, {
+    text: enrichedText,
+    stage: plan.stage,
+  });
+
   try {
     await client.session.prompt({
       path: { id: session.routing.opencodeSessionID },
       body: {
-        agent: session.routing.agent,
-        parts: [{ type: 'text', text: safeText }],
+        agent: plan.agent,
+        parts: [{ type: 'text', text: payloadPlan.text }],
       },
       query: { directory: projectDir },
     });
+    recordRouteExecutionOutcome({
+      projectDir,
+      sessionID: input.sessionID,
+      intent: plan.intent,
+      complexity: plan.complexity,
+      stage: plan.stage,
+      agent: plan.agent,
+      success: true,
+      inputTokens: payloadPlan.inputTokens,
+      outputTokensEstimate: payloadPlan.outputTokensEstimate,
+      totalTokensEstimate: payloadPlan.totalTokensEstimate,
+      baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
+      costUsdEstimate: payloadPlan.costUsdEstimate,
+    });
+    if (learning.matchedDraftIDs.length > 0) {
+      for (const draftID of learning.matchedDraftIDs) {
+        setSkillDraftStatus(projectDir, draftID, undefined, { hit: true });
+      }
+    }
     dequeueSessionMessage(projectDir, input.sessionID);
     return { delivered: true, queued: false };
   } catch (error) {
+    recordRouteExecutionOutcome({
+      projectDir,
+      sessionID: input.sessionID,
+      intent: plan.intent,
+      complexity: plan.complexity,
+      stage: plan.stage,
+      agent: plan.agent,
+      success: false,
+      inputTokens: payloadPlan.inputTokens,
+      outputTokensEstimate: payloadPlan.outputTokensEstimate,
+      totalTokensEstimate: payloadPlan.totalTokensEstimate,
+      baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
+      costUsdEstimate: payloadPlan.costUsdEstimate,
+    });
+    if (learning.matchedDraftIDs.length > 0) {
+      for (const draftID of learning.matchedDraftIDs) {
+        setSkillDraftStatus(projectDir, draftID, undefined, { hit: false });
+      }
+    }
     enqueueSessionMessage(projectDir, input.sessionID, {
       text: safeText,
       source: input.source,
@@ -2637,6 +2866,21 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
         <div id="jobsValue" class="value">0/0</div>
       </div>
       <div class="card">
+        <div class="title">Autoflow</div>
+        <div id="autoflowValue" class="value">0 active</div>
+        <div id="autoflowPhase" class="line">phase: --</div>
+      </div>
+      <div class="card">
+        <div class="title">Routing Cost</div>
+        <div id="routingValue" class="value">--</div>
+        <div id="routingStage" class="line">stage: --</div>
+      </div>
+      <div class="card">
+        <div class="title">Learning HitRate</div>
+        <div id="learningValue" class="value">--</div>
+        <div id="learningDrafts" class="line">drafts: --</div>
+      </div>
+      <div class="card">
         <div class="title">Policy Hash</div>
         <div id="policyHash" class="line">--</div>
       </div>
@@ -2664,6 +2908,12 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
       const daemonJob = document.getElementById('daemonJob');
       const sessionsValue = document.getElementById('sessionsValue');
       const jobsValue = document.getElementById('jobsValue');
+      const autoflowValue = document.getElementById('autoflowValue');
+      const autoflowPhase = document.getElementById('autoflowPhase');
+      const routingValue = document.getElementById('routingValue');
+      const routingStage = document.getElementById('routingStage');
+      const learningValue = document.getElementById('learningValue');
+      const learningDrafts = document.getElementById('learningDrafts');
       const policyHash = document.getElementById('policyHash');
       const configJson = document.getElementById('configJson');
 
@@ -2712,6 +2962,35 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
           String((state.jobs && state.jobs.enabled) || 0) +
           '/' +
           String((state.jobs && state.jobs.total) || 0);
+        const activeAutoflow = (state.autoflow && state.autoflow.active) || 0;
+        autoflowValue.textContent = String(activeAutoflow) + ' active';
+        const firstAutoflow = state.autoflow && state.autoflow.sessions && state.autoflow.sessions[0];
+        autoflowPhase.textContent =
+          'phase: ' + (firstAutoflow && firstAutoflow.phase ? firstAutoflow.phase : '--');
+        const routingCost =
+          state.routing && state.routing.cost ? state.routing.cost : null;
+        if (routingCost) {
+          routingValue.textContent =
+            String(routingCost.totalTokensEstimate || 0) +
+            ' tk | save ' +
+            String(routingCost.savingsPercentEstimate || 0) +
+            '%';
+        } else {
+          routingValue.textContent = '--';
+        }
+        routingStage.textContent =
+          'stage: ' + ((state.routing && state.routing.forcedStage) || (state.routing && state.routing.ecoMode ? 'eco' : 'auto') || '--');
+        const learningStats =
+          state.learning && state.learning.stats ? state.learning.stats : null;
+        if (learningStats) {
+          learningValue.textContent =
+            (Number(learningStats.hitRate || 0) * 100).toFixed(1) + '%';
+          learningDrafts.textContent =
+            'drafts: ' + String(learningStats.total || 0) + ' | uses: ' + String(learningStats.totalUses || 0);
+        } else {
+          learningValue.textContent = '--';
+          learningDrafts.textContent = 'drafts: --';
+        }
         policyHash.textContent = state.policyHash || '--';
         configJson.textContent = JSON.stringify(state.configCenter || {}, null, 2);
       }
@@ -3097,6 +3376,65 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
 
   methods.register('gateway.status.get', async () => buildSnapshot(projectDir, runtime));
+  methods.register('autoflow.status.get', async (params) => {
+    const limit = typeof params.limit === 'number' ? Number(params.limit) : 30;
+    const sessions = listAutoflowSessions(projectDir, Math.max(1, Math.min(200, limit)));
+    const persistentConfig = readAutoflowPersistentConfig(projectDir);
+    const persistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, Math.max(1, Math.min(200, limit)));
+    return {
+      active: sessions.filter((item) =>
+        item.phase === 'planning' ||
+        item.phase === 'execution' ||
+        item.phase === 'verification' ||
+        item.phase === 'fixing',
+      ).length,
+      sessions,
+      persistent: {
+        ...persistentConfig,
+        sessions: persistentSessions,
+      },
+    };
+  });
+  methods.register('routing.stats.get', async (params) => {
+    const limit = typeof params.limit === 'number' ? Number(params.limit) : 200;
+    const mode = readRouterModeConfig(projectDir);
+    return {
+      mode,
+      cost: getRouteCostSummary(projectDir, Math.max(1, Math.min(1000, limit))),
+      recent: listRouteCostRecords(projectDir, Math.max(1, Math.min(100, limit))),
+    };
+  });
+  methods.register('learning.drafts.stats', async () => ({
+    stats: getLearningStats(projectDir),
+  }));
+  methods.register('learning.drafts.list', async (params) => {
+    const limit = typeof params.limit === 'number' ? Number(params.limit) : 30;
+    const statusRaw = parseText(params.status);
+    const status =
+      statusRaw === 'draft' ||
+      statusRaw === 'recommended' ||
+      statusRaw === 'accepted' ||
+      statusRaw === 'rejected'
+        ? statusRaw
+        : undefined;
+    return {
+      drafts: listSkillDrafts(projectDir, {
+        limit: Math.max(1, Math.min(200, limit)),
+        status,
+      }),
+    };
+  });
+  methods.register('learning.drafts.recommend', async (params) => {
+    const query = parseText(params.query);
+    if (!query) throw new Error('query_required');
+    const threshold =
+      typeof params.threshold === 'number' ? Number(params.threshold) : undefined;
+    const limit = typeof params.limit === 'number' ? Number(params.limit) : undefined;
+    return buildLearningInjection(projectDir, query, {
+      threshold,
+      limit,
+    });
+  });
   methods.register('gateway.shutdown', async () => {
     const state = syncGatewayState(projectDir, runtime);
     setTimeout(() => {

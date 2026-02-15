@@ -22,3 +22,4 @@ export {
 } from './lsp';
 export { createAutomationTools } from './automation';
 export { createWorkflowTools } from './workflow';
+export { createLearningTools } from './learning';

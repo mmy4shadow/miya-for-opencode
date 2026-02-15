@@ -1,9 +1,10 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
+import { createSkillDraftFromRalph } from '../learning';
 import { executeRalphLoop } from '../ralph';
 
 const z = tool.schema;
 
-export function createRalphTools(): Record<string, ToolDefinition> {
+export function createRalphTools(projectDir?: string): Record<string, ToolDefinition> {
   const miya_ralph_loop = tool({
     description:
       'Execute a verification-driven self-correction loop with optional task and fix commands.',
@@ -84,6 +85,18 @@ export function createRalphTools(): Record<string, ToolDefinition> {
         `termination_reason=${result.reason ?? 'unknown'}`,
         `summary=${result.summary}`,
       ];
+
+      if (projectDir) {
+        const draft = createSkillDraftFromRalph(projectDir, {
+          taskDescription: String(args.task_description),
+          result,
+        });
+        if (draft) {
+          lines.push(`learning_draft_id=${draft.id}`);
+          lines.push(`learning_draft_status=${draft.status}`);
+          lines.push(`learning_draft_confidence=${draft.confidence.toFixed(2)}`);
+        }
+      }
 
       const tailAttempts = result.attempts.slice(-6);
       if (tailAttempts.length > 0) {

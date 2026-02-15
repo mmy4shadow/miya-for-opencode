@@ -111,6 +111,16 @@ export function loadAutoflowSession(
   return store.sessions[sessionID] ?? null;
 }
 
+export function listAutoflowSessions(
+  projectDir: string,
+  limit = 50,
+): AutoflowSessionState[] {
+  const store = readStore(projectDir);
+  return Object.values(store.sessions)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .slice(0, Math.max(1, Math.min(200, limit)));
+}
+
 export function getAutoflowSession(
   projectDir: string,
   sessionID: string,

@@ -2167,6 +2167,10 @@ miya-src/src/daemon/psyche/
 | QQ/微信桌面外发主链路（含证据包） | P0 | 2-3周 | desktop_control + outbound_send + Arch Advisor | 有Gateway/风控基础 |
 | Autopilot模式增强 | P1 | 1周 | Task Manager | 有编排基础，需补可观测与回退策略 |
 | 自主工作流状态机（Autoflow：执行→验证→修复闭环） | P0 | 1周 | Ultrawork DAG + verification/fix command | 首版已实现（`miya-src/src/autoflow/*`, `miya-src/src/tools/autoflow.ts`） |
+| 持久执行接管 stop 事件（Persistent Autoflow Hook） | P1 | 1周 | `session.status` 事件流 + Autoflow 状态机 | 首版已实现（`miya-src/src/hooks/persistent-autoflow/index.ts`, `miya-src/src/autoflow/persistent.ts`） |
+| 运行时模型路由 + EcoMode + Token/Cost 计量 | P2 | 1-2周 | Router runtime + Gateway routeSessionMessage | 首版已实现（`miya-src/src/router/runtime.ts`, `miya-src/src/tools/router.ts`, `miya-src/src/gateway/index.ts`） |
+| 学习闭环产品化（Ralph/Reflect -> 技能草案） | P3 | 1-2周 | Ralph Loop + memory-reflect + learning store | 首版已实现（`miya-src/src/learning/skill-drafts.ts`, `miya-src/src/tools/learning.ts`） |
+| 控制面可观测（阶段/并行/重试/token/cost/学习命中） | P4 | 1周 | Gateway snapshot + Console 面板 | 首版已实现（`miya-src/src/gateway/index.ts`） |
 | Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | 已具备 daemon/psyche 子系统与策略引擎基础，持续完善联锁 |
 | 动态信任阈值（三档提示） | P0-P1 | 1-2周 | 审批事件统计 + Policy Engine | 有审批与10次窗口降权基础 |
 | Fixability 协商协议（防重试风暴） | P0 | 1周 | Gateway 协议帧 + Agent 重试器 | 有协议与拒绝语义基础 |
@@ -2373,7 +2377,10 @@ Miya插件已经具备了坚实的架构基础：
 **进行中/持续增强（参考开源项目）**：
 - 🔄 节点管理系统（OpenClaw，主路径已实现，持续补齐控制面与权限映射细节）
 - 🔄 Autopilot模式增强（Oh-my-claudecode，主链路已实现，持续做成功率与策略收敛）
-- 🔄 自主工作流持久执行（Oh-my-claudecode，对标项首版已实现：Autoflow 状态机 `planning -> execution -> verification -> fixing -> completed|failed`，下一步补成本路由与经验复用）
+- ✅ 自主工作流持久执行（Oh-my-claudecode，对标项首版已实现：Autoflow 状态机 + Persistent Hook，支持非用户中止自动续跑）
+- ✅ 成本优化（运行时模型路由 + EcoMode + token/cost 计量，支持失败升级 low->medium->high）
+- ✅ 从经验中学习（Ralph 失败修复轨迹 + memory-reflect 产物自动沉淀为技能草案，支持推荐/半自动采用）
+- ✅ 控制面可观测（Gateway/Console 已新增阶段进度、重试原因、token/cost、学习命中率）
 - 🔄 SOUL.md人格系统（Clawra，基础已实现：SOUL + companion profile，持续增强动态挂载）
 - 🔄 共鸣层（Resonance Gate）与 Psyche 慢脑训练（Clawra + 2_modified_v3 收敛，当前已完成 P0/P1 守门闭环，P2 继续推进）
 - 🔄 Ultrawork并行编排（Oh-my-opencode，已有调度骨架，持续增强并行效率）

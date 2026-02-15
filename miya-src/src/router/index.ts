@@ -9,3 +9,18 @@ export {
   rankAgentsByFeedback,
   summarizeRouteHistory,
 } from './learner';
+export {
+  analyzeRouteComplexity,
+  buildRouteExecutionPlan,
+  getRouteCostSummary,
+  getRouterSessionState,
+  listRouteCostRecords,
+  prepareRoutePayload,
+  readRouterModeConfig,
+  recordRouteExecutionOutcome,
+  writeRouterModeConfig,
+  type RouteComplexity,
+  type RouteStage,
+  type RouterModeConfig,
+  type RouteExecutionPlan,
+} from './runtime';

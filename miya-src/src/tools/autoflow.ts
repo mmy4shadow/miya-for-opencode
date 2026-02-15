@@ -3,8 +3,11 @@ import type { BackgroundTaskManager } from '../background';
 import {
   configureAutoflowSession,
   getAutoflowSession,
+  getAutoflowPersistentRuntimeSnapshot,
+  readAutoflowPersistentConfig,
   runAutoflow,
   stopAutoflowSession,
+  writeAutoflowPersistentConfig,
 } from '../autoflow';
 
 const z = tool.schema;
@@ -28,6 +31,24 @@ function formatStateSummary(state: ReturnType<typeof getAutoflowSession>): strin
     `last_error=${state.lastError ?? '(none)'}`,
     `recent_verification_fingerprints=${state.recentVerificationHashes.length}`,
     `history=${state.history.length}`,
+  ];
+}
+
+function formatPersistentSummary(projectDir: string, sessionID: string): string[] {
+  const config = readAutoflowPersistentConfig(projectDir);
+  const runtime = getAutoflowPersistentRuntimeSnapshot(projectDir, 200).find(
+    (item) => item.sessionID === sessionID,
+  );
+  return [
+    `persistent_enabled=${config.enabled}`,
+    `persistent_resume_cooldown_ms=${config.resumeCooldownMs}`,
+    `persistent_max_auto_resumes=${config.maxAutoResumes}`,
+    `persistent_max_resume_failures=${config.maxConsecutiveResumeFailures}`,
+    `persistent_resume_timeout_ms=${config.resumeTimeoutMs}`,
+    `persistent_resume_attempts=${runtime?.resumeAttempts ?? 0}`,
+    `persistent_resume_failures=${runtime?.resumeFailures ?? 0}`,
+    `persistent_user_stopped=${runtime?.userStopped ?? false}`,
+    `persistent_last_outcome_phase=${runtime?.lastOutcomePhase ?? '(none)'}`,
   ];
 }
 
@@ -75,6 +96,14 @@ export function createAutoflowTools(
         .boolean()
         .optional()
         .describe('Reset finished/failed state and rerun from planning'),
+      persistent_enabled: z
+        .boolean()
+        .optional()
+        .describe('Enable/disable non-user stop auto resume'),
+      persistent_resume_cooldown_ms: z.number().optional(),
+      persistent_max_auto_resumes: z.number().optional(),
+      persistent_max_resume_failures: z.number().optional(),
+      persistent_resume_timeout_ms: z.number().optional(),
     },
     async execute(args, ctx) {
       const sessionID =
@@ -85,12 +114,45 @@ export function createAutoflowTools(
 
       if (mode === 'status') {
         const state = getAutoflowSession(projectDir, sessionID);
-        return formatStateSummary(state).join('\n');
+        return [...formatStateSummary(state), ...formatPersistentSummary(projectDir, sessionID)].join(
+          '\n',
+        );
       }
 
       if (mode === 'stop') {
         const state = stopAutoflowSession(projectDir, sessionID);
         return [...formatStateSummary(state), 'autoflow=stopped'].join('\n');
+      }
+
+      if (
+        typeof args.persistent_enabled === 'boolean' ||
+        typeof args.persistent_resume_cooldown_ms === 'number' ||
+        typeof args.persistent_max_auto_resumes === 'number' ||
+        typeof args.persistent_max_resume_failures === 'number' ||
+        typeof args.persistent_resume_timeout_ms === 'number'
+      ) {
+        writeAutoflowPersistentConfig(projectDir, {
+          enabled:
+            typeof args.persistent_enabled === 'boolean'
+              ? Boolean(args.persistent_enabled)
+              : undefined,
+          resumeCooldownMs:
+            typeof args.persistent_resume_cooldown_ms === 'number'
+              ? Number(args.persistent_resume_cooldown_ms)
+              : undefined,
+          maxAutoResumes:
+            typeof args.persistent_max_auto_resumes === 'number'
+              ? Number(args.persistent_max_auto_resumes)
+              : undefined,
+          maxConsecutiveResumeFailures:
+            typeof args.persistent_max_resume_failures === 'number'
+              ? Number(args.persistent_max_resume_failures)
+              : undefined,
+          resumeTimeoutMs:
+            typeof args.persistent_resume_timeout_ms === 'number'
+              ? Number(args.persistent_resume_timeout_ms)
+              : undefined,
+        });
       }
 
       if (mode === 'start') {
@@ -109,7 +171,11 @@ export function createAutoflowTools(
               : undefined,
           phase: 'planning',
         });
-        return [...formatStateSummary(state), 'autoflow=configured'].join('\n');
+        return [
+          ...formatStateSummary(state),
+          ...formatPersistentSummary(projectDir, sessionID),
+          'autoflow=configured',
+        ].join('\n');
       }
 
       const result = await runAutoflow({
@@ -139,6 +205,7 @@ export function createAutoflowTools(
         `autoflow_success=${result.success}`,
         `summary=${result.summary}`,
         ...formatStateSummary(result.state),
+        ...formatPersistentSummary(projectDir, sessionID),
       ];
       if (result.dagResult) {
         lines.push(

@@ -35,6 +35,7 @@ import { assertRequiredHookHandlers } from './contracts/hook-contract';
 import {
   createContextGovernorHook,
   createLoopGuardHook,
+  createPersistentAutoflowHook,
   createPhaseReminderHook,
   createPostReadNudgeHook,
   createPostWriteSimplicityHook,
@@ -50,6 +51,7 @@ import {
   createAutoflowTools,
   createAutopilotTools,
   createBackgroundTools,
+  createLearningTools,
   createMultimodalTools,
   createMcpTools,
   createNodeTools,
@@ -341,9 +343,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
   );
   const automationTools = createAutomationTools(automationService);
   const workflowTools = createWorkflowTools(ctx.directory);
+  const learningTools = createLearningTools(ctx.directory);
   const autopilotTools = createAutopilotTools(ctx.directory);
   const autoflowTools = createAutoflowTools(ctx.directory, backgroundManager);
-  const ralphTools = createRalphTools();
+  const ralphTools = createRalphTools(ctx.directory);
   const nodeTools = createNodeTools(ctx.directory);
   const multimodalTools = createMultimodalTools(ctx.directory);
   const soulTools = createSoulTools(ctx.directory);
@@ -365,6 +368,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
   // Initialize loop guard hook for hard iteration limits and strict mode.
   const loopGuardHook = createLoopGuardHook(ctx.directory);
+  const persistentAutoflowHook = createPersistentAutoflowHook(
+    ctx.directory,
+    backgroundManager,
+  );
 
   // Initialize phase reminder hook for workflow compliance
   const phaseReminderHook = createPhaseReminderHook();
@@ -494,6 +501,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ...backgroundTools,
       ...automationTools,
       ...workflowTools,
+      ...learningTools,
       ...autopilotTools,
       ...autoflowTools,
       ...ralphTools,
@@ -808,6 +816,17 @@ const MiyaPlugin: Plugin = async (ctx) => {
         input.event as {
           type: string;
           properties?: { sessionID?: string; status?: { type: string } };
+        },
+      );
+      await persistentAutoflowHook.onEvent(
+        input.event as {
+          type?: string;
+          properties?: {
+            sessionID?: string;
+            status?: { type?: string; reason?: string; source?: string };
+            reason?: string;
+            source?: string;
+          };
         },
       );
       await tmuxSessionManager.onSessionStatus(
