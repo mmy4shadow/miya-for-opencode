@@ -74,6 +74,38 @@ function runtimeGatewayFile(cwd: string): string {
   return path.join(cwd, '.opencode', 'miya', 'gateway.json');
 }
 
+interface GatewayStartGuard {
+  status: 'idle' | 'starting' | 'failed';
+  updatedAt: string;
+  cooldownUntil?: string;
+}
+
+function runtimeGatewayStartGuardFile(cwd: string): string {
+  return path.join(cwd, '.opencode', 'miya', 'gateway-start.guard.json');
+}
+
+function readGatewayStartGuard(cwd: string): GatewayStartGuard | null {
+  const file = runtimeGatewayStartGuardFile(cwd);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as GatewayStartGuard;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.status !== 'idle' && parsed.status !== 'starting' && parsed.status !== 'failed') {
+      return null;
+    }
+    if (!parsed.updatedAt || !Number.isFinite(Date.parse(parsed.updatedAt))) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeGatewayStartGuard(cwd: string, guard: GatewayStartGuard): void {
+  const file = runtimeGatewayStartGuardFile(cwd);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(guard, null, 2)}\n`, 'utf-8');
+}
+
 function resolveWorkspaceDir(cwd: string): string {
   const nested = path.join(cwd, 'miya-src');
   if (fs.existsSync(path.join(nested, 'src', 'index.ts'))) {
@@ -144,6 +176,22 @@ async function waitGatewayReady(cwd: string, timeoutMs = 15000): Promise<boolean
 
 async function runGatewayStart(cwd: string): Promise<boolean> {
   const workspace = resolveWorkspaceDir(cwd);
+  const guard = readGatewayStartGuard(workspace);
+  const now = Date.now();
+  if (guard?.status === 'starting') {
+    const ageMs = now - Date.parse(guard.updatedAt);
+    if (ageMs < 30_000) {
+      return false;
+    }
+  }
+  if (guard?.cooldownUntil && now < Date.parse(guard.cooldownUntil)) {
+    return false;
+  }
+  writeGatewayStartGuard(workspace, {
+    status: 'starting',
+    updatedAt: new Date(now).toISOString(),
+  });
+
   const attempts: string[][] = [
     [
       'run',
@@ -166,10 +214,21 @@ async function runGatewayStart(cwd: string): Promise<boolean> {
       windowsHide: true,
     });
     proc.unref();
-    if (await waitGatewayReady(workspace, 12000)) return true;
+    if (await waitGatewayReady(workspace, 12000)) {
+      writeGatewayStartGuard(workspace, {
+        status: 'idle',
+        updatedAt: new Date().toISOString(),
+      });
+      return true;
+    }
     clearGatewayStateFile(workspace);
   }
 
+  writeGatewayStartGuard(workspace, {
+    status: 'failed',
+    updatedAt: new Date().toISOString(),
+    cooldownUntil: new Date(Date.now() + 60_000).toISOString(),
+  });
   return false;
 }
 

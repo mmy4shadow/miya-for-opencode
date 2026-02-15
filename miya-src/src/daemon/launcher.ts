@@ -75,6 +75,7 @@ interface LauncherRuntime {
   listeners: Set<DaemonLauncherListener>;
   snapshot: DaemonConnectionSnapshot;
   lastSpawnAttemptAtMs: number;
+  launchCooldownUntilMs: number;
 }
 
 export interface DaemonBackpressureStats {
@@ -452,6 +453,9 @@ function scheduleReconnect(runtime: LauncherRuntime): void {
 
 function ensureDaemonLaunched(runtime: LauncherRuntime): void {
   writeParentLock(runtime);
+  if (Date.now() < runtime.launchCooldownUntilMs) {
+    return;
+  }
   const lock = toDaemonLock(safeReadJson(runtime.daemonLockFile));
   const lockFresh =
     lock &&
@@ -460,9 +464,13 @@ function ensureDaemonLaunched(runtime: LauncherRuntime): void {
   const lockOwnedByLauncher = Boolean(lock) && lock?.token === runtime.daemonToken;
 
   if (!lockFresh || !lockOwnedByLauncher) {
+    if (runtime.reconnectTimer) {
+      return;
+    }
     const spawned = spawnDaemon(runtime);
     if (!spawned) {
       runtime.reconnectBackoffMs = Math.max(runtime.reconnectBackoffMs, 15_000);
+      runtime.launchCooldownUntilMs = Date.now() + 15_000;
     }
     scheduleReconnect(runtime);
     return;
@@ -523,6 +531,7 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     lastRejectReason: undefined,
     listeners: new Set(),
     lastSpawnAttemptAtMs: 0,
+    launchCooldownUntilMs: 0,
     snapshot: {
       connected: false,
       statusText: 'Miya Daemon Booting',
