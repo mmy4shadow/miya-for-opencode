@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 type Violation = {
@@ -7,6 +7,13 @@ type Violation = {
 };
 
 const violations: Violation[] = [];
+
+const PLANNING_PATH_MIGRATIONS = new Map<string, string>([
+  ['miya-src/src/memory/*', 'miya-src/src/companion/*'],
+  ['miya-src/src/memory/', 'miya-src/src/companion/'],
+  ['miya-src/src/memory', 'miya-src/src/companion'],
+  ['miya-src/src/agents/orchestrator.ts', 'miya-src/src/agents/1-task-manager.ts'],
+]);
 
 function requireFile(path: string, code: string): void {
   if (!existsSync(path)) {
@@ -26,6 +33,107 @@ function requireText(
       message: `${scope} missing required text: ${expected}`,
     });
   }
+}
+
+function normalizePathToken(input: string): string {
+  return input
+    .trim()
+    .replace(/^['"`]+|['"`]+$/g, '')
+    .replace(/[),.;:，。；：、]+$/g, '')
+    .replace(/\\/g, '/');
+}
+
+function extractPlanningPathCandidates(content: string): string[] {
+  const candidates = new Set<string>();
+  const inlineCodeRegex = /`([^`\r\n]+)`/g;
+  let match: RegExpExecArray | null = inlineCodeRegex.exec(content);
+  while (match) {
+    const token = normalizePathToken(match[1]);
+    if (token.startsWith('miya-src/') && token.includes('/')) {
+      candidates.add(token);
+    }
+    match = inlineCodeRegex.exec(content);
+  }
+
+  const plainPathRegex = /\bmiya-src\/[A-Za-z0-9_./*-]+/g;
+  const plainMatches = content.match(plainPathRegex) ?? [];
+  for (const raw of plainMatches) {
+    const token = normalizePathToken(raw);
+    if (token.startsWith('miya-src/') && token.includes('/')) {
+      candidates.add(token);
+    }
+  }
+
+  return [...candidates].sort();
+}
+
+function escapeRegex(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function wildcardPathExists(workspaceRoot: string, pattern: string): boolean {
+  const normalizedPattern = normalizePathToken(pattern);
+  const starIndex = normalizedPattern.indexOf('*');
+  if (starIndex === -1) {
+    return existsSync(join(workspaceRoot, normalizedPattern));
+  }
+  const prefix = normalizedPattern.slice(0, starIndex);
+  const anchorSlash = prefix.lastIndexOf('/');
+  const rootPrefix = anchorSlash >= 0 ? prefix.slice(0, anchorSlash + 1) : '';
+  const rootAbs = join(workspaceRoot, rootPrefix);
+  if (!existsSync(rootAbs)) return false;
+  const regex = new RegExp(
+    `^${escapeRegex(normalizedPattern).replace(/\\\*/g, '.*')}$`,
+  );
+
+  const stack = [rootAbs];
+  while (stack.length > 0) {
+    const currentAbs = stack.pop();
+    if (!currentAbs) continue;
+    const entries = readdirSync(currentAbs, { withFileTypes: true });
+    for (const entry of entries) {
+      const nextAbs = join(currentAbs, entry.name);
+      const nextRel = nextAbs
+        .replace(`${workspaceRoot}\\`, '')
+        .replace(`${workspaceRoot}/`, '')
+        .replace(/\\/g, '/');
+      if (regex.test(nextRel)) return true;
+      if (entry.isDirectory()) {
+        stack.push(nextAbs);
+      }
+    }
+  }
+
+  return false;
+}
+
+function tryResolvePlanningPath(
+  workspaceRoot: string,
+  candidate: string,
+): {
+  ok: boolean;
+  resolvedPath?: string;
+  mappedFrom?: string;
+} {
+  if (wildcardPathExists(workspaceRoot, candidate)) {
+    return { ok: true, resolvedPath: candidate };
+  }
+  const mapped = PLANNING_PATH_MIGRATIONS.get(candidate);
+  if (mapped && wildcardPathExists(workspaceRoot, mapped)) {
+    return { ok: true, resolvedPath: mapped, mappedFrom: candidate };
+  }
+  return { ok: false };
+}
+
+function distToSourcePath(candidate: string): string | null {
+  if (!candidate.includes('/dist/')) return null;
+  let mapped = candidate.replace('/dist/', '/src/');
+  if (mapped.endsWith('.d.ts')) {
+    mapped = `${mapped.slice(0, -5)}.ts`;
+  } else if (mapped.endsWith('.js')) {
+    mapped = `${mapped.slice(0, -3)}.ts`;
+  }
+  return mapped;
 }
 
 const repoRoot = process.cwd();
@@ -97,6 +205,35 @@ if (existsSync(planningPath)) {
     'Doc Linter',
   ]) {
     requireText(planning, expected, 'planning.contract', '规划文档');
+  }
+
+  const pathCandidates = extractPlanningPathCandidates(planning);
+  for (const candidate of pathCandidates) {
+    const resolved = tryResolvePlanningPath(workspaceRoot, candidate);
+    if (!resolved.ok) {
+      violations.push({
+        code: 'planning.path.unresolved',
+        message: `规划路径不可解析: ${candidate}`,
+      });
+      continue;
+    }
+
+    const resolvedPath = resolved.resolvedPath ?? candidate;
+    const sourcePath = distToSourcePath(resolvedPath);
+    if (sourcePath && !wildcardPathExists(workspaceRoot, sourcePath)) {
+      violations.push({
+        code: 'planning.path.source_missing',
+        message: `dist 路径缺少可解析的 src source-of-truth: ${resolvedPath} -> ${sourcePath}`,
+      });
+      continue;
+    }
+
+    if (sourcePath && !planning.includes(sourcePath)) {
+      violations.push({
+        code: 'planning.path.source_undeclared',
+        message: `规划引用 dist 路径但未声明对应 src source-of-truth: ${resolvedPath} -> ${sourcePath}`,
+      });
+    }
   }
 }
 
