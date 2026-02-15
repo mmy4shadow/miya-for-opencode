@@ -76,6 +76,9 @@ interface LauncherRuntime {
   snapshot: DaemonConnectionSnapshot;
   lastSpawnAttemptAtMs: number;
   launchCooldownUntilMs: number;
+  consecutiveLaunchFailures: number;
+  retryHalted: boolean;
+  maxConsecutiveLaunchFailures: number;
 }
 
 export interface DaemonBackpressureStats {
@@ -163,6 +166,25 @@ function resolveHostScriptPath(): string {
   return jsFile;
 }
 
+function noteLaunchFailure(runtime: LauncherRuntime, reason: string): void {
+  runtime.consecutiveLaunchFailures += 1;
+  runtime.lastRejectReason = reason;
+  if (runtime.consecutiveLaunchFailures >= runtime.maxConsecutiveLaunchFailures) {
+    runtime.retryHalted = true;
+    runtime.connected = false;
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = `Miya Daemon Retry Halted (${reason})`;
+  }
+  syncBackpressureSnapshot(runtime);
+}
+
+function resetLaunchFailureState(runtime: LauncherRuntime): void {
+  runtime.consecutiveLaunchFailures = 0;
+  runtime.retryHalted = false;
+  runtime.lastRejectReason = undefined;
+  syncBackpressureSnapshot(runtime);
+}
+
 function resolveBunBinary(): string | null {
   const byWhich = Bun.which('bun') ?? Bun.which('bun.exe');
   if (byWhich) return byWhich;
@@ -172,6 +194,9 @@ function resolveBunBinary(): string | null {
 }
 
 function spawnDaemon(runtime: LauncherRuntime): boolean {
+  if (runtime.retryHalted) {
+    return false;
+  }
   const now = Date.now();
   if (now - runtime.lastSpawnAttemptAtMs < 3_000) {
     return false;
@@ -182,16 +207,14 @@ function spawnDaemon(runtime: LauncherRuntime): boolean {
   if (!bunBinary) {
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = 'Miya Daemon Disabled (bun_not_found)';
-    runtime.lastRejectReason = 'bun_not_found';
-    syncBackpressureSnapshot(runtime);
+    noteLaunchFailure(runtime, 'bun_not_found');
     return false;
   }
   const binaryBase = path.basename(bunBinary).toLowerCase();
   if (binaryBase.includes('powershell') || binaryBase === 'pwsh.exe') {
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = 'Miya Daemon Disabled (invalid_runtime_binary)';
-    runtime.lastRejectReason = 'invalid_runtime_binary';
-    syncBackpressureSnapshot(runtime);
+    noteLaunchFailure(runtime, 'invalid_runtime_binary');
     return false;
   }
   const hostScript = resolveHostScriptPath();
@@ -256,6 +279,7 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
   runtime.ws = ws;
 
   ws.onopen = () => {
+    resetLaunchFailureState(runtime);
     runtime.connected = true;
     runtime.reconnectBackoffMs = 1_000;
     runtime.snapshot.statusText = 'Miya Daemon Connected';
@@ -330,6 +354,7 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
   };
 
   ws.onclose = () => {
+    noteLaunchFailure(runtime, 'ws_closed');
     runtime.connected = false;
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = 'Miya Daemon Disconnected';
@@ -442,6 +467,7 @@ function stopStatusPoll(runtime: LauncherRuntime): void {
 }
 
 function scheduleReconnect(runtime: LauncherRuntime): void {
+  if (runtime.retryHalted) return;
   if (runtime.reconnectTimer) return;
   const wait = runtime.reconnectBackoffMs;
   runtime.reconnectBackoffMs = Math.min(runtime.reconnectBackoffMs * 2, 30_000);
@@ -452,6 +478,9 @@ function scheduleReconnect(runtime: LauncherRuntime): void {
 }
 
 function ensureDaemonLaunched(runtime: LauncherRuntime): void {
+  if (runtime.retryHalted) {
+    return;
+  }
   writeParentLock(runtime);
   if (Date.now() < runtime.launchCooldownUntilMs) {
     return;
@@ -471,6 +500,9 @@ function ensureDaemonLaunched(runtime: LauncherRuntime): void {
     if (!spawned) {
       runtime.reconnectBackoffMs = Math.max(runtime.reconnectBackoffMs, 15_000);
       runtime.launchCooldownUntilMs = Date.now() + 15_000;
+      if (!runtime.retryHalted) {
+        noteLaunchFailure(runtime, 'spawn_skipped_or_failed');
+      }
     }
     scheduleReconnect(runtime);
     return;
@@ -514,6 +546,10 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     typeof backpressure?.daemon_max_pending_requests === 'number'
       ? Number(backpressure.daemon_max_pending_requests)
       : Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64);
+  const configuredMaxFailures =
+    typeof backpressure?.daemon_max_consecutive_failures === 'number'
+      ? Number(backpressure.daemon_max_consecutive_failures)
+      : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
   const runtime: LauncherRuntime = {
     projectDir,
     daemonToken: randomUUID(),
@@ -532,6 +568,9 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     listeners: new Set(),
     lastSpawnAttemptAtMs: 0,
     launchCooldownUntilMs: 0,
+    consecutiveLaunchFailures: 0,
+    retryHalted: false,
+    maxConsecutiveLaunchFailures: Math.max(1, Math.floor(configuredMaxFailures)),
     snapshot: {
       connected: false,
       statusText: 'Miya Daemon Booting',
