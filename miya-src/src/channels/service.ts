@@ -150,6 +150,7 @@ export interface ChannelOutboundAudit {
 
 function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
   if (message.includes('target_not_in_allowlist')) return ['recipient_mismatch'];
+  if (message.includes('recipient_text_mismatch')) return ['recipient_mismatch'];
   if (message.includes('input_mutex_timeout')) return ['input_mutex_timeout'];
   if (message.includes('receipt_uncertain')) return ['receipt_uncertain'];
   if (message.includes('blocked_by_privilege') || message.includes('privilege')) {
