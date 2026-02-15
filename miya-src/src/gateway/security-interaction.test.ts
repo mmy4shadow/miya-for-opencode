@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { ensureGatewayRunning, stopGateway } from './index';
 import { createGatewayAcceptanceProjectDir } from './test-helpers';
 
@@ -123,6 +125,55 @@ describe('gateway security interaction acceptance', () => {
       expect(approved.status).toBe('recorded');
       expect(approved.grant?.permission).toBe('external_message');
       expect(approved.grant?.sessionID).toBe('main');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
+  test('blocks enabling workspace skill without permission metadata', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const skillDir = path.join(projectDir, 'skills', 'unsafe-skill');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      `---\nname: unsafe-skill\nversion: 1.0.0\n---\n# Unsafe skill`,
+      'utf-8',
+    );
+
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      let blockedError = '';
+      try {
+        await client.request('skills.enable', { skillID: 'unsafe-skill' });
+      } catch (error) {
+        blockedError = String(error instanceof Error ? error.message : error);
+      }
+      expect(blockedError).toContain('skill_not_loadable:missing_permission_metadata');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
+  test('enables workspace skill when permission metadata is present', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const skillDir = path.join(projectDir, 'skills', 'safe-skill');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      `---\nname: safe-skill\npermissions:\n  - shell_exec\n---\n# Safe skill`,
+      'utf-8',
+    );
+
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      const result = (await client.request('skills.enable', {
+        skillID: 'safe-skill',
+      })) as { enabled?: string[] };
+      expect(result.enabled).toContain('safe-skill');
     } finally {
       client.close();
       stopGateway(projectDir);

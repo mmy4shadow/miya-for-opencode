@@ -16,6 +16,7 @@ export interface SkillDescriptor {
     bins?: string[];
     env?: string[];
     platforms?: string[];
+    permissions?: string[];
   };
   gate: {
     loadable: boolean;
@@ -42,6 +43,20 @@ function builtinSkillRoots(projectDir: string): string[] {
   roots.add(path.join(projectDir, 'miya-src', 'src', 'skills'));
   roots.add(path.join(import.meta.dir));
   return [...roots];
+}
+
+function enforcePermissionMetadataGate(
+  source: SkillDescriptor['source'],
+  frontmatter: SkillDescriptor['frontmatter'],
+  gate: SkillDescriptor['gate'],
+): SkillDescriptor['gate'] {
+  if (source === 'builtin') return gate;
+  if ((frontmatter.permissions?.length ?? 0) > 0) return gate;
+  const reasons = [...gate.reasons, 'missing_permission_metadata'];
+  return {
+    loadable: false,
+    reasons: [...new Set(reasons)],
+  };
 }
 
 export function discoverSkills(
@@ -84,7 +99,11 @@ export function discoverSkills(
       }
       const frontmatter = parseSkillFrontmatter(content);
       const name = frontmatter.name ?? path.basename(dir);
-      const gate = evaluateSkillGate(frontmatter);
+      const gate = enforcePermissionMetadataGate(
+        scope.source,
+        frontmatter,
+        evaluateSkillGate(frontmatter),
+      );
       const descriptor: SkillDescriptor = {
         id: name,
         name,

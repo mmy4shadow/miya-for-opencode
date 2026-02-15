@@ -4345,7 +4345,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('skills.enable', async (params) => {
     const skillID = parseText(params.skillID);
     if (!skillID) throw new Error('invalid_skill_id');
-    return { enabled: setSkillEnabled(projectDir, skillID, true) };
+    const discovered = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []);
+    const descriptor = discovered.find((item) => item.id === skillID || item.name === skillID);
+    if (!descriptor) throw new Error(`skill_not_found:${skillID}`);
+    if (!descriptor.gate.loadable) {
+      throw new Error(`skill_not_loadable:${descriptor.gate.reasons.join('|')}`);
+    }
+    return { enabled: setSkillEnabled(projectDir, descriptor.id, true) };
   });
   methods.register('skills.disable', async (params) => {
     const skillID = parseText(params.skillID);
@@ -4393,7 +4399,29 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         message: Buffer.from(proc.stderr).toString('utf-8').trim() || 'git_clone_failed',
       };
     }
-    return { ok: true, message: 'installed', dir: target };
+    const installed = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []).find(
+      (item) => path.resolve(item.dir) === path.resolve(target),
+    );
+    if (!installed) {
+      fs.rmSync(target, { recursive: true, force: true });
+      return {
+        ok: false,
+        message: 'installed_skill_invalid:manifest_not_found',
+      };
+    }
+    if (installed.gate.reasons.includes('missing_permission_metadata')) {
+      fs.rmSync(target, { recursive: true, force: true });
+      return {
+        ok: false,
+        message: 'installed_skill_invalid:missing_permission_metadata',
+      };
+    }
+    return {
+      ok: true,
+      message: 'installed',
+      dir: target,
+      gate: installed.gate,
+    };
   });
   methods.register('skills.update', async (params) => {
     const dir = parseText(params.dir);

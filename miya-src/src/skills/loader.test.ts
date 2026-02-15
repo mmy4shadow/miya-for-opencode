@@ -22,7 +22,7 @@ describe('skills discovery and state', () => {
     writeSkill(
       workspaceSkills,
       'alpha',
-      `---\nname: alpha\nversion: 1.0.0\nenv: MIYA_TEST_ENV\n---\n# Alpha`,
+      `---\nname: alpha\nversion: 1.0.0\nenv: MIYA_TEST_ENV\npermissions: shell_exec\n---\n# Alpha`,
     );
 
     const skills = discoverSkills(projectDir);
@@ -32,6 +32,40 @@ describe('skills discovery and state', () => {
     expect(alpha?.source).toBe('workspace');
     expect(alpha?.gate.loadable).toBe(false);
     expect(alpha?.gate.reasons.some((reason) => reason.includes('missing_env'))).toBe(true);
+  });
+
+  test('marks workspace skill as not loadable when permission metadata is missing', () => {
+    const projectDir = tempProjectDir();
+    const workspaceSkills = path.join(projectDir, 'skills');
+    writeSkill(
+      workspaceSkills,
+      'no-permission-skill',
+      `---\nname: no-permission-skill\nversion: 1.0.0\n---\n# Missing permission metadata`,
+    );
+
+    const skills = discoverSkills(projectDir);
+    const target = skills.find((item) => item.name === 'no-permission-skill');
+
+    expect(target).toBeDefined();
+    expect(target?.gate.loadable).toBe(false);
+    expect(target?.gate.reasons).toContain('missing_permission_metadata');
+  });
+
+  test('accepts yaml-list permissions metadata', () => {
+    const projectDir = tempProjectDir();
+    const workspaceSkills = path.join(projectDir, 'skills');
+    writeSkill(
+      workspaceSkills,
+      'yaml-permissions',
+      `---\nname: yaml-permissions\npermissions:\n  - shell_exec\n  - fs_read\n---\n# YAML permissions`,
+    );
+
+    const skills = discoverSkills(projectDir);
+    const target = skills.find((item) => item.name === 'yaml-permissions');
+
+    expect(target).toBeDefined();
+    expect(target?.frontmatter.permissions).toEqual(['shell_exec', 'fs_read']);
+    expect(target?.gate.loadable).toBe(true);
   });
 
   test('stores enabled skill list', () => {
