@@ -193,6 +193,11 @@ interface TrustModeConfig {
   modalMax: number;
 }
 
+interface PsycheModeConfig {
+  resonanceEnabled: boolean;
+  captureProbeEnabled: boolean;
+}
+
 interface GatewayDependencies {
   client?: PluginInput['client'];
   automationService?: MiyaAutomationService;
@@ -225,6 +230,8 @@ interface GatewayRuntime {
     insights: Array<{ at: string; text: string; auditID?: string }>;
     trust?: NexusTrustSnapshot;
     trustMode: TrustModeConfig;
+    psycheMode: PsycheModeConfig;
+    guardianSafeHoldReason?: string;
   };
 }
 
@@ -266,6 +273,8 @@ interface GatewaySnapshot {
     insights: Array<{ at: string; text: string; auditID?: string }>;
     trust?: NexusTrustSnapshot;
     trustMode: TrustModeConfig;
+    psycheMode: PsycheModeConfig;
+    guardianSafeHoldReason?: string;
   };
   safety: {
     recentSelfApproval: ReturnType<typeof listRecentSelfApprovalRecords>;
@@ -417,8 +426,17 @@ const DEFAULT_TRUST_MODE: TrustModeConfig = {
   modalMax: 50,
 };
 
+const DEFAULT_PSYCHE_MODE: PsycheModeConfig = {
+  resonanceEnabled: true,
+  captureProbeEnabled: true,
+};
+
 function trustModeFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-trust-mode.json');
+}
+
+function psycheModeFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-psyche-mode.json');
 }
 
 function normalizeTrustMode(input?: Partial<TrustModeConfig>): TrustModeConfig {
@@ -446,6 +464,50 @@ function writeTrustModeConfig(projectDir: string, config: TrustModeConfig): Trus
   const normalized = normalizeTrustMode(config);
   writeJsonAtomic(trustModeFile(projectDir), normalized);
   return normalized;
+}
+
+function normalizePsycheMode(input?: Partial<PsycheModeConfig>): PsycheModeConfig {
+  return {
+    resonanceEnabled:
+      typeof input?.resonanceEnabled === 'boolean'
+        ? input.resonanceEnabled
+        : DEFAULT_PSYCHE_MODE.resonanceEnabled,
+    captureProbeEnabled:
+      typeof input?.captureProbeEnabled === 'boolean'
+        ? input.captureProbeEnabled
+        : DEFAULT_PSYCHE_MODE.captureProbeEnabled,
+  };
+}
+
+function readPsycheModeConfig(projectDir: string): PsycheModeConfig {
+  const raw = safeReadJsonObject(psycheModeFile(projectDir));
+  if (!raw) return DEFAULT_PSYCHE_MODE;
+  return normalizePsycheMode({
+    resonanceEnabled:
+      typeof raw.resonanceEnabled === 'boolean' ? raw.resonanceEnabled : undefined,
+    captureProbeEnabled:
+      typeof raw.captureProbeEnabled === 'boolean' ? raw.captureProbeEnabled : undefined,
+  });
+}
+
+function writePsycheModeConfig(projectDir: string, config: Partial<PsycheModeConfig>): PsycheModeConfig {
+  const current = readPsycheModeConfig(projectDir);
+  const normalized = normalizePsycheMode({
+    ...current,
+    ...config,
+  });
+  writeJsonAtomic(psycheModeFile(projectDir), normalized);
+  return normalized;
+}
+
+function resolvePsycheConsultEnabled(projectDir: string, mode: PsycheModeConfig): boolean {
+  if (process.env.MIYA_PSYCHE_CONSULT_ENABLE === '1') return true;
+  if (process.env.MIYA_PSYCHE_CONSULT_ENABLE === '0') return false;
+  const config = readConfig(projectDir);
+  const configured =
+    (config.automation as Record<string, unknown> | undefined)?.psycheConsultEnabled;
+  if (typeof configured === 'boolean') return configured;
+  return mode.resonanceEnabled;
 }
 
 function gatewayOwnerLockFile(projectDir: string): string {
@@ -1500,7 +1562,29 @@ async function sendChannelMessageGuarded(
     };
   }
 
-  const psycheConsultEnabled = process.env.MIYA_PSYCHE_CONSULT_ENABLE === '1';
+  const psycheMode = runtime.nexus.psycheMode;
+  const psycheConsultEnabled = resolvePsycheConsultEnabled(projectDir, psycheMode);
+  if (!psycheMode.resonanceEnabled && !userInitiated) {
+    runtime.nexus.guardianSafeHoldReason = 'resonance_disabled';
+    appendNexusInsight(runtime, {
+      text: '共鸣层已关闭：自动触达进入静默等待。',
+    });
+    return {
+      sent: false,
+      message: 'outbound_blocked:resonance_disabled_safe_hold',
+      policyHash: resolvedPolicyHash,
+      retryAfterSec: 120,
+      fixability: 'retry_later',
+      budget: { autoRetry: 1, humanEdit: 0 },
+      approvalMode: 'toast_gate',
+      psyche: {
+        decision: 'defer',
+        reason: 'resonance_disabled_safe_hold',
+        state: 'UNKNOWN',
+      },
+    };
+  }
+  runtime.nexus.guardianSafeHoldReason = undefined;
   let psycheConsult:
     | {
         auditID: string;
@@ -1519,6 +1603,7 @@ async function sendChannelMessageGuarded(
         urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
         channel: input.channel,
         userInitiated,
+        allowScreenProbe: psycheMode.captureProbeEnabled,
         signals: input.outboundCheck?.psycheSignals,
         trust: {
           target: `${input.channel}:${input.destination}`,
@@ -1599,6 +1684,7 @@ async function sendChannelMessageGuarded(
       }
     } catch (error) {
       if (!userInitiated) {
+        runtime.nexus.guardianSafeHoldReason = 'psyche_consult_unavailable';
         return {
           sent: false,
           message: 'outbound_blocked:psyche_deferred',
@@ -1666,6 +1752,7 @@ async function sendChannelMessageGuarded(
       policyHash: resolvedPolicyHash,
     },
   });
+  runtime.nexus.guardianSafeHoldReason = undefined;
   if (psycheConsultEnabled && psycheConsult) {
     try {
       const daemon = getMiyaClient(projectDir);
@@ -1931,6 +2018,8 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       insights: runtime.nexus.insights.slice(-10),
       trust: runtime.nexus.trust,
       trustMode: runtime.nexus.trustMode,
+      psycheMode: runtime.nexus.psycheMode,
+      guardianSafeHoldReason: runtime.nexus.guardianSafeHoldReason,
     },
     safety: {
       recentSelfApproval: listRecentSelfApprovalRecords(projectDir, 15),
@@ -3416,6 +3505,39 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
     return {
       mode: next,
+    };
+  });
+  methods.register('psyche.mode.get', async () => {
+    const mode = readPsycheModeConfig(projectDir);
+    runtime.nexus.psycheMode = mode;
+    return {
+      mode,
+      consultEnabled: resolvePsycheConsultEnabled(projectDir, mode),
+    };
+  });
+  methods.register('psyche.mode.set', async (params) => {
+    const next = writePsycheModeConfig(projectDir, {
+      resonanceEnabled:
+        typeof params.resonanceEnabled === 'boolean'
+          ? Boolean(params.resonanceEnabled)
+          : undefined,
+      captureProbeEnabled:
+        typeof params.captureProbeEnabled === 'boolean'
+          ? Boolean(params.captureProbeEnabled)
+          : undefined,
+    });
+    runtime.nexus.psycheMode = next;
+    appendNexusInsight(runtime, {
+      text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}`,
+    });
+    publishGatewayEvent(runtime, 'psyche.mode.update', {
+      at: nowIso(),
+      mode: next,
+      consultEnabled: resolvePsycheConsultEnabled(projectDir, next),
+    });
+    return {
+      mode: next,
+      consultEnabled: resolvePsycheConsultEnabled(projectDir, next),
     };
   });
   methods.register('insight.append', async (params) => {
@@ -4962,6 +5084,8 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       insights: [],
       trust: undefined,
       trustMode: readTrustModeConfig(projectDir),
+      psycheMode: readPsycheModeConfig(projectDir),
+      guardianSafeHoldReason: undefined,
     },
   };
 

@@ -26,6 +26,7 @@ export interface PsycheConsultRequest {
   urgency?: PsycheUrgency;
   channel?: string;
   userInitiated?: boolean;
+  allowScreenProbe?: boolean;
   signals?: SentinelSignals;
   trust?: {
     target?: string;
@@ -169,7 +170,8 @@ export class PsycheConsultService {
     const urgency = asUrgency(input.urgency);
     const userInitiated = input.userInitiated !== false;
     const sentinel = inferSentinelState(input.signals);
-    const needsProbe = sentinel.shouldProbeScreen;
+    const probeEnabled = input.allowScreenProbe !== false;
+    const needsProbe = sentinel.shouldProbeScreen && probeEnabled;
     const probeBudget = needsProbe
       ? consumeProbeBudget(this.probeBudgetPath, this.probeBudgetConfig())
       : { allowed: false, remainingTokens: 0 };
@@ -225,6 +227,7 @@ export class PsycheConsultService {
       intent,
       reasons: [
         ...sentinel.reasons,
+        sentinel.shouldProbeScreen && !probeEnabled ? 'probe_disabled' : '',
         needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
         `fast_brain_score=${fastBrainScore.toFixed(2)}`,
         budgetHint,
@@ -236,6 +239,7 @@ export class PsycheConsultService {
       state,
       reasons: [
         ...sentinel.reasons,
+        sentinel.shouldProbeScreen && !probeEnabled ? 'probe_disabled' : '',
         needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
       ].filter((item) => item.length > 0),
       trustTier,
@@ -271,6 +275,7 @@ export class PsycheConsultService {
       shouldProbeScreen,
       reasons: [
         ...sentinel.reasons,
+        sentinel.shouldProbeScreen && !probeEnabled ? 'probe_disabled' : '',
         needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
       ].filter((item) => item.length > 0),
       approvalMode,

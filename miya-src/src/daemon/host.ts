@@ -293,6 +293,10 @@ const server = Bun.serve({
             urgency,
             channel: typeof params.channel === 'string' ? params.channel : undefined,
             userInitiated: params.userInitiated === false ? false : true,
+            allowScreenProbe:
+              typeof params.allowScreenProbe === 'boolean'
+                ? Boolean(params.allowScreenProbe)
+                : undefined,
             signals:
               params.signals && typeof params.signals === 'object' && !Array.isArray(params.signals)
                 ? (params.signals as Record<string, unknown>)

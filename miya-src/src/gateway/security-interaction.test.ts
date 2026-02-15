@@ -141,6 +141,31 @@ describe('gateway security interaction acceptance', () => {
     }
   });
 
+  test('toggles psyche guard mode and exposes it in snapshot', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      const updated = (await client.request('psyche.mode.set', {
+        resonanceEnabled: false,
+        captureProbeEnabled: false,
+      })) as { mode?: { resonanceEnabled?: boolean; captureProbeEnabled?: boolean } };
+      expect(updated.mode?.resonanceEnabled).toBe(false);
+      expect(updated.mode?.captureProbeEnabled).toBe(false);
+
+      const snapshot = (await client.request('gateway.status.get')) as {
+        nexus?: {
+          psycheMode?: { resonanceEnabled?: boolean; captureProbeEnabled?: boolean };
+        };
+      };
+      expect(snapshot.nexus?.psycheMode?.resonanceEnabled).toBe(false);
+      expect(snapshot.nexus?.psycheMode?.captureProbeEnabled).toBe(false);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
   test('speaker gate pauses outbound/desktop/memory_read in guest mode', async () => {
     const prevStrict = process.env.MIYA_VOICEPRINT_STRICT;
     process.env.MIYA_VOICEPRINT_STRICT = '0';

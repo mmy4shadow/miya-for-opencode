@@ -13,6 +13,11 @@ interface TrustModeConfig {
   modalMax: number;
 }
 
+interface PsycheModeConfig {
+  resonanceEnabled: boolean;
+  captureProbeEnabled: boolean;
+}
+
 type KillSwitchMode = 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
 
 interface GatewaySnapshot {
@@ -55,6 +60,8 @@ interface GatewaySnapshot {
     insights?: Array<{ at?: string; text?: string; auditID?: string }>;
     trust?: NexusTrustSnapshot;
     trustMode?: TrustModeConfig;
+    psycheMode?: PsycheModeConfig;
+    guardianSafeHoldReason?: string;
   };
   nodes?: {
     total?: number;
@@ -114,6 +121,13 @@ function statusTone(status?: string): string {
     return 'text-amber-300';
   }
   return 'text-rose-300';
+}
+
+function guardianReasonLabel(reason?: string): string {
+  if (!reason) return '无';
+  if (reason === 'resonance_disabled') return '共鸣层已关闭，自动触达进入静默等待';
+  if (reason === 'psyche_consult_unavailable') return '守门员离线，已自动降级为静默模式';
+  return reason;
 }
 
 async function invokeGateway(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -185,6 +199,10 @@ export default function App() {
     silentMin: 90,
     modalMax: 50,
   });
+  const [psycheModeForm, setPsycheModeForm] = useState<PsycheModeConfig>({
+    resonanceEnabled: true,
+    captureProbeEnabled: true,
+  });
 
   const refresh = async () => {
     try {
@@ -204,6 +222,10 @@ export default function App() {
       const incomingMode = status.nexus?.trustMode;
       if (incomingMode) {
         setTrustModeForm(incomingMode);
+      }
+      const incomingPsycheMode = status.nexus?.psycheMode;
+      if (incomingPsycheMode) {
+        setPsycheModeForm(incomingPsycheMode);
       }
       setErrorText('');
     } catch (error) {
@@ -243,7 +265,7 @@ export default function App() {
       {
         title: '风险票据',
         value: String(snapshot.nexus?.pendingTickets ?? 0),
-        desc: `当前工具 ${snapshot.nexus?.activeTool ?? '无'}`,
+        desc: `守门员：${guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}`,
       },
     ],
     [connected, snapshot],
@@ -302,7 +324,7 @@ export default function App() {
             </div>
             <div className="rounded border border-white/10 bg-black/20 p-2">
               <p className="font-medium">步骤 2：调安全开关</p>
-              <p className="text-slate-300">外发或桌控异常时，先用 KillSwitch。</p>
+              <p className="text-slate-300">外发或桌控异常时，先用紧急开关。</p>
             </div>
             <div className="rounded border border-white/10 bg-black/20 p-2">
               <p className="font-medium">步骤 3：写操作备注</p>
@@ -325,7 +347,7 @@ export default function App() {
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
-            <h2 className="text-sm font-semibold">安全总开关（KillSwitch）</h2>
+            <h2 className="text-sm font-semibold">安全总开关（紧急开关）</h2>
             <p className="mt-1 text-xs text-slate-300">当前模式：{killSwitchLabel(killSwitchMode)}</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {([
@@ -411,28 +433,50 @@ export default function App() {
           </article>
 
           <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
-            <h2 className="text-sm font-semibold">操作备注（Insight）</h2>
-            <p className="mt-1 text-xs text-slate-300">建议每次手工干预后记录一句，方便复盘。</p>
-            <textarea
-              value={insightText}
-              onChange={(event) => setInsightText(event.target.value)}
-              rows={4}
-              className="mt-3 w-full rounded border border-white/20 bg-black/20 p-2 text-xs"
-              placeholder="例如：今天 14:10 手工暂停外发，等待人工确认后再恢复。"
-            />
-            <button
-              type="button"
-              disabled={loading || !insightText.trim()}
-              onClick={() =>
-                void runAction(async () => {
-                  await invokeGateway('insight.append', { text: insightText.trim() });
-                  setInsightText('');
-                }, '备注已写入时间线')
-              }
-              className="mt-2 rounded-lg border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
-            >
-              写入备注
-            </button>
+            <h2 className="text-sm font-semibold">守门员开关（新手推荐）</h2>
+            <p className="mt-1 text-xs text-slate-300">关闭共鸣层后，自动触达将进入静默等待；关闭截图核验后，系统不再做截图/VLM探测。</p>
+            <div className="mt-3 space-y-2 text-xs">
+              <label className="flex items-center justify-between rounded border border-white/15 bg-black/20 px-3 py-2">
+                <span>共鸣层（主动陪伴）</span>
+                <input
+                  type="checkbox"
+                  checked={psycheModeForm.resonanceEnabled}
+                  onChange={(event) =>
+                    setPsycheModeForm((prev) => ({ ...prev, resonanceEnabled: event.target.checked }))
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between rounded border border-white/15 bg-black/20 px-3 py-2">
+                <span>截图/VLM 核验</span>
+                <input
+                  type="checkbox"
+                  checked={psycheModeForm.captureProbeEnabled}
+                  onChange={(event) =>
+                    setPsycheModeForm((prev) => ({
+                      ...prev,
+                      captureProbeEnabled: event.target.checked,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-400">
+              当前降级原因：{guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() =>
+                  void runAction(async () => {
+                    await invokeGateway('psyche.mode.set', psycheModeForm as unknown as Record<string, unknown>);
+                  }, '守门员开关已保存')
+                }
+                className="rounded-lg border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+              >
+                保存守门员设置
+              </button>
+            </div>
           </article>
         </section>
 
@@ -465,7 +509,7 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-slate-400">策略哈希：{snapshot.policyHash ?? 'n/a'}</p>
+            <p className="mt-2 text-[11px] text-slate-400">策略哈希：{snapshot.policyHash ?? '暂无'}</p>
           </article>
 
           <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
@@ -495,7 +539,7 @@ export default function App() {
                 <div key={`${run.id ?? 'run'}-${index}`} className="rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs">
                   <p className="font-medium">{run.id ?? '任务'}</p>
                   <p className={statusTone(run.status)}>{run.status ?? '未知状态'}</p>
-                  <p className="text-slate-300">触发方式：{run.trigger ?? 'manual'} / 更新时间：{run.updatedAt ?? 'n/a'}</p>
+                  <p className="text-slate-300">触发方式：{run.trigger ?? '手动'} / 更新时间：{run.updatedAt ?? '暂无'}</p>
                 </div>
               ))}
             </div>
@@ -503,11 +547,33 @@ export default function App() {
 
           <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
             <h2 className="text-sm font-semibold">系统时间线</h2>
+            <p className="mt-1 text-xs text-slate-300">人工干预后建议写一条备注，后续排障更快。</p>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={insightText}
+                onChange={(event) => setInsightText(event.target.value)}
+                className="w-full rounded border border-white/20 bg-black/20 px-2 py-1 text-xs"
+                placeholder="例如：已手工暂停外发，等本人确认。"
+              />
+              <button
+                type="button"
+                disabled={loading || !insightText.trim()}
+                onClick={() =>
+                  void runAction(async () => {
+                    await invokeGateway('insight.append', { text: insightText.trim() });
+                    setInsightText('');
+                  }, '备注已写入时间线')
+                }
+                className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10"
+              >
+                记录
+              </button>
+            </div>
             <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
               {(snapshot.nexus?.insights ?? []).map((item, index) => (
                 <div key={`${item.at ?? 'ins'}-${index}`} className="rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs">
                   <p className="text-slate-100">{item.text ?? '无内容'}</p>
-                  <p className="text-slate-400">{item.at ?? 'n/a'} {item.auditID ? `| ${item.auditID}` : ''}</p>
+                  <p className="text-slate-400">{item.at ?? '暂无'} {item.auditID ? `| ${item.auditID}` : ''}</p>
                 </div>
               ))}
             </div>

@@ -161,6 +161,7 @@ export class MiyaClient {
     urgency?: 'low' | 'medium' | 'high' | 'critical';
     channel?: string;
     userInitiated?: boolean;
+    allowScreenProbe?: boolean;
     signals?: SentinelSignals;
     trust?: {
       target?: string;
