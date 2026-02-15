@@ -10,6 +10,7 @@
 3. The hook stages touched files plus tracked updates only (prevents accidental full-repo add).
 4. If auto push fails, report the error clearly and provide a reproducible recovery command.
 5. Project rule: all modifications must be limited to Miya plugin files (primarily `miya-src/**`) unless explicitly requested otherwise.
+6. Planning-document rule: `Miya插件开发完整项目规划.md` must describe ideal target outcomes; except for entries marked `进行中`, all unmet entries must be updated to match the real code status.
 
 ## Runtime Verification
 - Check resolved config: `opencode debug config`
