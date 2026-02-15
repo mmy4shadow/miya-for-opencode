@@ -14,6 +14,108 @@
 - 本文保留全部原有要求与段落，仅做结构梳理/标题层级与编号整理，避免信息丢失。
 - 建议阅读顺序：0（宪法条款）→ 1（愿景/架构综述）→ 2（硬规则）→ 3（竞品对标）→ 4（详细设计）→ 5（现有源码）→ 6（待实现规划）→ 7-11（优先级/风险/里程碑/验收/总结）。
 
+## 2026-02-15 全面修订补丁（高优先级解释层，不删除原文）
+
+本补丁为本规划的“解释优先层”。若后续章节存在历史口径冲突，以本补丁为准，原文保留仅用于追溯演进背景。
+
+### 1. 基础架构方向性修正与闭环
+
+1. **核心定位升级（强制）**  
+   Miya 从“伴侣级生产力插件”升级为：**OpenCode 全自动控制平面（自动化执行引擎）**。  
+   统一输出定义：`给定目标/意图 -> 自动编排 -> 自动执行 -> 产出可验证结果`，默认无需用户持续管控。
+
+2. **角色与能力分层（强制）**  
+   - 用户角色期望：助理/伴侣/生产力工具（体验层）。  
+   - 技术能力实现：**单一 Agent Runtime + 多能力域 Skill 映射**（系统层）。  
+   - 历史文档中的“Agent 人格/身份”描述，统一降级为“Skill 能力域+策略模板”。
+
+3. **取消第二套 Agent 调度系统（强制）**  
+   - 历史中“内部六个 Agent 自治协作编排”统一解释为：`六个能力域 Skill 分区`。  
+   - Miya 不自研多 Agent runtime/orchestration，直接复用 OpenCode 既有行为调度与执行链路。
+
+### 2. 架构一致性与生态兼容修正
+
+4. **权限体系对齐 OpenCode（强制）**  
+   - 所有有副作用动作必须经过 OpenCode permission hook（`allow/ask/deny`），不得旁路。  
+   - 权限声明、策略字段与 OpenCode 官方 JSON schema 同步。  
+   - 增设“权限要求准入机制”：未声明 permission metadata 的工具/Skill 不可进入执行路径。
+
+5. **统一事件 Hook 命名与调用链（强制）**  
+   规划层统一事件链：  
+   - `tool.execute.before`  
+   - `tool.execute.action`  
+   - `tool.execute.after`  
+   - `on.agent.state.change`  
+   - `on.permission.request`  
+   约束：事件名禁止硬编码字符串常量，必须由官方 SDK 类型导出（或类型映射层）统一引用。
+
+6. **工具注册与发现机制修正（强制）**  
+   Miya 统一采用 OpenCode 官方插件目录规范，不引入平行 discover/register 协议：  
+   - 必备结构：`opencode.json + package.json + tools/ + skills/`  
+   - manifest 必须包含 schema version、兼容版本区间、权限声明、能力标签、审计字段策略。
+
+### 3. 开发流程与质量门禁（新增）
+
+7. **文档-代码一致性门禁（新增）**  
+   引入 `Doc Linter / Planning Validator`：  
+   - 校验规划中的 feature、目录、能力定义与源码实现的一致性。  
+   - 检测上游更新造成的规范漂移并阻断合并。
+
+8. **测试覆盖与自动验证（新增）**  
+   - 单元测试：工具调用、权限判断、事件分发、策略裁决。  
+   - 集成测试：Skill 执行链、多环节事件触发、权限交互闭环。  
+   - E2E：给定意图后自动完成目标并输出证据包。
+
+9. **CI/CD 规范（新增）**  
+   - 每次 push 必跑测试与门禁。  
+   - `Doc Linter` 未通过不得 merge。  
+   - 所有 release 版本必须附测试报告、策略哈希、schema 兼容报告。
+
+### 4. 生态对接与跨项目协作修正
+
+10. **OpenClaw/oh-my-opencode 资源桥接规范（新增）**  
+   - 外部 Skill 导入必须版本锁定（pin）+ 信任评估（dependency allow-list）。  
+   - 依赖非官方包的外部 Skill 必须在 sandbox 权限下执行。  
+   - 外部 Skill 必须携带 permission metadata，缺失即拒绝加载。
+
+11. **Ecosystem Bridge 层（新增）**  
+   新增桥接层职责：  
+   - 上游版本兼容映射  
+   - Skill 目录自动发现与索引  
+   - 权限模型映射  
+   - 冲突检测与回退建议
+
+12. **模块化 capability schema 标准化（新增）**  
+   所有工具/Skill/场景/行为必须暴露 capability schema，且与 OpenCode 官方类型兼容。  
+   schema 最低字段：`id`、`version`、`inputs`、`outputs`、`sideEffects`、`permissions`、`auditFields`、`fallbackPlan`。
+
+### 5. 原始内容纠错与补全（在不删除原文前提下）
+
+13. **误导性定义修复（已纳入解释层）**  
+   - Agent/Skill 关系统一改写为“单 Runtime + 多 Skill”。  
+   - 插件目录引用修正为官方结构。  
+   - 事件链补齐 before/action/after/permission。
+
+14. **参考项目清单补齐（已纳入）**  
+   - MemOS 保留为参考项目并补全标注。  
+   - 所有参考项重标状态：实现级/启发级/待实现。
+
+15. **能力边界补充（已纳入）**  
+   补齐三层边界：语义理解层、意图编排层、工具执行层。  
+   统一执行流：`Intent -> Plan -> Permission -> Execute -> Verify -> Audit -> Feedback`。
+
+16. **评价指标与成功标准（新增冻结）**  
+   冻结 KPI：  
+   - 执行正确率  
+   - 任务完成率  
+   - 权限合规率  
+   - 外部 Skill 接入成功率  
+   - 文档与代码一致率
+
+### 一句话总纲（冻结）
+
+Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode 原生权限与事件闭环 + Ecosystem Bridge 兼容层 + CI 门禁驱动的可验证交付体系**。
+
 ## 目录
 
 - 0. 最终定位与不变前提（宪法条款）
