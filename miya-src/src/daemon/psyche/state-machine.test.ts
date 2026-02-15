@@ -44,4 +44,17 @@ describe('psyche sentinel state machine', () => {
     expect(state.state).toBe('UNKNOWN');
     expect(state.reasons.join(',')).toContain('screen_probe_black');
   });
+
+  test('falls back to unknown when screen probe fails without media signal', () => {
+    const state = inferSentinelState({
+      idleSec: 420,
+      foreground: 'other',
+      fullscreen: false,
+      audioActive: false,
+      screenProbe: 'timeout',
+    });
+    expect(state.state).toBe('UNKNOWN');
+    expect(state.reasons.join(',')).toContain('screen_probe_timeout');
+    expect(state.reasons.join(',')).toContain('probe_failed_fallback_unknown');
+  });
 });

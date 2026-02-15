@@ -54,12 +54,12 @@ export function inferSentinelState(input?: SentinelSignals): SentinelInference {
   let shouldProbeScreen = false;
 
   const probeFailed = screenProbe === 'black' || screenProbe === 'error' || screenProbe === 'timeout';
-  if (probeFailed && (audioActive || fullscreen)) {
+  if (probeFailed) {
     reasons.push(`screen_probe_${screenProbe}`);
-    reasons.push('probe_failed_with_media_signals');
+    reasons.push(audioActive || fullscreen ? 'probe_failed_with_media_signals' : 'probe_failed_fallback_unknown');
     return {
       state: 'UNKNOWN',
-      confidence: toConfidence(0.42),
+      confidence: toConfidence(audioActive || fullscreen ? 0.42 : 0.4),
       reasons,
       shouldProbeScreen: false,
     };
