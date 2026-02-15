@@ -5,6 +5,9 @@ import { getMiyaVisionTempDir } from '../../model/paths';
 export interface DesktopOutboundResult {
   sent: boolean;
   message: string;
+  automationPath?: 'uia' | 'sendkeys' | 'mixed';
+  simulationStatus?: 'captured' | 'not_available';
+  simulationRiskHints?: string[];
   visualPrecheck?: string;
   visualPostcheck?: string;
   receiptStatus?: 'confirmed' | 'uncertain';
@@ -63,6 +66,9 @@ export async function sendDesktopOutbound(input: {
     return Promise.resolve({
       sent: false,
       message: 'desktop_ui_windows_only',
+      automationPath: 'sendkeys',
+      simulationStatus: 'not_available',
+      simulationRiskHints: ['platform_not_supported'],
       receiptStatus: 'uncertain',
       failureStep: 'preflight.platform',
       payloadHash,
@@ -73,6 +79,9 @@ export async function sendDesktopOutbound(input: {
     return Promise.resolve({
       sent: false,
       message: 'desktop_ui_disabled:set MIYA_UI_AUTOMATION_ENABLED=1',
+      automationPath: 'sendkeys',
+      simulationStatus: 'not_available',
+      simulationRiskHints: ['desktop_ui_disabled'],
       receiptStatus: 'uncertain',
       failureStep: 'preflight.runtime_switch',
       payloadHash,
@@ -84,6 +93,9 @@ export async function sendDesktopOutbound(input: {
     return Promise.resolve({
       sent: false,
       message: 'invalid_desktop_send_args',
+      automationPath: 'sendkeys',
+      simulationStatus: 'not_available',
+      simulationRiskHints: ['invalid_arguments'],
       receiptStatus: 'uncertain',
       failureStep: 'preflight.args',
       payloadHash,
@@ -95,6 +107,7 @@ export async function sendDesktopOutbound(input: {
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+try { Add-Type -AssemblyName UIAutomationClient | Out-Null } catch {}
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -125,6 +138,9 @@ $recipientCheck = "uncertain"
 $preShot = ""
 $postShot = ""
 $windowFingerprint = ""
+$automationPath = "sendkeys"
+$simulation = "not_available"
+$riskHints = New-Object System.Collections.Generic.List[string]
 
 function Save-Screenshot {
   param([string]$TargetPath)
@@ -190,6 +206,29 @@ function Assert-NoUserInterference {
   }
 }
 
+function Try-SendTextViaUia {
+  param(
+    [string]$Value,
+    [int]$ExpectedProcessId
+  )
+  try {
+    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+    if (-not $focused) { return $false }
+    if ($ExpectedProcessId -gt 0 -and $focused.Current.ProcessId -ne $ExpectedProcessId) {
+      return $false
+    }
+    $valuePattern = $focused.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    if (-not $valuePattern) { return $false }
+    if ($focused.Current.IsEnabled -ne $true) { return $false }
+    $valuePattern.SetValue($Value)
+    Start-Sleep -Milliseconds 120
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 try {
   if (-not (Test-Path -LiteralPath $evidenceDir)) {
     New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
@@ -235,6 +274,17 @@ if ($windowTitle -like ("*" + $destination + "*")) {
 } else {
   $recipientCheck = "uncertain"
 }
+if ($env:MIYA_DESKTOP_UIA_FIRST -eq '0') {
+  $riskHints.Add("uia_disabled_by_config")
+} else {
+  try {
+    $null = [System.Windows.Automation.AutomationElement]::FocusedElement
+    $simulation = "captured"
+  } catch {
+    $simulation = "not_available"
+    $riskHints.Add("uia_runtime_unavailable")
+  }
+}
 
 if ($mediaPath) {
   Assert-NoUserInterference -LockPoint $lockPoint
@@ -253,17 +303,41 @@ if ($mediaPath) {
   Start-Sleep -Milliseconds 220
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   Start-Sleep -Milliseconds 240
+  if ($automationPath -eq "uia") { $automationPath = "mixed" } else { $automationPath = "sendkeys" }
+  if ($env:MIYA_DESKTOP_UIA_FIRST -ne '0') { $riskHints.Add("media_sendkeys_path") }
 }
 
 if ($payload) {
   Assert-NoUserInterference -LockPoint $lockPoint
-  $step = "send.text_prepare"
-  Set-Clipboard -Value $payload
-  Start-Sleep -Milliseconds 180
-  [System.Windows.Forms.SendKeys]::SendWait('^v')
-  $step = "send.text_commit"
-  Start-Sleep -Milliseconds 120
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  $sentViaUia = $false
+  if ($env:MIYA_DESKTOP_UIA_FIRST -ne '0' -and $windowProc) {
+    $step = "send.text_prepare.uia"
+    $sentViaUia = Try-SendTextViaUia -Value $payload -ExpectedProcessId $windowProc.Id
+    if ($sentViaUia) {
+      if ($automationPath -eq "sendkeys") {
+        $automationPath = "uia"
+      } else {
+        $automationPath = "mixed"
+      }
+      $step = "send.text_commit.uia"
+    } else {
+      $riskHints.Add("uia_fallback_sendkeys")
+    }
+  }
+  if (-not $sentViaUia) {
+    $step = "send.text_prepare"
+    Set-Clipboard -Value $payload
+    Start-Sleep -Milliseconds 180
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    $step = "send.text_commit"
+    Start-Sleep -Milliseconds 120
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    if ($automationPath -eq "uia") {
+      $automationPath = "mixed"
+    } else {
+      $automationPath = "sendkeys"
+    }
+  }
 }
 
 $step = "postcheck.activate"
@@ -276,11 +350,11 @@ $step = "postcheck.capture"
 $postShot = Join-Path $evidenceDir ($traceId + "_post.png")
 Save-Screenshot -TargetPath $postShot
 
-Write-Output ("desktop_send_ok|step=" + $step + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + $windowFingerprint.Replace('|', '/') + "|pre_shot=" + $preShot.Replace('|', '/') + "|post_shot=" + $postShot.Replace('|', '/') + "|payload=" + $payloadHash)
+Write-Output ("desktop_send_ok|step=" + $step + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + $windowFingerprint.Replace('|', '/') + "|pre_shot=" + $preShot.Replace('|', '/') + "|post_shot=" + $postShot.Replace('|', '/') + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|risk=" + (($riskHints -join ',').Replace('|', '/')))
 exit 0
 } catch {
   $err = $_.Exception.Message.Replace('|', '/')
-  Write-Output ("desktop_send_fail|step=" + $step + "|error=" + $err + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + $windowFingerprint.Replace('|', '/') + "|pre_shot=" + $preShot.Replace('|', '/') + "|post_shot=" + $postShot.Replace('|', '/') + "|payload=" + $payloadHash)
+  Write-Output ("desktop_send_fail|step=" + $step + "|error=" + $err + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + $windowFingerprint.Replace('|', '/') + "|pre_shot=" + $preShot.Replace('|', '/') + "|post_shot=" + $postShot.Replace('|', '/') + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|risk=" + (($riskHints -join ',').Replace('|', '/')))
   exit 2
 }
 `.trim();
@@ -327,10 +401,24 @@ exit 0
   const preSendScreenshotPath = safeValueFromSignal(signal, 'pre_shot');
   const postSendScreenshotPath = safeValueFromSignal(signal, 'post_shot');
   const payloadFromSignal = safeValueFromSignal(signal, 'payload') ?? payloadHash;
+  const automationRaw = safeValueFromSignal(signal, 'automation');
+  const automationPath =
+    automationRaw === 'uia' || automationRaw === 'mixed' || automationRaw === 'sendkeys'
+      ? automationRaw
+      : 'sendkeys';
+  const simulationRaw = safeValueFromSignal(signal, 'simulation');
+  const simulationStatus = simulationRaw === 'captured' ? 'captured' : 'not_available';
+  const simulationRiskHints = (safeValueFromSignal(signal, 'risk') ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
   if (exitCode === 0 && stdout.includes('desktop_send_ok') && !timedOut) {
     return {
       sent: true,
       message: `${input.channel}_desktop_sent`,
+      automationPath,
+      simulationStatus,
+      simulationRiskHints,
       visualPrecheck: precheck,
       visualPostcheck: postcheck,
       receiptStatus: receipt,
@@ -353,6 +441,9 @@ exit 0
   return {
     sent: false,
     message: `${input.channel}_desktop_send_failed:${detail}`,
+    automationPath,
+    simulationStatus,
+    simulationRiskHints,
     visualPrecheck: precheck,
     visualPostcheck: postcheck,
     receiptStatus: receipt,

@@ -87,7 +87,7 @@ Note: this fork currently only includes the plugin source and build output; upst
   </tr>
   <tr>
     <td colspan="2">
-      <b>Prompt:</b> <a href="src/agents/orchestrator.ts"><code>orchestrator.ts</code></a>
+      <b>Prompt:</b> <a href="src/agents/1-task-manager.ts"><code>1-task-manager.ts</code></a>
     </td>
   </tr>
   <tr>
@@ -118,7 +118,7 @@ Note: this fork currently only includes the plugin source and build output; upst
   </tr>
   <tr>
     <td colspan="2">
-      <b>Prompt:</b> <a href="src/agents/explorer.ts"><code>explorer.ts</code></a>
+      <b>Prompt:</b> <a href="src/agents/2-code-search.ts"><code>2-code-search.ts</code></a>
     </td>
   </tr>
   <tr>
@@ -149,7 +149,7 @@ Note: this fork currently only includes the plugin source and build output; upst
   </tr>
   <tr>
     <td colspan="2">
-      <b>Prompt:</b> <a href="src/agents/oracle.ts"><code>oracle.ts</code></a>
+      <b>Prompt:</b> <a href="src/agents/4-architecture-advisor.ts"><code>4-architecture-advisor.ts</code></a>
     </td>
   </tr>
   <tr>
@@ -180,7 +180,7 @@ Note: this fork currently only includes the plugin source and build output; upst
   </tr>
   <tr>
     <td colspan="2">
-      <b>Prompt:</b> <a href="src/agents/librarian.ts"><code>librarian.ts</code></a>
+      <b>Prompt:</b> <a href="src/agents/3-docs-helper.ts"><code>3-docs-helper.ts</code></a>
     </td>
   </tr>
   <tr>
@@ -211,7 +211,7 @@ Note: this fork currently only includes the plugin source and build output; upst
   </tr>
   <tr>
     <td colspan="2">
-      <b>Prompt:</b> <a href="src/agents/designer.ts"><code>designer.ts</code></a>
+      <b>Prompt:</b> <a href="src/agents/6-ui-designer.ts"><code>6-ui-designer.ts</code></a>
     </td>
   </tr>
   <tr>
@@ -242,7 +242,7 @@ Note: this fork currently only includes the plugin source and build output; upst
   </tr>
   <tr>
     <td colspan="2">
-      <b>Prompt:</b> <a href="src/agents/fixer.ts"><code>fixer.ts</code></a>
+      <b>Prompt:</b> <a href="src/agents/5-code-fixer.ts"><code>5-code-fixer.ts</code></a>
     </td>
   </tr>
   <tr>

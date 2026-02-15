@@ -8,12 +8,21 @@ type Violation = {
 
 const violations: Violation[] = [];
 
-const PLANNING_PATH_MIGRATIONS = new Map<string, string>([
-  ['miya-src/src/memory/*', 'miya-src/src/companion/*'],
-  ['miya-src/src/memory/', 'miya-src/src/companion/'],
-  ['miya-src/src/memory', 'miya-src/src/companion'],
-  ['miya-src/src/agents/orchestrator.ts', 'miya-src/src/agents/1-task-manager.ts'],
-]);
+const LEGACY_PATH_PATTERNS = [
+  /miya-src\/src\/memory(?:\/|\b)/,
+  /(?:miya-src\/)?src\/agents\/orchestrator\.ts/,
+  /(?:miya-src\/)?src\/agents\/explorer\.ts/,
+  /(?:miya-src\/)?src\/agents\/oracle\.ts/,
+  /(?:miya-src\/)?src\/agents\/librarian\.ts/,
+  /(?:miya-src\/)?src\/agents\/designer\.ts/,
+  /(?:miya-src\/)?src\/agents\/fixer\.ts/,
+];
+
+const LEGACY_TERMS = [
+  'user.message.before',
+  'tool.use.before',
+  'tool.use.after',
+];
 
 function requireFile(path: string, code: string): void {
   if (!existsSync(path)) {
@@ -107,22 +116,9 @@ function wildcardPathExists(workspaceRoot: string, pattern: string): boolean {
   return false;
 }
 
-function tryResolvePlanningPath(
-  workspaceRoot: string,
-  candidate: string,
-): {
-  ok: boolean;
-  resolvedPath?: string;
-  mappedFrom?: string;
-} {
-  if (wildcardPathExists(workspaceRoot, candidate)) {
-    return { ok: true, resolvedPath: candidate };
-  }
-  const mapped = PLANNING_PATH_MIGRATIONS.get(candidate);
-  if (mapped && wildcardPathExists(workspaceRoot, mapped)) {
-    return { ok: true, resolvedPath: mapped, mappedFrom: candidate };
-  }
-  return { ok: false };
+function isLegacyPathToken(candidate: string): boolean {
+  const normalized = normalizePathToken(candidate);
+  return LEGACY_PATH_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 function distToSourcePath(candidate: string): string | null {
@@ -136,9 +132,21 @@ function distToSourcePath(candidate: string): string | null {
   return mapped;
 }
 
+function assertNoLegacyTerms(content: string, scope: string): void {
+  for (const legacy of LEGACY_TERMS) {
+    if (content.includes(legacy)) {
+      violations.push({
+        code: 'docs.legacy.term',
+        message: `${scope} contains forbidden legacy term: ${legacy}`,
+      });
+    }
+  }
+}
+
 const repoRoot = process.cwd();
 const workspaceRoot = join(repoRoot, '..');
 const planningPath = join(workspaceRoot, 'Miya插件开发完整项目规划.md');
+const readmePath = join(repoRoot, 'README.md');
 const pluginEntryPath = join(repoRoot, 'src', 'index.ts');
 const packagePath = join(repoRoot, 'package.json');
 const manifestPath = join(repoRoot, 'opencode.json');
@@ -147,12 +155,18 @@ requireFile(pluginEntryPath, 'entry.missing');
 requireFile(packagePath, 'package.missing');
 requireFile(manifestPath, 'manifest.missing');
 requireFile(planningPath, 'planning.missing');
+requireFile(readmePath, 'readme.missing');
 
 if (existsSync(pluginEntryPath)) {
   const source = readFileSync(pluginEntryPath, 'utf8');
   requireText(source, "'tool.execute.before'", 'hook.before', 'src/index.ts');
   requireText(source, "'tool.execute.after'", 'hook.after', 'src/index.ts');
-  requireText(source, "'permission.ask'", 'hook.permission', 'src/index.ts');
+  if (!source.includes("'permission.ask'") && !source.includes('PERMISSION_OBSERVED_HOOK')) {
+    violations.push({
+      code: 'hook.permission',
+      message: 'src/index.ts missing permission hook wiring (permission.ask/PERMISSION_OBSERVED_HOOK)',
+    });
+  }
   for (const legacyKey of ['tool.use.before', 'tool.use.after']) {
     if (source.includes(legacyKey)) {
       violations.push({
@@ -193,11 +207,36 @@ if (existsSync(manifestPath)) {
   }
 }
 
+if (existsSync(readmePath)) {
+  const readme = readFileSync(readmePath, 'utf8');
+  assertNoLegacyTerms(readme, 'README.md');
+  for (const pattern of LEGACY_PATH_PATTERNS) {
+    if (pattern.test(readme)) {
+      violations.push({
+        code: 'readme.path.legacy',
+        message: `README.md contains forbidden legacy path pattern: ${pattern.source}`,
+      });
+    }
+  }
+  const readmePaths = extractPlanningPathCandidates(readme);
+  for (const candidate of readmePaths) {
+    if (isLegacyPathToken(candidate)) {
+      violations.push({
+        code: 'readme.path.legacy',
+        message: `README.md contains forbidden legacy path: ${candidate}`,
+      });
+    }
+  }
+}
+
 if (existsSync(planningPath)) {
   const planning = readFileSync(planningPath, 'utf8');
+  assertNoLegacyTerms(planning, '规划文档');
   for (const expected of [
     'tool.execute.before',
     'tool.execute.after',
+    'permission.asked',
+    'permission.replied',
     '.opencode/plugins/',
     '.opencode/tools/',
     '.opencode/package.json',
@@ -209,8 +248,15 @@ if (existsSync(planningPath)) {
 
   const pathCandidates = extractPlanningPathCandidates(planning);
   for (const candidate of pathCandidates) {
-    const resolved = tryResolvePlanningPath(workspaceRoot, candidate);
-    if (!resolved.ok) {
+    if (isLegacyPathToken(candidate)) {
+      violations.push({
+        code: 'planning.path.legacy',
+        message: `规划路径使用了已禁用旧口径: ${candidate}`,
+      });
+      continue;
+    }
+
+    if (!wildcardPathExists(workspaceRoot, candidate)) {
       violations.push({
         code: 'planning.path.unresolved',
         message: `规划路径不可解析: ${candidate}`,
@@ -218,12 +264,11 @@ if (existsSync(planningPath)) {
       continue;
     }
 
-    const resolvedPath = resolved.resolvedPath ?? candidate;
-    const sourcePath = distToSourcePath(resolvedPath);
+    const sourcePath = distToSourcePath(candidate);
     if (sourcePath && !wildcardPathExists(workspaceRoot, sourcePath)) {
       violations.push({
         code: 'planning.path.source_missing',
-        message: `dist 路径缺少可解析的 src source-of-truth: ${resolvedPath} -> ${sourcePath}`,
+        message: `dist 路径缺少可解析的 src source-of-truth: ${candidate} -> ${sourcePath}`,
       });
       continue;
     }
@@ -231,7 +276,7 @@ if (existsSync(planningPath)) {
     if (sourcePath && !planning.includes(sourcePath)) {
       violations.push({
         code: 'planning.path.source_undeclared',
-        message: `规划引用 dist 路径但未声明对应 src source-of-truth: ${resolvedPath} -> ${sourcePath}`,
+        message: `规划引用 dist 路径但未声明对应 src source-of-truth: ${candidate} -> ${sourcePath}`,
       });
     }
   }

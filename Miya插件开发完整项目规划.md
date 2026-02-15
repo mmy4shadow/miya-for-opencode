@@ -46,7 +46,7 @@
    - `tool.execute.before`（执行前闸门）  
    - `tool.execute.after`（证据归档）  
    - `permission.asked` / `permission.replied`（权限观测）  
-   约束：正文中历史口径 `user.message.before`、`permission.ask`、`tool.use.*` 一律标注为“历史草案名词”，实现必须以官方事件名为准。
+   约束：正文中若出现历史草案名词，仅作为演进追溯；实现必须以 `tool.execute.before/after` 与 `permission.asked/replied` 为准，并通过兼容适配层承接 SDK `permission.ask` 输入事件。
 
 6. **工具注册与发现机制修正（强制）**  
    Miya 统一采用 OpenCode 官方插件目录规范，不引入平行 discover/register 协议：  
@@ -114,6 +114,16 @@
 ### 一句话总纲（冻结）
 
 Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode 原生权限与事件闭环 + Ecosystem Bridge 兼容层 + CI 门禁驱动的可验证交付体系**。
+
+### 2026-02-15 实施状态回填（本轮已落地）
+
+- P0 已落地：权限事件适配层已建立（`miya-src/src/contracts/permission-events.ts`），实现口径为 `permission.asked/replied`，并兼容 SDK 输入 `permission.ask`。
+- P0 已落地：Gateway 协议升级为版本协商 + 请求幂等键 + 可选 challenge 签名（`miya-src/src/gateway/protocol.ts`、`miya-src/src/gateway/index.ts`），且补充旧客户端握手兼容测试（`miya-src/src/gateway/milestone-acceptance.test.ts`）。
+- P0 已落地：文档治理升级为“禁止新增旧口径”，移除路径迁移兜底，README 与规划旧路径已清算（`miya-src/tools/doc-lint.ts`、`miya-src/README.md`）。
+- P1 已落地：桌控链路升级为 UIA 优先 + SendKeys fallback，并记录 simulation/risk 证据（`miya-src/src/channel/outbound/shared.ts`、`miya-src/src/channels/service.ts`）。
+- P1 已落地：OpenClaw 兼容扩展至 status/session/send/pairing 查询子集（`miya-src/src/adapters/openclaw/server.py`、`miya-src/src/gateway/index.ts`）。
+- P1 已落地：Gateway token 默认强制，新增安全基线审计能力 `miya_security_audit`（`miya-src/src/gateway/index.ts`）。
+- P2 已落地：路由加入会话级失败语义与 retry budget 闭环，支持 human-gate 收口减少无效重试（`miya-src/src/router/runtime.ts`、`miya-src/src/gateway/index.ts`）。
 
 ### 2026-02-15 控制平面强约束补丁 v3（Gateway vs Console / 生命周期双模式 / 远程批准）
 
@@ -481,12 +491,12 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 | 外发主链路（QQ/微信）+证据链 | 已完成 | **仅 QQ/微信允许外发**；其余通道禁止外发 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | Kill-Switch（按能力域停机）与风控联锁 | 已完成 | `outbound_send/desktop_control` 可独立停机 | `miya-src/src/safety/*`, `miya-src/src/policy/*` |
 | 多模态主链路（图像/语音/视觉） | 已完成 | 主链路可用，允许 fallback；遵守本地推理边界 | `miya-src/src/multimodal/*` |
-| 记忆主链路（pending/reflect/衰减） | 已完成 | 写入仍属副作用动作，需审批与审计 | `miya-src/src/memory/*`, `miya-src/src/gateway/index.ts` |
+| 记忆主链路（pending/reflect/衰减） | 已完成 | 写入仍属副作用动作，需审批与审计 | `miya-src/src/companion/*`, `miya-src/src/gateway/index.ts` |
 | Ralph Loop 执行闭环 | 已完成 | 已支持 stderr 回注与重试上限；继续做稳定性优化 | `miya-src/src/ralph/*`, `miya-src/src/tools/ralph.*` |
 | Psyche V3 守门员（Sentinel + consult + bandit） | 进行中 | `consult` 前置守门，不新增第二控制平面 | `miya-src/src/daemon/psyche/`（规划）, `miya-src/src/policy/decision-fusion.ts` |
 | Gateway V5（动态信任阈值 + Fixability + V5证据包） | 进行中 | 不放宽安全边界，仅优化审批体验与协商闭环 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/gateway/control-ui.ts` |
 | Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 进行中 | 低置信度自动升档；失败仅回退 `UNKNOWN` | `miya-src/src/multimodal/vision.ts` |
-| 学习闸门分层（Ephemeral/Candidate/Persistent） | 进行中 | 学习不得默认打断，仅长期写入强审批 | `miya-src/src/memory/*`, `miya-src/src/gateway/control-ui.ts` |
+| 学习闸门分层（Ephemeral/Candidate/Persistent） | 进行中 | 学习不得默认打断，仅长期写入强审批 | `miya-src/src/companion/*`, `miya-src/src/gateway/control-ui.ts` |
 | Inbound-only 通道治理（非主线） | 持续监控 | 可入站只读；严格禁止新增外发通道 | `miya-src/src/channel/`, `miya-src/src/gateway/index.ts` |
 | 质量与对抗回归（OCR/DPI/InputMutex/Context） | 持续监控 | 每次改动必须复跑对抗用例并审计 | `miya-src/src/channels/service.adversarial.test.ts`, `miya-src/src/agents/context-sanitization.test.ts` |
 
@@ -956,7 +966,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 2. **网关层 (Gateway Layer)：** OpenClaw 风格双形态网关（终端态 + Web 控制面板）。  
    * **Terminal Gateway（随 OpenCode 起落）：** 运行在插件/daemon 侧，负责拦截、路由、策略联锁与状态广播。  
    * **Web Control Panel（用户控制台）：** 浏览器访问的控制平面，用于查看任务、节点、策略与审计，并进行人工确认/解锁。  
-   * **Interceptor (拦截器)：** 捕获 user.message.before 事件。  
+   * **Interceptor (拦截器)：** 捕获 tui.prompt.submit 事件。  
    * **Router (路由器)：** 基于正则或轻量级 LLM 的分类器。  
    * **Context Manager (上下文管理器)：** 动态加载/卸载 SOUL.md 和特定 Agent 的 Prompts。  
 3. **代理层 (Agent Layer)：** 六大 Agent 的具体实现
@@ -1855,7 +1865,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 
 **OpenCode官方插件事件/钩子体系**：
 根据OpenCode官方文档，插件应该使用以下标准事件：
-- `user.message.before` - 用户消息发送前
+- `tui.prompt.submit` - 用户消息发送前
 - `user.message.after` - 用户消息发送后
 - `agent.message.before` - Agent消息发送前
 - `agent.message.after` - Agent消息发送后
@@ -1872,8 +1882,8 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 <details>
 <summary>修订前原文快照（审计追溯）</summary>
 
-- `tool.use.before` - 工具使用前
-- `tool.use.after` - 工具使用后
+- `tool.execute.before` - 工具使用前
+- `tool.execute.after` - 工具使用后
 
 </details>
 
@@ -1940,7 +1950,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 
 | 模块 | 状态 | 关键源码路径 |
 |------|------|--------------|
-| 六代理编排 | 已完成 | `miya-src/src/agents/index.ts`, `miya-src/src/agents/orchestrator.ts` |
+| 六代理编排 | 已完成 | `miya-src/src/agents/index.ts`, `miya-src/src/agents/1-task-manager.ts` |
 | Gateway 控制平面 | 已完成（2026-02-14） | `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/protocol.ts`, `miya-src/src/cli/index.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
 | 外发通道运行时（QQ/微信） | 已完成（含安全收口） | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | 安全审批与 Kill-Switch | 已完成 | `miya-src/src/safety/index.ts`, `miya-src/src/safety/store.ts`, `miya-src/src/safety/state-machine.ts` |
@@ -2352,7 +2362,7 @@ miya-src/src/daemon/psyche/
    - 路径：`miya-src/src/multimodal/vision.ts`, `miya-src/src/policy/decision-fusion.ts`, `miya-src/src/channels/service.ts`
 18. `P1-6`：学习闸门分层落地  
    - 场景：Ephemeral 不打断；Candidate 轻提示；Persistent 写入策略必须阻断审批  
-   - 路径：`miya-src/src/memory/*`, `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/control-ui.ts`
+   - 路径：`miya-src/src/companion/*`, `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/control-ui.ts`
 
 ---
 
@@ -2399,3 +2409,4 @@ Miya插件已经具备了坚实的架构基础：
 5.https://github.com/code-yeongyu/oh-my-opencode.git
 6.https://github.com/MemTensor/MemOS.git
 我的源码地址：https://github.com/mmy4shadow/miya-for-opencode.git
+

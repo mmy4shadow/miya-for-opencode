@@ -53,6 +53,7 @@ describe('router runtime planning', () => {
       totalTokensEstimate: 120,
       baselineHighTokensEstimate: 180,
       costUsdEstimate: 0.001,
+      failureReason: 'request_timeout',
     });
     recordRouteExecutionOutcome({
       projectDir,
@@ -67,6 +68,7 @@ describe('router runtime planning', () => {
       totalTokensEstimate: 160,
       baselineHighTokensEstimate: 200,
       costUsdEstimate: 0.002,
+      failureReason: 'request_timeout',
     });
     const plan = buildRouteExecutionPlan({
       projectDir,
@@ -76,6 +78,33 @@ describe('router runtime planning', () => {
     });
     expect(plan.stage).toBe('high');
     expect(plan.reasons.some((item) => item.startsWith('failure_escalation'))).toBe(true);
+  });
+
+  test('routes to human gate when fixability is impossible', () => {
+    const projectDir = tempProjectDir();
+    recordRouteExecutionOutcome({
+      projectDir,
+      sessionID: 's2',
+      intent: 'code_fix',
+      complexity: 'low',
+      stage: 'low',
+      agent: '5-code-fixer',
+      success: false,
+      inputTokens: 100,
+      outputTokensEstimate: 60,
+      totalTokensEstimate: 120,
+      baselineHighTokensEstimate: 180,
+      costUsdEstimate: 0.001,
+      failureReason: 'permission_denied:forbidden',
+    });
+    const plan = buildRouteExecutionPlan({
+      projectDir,
+      sessionID: 's2',
+      text: '继续执行这次修复',
+      availableAgents: AVAILABLE,
+    });
+    expect(plan.executionMode).toBe('human_gate');
+    expect(plan.fixabilityHint).toBe('impossible');
   });
 
   test('payload compression and cost summary work', () => {

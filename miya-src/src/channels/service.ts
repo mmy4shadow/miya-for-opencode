@@ -98,6 +98,9 @@ export interface ChannelOutboundAudit {
   };
   visualPrecheck?: string;
   visualPostcheck?: string;
+  automationPath?: 'uia' | 'sendkeys' | 'mixed';
+  simulationStatus?: 'captured' | 'not_available';
+  simulationRiskHints?: string[];
   receiptStatus?: 'confirmed' | 'uncertain';
   semanticTags?: SemanticTag[];
   payloadHash?: string;
@@ -145,6 +148,7 @@ export interface ChannelOutboundAudit {
       status: 'captured' | 'not_available';
       clickTargets?: Array<{ x: number; y: number; label?: string }>;
       reason?: string;
+      riskHints?: string[];
     };
   };
   semanticSummary?: {
@@ -311,14 +315,19 @@ function buildEvidenceBundle(
       policyHash: row.policyHash,
     },
     simulation:
-      screenshots.length > 0
+      row.simulationStatus === 'captured' || screenshots.length > 0
         ? {
             status: 'captured',
             clickTargets: [],
+            riskHints: row.simulationRiskHints,
           }
         : {
             status: 'not_available',
-            reason: 'desktop_screenshots_missing',
+            reason:
+              row.simulationRiskHints && row.simulationRiskHints.length > 0
+                ? row.simulationRiskHints.join(',')
+                : 'desktop_screenshots_missing',
+            riskHints: row.simulationRiskHints,
           },
   };
 }
@@ -730,6 +739,9 @@ export class ChannelRuntime {
       ticketSummary: row.ticketSummary,
       visualPrecheck: row.visualPrecheck,
       visualPostcheck: row.visualPostcheck,
+      automationPath: row.automationPath,
+      simulationStatus: row.simulationStatus,
+      simulationRiskHints: row.simulationRiskHints,
       receiptStatus: row.receiptStatus,
       payloadHash: row.payloadHash,
       windowFingerprint: row.windowFingerprint,
@@ -1247,6 +1259,9 @@ export class ChannelRuntime {
             captureMethod: visionCheck.capture.method,
             evidenceConfidence: visionCheck.capture.confidence,
             evidenceLimitations: visionCheck.capture.limitations,
+            automationPath: result.automationPath,
+            simulationStatus: result.simulationStatus,
+            simulationRiskHints: result.simulationRiskHints,
             visualPrecheck: result.visualPrecheck,
             visualPostcheck: result.visualPostcheck,
             receiptStatus: result.receiptStatus,
@@ -1327,6 +1342,9 @@ export class ChannelRuntime {
           captureMethod: visionCheck.capture.method,
           evidenceConfidence: visionCheck.capture.confidence,
           evidenceLimitations: visionCheck.capture.limitations,
+          automationPath: result.automationPath,
+          simulationStatus: result.simulationStatus,
+          simulationRiskHints: result.simulationRiskHints,
           visualPrecheck: result.visualPrecheck,
           visualPostcheck: result.visualPostcheck,
           receiptStatus: result.receiptStatus,

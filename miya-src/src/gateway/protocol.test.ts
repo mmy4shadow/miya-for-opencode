@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  GATEWAY_PROTOCOL_VERSION,
+  LEGACY_GATEWAY_PROTOCOL_VERSION,
+  SUPPORTED_GATEWAY_PROTOCOL_VERSIONS,
   GatewayMethodRegistry,
   parseIncomingFrame,
   toEventFrame,
@@ -37,12 +40,55 @@ describe('gateway protocol', () => {
     expect(parsed.frame.params?.a).toBe(1);
   });
 
+  test('parses request frame with idempotency key', () => {
+    const parsed = parseIncomingFrame(
+      JSON.stringify({
+        type: 'request',
+        id: '2',
+        method: 'sessions.send',
+        params: { sessionID: 's1', text: 'hello' },
+        idempotencyKey: 'k-1',
+      }),
+    );
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.frame?.type).toBe('request');
+    if (parsed.frame?.type !== 'request') return;
+    expect(parsed.frame.idempotencyKey).toBe('k-1');
+  });
+
   test('maps legacy status message', () => {
     const parsed = parseIncomingFrame('status');
     expect(parsed.error).toBeUndefined();
     expect(parsed.frame?.type).toBe('request');
     if (parsed.frame?.type !== 'request') return;
     expect(parsed.frame.method).toBe('gateway.status.get');
+  });
+
+  test('parses hello frame with challenge and protocol metadata', () => {
+    const parsed = parseIncomingFrame(
+      JSON.stringify({
+        type: 'hello',
+        role: 'ui',
+        clientID: 'c1',
+        protocolVersion: GATEWAY_PROTOCOL_VERSION,
+        auth: {
+          token: 't1',
+          challenge: {
+            nonce: 'nonce-12345678',
+            ts: Date.now(),
+            signature: 'abcdef1234567890',
+          },
+        },
+      }),
+    );
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.frame?.type).toBe('hello');
+    if (parsed.frame?.type !== 'hello') return;
+    expect(parsed.frame.protocolVersion).toBe(GATEWAY_PROTOCOL_VERSION);
+    expect(parsed.frame.auth?.challenge?.nonce).toBe('nonce-12345678');
+    expect(SUPPORTED_GATEWAY_PROTOCOL_VERSIONS).toContain(
+      LEGACY_GATEWAY_PROTOCOL_VERSION,
+    );
   });
 
   test('parses ping frame and serializes pong', () => {

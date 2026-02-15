@@ -11,6 +11,7 @@ interface GatewayWsClient {
 
 async function connectGateway(
   url: string,
+  token: string | undefined,
   role: 'ui' | 'admin' | 'node' | 'channel' | 'unknown' = 'admin',
 ): Promise<GatewayWsClient> {
   const wsUrl = `${url.replace('http://', 'ws://')}/ws`;
@@ -28,7 +29,15 @@ async function connectGateway(
   const ready = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('gateway_ws_hello_timeout')), 10_000);
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'hello', role, clientID: 'security-test-client' }));
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          role,
+          clientID: 'security-test-client',
+          protocolVersion: '1.1',
+          auth: token ? { token } : undefined,
+        }),
+      );
     };
     ws.onerror = () => {
       clearTimeout(timeout);
@@ -81,6 +90,7 @@ async function connectGateway(
             id,
             method,
             params,
+            idempotencyKey: id,
           }),
         );
       });
@@ -100,7 +110,7 @@ describe('gateway security interaction acceptance', () => {
   test('ui role is stateless and restricted to intervention methods', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url, 'ui');
+    const client = await connectGateway(state.url, state.authToken, 'ui');
     try {
       const domains = (await client.request('policy.domains.list')) as {
         domains?: Array<{ domain: string; status: string }>;
@@ -142,7 +152,7 @@ describe('gateway security interaction acceptance', () => {
     );
 
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       let blockedError = '';
       try {
@@ -168,7 +178,7 @@ describe('gateway security interaction acceptance', () => {
     );
 
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const result = (await client.request('skills.enable', {
         skillID: 'safe-skill',
@@ -183,7 +193,7 @@ describe('gateway security interaction acceptance', () => {
   test('supports control-plane killswitch mode switching', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const switched = (await client.request('killswitch.set_mode', {
         mode: 'outbound_only',
@@ -209,7 +219,7 @@ describe('gateway security interaction acceptance', () => {
   test('blocks domain resume while kill-switch is globally active', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const switched = (await client.request('killswitch.set_mode', {
         mode: 'all_stop',
@@ -243,7 +253,7 @@ describe('gateway security interaction acceptance', () => {
   test('updates trust mode thresholds and exposes them in snapshot', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const updated = (await client.request('trust.set_mode', {
         silentMin: 95,
@@ -266,7 +276,7 @@ describe('gateway security interaction acceptance', () => {
   test('toggles psyche guard mode and exposes it in snapshot', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const updated = (await client.request('psyche.mode.set', {
         resonanceEnabled: false,
@@ -291,7 +301,7 @@ describe('gateway security interaction acceptance', () => {
   test('applies learning gate layers and enforces persistent approval policy', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       await client.request('security.identity.init', {
         password: 'pw-learning',
@@ -336,7 +346,7 @@ describe('gateway security interaction acceptance', () => {
 
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       await client.request('security.identity.init', {
         password: 'pw-guest',
@@ -392,7 +402,7 @@ describe('gateway security interaction acceptance', () => {
 
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       await client.request('security.identity.init', {
         password: 'pw-owner',
@@ -436,7 +446,7 @@ describe('gateway security interaction acceptance', () => {
     process.env.MIYA_PSYCHE_CONSULT_ENABLE = '1';
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       await client.request('security.identity.init', {
         password: 'pw-owner-psyche',
@@ -483,7 +493,7 @@ describe('gateway security interaction acceptance', () => {
   test('enforces fixability retry budget to prevent infinite auto-retry loops', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       await client.request('security.identity.init', {
         password: 'pw-budget',
@@ -607,3 +617,4 @@ describe('gateway security interaction acceptance', () => {
     }
   });
 });
+

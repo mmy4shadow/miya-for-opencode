@@ -2,6 +2,10 @@ import json
 import os
 import sys
 import traceback
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 
@@ -27,6 +31,183 @@ def _ok(rpc_id: str, result: Any) -> Dict[str, Any]:
     }
 
 
+def _json_request(
+    url: str,
+    method: str = "GET",
+    payload: Any = None,
+    timeout: float = 6.0,
+    headers: Dict[str, str] | None = None,
+) -> Any:
+    req_headers = {"Content-Type": "application/json"}
+    if headers:
+        req_headers.update(headers)
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url=url, data=data, headers=req_headers, method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode("utf-8", errors="replace").strip()
+        if not raw:
+            return {}
+        return json.loads(raw)
+
+
+def _gateway_base_url() -> str:
+    return os.environ.get("MIYA_OPENCLAW_GATEWAY_URL", "http://127.0.0.1:8040").rstrip("/")
+
+
+def _gateway_headers() -> Dict[str, str]:
+    token = os.environ.get("MIYA_OPENCLAW_GATEWAY_TOKEN", "").strip()
+    if not token:
+        return {}
+    return {"Authorization": f"Bearer {token}", "X-Gateway-Token": token}
+
+
+def _jsonrpc(method: str, params: Dict[str, Any]) -> Any:
+    base = _gateway_base_url()
+    req = {
+        "jsonrpc": "2.0",
+        "id": f"miya-{method}",
+        "method": method,
+        "params": params,
+    }
+    rpc_url_candidates = [f"{base}/rpc", f"{base}/wsrpc", f"{base}/api/rpc"]
+    last_error: str | None = None
+    for url in rpc_url_candidates:
+        try:
+            data = _json_request(
+                url=url,
+                method="POST",
+                payload=req,
+                timeout=6.0,
+                headers=_gateway_headers(),
+            )
+            if isinstance(data, dict):
+                if "error" in data:
+                    err = data.get("error") or {}
+                    code = err.get("code", "upstream_error")
+                    message = err.get("message", "rpc_error")
+                    raise RuntimeError(f"{code}:{message}")
+                if "result" in data:
+                    return data.get("result")
+                if "ok" in data:
+                    if data.get("ok"):
+                        return data.get("result")
+                    err = data.get("error") or {}
+                    raise RuntimeError(
+                        f"{err.get('code', 'upstream_error')}:{err.get('message', 'rpc_error')}"
+                    )
+            return data
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+    raise RuntimeError(last_error or "jsonrpc_unreachable")
+
+
+def _rest_get(paths: list[str], query: Dict[str, Any] | None = None) -> Any:
+    base = _gateway_base_url()
+    last_error: str | None = None
+    query_text = ""
+    if query:
+        query_text = "?" + urllib.parse.urlencode(
+            {k: v for k, v in query.items() if v is not None}
+        )
+    for p in paths:
+        url = f"{base}{p}{query_text}"
+        try:
+            return _json_request(url=url, method="GET", headers=_gateway_headers())
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+    raise RuntimeError(last_error or "rest_unreachable")
+
+
+def _rest_post(paths: list[str], payload: Dict[str, Any]) -> Any:
+    base = _gateway_base_url()
+    last_error: str | None = None
+    for p in paths:
+        url = f"{base}{p}"
+        try:
+            return _json_request(
+                url=url,
+                method="POST",
+                payload=payload,
+                headers=_gateway_headers(),
+            )
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+    raise RuntimeError(last_error or "rest_unreachable")
+
+
+def _handle_status(params: Dict[str, Any]) -> Dict[str, Any]:
+    _ = params
+    try:
+        data = _jsonrpc("gateway.status.get", {})
+        return {
+            "provider": "openclaw",
+            "source": "jsonrpc",
+            "status": data,
+        }
+    except Exception:
+        data = _rest_get(["/api/status", "/status", "/health"])
+        return {
+            "provider": "openclaw",
+            "source": "rest",
+            "status": data,
+        }
+
+
+def _handle_session_status(params: Dict[str, Any]) -> Dict[str, Any]:
+    session_id = str(params.get("sessionID", "")).strip() or None
+    rpc_params: Dict[str, Any] = {}
+    if session_id:
+        rpc_params["sessionID"] = session_id
+    try:
+        data = _jsonrpc("sessions.get" if session_id else "sessions.list", rpc_params)
+        return {"provider": "openclaw", "source": "jsonrpc", "session": data}
+    except Exception:
+        data = _rest_get(
+            ["/api/sessions", "/sessions"],
+            {"sessionID": session_id} if session_id else None,
+        )
+        return {"provider": "openclaw", "source": "rest", "session": data}
+
+
+def _handle_session_send(params: Dict[str, Any]) -> Dict[str, Any]:
+    session_id = str(params.get("sessionID", "")).strip()
+    text = str(params.get("text", "")).strip()
+    if not session_id or not text:
+        raise ValueError("invalid_sessions_send_args")
+    payload = {
+        "sessionID": session_id,
+        "text": text,
+        "source": str(params.get("source", "miya")).strip() or "miya",
+    }
+    try:
+        data = _jsonrpc("sessions.send", payload)
+        return {"provider": "openclaw", "source": "jsonrpc", "sent": data}
+    except Exception:
+        data = _rest_post(["/api/sessions/send", "/sessions/send"], payload)
+        return {"provider": "openclaw", "source": "rest", "sent": data}
+
+
+def _handle_pairing_query(params: Dict[str, Any]) -> Dict[str, Any]:
+    pair_id = str(params.get("pairID", "")).strip() or None
+    try:
+        if pair_id:
+            data = _jsonrpc("nodes.pair.status", {"pairID": pair_id})
+        else:
+            data = _jsonrpc("nodes.pair.list", {})
+        return {"provider": "openclaw", "source": "jsonrpc", "pairing": data}
+    except Exception:
+        data = _rest_get(
+            ["/api/pairing", "/pairing", "/api/nodes/pairs"],
+            {"pairID": pair_id} if pair_id else None,
+        )
+        return {"provider": "openclaw", "source": "rest", "pairing": data}
+
+
 def _handle(req: Dict[str, Any]) -> Dict[str, Any]:
     rpc_id = str(req.get("id", "unknown"))
     method = str(req.get("method", "")).strip()
@@ -41,8 +222,33 @@ def _handle(req: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "adapter": "openclaw",
                 "status": "ok",
+                "at": datetime.now(timezone.utc).isoformat(),
             },
         )
+
+    if method in ("status.get", "gateway.status.get"):
+        try:
+            return _ok(rpc_id, _handle_status(params))
+        except Exception as exc:
+            return _error(rpc_id, "openclaw_gateway_unavailable", str(exc))
+
+    if method in ("session.status", "sessions.status", "sessions.get", "sessions.list"):
+        try:
+            return _ok(rpc_id, _handle_session_status(params))
+        except Exception as exc:
+            return _error(rpc_id, "openclaw_gateway_unavailable", str(exc))
+
+    if method in ("session.send", "sessions.send"):
+        try:
+            return _ok(rpc_id, _handle_session_send(params))
+        except Exception as exc:
+            return _error(rpc_id, "openclaw_gateway_unavailable", str(exc))
+
+    if method in ("pairing.query", "pairing.list", "nodes.pair.list", "nodes.pair.status"):
+        try:
+            return _ok(rpc_id, _handle_pairing_query(params))
+        except Exception as exc:
+            return _error(rpc_id, "openclaw_gateway_unavailable", str(exc))
 
     if method == "skills.list":
         # Keep adapter process isolated and non-failing when OpenClaw is absent.
@@ -117,4 +323,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

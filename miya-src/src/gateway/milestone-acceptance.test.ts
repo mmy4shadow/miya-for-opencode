@@ -3,16 +3,24 @@ import { ensureGatewayRunning, stopGateway } from './index';
 import { createGatewayAcceptanceProjectDir } from './test-helpers';
 
 interface GatewayWsClient {
-  request(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  request(
+    method: string,
+    params?: Record<string, unknown>,
+    options?: { idempotencyKey?: string },
+  ): Promise<unknown>;
   close(): void;
 }
 
-async function connectGateway(url: string): Promise<GatewayWsClient> {
-  return connectGatewayWithRole(url, 'admin');
+async function connectGateway(
+  url: string,
+  token?: string,
+): Promise<GatewayWsClient> {
+  return connectGatewayWithRole(url, token, 'admin');
 }
 
 async function connectGatewayWithRole(
   url: string,
+  token: string | undefined,
   role: 'ui' | 'admin' | 'node' | 'channel' | 'unknown',
 ): Promise<GatewayWsClient> {
   const wsUrl = `${url.replace('http://', 'ws://')}/ws`;
@@ -30,7 +38,15 @@ async function connectGatewayWithRole(
   const ready = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('gateway_ws_hello_timeout')), 10_000);
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'hello', role, clientID: 'test-client' }));
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          role,
+          clientID: 'test-client',
+          protocolVersion: '1.1',
+          auth: token ? { token } : undefined,
+        }),
+      );
     };
     ws.onerror = () => {
       clearTimeout(timeout);
@@ -68,7 +84,11 @@ async function connectGatewayWithRole(
   await ready;
 
   return {
-    request(method: string, params: Record<string, unknown> = {}) {
+    request(
+      method: string,
+      params: Record<string, unknown> = {},
+      options?: { idempotencyKey?: string },
+    ) {
       requestID += 1;
       const id = `req-${requestID}`;
       return new Promise<unknown>((resolve, reject) => {
@@ -83,6 +103,10 @@ async function connectGatewayWithRole(
             id,
             method,
             params,
+            idempotencyKey:
+              typeof options?.idempotencyKey === 'string'
+                ? options.idempotencyKey
+                : id,
           }),
         );
       });
@@ -98,11 +122,47 @@ async function connectGatewayWithRole(
   };
 }
 
+async function legacyHelloHandshake(url: string, token?: string): Promise<void> {
+  const wsUrl = `${url.replace('http://', 'ws://')}/ws`;
+  const ws = new WebSocket(wsUrl);
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('legacy_hello_timeout'));
+    }, 10_000);
+    ws.onopen = () => {
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          role: 'ui',
+          clientID: 'legacy-client',
+          auth: token ? { token } : undefined,
+        }),
+      );
+    };
+    ws.onmessage = (event) => {
+      try {
+        const frame = JSON.parse(String(event.data));
+        if (frame?.type === 'response' && frame?.id === 'hello' && frame?.ok) {
+          clearTimeout(timeout);
+          ws.close();
+          resolve();
+        }
+      } catch {}
+    };
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      ws.close();
+      reject(new Error('legacy_hello_error'));
+    };
+  });
+}
+
 describe('gateway milestone acceptance', () => {
   test('runs startup probe for 20 rounds with stable gateway health', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const result = (await client.request('gateway.startup.probe.run', {
         rounds: 20,
@@ -125,7 +185,7 @@ describe('gateway milestone acceptance', () => {
   test('runs 10-concurrency pressure probe with accounted outcomes', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const result = (await client.request('gateway.pressure.run', {
         concurrency: 10,
@@ -148,7 +208,7 @@ describe('gateway milestone acceptance', () => {
   test('exposes provider override audit and mcp capabilities endpoints', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const providerAudit = (await client.request('provider.override.audit.list', {
         limit: 20,
@@ -169,7 +229,7 @@ describe('gateway milestone acceptance', () => {
   test('exposes nexus runtime fields for control ui telemetry', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url);
+    const client = await connectGateway(state.url, state.authToken);
     try {
       const snapshot = (await client.request('gateway.status.get')) as {
         nexus?: {
@@ -185,6 +245,40 @@ describe('gateway milestone acceptance', () => {
       expect(Array.isArray(snapshot.nexus?.insights)).toBe(true);
     } finally {
       client.close();
+      stopGateway(projectDir);
+    }
+  });
+
+  test('deduplicates idempotent RPC submissions', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      const first = (await client.request(
+        'gateway.status.get',
+        { probe: 'idempotent' },
+        { idempotencyKey: 'dedupe-token-1' },
+      )) as { updatedAt?: string };
+      const second = (await client.request(
+        'gateway.status.get',
+        { probe: 'idempotent' },
+        { idempotencyKey: 'dedupe-token-1' },
+      )) as { updatedAt?: string };
+      expect(typeof first.updatedAt).toBe('string');
+      expect(second).toEqual(first);
+
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
+  test('keeps legacy hello handshake compatible when protocolVersion is omitted', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    try {
+      await legacyHelloHandshake(state.url, state.authToken);
+    } finally {
       stopGateway(projectDir);
     }
   });

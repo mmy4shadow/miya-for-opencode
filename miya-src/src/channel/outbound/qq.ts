@@ -8,6 +8,9 @@ export async function sendQqDesktopMessage(input: {
 }): Promise<{
   sent: boolean;
   message: string;
+  automationPath?: 'uia' | 'sendkeys' | 'mixed';
+  simulationStatus?: 'captured' | 'not_available';
+  simulationRiskHints?: string[];
   visualPrecheck?: string;
   visualPostcheck?: string;
   receiptStatus?: 'confirmed' | 'uncertain';

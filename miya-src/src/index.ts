@@ -31,6 +31,10 @@ import {
   subscribeLauncherEvents,
 } from './daemon';
 import { appendProviderOverrideAudit } from './config/provider-override-audit';
+import {
+  adaptPermissionLifecycle,
+  PERMISSION_OBSERVED_HOOK,
+} from './contracts/permission-events';
 import { assertRequiredHookHandlers } from './contracts/hook-contract';
 import {
   createContextGovernorHook,
@@ -254,9 +258,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
           if (dockAutoLaunch) {
             launchDockSilently(ctx.directory);
           }
-          openUrlSilently(state.url);
+          openUrlSilently(state.uiUrl);
           log('[miya] auto ui open triggered', {
-            url: state.url,
+            url: state.uiUrl,
             dockAutoLaunch,
             cooldownMs: autoOpenCooldownMs,
           });
@@ -399,19 +403,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
     output: { status?: 'allow' | 'ask' | 'deny' },
   ) => {
-    const _ = output;
-    const patterns = Array.isArray(input.pattern)
-      ? input.pattern.map(String)
-      : typeof input.pattern === 'string'
-        ? [String(input.pattern)]
-        : [];
-    log('[miya] permission.ask observed', {
-      sessionID: String(input.sessionID ?? 'main'),
-      permission: String(input.type ?? ''),
-      messageID: input.messageID ? String(input.messageID) : undefined,
-      callID: input.callID ? String(input.callID) : undefined,
-      patterns,
-    });
+    const lifecycle = adaptPermissionLifecycle(input, output);
+    log('[miya] permission.asked adapted', lifecycle.asked);
+    log('[miya] permission.replied adapted', lifecycle.replied);
   };
 
   const onToolExecuteBefore = async (
@@ -489,7 +483,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
   assertRequiredHookHandlers({
     'tool.execute.before': onToolExecuteBefore,
     'tool.execute.after': onToolExecuteAfter,
-    'permission.ask': onPermissionAsked,
+    [PERMISSION_OBSERVED_HOOK]: onPermissionAsked,
   });
 
   return {
@@ -589,6 +583,14 @@ const MiyaPlugin: Plugin = async (ctx) => {
           agent: '1-task-manager',
           template:
             'MANDATORY: Call tool `miya_kill_status` once. Then summarize latest `miya_status_panel` in 5 lines max.',
+        };
+      }
+      if (!commandConfig['miya-security-audit']) {
+        commandConfig['miya-security-audit'] = {
+          description: 'Run Miya security baseline audit',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_security_audit` exactly once. Return only tool output.',
         };
       }
 
@@ -866,8 +868,8 @@ const MiyaPlugin: Plugin = async (ctx) => {
     // Nudge after file reads to encourage delegation + track websearch usage for intake gate
     'tool.execute.after': onToolExecuteAfter,
 
-    // OpenCode permission hook key from @opencode-ai/plugin types.
-    'permission.ask': onPermissionAsked,
+    // OpenCode currently emits permission.ask; Miya adapts it to permission.asked/replied.
+    [PERMISSION_OBSERVED_HOOK]: onPermissionAsked,
   };
 };
 

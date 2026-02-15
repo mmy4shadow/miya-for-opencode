@@ -255,10 +255,10 @@ export function createConfigTools(
         healthy = await probeGatewayAlive(state.url, 1_200);
       }
       if (!healthy) {
-        return `opened=false\nreason=gateway_unhealthy\nurl=${state.url}`;
+        return `opened=false\nreason=gateway_unhealthy\nurl=${state.uiUrl}`;
       }
-      openUrl(state.url);
-      return `opened=${state.url}`;
+      openUrl(state.uiUrl);
+      return `opened=${state.uiUrl}`;
     },
   });
 

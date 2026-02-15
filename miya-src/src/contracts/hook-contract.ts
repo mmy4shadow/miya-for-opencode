@@ -1,10 +1,20 @@
 import type { Hooks } from '@opencode-ai/plugin';
+import {
+  PERMISSION_CANONICAL_EVENTS,
+  PERMISSION_OBSERVED_HOOK,
+} from './permission-events';
 
 export const REQUIRED_HOOK_KEYS = [
   'tool.execute.before',
   'tool.execute.after',
-  'permission.ask',
+  PERMISSION_OBSERVED_HOOK,
 ] as const satisfies ReadonlyArray<keyof Hooks>;
+
+export const PERMISSION_HOOK_COMPAT = {
+  observedHook: PERMISSION_OBSERVED_HOOK,
+  canonicalAsked: PERMISSION_CANONICAL_EVENTS.asked,
+  canonicalReplied: PERMISSION_CANONICAL_EVENTS.replied,
+} as const;
 
 type RequiredHookKey = (typeof REQUIRED_HOOK_KEYS)[number];
 

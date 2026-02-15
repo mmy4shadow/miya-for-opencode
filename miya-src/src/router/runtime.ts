@@ -7,12 +7,23 @@ import { rankAgentsByFeedback } from './learner';
 
 export type RouteComplexity = 'low' | 'medium' | 'high';
 export type RouteStage = 'low' | 'medium' | 'high';
+export type RouteFixability =
+  | 'impossible'
+  | 'rewrite'
+  | 'reduce_scope'
+  | 'need_evidence'
+  | 'retry_later'
+  | 'unknown';
 
 export interface RouterModeConfig {
   ecoMode: boolean;
   forcedStage?: RouteStage;
   stageTokenMultiplier: Record<RouteStage, number>;
   stageCostUsdPer1k: Record<RouteStage, number>;
+  retryBudget: {
+    autoRetry: number;
+    humanEdit: number;
+  };
 }
 
 export interface RouteComplexitySignals {
@@ -33,6 +44,14 @@ export interface RouteExecutionPlan {
   feedbackSamples: number;
   ecoMode: boolean;
   reasons: string[];
+  fixabilityHint: RouteFixability;
+  retryBudget: {
+    autoRetry: number;
+    autoUsed: number;
+    humanEdit: number;
+    humanUsed: number;
+  };
+  executionMode: 'auto' | 'human_gate';
 }
 
 export interface RouterCostRecord {
@@ -64,6 +83,10 @@ interface RouterSessionState {
   sessionID: string;
   consecutiveFailures: number;
   lastStage: RouteStage;
+  autoRetryUsed: number;
+  humanEditUsed: number;
+  lastFixability: RouteFixability;
+  lastFailureReason?: string;
   updatedAt: string;
 }
 
@@ -82,6 +105,10 @@ const DEFAULT_MODE: RouterModeConfig = {
     low: 0.0009,
     medium: 0.0018,
     high: 0.0032,
+  },
+  retryBudget: {
+    autoRetry: 2,
+    humanEdit: 1,
   },
 };
 
@@ -123,6 +150,10 @@ function parseMode(raw: unknown): RouterModeConfig {
     input.stageCostUsdPer1k && typeof input.stageCostUsdPer1k === 'object'
       ? (input.stageCostUsdPer1k as Record<string, unknown>)
       : {};
+  const retryBudgetInput =
+    input.retryBudget && typeof input.retryBudget === 'object'
+      ? (input.retryBudget as Record<string, unknown>)
+      : {};
   return {
     ecoMode: input.ecoMode !== false,
     forcedStage,
@@ -139,6 +170,18 @@ function parseMode(raw: unknown): RouterModeConfig {
       low: clamp(Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low), 0.0001, 0.1),
       medium: clamp(Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium), 0.0001, 0.2),
       high: clamp(Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high), 0.0001, 0.3),
+    },
+    retryBudget: {
+      autoRetry: clamp(
+        Number(retryBudgetInput.autoRetry ?? DEFAULT_MODE.retryBudget.autoRetry),
+        0,
+        8,
+      ),
+      humanEdit: clamp(
+        Number(retryBudgetInput.humanEdit ?? DEFAULT_MODE.retryBudget.humanEdit),
+        0,
+        4,
+      ),
     },
   };
 }
@@ -171,6 +214,10 @@ export function writeRouterModeConfig(
       ...current.stageCostUsdPer1k,
       ...(patch.stageCostUsdPer1k ?? {}),
     },
+    retryBudget: {
+      ...current.retryBudget,
+      ...(patch.retryBudget ?? {}),
+    },
   });
   fs.writeFileSync(modeFile(projectDir), `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
   return next;
@@ -193,6 +240,21 @@ function readSessionStore(projectDir: string): RouterSessionStore {
               state?.lastStage === 'low' || state?.lastStage === 'medium' || state?.lastStage === 'high'
                 ? state.lastStage
                 : 'medium',
+            autoRetryUsed: clamp(Number(state?.autoRetryUsed ?? 0), 0, 20),
+            humanEditUsed: clamp(Number(state?.humanEditUsed ?? 0), 0, 20),
+            lastFixability:
+              state?.lastFixability === 'impossible' ||
+              state?.lastFixability === 'rewrite' ||
+              state?.lastFixability === 'reduce_scope' ||
+              state?.lastFixability === 'need_evidence' ||
+              state?.lastFixability === 'retry_later' ||
+              state?.lastFixability === 'unknown'
+                ? state.lastFixability
+                : 'unknown',
+            lastFailureReason:
+              typeof state?.lastFailureReason === 'string'
+                ? state.lastFailureReason.slice(0, 200)
+                : undefined,
             updatedAt: String(state?.updatedAt ?? nowIso()),
           } satisfies RouterSessionState,
         ]),
@@ -215,6 +277,10 @@ function getSessionState(projectDir: string, sessionID: string): RouterSessionSt
       sessionID,
       consecutiveFailures: 0,
       lastStage: 'medium',
+      autoRetryUsed: 0,
+      humanEditUsed: 0,
+      lastFixability: 'unknown',
+      lastFailureReason: undefined,
       updatedAt: nowIso(),
     }
   );
@@ -298,6 +364,27 @@ function stageFromComplexity(complexity: RouteComplexity): RouteStage {
   return 'low';
 }
 
+function inferFixabilityFromReason(reason?: string): RouteFixability {
+  const text = String(reason ?? '').toLowerCase();
+  if (!text) return 'unknown';
+  if (/permission|unauthorized|forbidden|policy_|kill_switch/.test(text)) {
+    return 'impossible';
+  }
+  if (/invalid_|bad_request|parse|schema|syntax/.test(text)) {
+    return 'rewrite';
+  }
+  if (/timeout|temporar|network|overload|rate_limit/.test(text)) {
+    return 'retry_later';
+  }
+  if (/missing_evidence|receipt_uncertain|ui_style_mismatch|mismatch/.test(text)) {
+    return 'need_evidence';
+  }
+  if (/too_long|budget|scope/.test(text)) {
+    return 'reduce_scope';
+  }
+  return 'unknown';
+}
+
 function compressTextByStage(text: string, stage: RouteStage): { text: string; compressed: boolean } {
   const normalized = String(text ?? '').trim();
   if (!normalized) return { text: '', compressed: false };
@@ -363,6 +450,10 @@ export function buildRouteExecutionPlan(input: {
 
   let stage = stageFromComplexity(complexity.complexity);
   const reasons = [...complexity.reasons];
+  let executionMode: 'auto' | 'human_gate' = 'auto';
+  const fixabilityHint = session.lastFixability;
+  const autoBudget = mode.retryBudget.autoRetry;
+  const humanBudget = mode.retryBudget.humanEdit;
 
   if (mode.forcedStage) {
     stage = mode.forcedStage;
@@ -382,6 +473,19 @@ export function buildRouteExecutionPlan(input: {
     }
   }
 
+  if (fixabilityHint === 'impossible') {
+    executionMode = 'human_gate';
+    stage = 'high';
+    reasons.push('fixability_impossible_human_gate');
+  } else if (session.autoRetryUsed >= autoBudget && autoBudget >= 0) {
+    executionMode = 'human_gate';
+    stage = 'high';
+    reasons.push('auto_retry_budget_exhausted');
+  } else if (session.lastFixability === 'need_evidence') {
+    stage = 'high';
+    reasons.push('evidence_recovery_escalation');
+  }
+
   return {
     intent,
     complexity: complexity.complexity,
@@ -394,6 +498,14 @@ export function buildRouteExecutionPlan(input: {
     feedbackSamples,
     ecoMode: mode.ecoMode,
     reasons,
+    fixabilityHint,
+    retryBudget: {
+      autoRetry: autoBudget,
+      autoUsed: session.autoRetryUsed,
+      humanEdit: humanBudget,
+      humanUsed: session.humanEditUsed,
+    },
+    executionMode,
   };
 }
 
@@ -447,6 +559,8 @@ export function recordRouteExecutionOutcome(input: {
   totalTokensEstimate: number;
   baselineHighTokensEstimate: number;
   costUsdEstimate: number;
+  failureReason?: string;
+  attemptType?: 'auto' | 'human';
 }): RouterCostRecord {
   const row: RouterCostRecord = {
     at: nowIso(),
@@ -465,16 +579,41 @@ export function recordRouteExecutionOutcome(input: {
   appendCostRow(input.projectDir, row);
 
   const store = readSessionStore(input.projectDir);
+  const mode = readRouterModeConfig(input.projectDir);
   const current = store.sessions[input.sessionID] ?? {
     sessionID: input.sessionID,
     consecutiveFailures: 0,
     lastStage: input.stage,
+    autoRetryUsed: 0,
+    humanEditUsed: 0,
+    lastFixability: 'unknown' as RouteFixability,
+    lastFailureReason: undefined,
     updatedAt: nowIso(),
   };
+  const inferredFixability = input.success
+    ? 'unknown'
+    : inferFixabilityFromReason(input.failureReason);
+  const attemptType = input.attemptType ?? 'auto';
+  const nextAutoUsed = input.success
+    ? 0
+    : attemptType === 'auto'
+      ? clamp(current.autoRetryUsed + 1, 0, 20)
+      : current.autoRetryUsed;
+  const nextHumanUsed = input.success
+    ? 0
+    : attemptType === 'human'
+      ? clamp(current.humanEditUsed + 1, 0, 20)
+      : current.humanEditUsed;
   const next: RouterSessionState = {
     sessionID: input.sessionID,
     consecutiveFailures: input.success ? 0 : clamp(current.consecutiveFailures + 1, 0, 10),
     lastStage: input.stage,
+    autoRetryUsed: Math.min(nextAutoUsed, mode.retryBudget.autoRetry + 6),
+    humanEditUsed: Math.min(nextHumanUsed, mode.retryBudget.humanEdit + 4),
+    lastFixability: inferredFixability,
+    lastFailureReason: input.success
+      ? undefined
+      : String(input.failureReason ?? '').slice(0, 200),
     updatedAt: nowIso(),
   };
   store.sessions[input.sessionID] = next;
@@ -538,4 +677,3 @@ export function listRouteCostRecords(projectDir: string, limit = 40): RouterCost
 export function getRouterSessionState(projectDir: string, sessionID: string): RouterSessionState {
   return getSessionState(projectDir, sessionID);
 }
-

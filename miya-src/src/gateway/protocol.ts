@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
 export type GatewayClientRole = 'ui' | 'admin' | 'node' | 'channel' | 'unknown';
+export const GATEWAY_PROTOCOL_VERSION = '1.1';
+export const LEGACY_GATEWAY_PROTOCOL_VERSION = '1.0';
+export const SUPPORTED_GATEWAY_PROTOCOL_VERSIONS = [
+  LEGACY_GATEWAY_PROTOCOL_VERSION,
+  GATEWAY_PROTOCOL_VERSION,
+] as const;
 
 const JsonValue: z.ZodType<unknown> = z.lazy(() =>
   z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(JsonValue), z.record(z.string(), JsonValue)]),
@@ -16,6 +22,13 @@ export const HelloFrameSchema = z.object({
   auth: z
     .object({
       token: z.string().optional(),
+      challenge: z
+        .object({
+          nonce: z.string().min(8).max(128),
+          ts: z.number().int().nonnegative(),
+          signature: z.string().min(16).max(256),
+        })
+        .optional(),
     })
     .optional(),
   capabilities: z.array(z.string()).optional(),
@@ -26,6 +39,7 @@ export const RequestFrameSchema = z.object({
   id: z.string().min(1),
   method: z.string().min(1),
   params: JsonObject.default({}),
+  idempotencyKey: z.string().min(1).max(128).optional(),
 });
 
 export const PingFrameSchema = z.object({
