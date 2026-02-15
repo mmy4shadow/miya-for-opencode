@@ -159,6 +159,12 @@ import { log } from '../utils/logger';
 import { getMiyaRuntimeDir, getSessionState } from '../workflow';
 import { createControlUiRequestOptions, handleControlUiHttpRequest } from './control-ui';
 import {
+  applyNegotiationBudget,
+  type NegotiationBudget,
+  type NegotiationBudgetState,
+  type NegotiationFixability,
+} from './negotiation-budget';
+import {
   GatewayMethodRegistry,
   parseIncomingFrame,
   toEventFrame,
@@ -226,6 +232,7 @@ interface GatewayRuntime {
   wizardRunnerBusy?: boolean;
   dependencyAssistHashes: Set<string>;
   daemonLauncherUnsubscribe?: () => void;
+  negotiationBudgets: Map<string, NegotiationBudgetState>;
   nexus: {
     sessionId: string;
     activeTool?: string;
@@ -1379,6 +1386,8 @@ interface GuardedOutboundCheckInput {
   intent?: string;
   factorRecipientIsMe?: boolean;
   userInitiated?: boolean;
+  negotiationID?: string;
+  retryAttemptType?: 'auto' | 'human';
   psycheSignals?: {
     idleSec?: number;
     foreground?: 'ide' | 'terminal' | 'browser' | 'player' | 'game' | 'chat' | 'other' | 'unknown';
@@ -1411,6 +1420,48 @@ type GuardedOutboundSendResult = Record<string, unknown> & {
   sent: boolean;
   message: string;
 };
+
+function resolveNegotiationID(input: {
+  explicitID?: string;
+  consultAuditID?: string;
+  sessionID: string;
+  channel: ChannelName;
+  destination: string;
+  payloadHash: string;
+}): string {
+  const explicit = (input.explicitID ?? '').trim();
+  if (explicit) return explicit;
+  const consultAuditID = (input.consultAuditID ?? '').trim();
+  if (consultAuditID) return consultAuditID;
+  return `neg_${hashText(
+    `${input.sessionID}|${input.channel}|${input.destination}|${input.payloadHash}`,
+  ).slice(0, 24)}`;
+}
+
+function consumeNegotiationBudget(input: {
+  runtime: GatewayRuntime;
+  negotiationID: string;
+  fixability: NegotiationFixability;
+  budget: NegotiationBudget;
+  attemptType?: 'auto' | 'human';
+}): {
+  ok: boolean;
+  state: NegotiationBudgetState;
+  reason?: string;
+} {
+  const applied = applyNegotiationBudget(input.runtime.negotiationBudgets, {
+    key: input.negotiationID,
+    fixability: input.fixability,
+    budget: input.budget,
+    attemptType: input.attemptType,
+  });
+  if (applied.allowed) return { ok: true, state: applied.state };
+  return {
+    ok: false,
+    state: applied.state,
+    reason: applied.reason,
+  };
+}
 
 async function sendChannelMessageGuarded(
   projectDir: string,
@@ -1627,6 +1678,32 @@ async function sendChannelMessageGuarded(
     appendNexusInsight(runtime, {
       text: '共鸣层已关闭：自动触达进入静默等待。',
     });
+    const negotiationID = resolveNegotiationID({
+      explicitID: input.outboundCheck?.negotiationID,
+      sessionID: input.sessionID,
+      channel: input.channel,
+      destination: input.destination,
+      payloadHash,
+    });
+    const budgetState = consumeNegotiationBudget({
+      runtime,
+      negotiationID,
+      fixability: 'retry_later',
+      budget: { autoRetry: 1, humanEdit: 0 },
+      attemptType: input.outboundCheck?.retryAttemptType,
+    });
+    if (!budgetState.ok) {
+      return {
+        sent: false,
+        message: `outbound_blocked:negotiation_budget_exhausted:${budgetState.reason ?? 'unknown'}`,
+        policyHash: resolvedPolicyHash,
+        retryAfterSec: 120,
+        fixability: 'retry_later',
+        budget: { autoRetry: 1, humanEdit: 0 },
+        approvalMode: 'modal_approval',
+        negotiationID,
+      };
+    }
     return {
       sent: false,
       message: 'outbound_blocked:resonance_disabled_safe_hold',
@@ -1635,6 +1712,7 @@ async function sendChannelMessageGuarded(
       fixability: 'retry_later',
       budget: { autoRetry: 1, humanEdit: 0 },
       approvalMode: 'toast_gate',
+      negotiationID,
       psyche: {
         decision: 'defer',
         reason: 'resonance_disabled_safe_hold',
@@ -1704,6 +1782,34 @@ async function sendChannelMessageGuarded(
         mode: runtime.nexus.trustMode,
       });
       if (consult.decision !== 'allow') {
+        const negotiationID = resolveNegotiationID({
+          explicitID: input.outboundCheck?.negotiationID,
+          consultAuditID: consult.auditID,
+          sessionID: input.sessionID,
+          channel: input.channel,
+          destination: input.destination,
+          payloadHash,
+        });
+        const budgetState = consumeNegotiationBudget({
+          runtime,
+          negotiationID,
+          fixability: consult.fixability,
+          budget: consult.budget,
+          attemptType: input.outboundCheck?.retryAttemptType,
+        });
+        if (!budgetState.ok) {
+          return {
+            sent: false,
+            message: `outbound_blocked:negotiation_budget_exhausted:${budgetState.reason ?? 'unknown'}`,
+            policyHash: resolvedPolicyHash,
+            psyche: consult,
+            retryAfterSec: consult.retryAfterSec,
+            fixability: consult.fixability,
+            budget: consult.budget,
+            approvalMode: 'modal_approval',
+            negotiationID,
+          };
+        }
         try {
           await daemon.psycheOutcome({
             consultAuditID: consult.auditID,
@@ -1738,11 +1844,38 @@ async function sendChannelMessageGuarded(
           fixability: consult.fixability,
           budget: consult.budget,
           approvalMode,
+          negotiationID,
         };
       }
     } catch (error) {
       if (!userInitiated) {
         runtime.nexus.guardianSafeHoldReason = 'psyche_consult_unavailable';
+        const negotiationID = resolveNegotiationID({
+          explicitID: input.outboundCheck?.negotiationID,
+          sessionID: input.sessionID,
+          channel: input.channel,
+          destination: input.destination,
+          payloadHash,
+        });
+        const budgetState = consumeNegotiationBudget({
+          runtime,
+          negotiationID,
+          fixability: 'retry_later',
+          budget: { autoRetry: 1, humanEdit: 0 },
+          attemptType: input.outboundCheck?.retryAttemptType,
+        });
+        if (!budgetState.ok) {
+          return {
+            sent: false,
+            message: `outbound_blocked:negotiation_budget_exhausted:${budgetState.reason ?? 'unknown'}`,
+            policyHash: resolvedPolicyHash,
+            retryAfterSec: 30,
+            fixability: 'retry_later',
+            budget: { autoRetry: 1, humanEdit: 0 },
+            approvalMode: 'modal_approval',
+            negotiationID,
+          };
+        }
         return {
           sent: false,
           message: 'outbound_blocked:psyche_deferred',
@@ -1751,6 +1884,7 @@ async function sendChannelMessageGuarded(
           fixability: 'retry_later',
           budget: { autoRetry: 1, humanEdit: 0 },
           approvalMode: 'modal_approval',
+          negotiationID,
           psyche: {
             decision: 'defer',
             reason: 'psyche_consult_unavailable',
@@ -1811,6 +1945,10 @@ async function sendChannelMessageGuarded(
     },
   });
   runtime.nexus.guardianSafeHoldReason = undefined;
+  const negotiationID = (input.outboundCheck?.negotiationID ?? '').trim();
+  if (Boolean((result as { sent?: boolean }).sent) && negotiationID) {
+    runtime.negotiationBudgets.delete(negotiationID);
+  }
   if (psycheConsultEnabled && psycheConsult) {
     try {
       const daemon = getMiyaClient(projectDir);
@@ -3158,6 +3296,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       userInitiated:
         outboundCheckRaw && typeof outboundCheckRaw.userInitiated === 'boolean'
           ? Boolean(outboundCheckRaw.userInitiated)
+          : undefined,
+      negotiationID:
+        outboundCheckRaw && typeof outboundCheckRaw.negotiationID === 'string'
+          ? String(outboundCheckRaw.negotiationID)
+          : undefined,
+      retryAttemptType:
+        outboundCheckRaw &&
+        (outboundCheckRaw.retryAttemptType === 'auto' ||
+          outboundCheckRaw.retryAttemptType === 'human')
+          ? (outboundCheckRaw.retryAttemptType as 'auto' | 'human')
           : undefined,
       psycheSignals:
         outboundCheckRaw &&
@@ -5200,6 +5348,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     wizardRunnerBusy: false,
     dependencyAssistHashes: new Set(),
     daemonLauncherUnsubscribe: undefined,
+    negotiationBudgets: new Map(),
     nexus: {
       sessionId: 'main',
       activeTool: undefined,

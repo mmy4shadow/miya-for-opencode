@@ -356,4 +356,77 @@ describe('gateway security interaction acceptance', () => {
       }
     }
   });
+
+  test('enforces fixability retry budget to prevent infinite auto-retry loops', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      await client.request('security.identity.init', {
+        password: 'pw-budget',
+        passphrase: 'phrase-budget',
+      });
+      await client.request('psyche.mode.set', {
+        resonanceEnabled: false,
+        captureProbeEnabled: true,
+      });
+      const policy = (await client.request('policy.get')) as { hash: string };
+      const negotiationID = 'budget-loop-1';
+
+      const first = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在我忙的时候提醒我休息',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+          negotiationID,
+        },
+      })) as { sent: boolean; message: string; fixability?: string };
+      expect(first.sent).toBe(false);
+      expect(first.fixability).toBe('retry_later');
+
+      const second = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在我忙的时候提醒我休息',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+          negotiationID,
+          retryAttemptType: 'auto',
+        },
+      })) as { sent: boolean; message: string };
+      expect(second.sent).toBe(false);
+
+      const third = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在我忙的时候提醒我休息',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+          negotiationID,
+          retryAttemptType: 'auto',
+        },
+      })) as { sent: boolean; message: string };
+      expect(third.sent).toBe(false);
+      expect(third.message).toMatch(/negotiation_budget_exhausted/);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
 });
