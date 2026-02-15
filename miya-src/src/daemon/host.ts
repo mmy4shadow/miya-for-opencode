@@ -281,6 +281,51 @@ const server = Bun.serve({
         return;
       }
 
+      if (frame.method === 'daemon.psyche.consult') {
+        try {
+          const urgencyRaw = String(params.urgency ?? 'medium').trim().toLowerCase();
+          const urgency =
+            urgencyRaw === 'low' || urgencyRaw === 'high' || urgencyRaw === 'critical'
+              ? urgencyRaw
+              : 'medium';
+          const consult = daemonService.consultPsyche({
+            intent: String(params.intent ?? 'unknown_intent'),
+            urgency,
+            channel: typeof params.channel === 'string' ? params.channel : undefined,
+            userInitiated: params.userInitiated === false ? false : true,
+            signals:
+              params.signals && typeof params.signals === 'object' && !Array.isArray(params.signals)
+                ? (params.signals as Record<string, unknown>)
+                : undefined,
+          });
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result: consult,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'daemon_psyche_consult_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
       if (frame.method === 'daemon.python.env.get') {
         ws.send(
           JSON.stringify(

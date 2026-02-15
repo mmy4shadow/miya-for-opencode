@@ -1152,6 +1152,16 @@ interface GuardedOutboundCheckInput {
   archAdvisorApproved?: boolean;
   intent?: string;
   factorRecipientIsMe?: boolean;
+  userInitiated?: boolean;
+  psycheSignals?: {
+    idleSec?: number;
+    foreground?: 'ide' | 'terminal' | 'browser' | 'player' | 'game' | 'chat' | 'other' | 'unknown';
+    fullscreen?: boolean;
+    audioActive?: boolean;
+    gamepadActive?: boolean;
+    windowSwitchPerMin?: number;
+    screenProbe?: 'ok' | 'black' | 'error' | 'timeout' | 'not_run';
+  };
 }
 
 interface GuardedOutboundSendInput {
@@ -1216,6 +1226,7 @@ async function sendChannelMessageGuarded(
     factorIntentSuspicious,
     factorRecipientIsMe,
   });
+  const userInitiated = input.outboundCheck?.userInitiated !== false;
   if (isHighRiskInstruction(input.text)) {
     const physicalConfirmed = localPhysicalConfirmed;
     const secretVerified = verifyOwnerSecrets(projectDir, {
@@ -1378,6 +1389,41 @@ async function sendChannelMessageGuarded(
       policyHash: resolvedPolicyHash,
       incident,
     };
+  }
+
+  try {
+    const daemon = getMiyaClient(projectDir);
+    const consult = await daemon.psycheConsult({
+      intent: `outbound.send.${input.channel}`,
+      urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
+      channel: input.channel,
+      userInitiated,
+      signals: input.outboundCheck?.psycheSignals,
+    });
+    if (consult.decision !== 'allow') {
+      return {
+        sent: false,
+        message: consult.decision === 'deny' ? 'outbound_blocked:psyche_denied' : 'outbound_blocked:psyche_deferred',
+        policyHash: resolvedPolicyHash,
+        psyche: consult,
+        retryAfterSec: consult.retryAfterSec,
+      };
+    }
+  } catch (error) {
+    if (!userInitiated) {
+      return {
+        sent: false,
+        message: 'outbound_blocked:psyche_deferred',
+        policyHash: resolvedPolicyHash,
+        retryAfterSec: 30,
+        psyche: {
+          decision: 'defer',
+          reason: 'psyche_consult_unavailable',
+          state: 'UNKNOWN',
+          error: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
   }
 
   const outboundTicket = resolveApprovalTicket({
@@ -2734,6 +2780,17 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       factorRecipientIsMe:
         outboundCheckRaw && typeof outboundCheckRaw.factorRecipientIsMe === 'boolean'
           ? Boolean(outboundCheckRaw.factorRecipientIsMe)
+          : undefined,
+      userInitiated:
+        outboundCheckRaw && typeof outboundCheckRaw.userInitiated === 'boolean'
+          ? Boolean(outboundCheckRaw.userInitiated)
+          : undefined,
+      psycheSignals:
+        outboundCheckRaw &&
+        outboundCheckRaw.psycheSignals &&
+        typeof outboundCheckRaw.psycheSignals === 'object' &&
+        !Array.isArray(outboundCheckRaw.psycheSignals)
+          ? (outboundCheckRaw.psycheSignals as GuardedOutboundCheckInput['psycheSignals'])
           : undefined,
     };
     const confirmationRaw =

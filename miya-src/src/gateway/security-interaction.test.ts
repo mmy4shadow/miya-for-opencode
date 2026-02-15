@@ -192,4 +192,41 @@ describe('gateway security interaction acceptance', () => {
       }
     }
   });
+
+  test('non-user initiated outbound is deferred by psyche consult guard', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      await client.request('security.identity.init', {
+        password: 'pw-owner-psyche',
+        passphrase: 'phrase-owner-psyche',
+      });
+      const policy = (await client.request('policy.get')) as { hash: string };
+
+      const result = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '中午提醒我喝水',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+        },
+      })) as {
+        sent: boolean;
+        message: string;
+        retryAfterSec?: number;
+      };
+      expect(result.sent).toBe(false);
+      expect(result.message).toBe('outbound_blocked:psyche_deferred');
+      expect(Number(result.retryAfterSec ?? 0)).toBeGreaterThan(0);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
 });

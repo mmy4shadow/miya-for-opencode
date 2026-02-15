@@ -8,6 +8,11 @@ import { getMiyaModelPath, getMiyaModelRootDir } from '../model/paths';
 import { getMiyaRuntimeDir } from '../workflow';
 import { maybeAutoReflectCompanionMemory } from '../companion/memory-reflect';
 import {
+  PsycheConsultService,
+  type PsycheConsultRequest,
+  type PsycheConsultResult,
+} from './psyche';
+import {
   ensurePythonRuntime,
   readPythonRuntimeStatus,
   type PythonRuntimeStatus,
@@ -98,6 +103,7 @@ export class MiyaDaemonService {
   private readonly projectDir: string;
   private readonly sessionID: string;
   private readonly onProgress?: (event: DaemonJobProgressEvent) => void;
+  private readonly psyche: PsycheConsultService;
   private started = false;
   private startedAtIso = '';
   private pythonRuntime?: PythonRuntimeStatus;
@@ -111,6 +117,7 @@ export class MiyaDaemonService {
     this.projectDir = projectDir;
     this.sessionID = toSessionID(projectDir);
     this.onProgress = options?.onProgress;
+    this.psyche = new PsycheConsultService(projectDir);
   }
 
   private cancelMarkerPath(jobID: string): string {
@@ -237,6 +244,10 @@ export class MiyaDaemonService {
       processedLogs: reflected.processedLogs,
       generatedTriplets: reflected.generatedTriplets,
     };
+  }
+
+  consultPsyche(input: PsycheConsultRequest): PsycheConsultResult {
+    return this.psyche.consult(input);
   }
 
   getModelLockStatus(): Record<string, { expected: string; ok: boolean; reason?: string }> {
