@@ -141,6 +141,49 @@ export interface CaptureCapabilityReport {
   limitations: string[];
 }
 
+const CAPTURE_PRIORITY: CaptureMethod[] = [
+  'wgc_hwnd',
+  'print_window',
+  'dxgi_duplication',
+  'uia_only',
+];
+
+function normalizeCaptureMethod(input: string | undefined): CaptureMethod | null {
+  const raw = String(input ?? '').trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === 'wgc' || raw === 'wgc_hwnd') return 'wgc_hwnd';
+  if (raw === 'printwindow' || raw === 'print_window') return 'print_window';
+  if (raw === 'dxgi' || raw === 'dxgi_duplication') return 'dxgi_duplication';
+  if (raw === 'uia' || raw === 'uia_only') return 'uia_only';
+  if (raw === 'unknown') return 'unknown';
+  return null;
+}
+
+function parseCaptureMethods(input: string | undefined): CaptureMethod[] {
+  const raw = String(input ?? '').trim();
+  if (!raw) return [...CAPTURE_PRIORITY];
+  const methods = raw
+    .split(',')
+    .map((item) => normalizeCaptureMethod(item))
+    .filter((item): item is CaptureMethod => Boolean(item) && item !== 'unknown');
+  if (methods.length === 0) return [...CAPTURE_PRIORITY];
+  return [...new Set(methods)];
+}
+
+function inferCaptureProbeLimitations(input: {
+  visualPrecheck?: string;
+  visualPostcheck?: string;
+}): string[] {
+  const signal = `${input.visualPrecheck ?? ''}|${input.visualPostcheck ?? ''}`.toLowerCase();
+  const result: string[] = [];
+  if (!signal.trim()) return result;
+  if (signal.includes('black')) result.push('capture_probe_black_screen');
+  if (signal.includes('timeout')) result.push('capture_probe_timeout');
+  if (signal.includes('error') || signal.includes('failed')) result.push('capture_probe_error');
+  if (signal.includes('occluded')) result.push('capture_probe_occluded');
+  return [...new Set(result)];
+}
+
 function compactOcrText(text: string): string {
   return (text || '').replace(/\s+/g, '').toLowerCase();
 }
@@ -315,7 +358,8 @@ export async function analyzeDesktopOutboundEvidence(
     sendStatusDetected: mergedStatus,
     retries,
   });
-  if (confidence < 0.45) {
+  const mergedConfidence = Number(Math.min(confidence, capture.confidence).toFixed(2));
+  if (mergedConfidence < 0.45) {
     uiStyleMismatch = true;
   }
 
@@ -328,7 +372,7 @@ export async function analyzeDesktopOutboundEvidence(
     retries,
     capture: {
       method: capture.method,
-      confidence,
+      confidence: mergedConfidence,
       limitations: mergeCaptureLimitations(capture.limitations, {
         uiStyleMismatch,
         recipientMatch: stableRecipient,
@@ -341,6 +385,8 @@ export async function analyzeDesktopOutboundEvidence(
 function resolveCaptureCapability(input: {
   preSendScreenshotPath?: string;
   postSendScreenshotPath?: string;
+  visualPrecheck?: string;
+  visualPostcheck?: string;
 }): CaptureCapabilityReport {
   const hasScreenshots =
     (typeof input.preSendScreenshotPath === 'string' &&
@@ -349,28 +395,60 @@ function resolveCaptureCapability(input: {
     (typeof input.postSendScreenshotPath === 'string' &&
       input.postSendScreenshotPath.length > 0 &&
       fs.existsSync(input.postSendScreenshotPath));
-  const raw = String(process.env.MIYA_CAPTURE_METHOD ?? '').trim().toLowerCase();
-  const method: CaptureMethod =
-    raw === 'wgc' || raw === 'wgc_hwnd'
-      ? 'wgc_hwnd'
-      : raw === 'printwindow' || raw === 'print_window'
-        ? 'print_window'
-        : raw === 'dxgi' || raw === 'dxgi_duplication'
-        ? 'dxgi_duplication'
-        : raw === 'uia' || raw === 'uia_only'
-          ? 'uia_only'
-          : hasScreenshots
-              ? 'unknown'
-              : 'uia_only';
+  const supported = parseCaptureMethods(process.env.MIYA_CAPTURE_CAPABILITIES);
+  const preferred = CAPTURE_PRIORITY.find((item) => supported.includes(item));
+  const requested = normalizeCaptureMethod(process.env.MIYA_CAPTURE_METHOD);
+  let method: CaptureMethod = 'unknown';
+  if (hasScreenshots) {
+    if (requested && supported.includes(requested)) {
+      method = requested;
+    } else if (preferred) {
+      method = preferred;
+    } else {
+      method = 'unknown';
+    }
+  } else {
+    method = supported.includes('uia_only') ? 'uia_only' : 'unknown';
+  }
   const limitations: string[] = [];
+  limitations.push(...inferCaptureProbeLimitations(input));
   if (!hasScreenshots) {
     limitations.push('no_desktop_screenshot');
   }
+  if (requested && requested !== 'unknown' && !supported.includes(requested)) {
+    limitations.push(`capture_method_not_supported:${requested}`);
+  }
+  if (hasScreenshots && preferred && method !== 'unknown' && method !== preferred) {
+    limitations.push(`capture_fallback:${preferred}->${method}`);
+  }
+  if (!hasScreenshots && preferred && preferred !== 'uia_only') {
+    limitations.push(`capture_tree_exhausted:${preferred}`);
+  }
   if (method === 'unknown') limitations.push('capture_method_unspecified');
   if (method === 'uia_only') limitations.push('pixel_evidence_unavailable');
+  const baseByMethod: Record<CaptureMethod, number> = {
+    wgc_hwnd: 0.92,
+    print_window: 0.84,
+    dxgi_duplication: 0.76,
+    uia_only: 0.4,
+    unknown: 0.24,
+  };
+  let confidence = baseByMethod[method];
+  if (!hasScreenshots) {
+    confidence = Math.min(confidence, method === 'uia_only' ? 0.34 : 0.24);
+  }
+  if (limitations.includes('capture_probe_black_screen')) {
+    confidence = Math.min(confidence, 0.28);
+  }
+  if (limitations.includes('capture_probe_timeout')) {
+    confidence = Math.min(confidence, 0.3);
+  }
+  if (limitations.includes('capture_probe_error')) {
+    confidence = Math.min(confidence, 0.3);
+  }
   return {
     method,
-    confidence: 0.3,
+    confidence: Number(confidence.toFixed(2)),
     limitations,
   };
 }

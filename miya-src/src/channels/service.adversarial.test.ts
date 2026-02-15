@@ -1,7 +1,9 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { ChannelRuntime } from './service';
+import { setContactTier } from './pairing-store';
 
 process.env.MIYA_INPUT_MUTEX_TIMEOUT_MS = '25';
 
@@ -26,38 +28,72 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-mock.module('../multimodal/vision', () => ({
-  analyzeDesktopOutboundEvidence: async (input: {
-    receiptStatus?: 'confirmed' | 'uncertain';
-    recipientTextCheck?: 'matched' | 'uncertain' | 'mismatch';
-  }): Promise<VisionStubResult> => {
-    if (forcedVisionResult) return forcedVisionResult;
-    const recipientMatch = input.recipientTextCheck ?? 'uncertain';
-    const sendStatusDetected = input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain';
-    return {
-      recipientMatch,
-      sendStatusDetected,
-      ocrSource: 'none',
-      ocrPreview: '',
-      uiStyleMismatch: true,
-      retries: 0,
-      capture: {
-        method: 'uia_only',
-        confidence: 0.3,
-        limitations: ['no_desktop_screenshot', 'ui_style_mismatch'],
+function createRuntime(projectDir: string): ChannelRuntime {
+  return new ChannelRuntime(
+    projectDir,
+    {
+      onInbound: () => {},
+      onPairRequested: () => {},
+    },
+    {
+      analyzeDesktopOutboundEvidence: async (input): Promise<VisionStubResult> => {
+        if (forcedVisionResult) return forcedVisionResult;
+        const recipientMatch = input.recipientTextCheck ?? 'uncertain';
+        const sendStatusDetected = input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain';
+        const limitations = ['no_desktop_screenshot', 'ui_style_mismatch'];
+        if (recipientMatch === 'uncertain') limitations.push('recipient_unverified');
+        if (sendStatusDetected === 'uncertain') limitations.push('delivery_unverified');
+        return {
+          recipientMatch,
+          sendStatusDetected,
+          ocrSource: 'none',
+          ocrPreview: '',
+          uiStyleMismatch: true,
+          retries: 0,
+          capture: {
+            method: 'uia_only',
+            confidence: 0.28,
+            limitations,
+          },
+        };
       },
-    };
-  },
-}));
-
-mock.module('../channel/outbound/qq', () => ({
-  sendQqDesktopMessage: async () => {
-    if (sendDelayMs > 0) await sleep(sendDelayMs);
-    if (!forceSendSuccess) {
-      return {
+      sendQqDesktopMessage: async () => {
+        if (sendDelayMs > 0) await sleep(sendDelayMs);
+        if (!forceSendSuccess) {
+          return {
+            sent: false,
+            message: 'outbound_blocked:receipt_uncertain',
+            payloadHash: 'f'.repeat(64),
+            windowFingerprint: 'win-fp',
+            recipientTextCheck: 'uncertain',
+            receiptStatus: 'uncertain',
+            preSendScreenshotPath: 'pre.png',
+            postSendScreenshotPath: 'post.png',
+            failureStep: 'mock-fail',
+            visualPrecheck: 'ok',
+            visualPostcheck: 'ok',
+            sendStatusCheck: 'uncertain',
+          };
+        }
+        return {
+          sent: true,
+          message: 'outbound_sent',
+          payloadHash: 'f'.repeat(64),
+          windowFingerprint: 'win-fp',
+          recipientTextCheck: 'matched',
+          receiptStatus: 'confirmed',
+          preSendScreenshotPath: 'pre.png',
+          postSendScreenshotPath: 'post.png',
+          failureStep: '',
+          visualPrecheck: 'ok',
+          visualPostcheck: 'ok',
+          sendStatusCheck: 'sent',
+        };
+      },
+      sendWechatDesktopMessage: async () => ({
         sent: false,
         message: 'outbound_blocked:receipt_uncertain',
-        payloadHash: 'f'.repeat(64),
+        payloadHash: 'e'.repeat(64),
         windowFingerprint: 'win-fp',
         recipientTextCheck: 'uncertain',
         receiptStatus: 'uncertain',
@@ -67,44 +103,10 @@ mock.module('../channel/outbound/qq', () => ({
         visualPrecheck: 'ok',
         visualPostcheck: 'ok',
         sendStatusCheck: 'uncertain',
-      };
-    }
-    return {
-      sent: true,
-      message: 'outbound_sent',
-      payloadHash: 'f'.repeat(64),
-      windowFingerprint: 'win-fp',
-      recipientTextCheck: 'matched',
-      receiptStatus: 'confirmed',
-      preSendScreenshotPath: 'pre.png',
-      postSendScreenshotPath: 'post.png',
-      failureStep: '',
-      visualPrecheck: 'ok',
-      visualPostcheck: 'ok',
-      sendStatusCheck: 'sent',
-    };
-  },
-}));
-
-mock.module('../channel/outbound/wechat', () => ({
-  sendWechatDesktopMessage: async () => ({
-    sent: false,
-    message: 'outbound_blocked:receipt_uncertain',
-    payloadHash: 'e'.repeat(64),
-    windowFingerprint: 'win-fp',
-    recipientTextCheck: 'uncertain',
-    receiptStatus: 'uncertain',
-    preSendScreenshotPath: 'pre.png',
-    postSendScreenshotPath: 'post.png',
-    failureStep: 'mock-fail',
-    visualPrecheck: 'ok',
-    visualPostcheck: 'ok',
-    sendStatusCheck: 'uncertain',
-  }),
-}));
-
-const { ChannelRuntime } = await import('./service');
-const { setContactTier } = await import('./pairing-store');
+      }),
+    },
+  );
+}
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-channels-adversarial-'));
@@ -117,16 +119,9 @@ describe('channel runtime adversarial cases', () => {
     forcedVisionResult = null;
   });
 
-  afterAll(() => {
-    mock.restore();
-  });
-
   test('keeps blocked state when outbound receipt is uncertain', async () => {
     const projectDir = tempProjectDir();
-    const runtime = new ChannelRuntime(projectDir, {
-      onInbound: () => {},
-      onPairRequested: () => {},
-    });
+    const runtime = createRuntime(projectDir);
     setContactTier(projectDir, 'qq', 'owner-user', 'owner');
     forceSendSuccess = false;
 
@@ -163,10 +158,7 @@ describe('channel runtime adversarial cases', () => {
 
   test('downgrades to ui_style_mismatch draft-only under OCR/DPI evidence drift', async () => {
     const projectDir = tempProjectDir();
-    const runtime = new ChannelRuntime(projectDir, {
-      onInbound: () => {},
-      onPairRequested: () => {},
-    });
+    const runtime = createRuntime(projectDir);
     setContactTier(projectDir, 'qq', 'owner-user', 'owner');
     forceSendSuccess = true;
 
@@ -207,10 +199,7 @@ describe('channel runtime adversarial cases', () => {
 
   test('blocks outbound when visual recipient evidence mismatches target', async () => {
     const projectDir = tempProjectDir();
-    const runtime = new ChannelRuntime(projectDir, {
-      onInbound: () => {},
-      onPairRequested: () => {},
-    });
+    const runtime = createRuntime(projectDir);
     setContactTier(projectDir, 'qq', 'owner-user', 'owner');
     forceSendSuccess = true;
     forcedVisionResult = {
@@ -256,10 +245,7 @@ describe('channel runtime adversarial cases', () => {
 
   test('blocks outbound when visual evidence marks send as failed', async () => {
     const projectDir = tempProjectDir();
-    const runtime = new ChannelRuntime(projectDir, {
-      onInbound: () => {},
-      onPairRequested: () => {},
-    });
+    const runtime = createRuntime(projectDir);
     setContactTier(projectDir, 'qq', 'owner-user', 'owner');
     forceSendSuccess = true;
     forcedVisionResult = {
@@ -305,10 +291,7 @@ describe('channel runtime adversarial cases', () => {
 
   test('triggers input_mutex_timeout under sustained session contention', async () => {
     const projectDir = tempProjectDir();
-    const runtime = new ChannelRuntime(projectDir, {
-      onInbound: () => {},
-      onPairRequested: () => {},
-    });
+    const runtime = createRuntime(projectDir);
     setContactTier(projectDir, 'qq', 'owner-a', 'owner');
     setContactTier(projectDir, 'qq', 'owner-b', 'owner');
     sendDelayMs = 350;

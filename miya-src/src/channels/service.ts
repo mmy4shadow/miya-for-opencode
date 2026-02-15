@@ -39,6 +39,12 @@ export interface ChannelRuntimeCallbacks {
   ) => Promise<void> | void;
 }
 
+export interface ChannelRuntimeDependencies {
+  sendQqDesktopMessage?: typeof sendQqDesktopMessage;
+  sendWechatDesktopMessage?: typeof sendWechatDesktopMessage;
+  analyzeDesktopOutboundEvidence?: typeof analyzeDesktopOutboundEvidence;
+}
+
 function parseEnvList(input: string | undefined): string[] {
   if (!input) return [];
   return input
@@ -343,6 +349,9 @@ export function listOutboundAudit(
 export class ChannelRuntime {
   private readonly projectDir: string;
   private readonly callbacks: ChannelRuntimeCallbacks;
+  private readonly sendQqDesktopMessageImpl: typeof sendQqDesktopMessage;
+  private readonly sendWechatDesktopMessageImpl: typeof sendWechatDesktopMessage;
+  private readonly analyzeDesktopOutboundEvidenceImpl: typeof analyzeDesktopOutboundEvidence;
   private telegramPolling = false;
   private telegramOffset = 0;
   private slackSocketModeRunning = false;
@@ -354,9 +363,17 @@ export class ChannelRuntime {
   private readonly inputMutexCooldownUntil = new Map<string, number>();
   private readonly sendFingerprintHistory = new Map<string, number>();
 
-  constructor(projectDir: string, callbacks: ChannelRuntimeCallbacks) {
+  constructor(
+    projectDir: string,
+    callbacks: ChannelRuntimeCallbacks,
+    deps: ChannelRuntimeDependencies = {},
+  ) {
     this.projectDir = projectDir;
     this.callbacks = callbacks;
+    this.sendQqDesktopMessageImpl = deps.sendQqDesktopMessage ?? sendQqDesktopMessage;
+    this.sendWechatDesktopMessageImpl = deps.sendWechatDesktopMessage ?? sendWechatDesktopMessage;
+    this.analyzeDesktopOutboundEvidenceImpl =
+      deps.analyzeDesktopOutboundEvidence ?? analyzeDesktopOutboundEvidence;
   }
 
   listChannels() {
@@ -1108,13 +1125,13 @@ export class ChannelRuntime {
     }
 
     if (input.channel === 'qq') {
-      const result = await sendQqDesktopMessage({
+      const result = await this.sendQqDesktopMessageImpl({
         projectDir: this.projectDir,
         destination: input.destination,
         text,
         mediaPath,
       });
-      const visionCheck = await analyzeDesktopOutboundEvidence({
+      const visionCheck = await this.analyzeDesktopOutboundEvidenceImpl({
         destination: input.destination,
         preSendScreenshotPath: result.preSendScreenshotPath,
         postSendScreenshotPath: result.postSendScreenshotPath,
@@ -1191,13 +1208,13 @@ export class ChannelRuntime {
     }
 
     if (input.channel === 'wechat') {
-      const result = await sendWechatDesktopMessage({
+      const result = await this.sendWechatDesktopMessageImpl({
         projectDir: this.projectDir,
         destination: input.destination,
         text,
         mediaPath,
       });
-      const visionCheck = await analyzeDesktopOutboundEvidence({
+      const visionCheck = await this.analyzeDesktopOutboundEvidenceImpl({
         destination: input.destination,
         preSendScreenshotPath: result.preSendScreenshotPath,
         postSendScreenshotPath: result.postSendScreenshotPath,

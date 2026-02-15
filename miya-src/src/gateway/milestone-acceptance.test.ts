@@ -8,6 +8,13 @@ interface GatewayWsClient {
 }
 
 async function connectGateway(url: string): Promise<GatewayWsClient> {
+  return connectGatewayWithRole(url, 'admin');
+}
+
+async function connectGatewayWithRole(
+  url: string,
+  role: 'ui' | 'admin' | 'node' | 'channel' | 'unknown',
+): Promise<GatewayWsClient> {
   const wsUrl = `${url.replace('http://', 'ws://')}/ws`;
   const ws = new WebSocket(wsUrl);
   let requestID = 0;
@@ -23,7 +30,7 @@ async function connectGateway(url: string): Promise<GatewayWsClient> {
   const ready = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('gateway_ws_hello_timeout')), 10_000);
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'hello', role: 'ui', clientID: 'test-client' }));
+      ws.send(JSON.stringify({ type: 'hello', role, clientID: 'test-client' }));
     };
     ws.onerror = () => {
       clearTimeout(timeout);

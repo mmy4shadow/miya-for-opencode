@@ -1489,6 +1489,8 @@ interface GuardedOutboundCheckInput {
   userInitiated?: boolean;
   negotiationID?: string;
   retryAttemptType?: 'auto' | 'human';
+  evidenceConfidence?: number;
+  captureLimitations?: string[];
   psycheSignals?: {
     idleSec?: number;
     foreground?: 'ide' | 'terminal' | 'browser' | 'player' | 'game' | 'chat' | 'other' | 'unknown';
@@ -1604,6 +1606,26 @@ async function sendChannelMessageGuarded(
     factorIntentSuspicious,
     factorRecipientIsMe,
   });
+  const captureLimitations = Array.isArray(input.outboundCheck?.captureLimitations)
+    ? input.outboundCheck.captureLimitations
+    : [];
+  let evidenceConfidence =
+    typeof input.outboundCheck?.evidenceConfidence === 'number' &&
+    Number.isFinite(input.outboundCheck.evidenceConfidence)
+      ? Number(input.outboundCheck.evidenceConfidence)
+      : confidenceIntentRaw;
+  evidenceConfidence = Math.max(0, Math.min(1, evidenceConfidence));
+  if (
+    captureLimitations.some(
+      (item) =>
+        item === 'no_desktop_screenshot' ||
+        item === 'pixel_evidence_unavailable' ||
+        item.startsWith('capture_tree_exhausted') ||
+        item === 'capture_method_unspecified',
+    )
+  ) {
+    evidenceConfidence = Math.min(evidenceConfidence, 0.34);
+  }
   const userInitiated = input.outboundCheck?.userInitiated !== false;
   if (isHighRiskInstruction(input.text)) {
     const physicalConfirmed = localPhysicalConfirmed;
@@ -1681,7 +1703,7 @@ async function sendChannelMessageGuarded(
     confidenceIntent: confidenceIntentRaw,
     trustMinScore: runtime.nexus.trust?.minScore,
     trustMode: runtime.nexus.trustMode,
-    evidenceConfidence: confidenceIntentRaw,
+    evidenceConfidence,
   });
   if (fusion.action === 'hard_fuse') {
     const safetyState = transitionSafetyState(projectDir, {
@@ -1846,7 +1868,7 @@ async function sendChannelMessageGuarded(
           target: `${input.channel}:${input.destination}`,
           source: `session:${input.sessionID}`,
           action: `outbound.send.${input.channel}`,
-          evidenceConfidence: confidenceIntentRaw,
+          evidenceConfidence,
         },
       });
       psycheConsult = {
@@ -1928,7 +1950,7 @@ async function sendChannelMessageGuarded(
               target: `${input.channel}:${input.destination}`,
               source: `session:${input.sessionID}`,
               action: `outbound.send.${input.channel}`,
-              evidenceConfidence: confidenceIntentRaw,
+              evidenceConfidence,
               highRiskRollback: riskLevel === 'HIGH' && consult.decision === 'deny',
             },
           });
@@ -2066,7 +2088,7 @@ async function sendChannelMessageGuarded(
           target: `${input.channel}:${input.destination}`,
           source: `session:${input.sessionID}`,
           action: `outbound.send.${input.channel}`,
-          evidenceConfidence: confidenceIntentRaw,
+          evidenceConfidence,
           highRiskRollback: riskLevel === 'HIGH' && !Boolean((result as { sent?: boolean }).sent),
         },
       });
@@ -3407,6 +3429,20 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         (outboundCheckRaw.retryAttemptType === 'auto' ||
           outboundCheckRaw.retryAttemptType === 'human')
           ? (outboundCheckRaw.retryAttemptType as 'auto' | 'human')
+          : undefined,
+      evidenceConfidence:
+        outboundCheckRaw &&
+        typeof outboundCheckRaw.evidenceConfidence === 'number' &&
+        Number.isFinite(outboundCheckRaw.evidenceConfidence)
+          ? Number(outboundCheckRaw.evidenceConfidence)
+          : undefined,
+      captureLimitations:
+        outboundCheckRaw && Array.isArray(outboundCheckRaw.captureLimitations)
+          ? outboundCheckRaw.captureLimitations
+              .filter((item): item is string => typeof item === 'string')
+              .map((item) => item.trim())
+              .filter((item) => item.length > 0)
+              .slice(0, 32)
           : undefined,
       psycheSignals:
         outboundCheckRaw &&
