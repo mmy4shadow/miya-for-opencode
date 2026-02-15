@@ -4,6 +4,7 @@ export { createBackgroundTools } from './background';
 export { createNodeTools } from './nodes';
 export { createRalphTools } from './ralph';
 export { createAutopilotTools } from './autopilot';
+export { createAutoflowTools } from './autoflow';
 export { createMultimodalTools } from './multimodal';
 export { createSoulTools } from './soul';
 export { createUltraworkTools } from './ultrawork';

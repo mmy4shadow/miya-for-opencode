@@ -47,6 +47,7 @@ import {
   ast_grep_replace,
   ast_grep_search,
   createAutomationTools,
+  createAutoflowTools,
   createAutopilotTools,
   createBackgroundTools,
   createMultimodalTools,
@@ -341,6 +342,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const automationTools = createAutomationTools(automationService);
   const workflowTools = createWorkflowTools(ctx.directory);
   const autopilotTools = createAutopilotTools(ctx.directory);
+  const autoflowTools = createAutoflowTools(ctx.directory, backgroundManager);
   const ralphTools = createRalphTools();
   const nodeTools = createNodeTools(ctx.directory);
   const multimodalTools = createMultimodalTools(ctx.directory);
@@ -493,6 +495,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ...automationTools,
       ...workflowTools,
       ...autopilotTools,
+      ...autoflowTools,
       ...ralphTools,
       ...nodeTools,
       ...multimodalTools,
