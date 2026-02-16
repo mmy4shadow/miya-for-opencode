@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -35,6 +35,22 @@ const baseScreen: DesktopScreenState = {
   uiaAvailable: true,
   ocrAvailable: true,
 };
+
+const envBackup = new Map<string, string | undefined>();
+
+function setEnv(name: string, value: string | undefined): void {
+  if (!envBackup.has(name)) envBackup.set(name, process.env[name]);
+  if (value == null) delete process.env[name];
+  else process.env[name] = value;
+}
+
+afterEach(() => {
+  for (const [key, value] of envBackup.entries()) {
+    if (value == null) delete process.env[key];
+    else process.env[key] = value;
+  }
+  envBackup.clear();
+});
 
 describe('vision-action-bridge', () => {
   test('promotes repeated success to L0 memory replay', () => {
@@ -75,11 +91,57 @@ describe('vision-action-bridge', () => {
         ...baseScreen,
         uiaAvailable: false,
         ocrAvailable: true,
+        ocrBoxes: [
+          {
+            x: 1640,
+            y: 980,
+            width: 120,
+            height: 52,
+            text: '发送',
+            confidence: 0.94,
+          },
+        ],
       },
     });
     expect(l2.action_plan.routeLevel).toBe('L2_OCR');
+    expect(l2.action_plan.som.enabled).toBe(true);
+    expect(l2.action_plan.som.selectedCandidateId).toBeDefined();
+    expect(l2.action_plan.som.candidates.length).toBeGreaterThan(0);
 
-    const l3 = buildDesktopActionPlan({
+    const l3Raw = buildDesktopActionPlan({
+      projectDir,
+      intent: {
+        ...baseIntent,
+        destination: 'Bob',
+      },
+      screenState: {
+        ...baseScreen,
+        uiaAvailable: false,
+        ocrAvailable: false,
+      },
+    });
+    expect(l3Raw.action_plan.routeLevel).toBe('L3_SOM_VLM');
+    expect(l3Raw.action_plan.som.enabled).toBe(true);
+    expect(l3Raw.action_plan.som.candidates.length).toBeGreaterThan(20);
+  });
+
+  test('uses L3 VLM selector in numbered candidate mode when available', () => {
+    const projectDir = makeProjectDir();
+    const selectorScript = path.join(projectDir, 'som-selector.cjs');
+    fs.writeFileSync(
+      selectorScript,
+      `const fs = require('fs');
+const payload = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
+const ids = Array.isArray(payload.candidates) ? payload.candidates.map(c => Number(c.id)).filter(Number.isFinite) : [];
+const candidateId = ids.length > 0 ? ids[0] : 1;
+process.stdout.write(JSON.stringify({ candidateId, confidence: 0.88 }));`,
+      'utf-8',
+    );
+    setEnv('MIYA_DESKTOP_VLM_MAX_CALLS', '1');
+    setEnv('MIYA_QWEN3VL_CMD', `node "${selectorScript}"`);
+    setEnv('MIYA_VISION_LOCAL_CMD', undefined);
+
+    const plan = buildDesktopActionPlan({
       projectDir,
       intent: baseIntent,
       screenState: {
@@ -88,9 +150,12 @@ describe('vision-action-bridge', () => {
         ocrAvailable: false,
       },
     });
-    expect(l3.action_plan.routeLevel).toBe('L3_SOM_VLM');
-    expect(l3.action_plan.som.enabled).toBe(true);
-    expect(l3.action_plan.som.candidates.length).toBeGreaterThan(20);
+    expect(plan.action_plan.routeLevel).toBe('L3_SOM_VLM');
+    expect(plan.action_plan.som.selectionSource).toBe('vlm');
+    expect(plan.action_plan.som.selectedCandidateId).toBeDefined();
+    expect(plan.action_plan.tokenPolicy.maxVlmCallsPerStep).toBe(1);
+    expect(plan.action_plan.som.vlmCallsPlanned).toBeGreaterThanOrEqual(1);
+    expect(plan.action_plan.som.vlmCallsBudget).toBe(0);
   });
 
   test('computes KPI snapshot from recorded outcomes', () => {
@@ -138,5 +203,81 @@ describe('vision-action-bridge', () => {
     expect(kpi.vlmCallRatio).toBe(0.5);
     expect(kpi.somPathHitRate).toBe(1);
     expect(kpi.highRiskMisfireRate).toBe(0);
+  });
+
+  test('counts both L2 and L3 runs in SoM hit-rate KPI', () => {
+    const projectDir = makeProjectDir();
+    const l2 = buildDesktopActionPlan({
+      projectDir,
+      intent: baseIntent,
+      screenState: {
+        ...baseScreen,
+        uiaAvailable: false,
+        ocrAvailable: true,
+        ocrBoxes: [
+          {
+            x: 1640,
+            y: 980,
+            width: 120,
+            height: 52,
+            text: '发送',
+            confidence: 0.93,
+          },
+        ],
+      },
+    });
+    recordDesktopActionOutcome(projectDir, {
+      intent: l2.intent,
+      screenState: l2.screen_state,
+      actionPlan: l2,
+      sent: true,
+      latencyMs: 760,
+      vlmCallsUsed: 0,
+      somSucceeded: true,
+      highRiskMisfire: false,
+    });
+
+    const l3Raw = buildDesktopActionPlan({
+      projectDir,
+      intent: {
+        ...baseIntent,
+        destination: 'Bob',
+      },
+      screenState: {
+        ...baseScreen,
+        uiaAvailable: false,
+        ocrAvailable: false,
+      },
+    });
+    const l3 = {
+      ...l3Raw,
+      action_plan: {
+        ...l3Raw.action_plan,
+        routeLevel: 'L3_SOM_VLM' as const,
+        memoryHit: false,
+        som: {
+          ...l3Raw.action_plan.som,
+          enabled: true,
+          selectionSource: 'none' as const,
+          selectedCandidateId: undefined,
+          vlmCallsPlanned: 1,
+          vlmCallsBudget: 0,
+        },
+      },
+    };
+    recordDesktopActionOutcome(projectDir, {
+      intent: l3.intent,
+      screenState: l3.screen_state,
+      actionPlan: l3,
+      sent: false,
+      latencyMs: 1400,
+      vlmCallsUsed: 1,
+      somSucceeded: false,
+      highRiskMisfire: false,
+    });
+
+    const kpi = readDesktopAutomationKpi(projectDir);
+    expect(kpi.totalRuns).toBe(2);
+    expect(kpi.somPathHitRate).toBe(0.5);
   });
 });

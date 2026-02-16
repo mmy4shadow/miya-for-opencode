@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { z } from 'zod';
 import { getMiyaRuntimeDir } from '../../workflow';
@@ -38,6 +39,15 @@ const somCandidateSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
 });
 
+const ocrBoxSchema = z.object({
+  x: z.number().int().min(0),
+  y: z.number().int().min(0),
+  width: z.number().int().min(1),
+  height: z.number().int().min(1),
+  text: z.string().trim().min(1).max(240),
+  confidence: z.number().min(0).max(1).optional(),
+});
+
 const desktopScreenStateSchema = z.object({
   windowFingerprint: z.string().trim().max(240).optional(),
   captureMethod: z.enum(['wgc_hwnd', 'print_window', 'dxgi_duplication', 'uia_only', 'unknown']).default('unknown'),
@@ -48,6 +58,8 @@ const desktopScreenStateSchema = z.object({
   uiaAvailable: z.boolean(),
   ocrAvailable: z.boolean(),
   somCandidates: z.array(somCandidateSchema).max(120).optional(),
+  ocrText: z.string().trim().max(4000).optional(),
+  ocrBoxes: z.array(ocrBoxSchema).max(200).optional(),
   lastOcrFingerprint: z.string().trim().max(240).optional(),
 });
 
@@ -87,6 +99,7 @@ const desktopActionPlanSchema = z.object({
       selectionSource: z.enum(['memory', 'heuristic', 'vlm', 'none']),
       selectedCandidateId: z.number().int().positive().optional(),
       vlmCallsBudget: z.number().int().min(0).max(2),
+      vlmCallsPlanned: z.number().int().min(0).max(2),
       candidates: z.array(somCandidateSchema).max(120),
     }),
     steps: z.array(actionPlanStepSchema).min(3).max(12),
@@ -304,9 +317,12 @@ function defaultSomCandidates(screen: DesktopScreenState): DesktopSomCandidate[]
 }
 
 function normalizeSomCandidates(input: DesktopScreenState): DesktopSomCandidate[] {
-  const base = Array.isArray(input.somCandidates) && input.somCandidates.length > 0
-    ? input.somCandidates
-    : defaultSomCandidates(input);
+  const base =
+    Array.isArray(input.somCandidates) && input.somCandidates.length > 0
+      ? input.somCandidates
+      : Array.isArray(input.ocrBoxes) && input.ocrBoxes.length > 0
+        ? candidatesFromOcr(input)
+        : defaultSomCandidates(input);
   return base
     .filter((row) => row && Number.isFinite(row.id))
     .sort((a, b) => a.id - b.id)
@@ -330,6 +346,199 @@ function chooseSomCandidateByHeuristic(
   });
   if (sendMatch) return sendMatch.id;
   return undefined;
+}
+
+function normCompact(value: string): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+function containsNormalized(text: string, target: string): boolean {
+  const t = normCompact(text);
+  const q = normCompact(target);
+  if (!t || !q) return false;
+  return t.includes(q);
+}
+
+function candidatesFromOcr(input: DesktopScreenState): DesktopSomCandidate[] {
+  const boxes = Array.isArray(input.ocrBoxes) ? input.ocrBoxes : [];
+  if (boxes.length === 0) return [];
+  const width = input.display.width;
+  const height = input.display.height;
+  let id = 1001;
+  return boxes
+    .map((box) => {
+      const centerX = Math.max(0, Math.min(width - 1, box.x + Math.floor(box.width / 2)));
+      const centerY = Math.max(0, Math.min(height - 1, box.y + Math.floor(box.height / 2)));
+      const row = Math.max(0, Math.min(9, Math.floor((centerY / Math.max(1, height)) * 10)));
+      const col = Math.max(0, Math.min(9, Math.floor((centerX / Math.max(1, width)) * 10)));
+      return {
+        id: id++,
+        label: box.text.slice(0, 120),
+        coarse: { row, col },
+        roi: {
+          x: Math.max(0, Math.min(width - 1, box.x)),
+          y: Math.max(0, Math.min(height - 1, box.y)),
+          width: Math.max(1, Math.min(box.width, width - box.x)),
+          height: Math.max(1, Math.min(box.height, height - box.y)),
+        },
+        center: { x: centerX, y: centerY },
+        confidence: typeof box.confidence === 'number' ? clamp(box.confidence, 0, 1) : undefined,
+      } satisfies DesktopSomCandidate;
+    })
+    .slice(0, 80);
+}
+
+function chooseSomCandidateFromOcr(
+  candidates: DesktopSomCandidate[],
+  intent: DesktopAutomationIntent,
+  screenState: DesktopScreenState,
+): number | undefined {
+  if (!Array.isArray(screenState.ocrBoxes) || screenState.ocrBoxes.length === 0) return undefined;
+  const sendHints = ['send', '发送', 'sent', 'deliver', '提交', '确认', '发送给', 'send to'];
+  const destination = intent.destination;
+  const scored = candidates.map((item) => {
+    const label = String(item.label ?? '');
+    let score = 0;
+    if (containsNormalized(label, destination)) score += 2.2;
+    if (sendHints.some((hint) => containsNormalized(label, hint))) score += 1.6;
+    // Prefer bottom-right controls for send buttons when OCR signals are weak.
+    score += ((item.center.y / Math.max(1, screenState.display.height)) * 0.45);
+    score += ((item.center.x / Math.max(1, screenState.display.width)) * 0.25);
+    if (typeof item.confidence === 'number') score += item.confidence * 0.4;
+    return { id: item.id, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored[0];
+  if (!top || top.score < 1.35) return undefined;
+  return top.id;
+}
+
+function parseCommandSpec(raw: string): { command: string; args: string[] } | null {
+  const input = raw.trim();
+  if (!input) return null;
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i] ?? '';
+    if ((ch === '"' || ch === "'") && (!quote || quote === ch)) {
+      quote = quote ? null : (ch as '"' | "'");
+      continue;
+    }
+    if (!quote && /\s/.test(ch)) {
+      if (current) tokens.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current) tokens.push(current);
+  if (tokens.length === 0) return null;
+  return { command: tokens[0] as string, args: tokens.slice(1) };
+}
+
+function resolveSomVlmCommand(): { command: string; args: string[]; shell: boolean } | null {
+  const explicit = String(process.env.MIYA_VISION_LOCAL_CMD ?? '').trim();
+  if (explicit) {
+    const parsed = parseCommandSpec(explicit);
+    if (parsed) return { ...parsed, shell: false };
+    return { command: explicit, args: [], shell: true };
+  }
+  const backend = String(process.env.MIYA_QWEN3VL_CMD ?? '').trim();
+  if (backend) {
+    const parsed = parseCommandSpec(backend);
+    if (parsed) return { ...parsed, shell: false };
+    return { command: backend, args: [], shell: true };
+  }
+  return null;
+}
+
+function runSomVlmSelector(input: {
+  intent: DesktopAutomationIntent;
+  screenState: DesktopScreenState;
+  candidates: DesktopSomCandidate[];
+  maxCalls: number;
+}): { selectedCandidateId?: number; callsUsed: number } {
+  const command = resolveSomVlmCommand();
+  if (!command || input.candidates.length === 0 || input.maxCalls <= 0) {
+    return { selectedCandidateId: undefined, callsUsed: 0 };
+  }
+  const timeoutMsRaw = Number(process.env.MIYA_DESKTOP_VLM_SELECTOR_TIMEOUT_MS ?? 2_800);
+  const timeoutMs = Number.isFinite(timeoutMsRaw) ? Math.max(600, Math.min(12_000, Math.floor(timeoutMsRaw))) : 2_800;
+  const attempts = Math.max(1, Math.min(2, input.maxCalls));
+  let callsUsed = 0;
+  for (let i = 0; i < attempts; i += 1) {
+    callsUsed += 1;
+    const candidateWindow = input.candidates.slice(0, i === 0 ? 32 : 16);
+    const payload = JSON.stringify({
+      mode: 'som_candidate_select',
+      protocol: 'vision_action_bridge.v1',
+      promptTemplate: 'som_candidate_index_v1',
+      schema: {
+        type: 'object',
+        required: ['candidateId'],
+        properties: {
+          candidateId: { type: 'integer' },
+          confidence: { type: 'number' },
+        },
+      },
+      intent: {
+        kind: input.intent.kind,
+        channel: input.intent.channel,
+        destination: input.intent.destination,
+        hasText: input.intent.hasText,
+        hasMedia: input.intent.hasMedia,
+      },
+      screen_state: {
+        captureMethod: input.screenState.captureMethod,
+        display: input.screenState.display,
+        windowFingerprint: input.screenState.windowFingerprint,
+        lastOcrFingerprint: input.screenState.lastOcrFingerprint,
+        ocrText: String(input.screenState.ocrText ?? '').slice(0, 1200),
+      },
+      // ROI-only: never send full-screen image in selector mode.
+      candidates: candidateWindow.map((row) => ({
+        id: row.id,
+        label: row.label,
+        coarse: row.coarse,
+        roi: row.roi,
+        center: row.center,
+      })),
+    });
+    try {
+      const run = spawnSync(command.command, command.args, {
+        input: payload,
+        timeout: timeoutMs,
+        encoding: 'utf-8',
+        shell: command.shell,
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      if (run.error || run.signal || run.status !== 0) continue;
+      const parsed = JSON.parse(String(run.stdout ?? '').trim()) as {
+        candidateId?: number;
+        selectedCandidateId?: number;
+        id?: number;
+      };
+      const candidateIdRaw = Number(
+        parsed.candidateId ?? parsed.selectedCandidateId ?? parsed.id ?? Number.NaN,
+      );
+      if (!Number.isFinite(candidateIdRaw)) continue;
+      const candidateId = Math.max(1, Math.floor(candidateIdRaw));
+      if (candidateWindow.some((item) => item.id === candidateId)) {
+        return {
+          selectedCandidateId: candidateId,
+          callsUsed,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return { selectedCandidateId: undefined, callsUsed };
 }
 
 function buildSteps(route: DesktopPerceptionRoute, intent: DesktopAutomationIntent) {
@@ -409,6 +618,8 @@ export function buildDesktopActionPlan(input: {
 
   let selectedCandidateId: number | undefined = undefined;
   let selectionSource: 'memory' | 'heuristic' | 'vlm' | 'none' = 'none';
+  let vlmCallsPlanned = 0;
+  let maxVlmCallsPerStep = 2;
   if (routeLevel === 'L0_ACTION_MEMORY' && matchedMemory?.somCandidateId) {
     selectedCandidateId = matchedMemory.somCandidateId;
     selectionSource = 'memory';
@@ -419,12 +630,41 @@ export function buildDesktopActionPlan(input: {
       selectionSource = 'heuristic';
     }
   }
-
-  const vlmCallsBudget = routeLevel === 'L3_SOM_VLM' && !selectedCandidateId ? 2 : 0;
+  if (routeLevel === 'L2_OCR' && !selectedCandidateId) {
+    const ocrSelected = chooseSomCandidateFromOcr(somCandidates, intent, screenState);
+    if (ocrSelected) {
+      selectedCandidateId = ocrSelected;
+      selectionSource = 'heuristic';
+    } else {
+      // OCR route failed to localize target; escalate to L3 SoM+VLM.
+      routeLevel = 'L3_SOM_VLM';
+    }
+  }
+  if (routeLevel === 'L3_SOM_VLM' && !selectedCandidateId) {
+    const maxVlmCallsRaw = Number(process.env.MIYA_DESKTOP_VLM_MAX_CALLS ?? 2);
+    const maxVlmCalls = Number.isFinite(maxVlmCallsRaw)
+      ? Math.max(1, Math.min(2, Math.floor(maxVlmCallsRaw)))
+      : 2;
+    maxVlmCallsPerStep = maxVlmCalls;
+    const vlmSelected = runSomVlmSelector({
+      intent,
+      screenState,
+      candidates: somCandidates,
+      maxCalls: maxVlmCalls,
+    });
+    vlmCallsPlanned = vlmSelected.callsUsed;
+    if (vlmSelected.selectedCandidateId) {
+      selectedCandidateId = vlmSelected.selectedCandidateId;
+      selectionSource = 'vlm';
+    }
+  }
+  const vlmCallsBudget =
+    routeLevel === 'L3_SOM_VLM' ? Math.max(0, maxVlmCallsPerStep - vlmCallsPlanned) : 0;
   const replaySkillId =
     matchedMemory?.replaySkillId ||
     `desktop_replay_${intent.channel}_${createHash('sha1').update(memoryKey).digest('hex').slice(0, 8)}`;
-  const somCandidatesForPlan = routeLevel === 'L3_SOM_VLM' ? somCandidates : [];
+  const somCandidatesForPlan =
+    routeLevel === 'L2_OCR' || routeLevel === 'L3_SOM_VLM' ? somCandidates : [];
 
   return desktopActionPlanSchema.parse({
     protocol: 'vision_action_bridge.v1',
@@ -439,13 +679,14 @@ export function buildDesktopActionPlan(input: {
         roiOnlyWhenVlm: true,
         promptTemplate: 'som_candidate_index_v1',
         schemaMode: 'json_only',
-        maxVlmCallsPerStep: 2,
+        maxVlmCallsPerStep,
       },
       som: {
-        enabled: routeLevel === 'L3_SOM_VLM',
+        enabled: routeLevel === 'L2_OCR' || routeLevel === 'L3_SOM_VLM',
         selectionSource,
         selectedCandidateId,
         vlmCallsBudget,
+        vlmCallsPlanned,
         candidates: somCandidatesForPlan,
       },
       steps: buildSteps(routeLevel, intent),
@@ -573,7 +814,7 @@ export function recordDesktopActionOutcome(projectDir: string, input: DesktopAct
     metrics.highRiskRuns += 1;
     if (input.highRiskMisfire) metrics.highRiskMisfireRuns += 1;
   }
-  if (plan.action_plan.routeLevel === 'L3_SOM_VLM') {
+  if (plan.action_plan.routeLevel === 'L2_OCR' || plan.action_plan.routeLevel === 'L3_SOM_VLM') {
     metrics.somRuns += 1;
     if (input.somSucceeded) metrics.somSuccessRuns += 1;
   }

@@ -78,6 +78,16 @@ function buildEvidenceDir(projectDir: string, channel: 'qq' | 'wechat'): string 
   return root;
 }
 
+function parseJsonFromEnv<T>(raw: string | undefined): T | undefined {
+  const text = String(raw ?? '').trim();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function sendDesktopOutbound(input: {
   projectDir: string;
   appName: 'QQ' | 'WeChat';
@@ -139,6 +149,20 @@ export async function sendDesktopOutbound(input: {
   const rawDisplayHeight = Number(process.env.MIYA_DESKTOP_DISPLAY_HEIGHT ?? 1080);
   const displayWidth = Number.isFinite(rawDisplayWidth) ? Math.max(640, Math.min(16_384, Math.floor(rawDisplayWidth))) : 1920;
   const displayHeight = Number.isFinite(rawDisplayHeight) ? Math.max(480, Math.min(16_384, Math.floor(rawDisplayHeight))) : 1080;
+  const ocrText = String(process.env.MIYA_DESKTOP_OCR_TEXT ?? '').trim();
+  const ocrBoxes = parseJsonFromEnv<
+    Array<{ x: number; y: number; width: number; height: number; text: string; confidence?: number }>
+  >(process.env.MIYA_DESKTOP_OCR_BOXES_JSON);
+  const somCandidates = parseJsonFromEnv<
+    Array<{
+      id: number;
+      label?: string;
+      coarse: { row: number; col: number };
+      roi: { x: number; y: number; width: number; height: number };
+      center: { x: number; y: number };
+      confidence?: number;
+    }>
+  >(process.env.MIYA_DESKTOP_SOM_CANDIDATES_JSON);
   const actionPlan = buildDesktopActionPlan({
     projectDir: input.projectDir,
     intent: {
@@ -162,9 +186,16 @@ export async function sendDesktopOutbound(input: {
       ocrAvailable:
         String(process.env.MIYA_VISION_LOCAL_CMD ?? '').trim().length > 0 ||
         String(process.env.MIYA_QWEN3VL_CMD ?? '').trim().length > 0 ||
-        String(process.env.MIYA_VISION_OCR_ENDPOINT ?? '').trim().length > 0,
+        String(process.env.MIYA_VISION_OCR_ENDPOINT ?? '').trim().length > 0 ||
+        ocrText.length > 0 ||
+        (Array.isArray(ocrBoxes) && ocrBoxes.length > 0),
+      ocrText: ocrText || undefined,
+      ocrBoxes,
+      somCandidates,
     },
   });
+  const actionPlanJson = JSON.stringify(actionPlan);
+  const actionPlanB64 = Buffer.from(actionPlanJson, 'utf-8').toString('base64');
 
   const script = `
 $ErrorActionPreference = 'Stop'
@@ -286,6 +317,7 @@ $appName = $env:MIYA_APP_NAME
 $payloadHash = $env:MIYA_PAYLOAD_HASH
 $traceId = $env:MIYA_TRACE_ID
 $evidenceDir = $env:MIYA_EVIDENCE_DIR
+$actionPlanB64 = $env:MIYA_ACTION_PLAN_B64
 $actionPlanRaw = $env:MIYA_ACTION_PLAN_JSON
 $shell = New-Object -ComObject WScript.Shell
 
@@ -312,8 +344,14 @@ $vlmCallsUsed = 0
 $sendInputEnabled = ($env:MIYA_DESKTOP_SENDINPUT_ENABLED -ne '0')
 $actionPlan = $null
 try {
-  if ($actionPlanRaw) {
-    $actionPlan = $actionPlanRaw | ConvertFrom-Json -Depth 24
+  $actionPlanPayload = ""
+  if ($actionPlanB64) {
+    $actionPlanPayload = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($actionPlanB64))
+  } else {
+    $actionPlanPayload = [string]$actionPlanRaw
+  }
+  if ($actionPlanPayload) {
+    $actionPlan = $actionPlanPayload | ConvertFrom-Json
     if ($actionPlan -and $actionPlan.action_plan) {
       $routeRaw = [string]$actionPlan.action_plan.routeLevel
       if ($routeRaw -in @('L0_ACTION_MEMORY','L1_UIA','L2_OCR','L3_SOM_VLM')) {
@@ -327,6 +365,10 @@ try {
         }
         if ($som.selectedCandidateId) {
           $somSelectedCandidate = [string][int]$som.selectedCandidateId
+        }
+        if ($som.vlmCallsPlanned -ne $null) {
+          $planned = [int]$som.vlmCallsPlanned
+          $vlmCallsUsed = [Math]::Max(0, [Math]::Min(2, $planned))
         }
       }
     }
@@ -766,7 +808,7 @@ try {
     }
   }
 
-  if ($routeLevel -eq 'L3_SOM_VLM') {
+  if ($routeLevel -in @('L2_OCR','L3_SOM_VLM')) {
     $step = "locate.som"
     if ($actionPlan -and $actionPlan.action_plan -and $actionPlan.action_plan.som) {
       $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -775,7 +817,11 @@ try {
         throw "som_candidate_unresolved"
       }
     } else {
-      throw "som_plan_missing"
+      if ($routeLevel -eq 'L2_OCR') {
+        $riskHints.Add("ocr_locator_missing_candidate")
+      } else {
+        throw "som_plan_missing"
+      }
     }
   }
 
@@ -882,7 +928,8 @@ try {
         MIYA_PAYLOAD_HASH: payloadHash,
         MIYA_TRACE_ID: traceID,
         MIYA_EVIDENCE_DIR: evidenceDir,
-        MIYA_ACTION_PLAN_JSON: JSON.stringify(actionPlan),
+        MIYA_ACTION_PLAN_JSON: actionPlanJson,
+        MIYA_ACTION_PLAN_B64: actionPlanB64,
       },
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -956,7 +1003,7 @@ try {
   const vlmCallsRaw = Number(safeValueFromSignal(signal, 'vlm_calls') ?? Number.NaN);
   const vlmCallsUsed = Number.isFinite(vlmCallsRaw)
     ? Math.max(0, Math.min(2, Math.floor(vlmCallsRaw)))
-    : 0;
+    : Math.max(0, Math.min(2, actionPlan.action_plan.som.vlmCallsPlanned ?? 0));
   const latencyMs = Math.max(1, Date.now() - startedAt);
   if (fallbackReason && fallbackReason !== 'none') {
     simulationRiskHints.push(`focus_fallback:${fallbackReason}`);
@@ -973,7 +1020,7 @@ try {
         sent,
         latencyMs,
         vlmCallsUsed,
-        somSucceeded: routeLevel === 'L3_SOM_VLM' ? sent : false,
+        somSucceeded: routeLevel === 'L2_OCR' || routeLevel === 'L3_SOM_VLM' ? sent : false,
         highRiskMisfire:
           (input.riskLevel ?? 'LOW') === 'HIGH' &&
           sent &&
