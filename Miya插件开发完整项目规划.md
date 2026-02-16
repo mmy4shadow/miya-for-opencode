@@ -2496,6 +2496,7 @@ Miya插件已经具备了坚实的架构基础：
 4.https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git
 5.https://github.com/code-yeongyu/oh-my-opencode.git
 6.https://github.com/MemTensor/MemOS.git
+7.https://github.com/zeroclaw-labs/zeroclaw.git
 我的源码地址：https://github.com/mmy4shadow/miya-for-opencode.git
 
-对比miya和https://github.com/opensouls/opensouls.git，https://github.com/letta-ai/letta.git，https://github.com/OpenHands/OpenHands.git，https://github.com/Open-LLM-VTuber/Open-LLM-VTuber.git，https://github.com/mem0ai/mem0.git，https://github.com/SillyTavern/SillyTavern.git，https://github.com/openclaw/openclaw.git，https://github.com/Yeachan-Heo/oh-my-claudecode.git，https://github.com/SumeLabs/clawra.git，https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git，https://github.com/code-yeongyu/oh-my-opencode.git，https://github.com/MemTensor/MemOS.git，https://github.com/alvinunreal/oh-my-opencode-slim.git。仔细阅读规划和源码，先理解设计意图，在现有基础上miya还能怎么优化，给出优化方案
+对比miya和https://github.com/opensouls/opensouls.git，https://github.com/letta-ai/letta.git，https://github.com/OpenHands/OpenHands.git，https://github.com/Open-LLM-VTuber/Open-LLM-VTuber.git，https://github.com/mem0ai/mem0.git，https://github.com/SillyTavern/SillyTavern.git，https://github.com/openclaw/openclaw.git，https://github.com/Yeachan-Heo/oh-my-claudecode.git，https://github.com/SumeLabs/clawra.git，https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git，https://github.com/code-yeongyu/oh-my-opencode.git，https://github.com/MemTensor/MemOS.git，https://github.com/alvinunreal/oh-my-opencode-slim.git，https://github.com/zeroclaw-labs/zeroclaw.git。仔细阅读规划和源码，先理解设计意图，在现有基础上miya还能怎么优化，给出优化方案

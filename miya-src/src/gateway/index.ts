@@ -80,6 +80,7 @@ import {
 import {
   getLauncherDaemonSnapshot,
   getMiyaClient,
+  stopMiyaLauncher,
   subscribeLauncherEvents,
 } from '../daemon';
 import {
@@ -1473,19 +1474,26 @@ export function stopGateway(projectDir: string): {
   const runtime = runtimes.get(projectDir);
   if (!runtime) return { stopped: false };
 
-  enqueueReflectWorkerJob(projectDir, {
-    reason: 'session_end',
-    force: true,
-    minLogs: 50,
-    maxLogs: 200,
-    maxWrites: 60,
-    cooldownMinutes: 0,
-  });
-  runReflectWorkerTick(projectDir, {
-    maxJobs: 2,
-    writeBudget: 60,
-    mergeBudget: 60,
-  });
+  try {
+    enqueueReflectWorkerJob(projectDir, {
+      reason: 'session_end',
+      force: true,
+      minLogs: 50,
+      maxLogs: 200,
+      maxWrites: 60,
+      cooldownMinutes: 0,
+    });
+    // Do not block gateway shutdown on memory reflection.
+    setTimeout(() => {
+      try {
+        runReflectWorkerTick(projectDir, {
+          maxJobs: 2,
+          writeBudget: 60,
+          mergeBudget: 60,
+        });
+      } catch {}
+    }, 0);
+  } catch {}
 
   const previous = toGatewayState(projectDir, runtime);
   if (runtime.wizardTickTimer) {
@@ -1509,6 +1517,7 @@ export function stopGateway(projectDir: string): {
     runtime.daemonLauncherUnsubscribe();
     runtime.daemonLauncherUnsubscribe = undefined;
   }
+  stopMiyaLauncher(projectDir);
   try {
     runtime.channelRuntime.stop();
   } catch {}

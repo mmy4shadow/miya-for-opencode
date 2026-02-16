@@ -157,7 +157,7 @@ export function handleControlUiHttpRequest(
   if (request.method === 'HEAD') {
     return new Response(null, { status: 200, headers });
   }
-  return new Response(Bun.file(resolvedPath), {
+  return new Response(fs.readFileSync(resolvedPath), {
     status: 200,
     headers,
   });

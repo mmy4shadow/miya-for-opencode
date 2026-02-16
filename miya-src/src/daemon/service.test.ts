@@ -14,15 +14,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 function longSleepCommand(): { command: string; args: string[] } {
-  if (process.platform === 'win32') {
-    return {
-      command: 'powershell',
-      args: ['-NoProfile', '-Command', 'Start-Sleep -Seconds 30'],
-    };
-  }
   return {
-    command: 'sh',
-    args: ['-lc', 'sleep 30'],
+    command: process.execPath,
+    args: ['-e', 'setTimeout(() => {}, 30_000)'],
   };
 }
 
@@ -30,32 +24,37 @@ describe('daemon service', () => {
   test('runs task through scheduler wrapper', async () => {
     const daemon = new MiyaDaemonService(tempProjectDir());
     daemon.start();
-    const { result, job } = await daemon.runTask(
-      {
-        kind: 'generic',
-        resource: { priority: 20, vramMB: 0 },
-      },
-      async () => 'ok',
-    );
-    expect(result).toBe('ok');
-    expect(job.status).toBe('completed');
+    try {
+      const { result, job } = await daemon.runTask(
+        {
+          kind: 'generic',
+          resource: { priority: 20, vramMB: 0 },
+        },
+        async () => 'ok',
+      );
+      expect(result).toBe('ok');
+      expect(job.status).toBe('completed');
+    } finally {
+      daemon.stop();
+    }
   });
 
   test('runs isolated process with output capture', async () => {
     const daemon = new MiyaDaemonService(tempProjectDir());
     daemon.start();
-    const proc = await daemon.runIsolatedProcess({
-      kind: 'shell.exec',
-      command: process.platform === 'win32' ? 'powershell' : 'sh',
-      args:
-        process.platform === 'win32'
-          ? ['-NoProfile', '-Command', 'Write-Output "miya-daemon"']
-          : ['-lc', 'echo miya-daemon'],
-      timeoutMs: 5000,
-      resource: { priority: 50, vramMB: 0 },
-    });
-    expect(proc.exitCode).toBe(0);
-    expect(proc.stdout.toLowerCase()).toContain('miya-daemon');
+    try {
+      const proc = await daemon.runIsolatedProcess({
+        kind: 'shell.exec',
+        command: process.execPath,
+        args: ['-e', 'console.log("miya-daemon")'],
+        timeoutMs: 5000,
+        resource: { priority: 50, vramMB: 0 },
+      });
+      expect(proc.exitCode).toBe(0);
+      expect(proc.stdout.toLowerCase()).toContain('miya-daemon');
+    } finally {
+      daemon.stop();
+    }
   });
 
   test('builds and applies model update plan', () => {
@@ -77,16 +76,20 @@ describe('daemon service', () => {
       onProgress: (event) => events.push(event),
     });
     daemon.start();
-    await daemon.runTask(
-      {
-        kind: 'image.generate',
-        resource: { priority: 80, vramMB: 0, timeoutMs: 2_000 },
-      },
-      async () => 'ok',
-    );
-    const filler = events.find((event) => event.phase === 'audio.filler');
-    expect(filler).toBeDefined();
-    expect(filler?.audioCue?.expectedLatencyMs).toBeGreaterThan(500);
+    try {
+      await daemon.runTask(
+        {
+          kind: 'image.generate',
+          resource: { priority: 80, vramMB: 0, timeoutMs: 2_000 },
+        },
+        async () => 'ok',
+      );
+      const filler = events.find((event) => event.phase === 'audio.filler');
+      expect(filler).toBeDefined();
+      expect(filler?.audioCue?.expectedLatencyMs).toBeGreaterThan(500);
+    } finally {
+      daemon.stop();
+    }
   });
 
   test(
@@ -94,35 +97,38 @@ describe('daemon service', () => {
     async () => {
     const daemon = new MiyaDaemonService(tempProjectDir());
     daemon.start();
-
-    const slow = longSleepCommand();
-    const lowPromise = daemon.runIsolatedProcess({
-      kind: 'training.image',
-      command: slow.command,
-      args: slow.args,
-      timeoutMs: 60_000,
-      metadata: { jobID: 'train-preempt-1' },
-      resource: { priority: 10, vramMB: 0 },
-    });
-    await sleep(250);
-    await daemon.runTask(
-      {
-        kind: 'vision.analyze',
-        resource: { priority: 100, vramMB: 0, timeoutMs: 2_000 },
-      },
-      async () => 'interaction-ok',
-    );
-    const lowResult = await Promise.race([
-      lowPromise,
-      new Promise<{
-        exitCode: number | null;
-        stdout: string;
-        stderr: string;
-        timedOut: boolean;
-      }>((_, reject) => setTimeout(() => reject(new Error('preempt_timeout')), 12_000)),
-    ]);
-    expect(lowResult.timedOut).toBe(false);
-    expect(lowResult.exitCode === 0).toBe(false);
+    try {
+      const slow = longSleepCommand();
+      const lowPromise = daemon.runIsolatedProcess({
+        kind: 'training.image',
+        command: slow.command,
+        args: slow.args,
+        timeoutMs: 60_000,
+        metadata: { jobID: 'train-preempt-1' },
+        resource: { priority: 10, vramMB: 0 },
+      });
+      await sleep(250);
+      await daemon.runTask(
+        {
+          kind: 'vision.analyze',
+          resource: { priority: 100, vramMB: 0, timeoutMs: 2_000 },
+        },
+        async () => 'interaction-ok',
+      );
+      const lowResult = await Promise.race([
+        lowPromise,
+        new Promise<{
+          exitCode: number | null;
+          stdout: string;
+          stderr: string;
+          timedOut: boolean;
+        }>((_, reject) => setTimeout(() => reject(new Error('preempt_timeout')), 12_000)),
+      ]);
+      expect(lowResult.timedOut).toBe(false);
+      expect(lowResult.exitCode === 0).toBe(false);
+    } finally {
+      daemon.stop();
+    }
     },
     20_000,
   );

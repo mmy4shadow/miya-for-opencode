@@ -200,7 +200,12 @@ export function registerGatewayCoreMethods(
     const rounds = Math.max(1, Math.min(100, Math.floor(roundsRaw)));
     const waitMsRaw = typeof params.waitMs === 'number' ? Number(params.waitMs) : 250;
     const waitMs = Math.max(50, Math.min(5_000, Math.floor(waitMsRaw)));
-    const state = deps.ensureGatewayRunning();
+    const gatewayState = deps.buildGatewayState() as { url?: unknown } | null;
+    const urlFromRuntime =
+      gatewayState && typeof gatewayState.url === 'string' && gatewayState.url.trim().length > 0
+        ? gatewayState.url
+        : undefined;
+    const probeUrl = urlFromRuntime ?? deps.ensureGatewayRunning().url;
     let healthy = 0;
     let daemonReady = 0;
     const samples: Array<{
@@ -210,7 +215,7 @@ export function registerGatewayCoreMethods(
       daemonStatus: string;
     }> = [];
     for (let index = 0; index < rounds; index += 1) {
-      const gatewayAlive = await deps.probeGatewayAlive(state.url, 1_200);
+      const gatewayAlive = await deps.probeGatewayAlive(probeUrl, 1_200);
       const daemonSnapshot = getLauncherDaemonSnapshot(deps.projectDir);
       const daemonConnected = Boolean(daemonSnapshot.connected);
       if (gatewayAlive) healthy += 1;

@@ -635,6 +635,8 @@ export class MiyaDaemonService {
     timedOut: boolean;
   }> {
     let childRef: ChildProcess | null = null;
+    let terminateSoftRef: () => void = () => {};
+    let terminateHardRef: () => void = () => {};
     const wrapped = await this.runTask(
       {
         kind: input.kind,
@@ -655,7 +657,8 @@ export class MiyaDaemonService {
           const child = spawn(input.command, input.args ?? [], {
             cwd: input.cwd,
             env: { ...process.env, ...(input.env ?? {}) },
-            stdio: ['pipe', 'pipe', 'pipe'],
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
           });
           childRef = child;
 
@@ -664,6 +667,43 @@ export class MiyaDaemonService {
           let timedOut = false;
           let stdoutBuffer = '';
           let stderrBuffer = '';
+          let settled = false;
+          let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
+          const terminate = (hard: boolean): void => {
+            if (!childRef || !childRef.pid || childRef.exitCode !== null) return;
+            if (process.platform === 'win32') {
+              if (hard) {
+                try {
+                  spawn(
+                    'taskkill',
+                    ['/PID', String(childRef.pid), '/T', '/F'],
+                    { stdio: 'ignore', windowsHide: true },
+                  ).unref();
+                } catch {}
+              } else {
+                try {
+                  childRef.kill('SIGTERM');
+                } catch {}
+              }
+              return;
+            }
+            try {
+              childRef.kill(hard ? 'SIGKILL' : 'SIGTERM');
+            } catch {}
+          };
+
+          terminateSoftRef = () => terminate(false);
+          terminateHardRef = () => terminate(true);
+
+          const finalize = (code: number | null): void => {
+            if (settled) return;
+            settled = true;
+            if (forceKillTimer) clearTimeout(forceKillTimer);
+            if (stdoutBuffer) input.onStdoutLine?.(stdoutBuffer);
+            if (stderrBuffer) input.onStderrLine?.(stderrBuffer);
+            resolve({ exitCode: code, stdout, stderr, timedOut });
+          };
 
           child.stdout.on('data', (chunk) => {
             const text = chunk.toString();
@@ -688,36 +728,36 @@ export class MiyaDaemonService {
 
           const timeout = setTimeout(() => {
             timedOut = true;
-            child.kill('SIGTERM');
+            terminate(false);
+            forceKillTimer = setTimeout(() => {
+              terminate(true);
+            }, 800);
           }, Math.max(1000, input.timeoutMs ?? 10 * 60 * 1000));
 
           child.on('close', (code) => {
             clearTimeout(timeout);
-            if (stdoutBuffer) input.onStdoutLine?.(stdoutBuffer);
-            if (stderrBuffer) input.onStderrLine?.(stderrBuffer);
-            resolve({ exitCode: code, stdout, stderr, timedOut });
+            finalize(code);
+          });
+
+          child.on('exit', (code) => {
+            clearTimeout(timeout);
+            finalize(code);
           });
 
           child.on('error', (error) => {
             clearTimeout(timeout);
-            resolve({
-              exitCode: null,
-              stdout,
-              stderr: `${stderr}\n${error.message}`,
-              timedOut,
-            });
+            stderr = `${stderr}\n${error.message}`;
+            finalize(null);
           });
         }),
       {
         onJobRunning: ({ setTerminator }) => {
           setTerminator({
             terminateSoft: () => {
-              if (!childRef || childRef.killed) return;
-              childRef.kill('SIGTERM');
+              terminateSoftRef();
             },
             terminateHard: () => {
-              if (!childRef || childRef.killed) return;
-              childRef.kill('SIGKILL');
+              terminateHardRef();
             },
           });
         },

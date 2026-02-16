@@ -292,8 +292,6 @@ describe('channel runtime adversarial cases', () => {
   test('triggers input_mutex_timeout under sustained session contention', async () => {
     const projectDir = tempProjectDir();
     const runtime = createRuntime(projectDir);
-    setContactTier(projectDir, 'qq', 'owner-a', 'owner');
-    setContactTier(projectDir, 'qq', 'owner-b', 'owner');
     sendDelayMs = 350;
 
     const first = runtime.sendMessage({
@@ -303,6 +301,7 @@ describe('channel runtime adversarial cases', () => {
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
+        bypassAllowlist: true,
         bypassThrottle: true,
         bypassDuplicateGuard: true,
       },
@@ -316,6 +315,7 @@ describe('channel runtime adversarial cases', () => {
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
+        bypassAllowlist: true,
         bypassThrottle: true,
         bypassDuplicateGuard: true,
       },

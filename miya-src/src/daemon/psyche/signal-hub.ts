@@ -119,8 +119,9 @@ export class PsycheNativeSignalHub {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.sampleNow('bootstrap');
-    this.scheduleNext(this.sampleIntervalMs);
+    // Bootstrap sampling is scheduled asynchronously so daemon.start() stays non-blocking
+    // even when native collectors are slow on Windows.
+    this.scheduleNext(0);
   }
 
   stop(): void {
