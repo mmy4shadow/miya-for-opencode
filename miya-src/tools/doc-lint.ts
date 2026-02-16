@@ -24,6 +24,12 @@ const LEGACY_TERMS = [
   'tool.use.after',
 ];
 
+const UNRESOLVED_PLANNING_MARKERS = [
+  '待确认问题（影响实现取舍）',
+  '待确认后冻结',
+  '规划态',
+];
+
 function requireFile(path: string, code: string): void {
   if (!existsSync(path)) {
     violations.push({ code, message: `missing file: ${path}` });
@@ -232,6 +238,14 @@ if (existsSync(readmePath)) {
 if (existsSync(planningPath)) {
   const planning = readFileSync(planningPath, 'utf8');
   assertNoLegacyTerms(planning, '规划文档');
+  for (const marker of UNRESOLVED_PLANNING_MARKERS) {
+    if (planning.includes(marker)) {
+      violations.push({
+        code: 'planning.unresolved.marker',
+        message: `规划文档包含未收口标记: ${marker}`,
+      });
+    }
+  }
   for (const expected of [
     'tool.execute.before',
     'tool.execute.after',

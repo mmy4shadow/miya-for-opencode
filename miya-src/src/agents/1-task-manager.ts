@@ -55,7 +55,7 @@ Every delegation must include:
 - Respect kill-switch and intake gate.
 - Stop unsafe execution when approval is denied.
 - After repeated failure on same objective, escalate to @4-architecture-advisor.
-- TODO continuity and over-complex output should be reviewed by the dedicated simplicity reviewer stage after writes.
+- After any file write/edit, route through the dedicated simplicity-review stage to check complexity drift and TODO continuity before final response.
 </Safety>
 
 <ContextSanitation>

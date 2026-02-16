@@ -1,3 +1,8 @@
+import {
+  MODE_POLICY_FREEZE_V1,
+  stripWorkAffectionatePrefix,
+} from './mode-policy';
+
 export type ContextMode = 'work' | 'chat';
 export type GatewayMode = ContextMode | 'mixed';
 
@@ -25,7 +30,8 @@ const CHAT_HINTS = [
   /\b(love|dear|sweet|cute|hug)\b/i,
 ];
 
-const WORK_BLOCKED_WORDS = /(亲爱的|宝贝|老公|老婆|撒娇|语气|情绪|可爱|温柔)/g;
+const WORK_BLOCKED_WORDS =
+  /(亲爱(?:的)?|宝贝|老公|老婆|撒娇|语气|情绪|可爱|温柔|dear|honey|sweetie|darling)/gi;
 
 const CODE_CONTEXT_LINE = new RegExp(
   [
@@ -46,7 +52,7 @@ function normalizeWhitespace(text: string): string {
 
 export function inferContextMode(text: string): ContextMode {
   const trimmed = normalizeWhitespace(text);
-  if (!trimmed) return 'work';
+  if (!trimmed) return MODE_POLICY_FREEZE_V1.unresolvedFallbackMode;
   let workScore = 0;
   let chatScore = 0;
   for (const pattern of WORK_HINTS) {
@@ -55,12 +61,20 @@ export function inferContextMode(text: string): ContextMode {
   for (const pattern of CHAT_HINTS) {
     if (pattern.test(trimmed)) chatScore += 1;
   }
-  return workScore >= chatScore ? 'work' : 'chat';
+  if (workScore === chatScore) {
+    return MODE_POLICY_FREEZE_V1.unresolvedFallbackMode;
+  }
+  return workScore > chatScore ? 'work' : 'chat';
 }
 
 function sanitizeWorkContext(text: string): { text: string; removed: string[] } {
   const removed: string[] = [];
   let body = normalizeWhitespace(text);
+  const strippedPrefix = stripWorkAffectionatePrefix(body);
+  body = strippedPrefix.text;
+  if (strippedPrefix.stripped) {
+    removed.push('affectionate_prefix');
+  }
   if (WORK_BLOCKED_WORDS.test(body)) {
     removed.push('persona_words');
     body = body.replace(WORK_BLOCKED_WORDS, '');

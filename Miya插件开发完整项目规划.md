@@ -1123,9 +1123,10 @@ Miya 通过随 OpenCode 启动/退出的轻量 daemon 获得“精简版 OpenCla
 - **每轮 Ralph Loop 禁止携带 full persona**：循环修复的每轮 prompt 必须只包含“本轮必要上下文 + 错误证据 + 约束”，full persona 仅允许在最终回复阶段使用。
 - **人格文本不得进入代码产物**：严禁把 persona 语料写进注释/README/commit message（除非你明确要求），避免“人格泄露”进入仓库历史。
 
-**待确认问题（影响实现取舍）**：
-- Mode Router 的 `work/chat` 判定你更偏向“严格”还是“温柔”？（例如：默认 work，遇到明确闲聊才切 chat）
-- 你是否接受：`work` 模式里只保留极短称呼（比如“亲爱的”）但其余恋爱设定完全卸载？
+**已冻结决策（2026-02-16，已落地）**：
+- Mode Router 口径冻结为“严格优先”：不确定场景默认 `work`，仅当闲聊信号明确时进入 `chat`。
+- `work` 执行链人格策略冻结为 `zero`：执行轨默认卸载恋爱设定；且 `work` 上下文会剥离亲昵称呼/角色化词汇，避免污染执行语义。
+- 冻结策略已固化为源码可查询对象，并接入路由统计快照与门禁测试（`miya-src/src/gateway/mode-policy.ts`、`miya-src/src/gateway/sanitizer.ts`、`miya-src/src/gateway/methods/core.ts`、`miya-src/src/gateway/mode-policy.test.ts`）。
 
 ---
 
@@ -2048,7 +2049,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 | MCP-UI/采样增强 | 持续优化 | 按 MCP 服务变更同步更新 capability 暴露清单与验收测试 |
 | Inbound-only 通道治理（非主线） | 持续监控 | 仅保留 Inbound-only/Read-only 能力；严禁引入新外发通道 |
 
-### **6.3 关键断裂补丁（依据新增方案，待确认后冻结）**
+### **6.3 关键断裂补丁（已冻结，2026-02-16）**
 
 #### **6.3.1 工程稳定性补丁**
 
@@ -2103,21 +2104,23 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 - daemon 侧：在 `miya-src/src/daemon/` 新增 `psyche/` 子系统（sensors/state_machine/bandit/logger/rpc），并保持 host.ts 统一路由。  
 - worker 侧：截图捕获与 VLM 推理作为 daemon 内部 worker；发生超时/错误时返回结构化降级原因，不抛到 UI 线程。  
 
-推荐新增目录（规划态）：
+已落地目录（源码对齐）：
 
 ```text
 miya-src/src/daemon/psyche/
-  config.ts
   state-machine.ts
   bandit.ts
-  fast-brain.ts
   consult.ts
   logger.ts
+  slow-brain.ts
+  signal-hub.ts
+  screen-probe.ts
   sensors/
     foreground.ts
-    input-activity.ts
-    audio-activity.ts
-    screen-probe.ts
+    input.ts
+    audio.ts
+    gamepad.ts
+    windows-shell.ts
 ```
 
 #### **6.4.3 批判性风险修订（从方案到工程约束）**

@@ -15,7 +15,8 @@ import {
   readRouterModeConfig,
 } from '../../router';
 import { readModeObservability } from '../mode-observability';
-import {
+import { MODE_POLICY_FREEZE_V1 } from '../mode-policy';
+import type {
   GatewayMethodRegistry,
 } from '../protocol';
 
@@ -75,11 +76,15 @@ export function registerGatewayCoreMethods(
     const mode = readRouterModeConfig(deps.projectDir);
     return {
       mode,
+      modePolicy: MODE_POLICY_FREEZE_V1,
       cost: getRouteCostSummary(deps.projectDir, Math.max(1, Math.min(1000, limit))),
       recent: listRouteCostRecords(deps.projectDir, Math.max(1, Math.min(100, limit))),
       modeObservability: readModeObservability(deps.projectDir),
     };
   });
+  methods.register('mode.policy.get', async () => ({
+    modePolicy: MODE_POLICY_FREEZE_V1,
+  }));
   methods.register('learning.drafts.stats', async () => ({
     stats: getLearningStats(deps.projectDir),
   }));

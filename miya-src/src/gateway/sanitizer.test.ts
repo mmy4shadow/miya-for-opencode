@@ -7,6 +7,11 @@ describe('gateway sanitizer', () => {
     expect(mode).toBe('work');
   });
 
+  test('falls back to work mode when input is empty', () => {
+    const mode = inferContextMode('   ');
+    expect(mode).toBe('work');
+  });
+
   test('prefers chat mode for companion-like input', () => {
     const mode = inferContextMode('宝贝晚安，陪我聊聊天');
     expect(mode).toBe('chat');
@@ -19,7 +24,16 @@ describe('gateway sanitizer', () => {
     });
     expect(out.payload).toContain('technical coding assistant');
     expect(out.payload.includes('亲爱')).toBe(false);
-    expect(out.removedSignals).toContain('persona_words');
+    expect(out.removedSignals).toContain('affectionate_prefix');
+  });
+
+  test('strips affectionate prefix in work mode', () => {
+    const out = sanitizeGatewayContext({
+      text: 'dear, please fix the failing build script',
+      modeHint: 'work',
+    });
+    expect(out.payload.includes('dear')).toBe(false);
+    expect(out.removedSignals).toContain('affectionate_prefix');
   });
 
   test('removes code context lines in chat mode', () => {
