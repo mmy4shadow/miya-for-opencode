@@ -2132,6 +2132,8 @@ miya-src/src/daemon/psyche/
   - `miya-src/src/daemon/psyche/state-machine.ts` 已实现多信号 Sentinel 判定，`UNKNOWN` 作为冲突/不确定默认回退。  
   - `miya-src/src/daemon/psyche/consult.ts` 已实现统一 consult 硬闸、`allowed + nextCheckSec` 输出、`risk(falseIdleUncertain/drmCaptureBlocked/probeRateLimited)` 风险结构。  
   - `miya-src/src/daemon/host.ts` / `miya-src/src/daemon/client.ts` / `miya-src/src/gateway/index.ts` 保持单一 WS 控制平面透传（未新增旁路通道）。  
+  - 已新增 daemon 常驻 `PsycheNativeSignalHub`：`miya-src/src/daemon/psyche/signal-hub.ts` 负责定时采样 + 变化突发采样 + stale 按需刷新，`consult` 读取缓存快照而非每次重采。  
+  - `miya-src/src/gateway/index.ts` 已新增 consult 断路器超时：daemon consult 超时会走 Safe Hold（非用户触发），避免主流程被长阻塞。  
 
 - 已落地（P1 闭环关键项）：  
   - `miya-src/src/daemon/psyche/logger.ts` / `consult.ts` 已补充 delayed reward 相关口径（含 `userInitiatedWithinSec`），并对 defer/hold 决策可评分。  
@@ -2144,6 +2146,7 @@ miya-src/src/daemon/psyche/
 - 进行中：  
   - Resonance Gate（语义焦点增强、风格注入、动量特征）尚未完整落地。  
   - Slow Brain（周期全量重训 + 版本回滚）仍处于规划/预留接口阶段。  
+  - Capture Capability Tree 的 `DXGI` 原生采集链仍未落地（当前为 `WGC helper + PrintWindow` 可用态）。  
 
 ---
 

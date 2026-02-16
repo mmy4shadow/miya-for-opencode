@@ -494,6 +494,57 @@ describe('gateway security interaction acceptance', () => {
     }
   });
 
+  test('degrades to safe hold when daemon psyche consult times out', async () => {
+    const prevPsycheSwitch = process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+    const prevConsultTimeout = process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+    const prevConsultDelay = process.env.MIYA_PSYCHE_CONSULT_DELAY_MS;
+    process.env.MIYA_PSYCHE_CONSULT_ENABLE = '1';
+    process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = '600';
+    process.env.MIYA_PSYCHE_CONSULT_DELAY_MS = '5000';
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      await client.request('security.identity.init', {
+        password: 'pw-owner-timeout',
+        passphrase: 'phrase-owner-timeout',
+      });
+      const policy = (await client.request('policy.get')) as { hash: string };
+      const startedAt = Date.now();
+      const result = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在工作时提醒我喝水',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+        },
+      })) as {
+        sent: boolean;
+        message: string;
+        retryAfterSec?: number;
+      };
+      const elapsedMs = Date.now() - startedAt;
+      expect(result.sent).toBe(false);
+      expect(result.message).toBe('outbound_blocked:psyche_deferred');
+      expect(Number(result.retryAfterSec ?? 0)).toBeGreaterThan(0);
+      expect(elapsedMs).toBeLessThan(4_500);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+      if (prevPsycheSwitch === undefined) delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+      else process.env.MIYA_PSYCHE_CONSULT_ENABLE = prevPsycheSwitch;
+      if (prevConsultTimeout === undefined) delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+      else process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = prevConsultTimeout;
+      if (prevConsultDelay === undefined) delete process.env.MIYA_PSYCHE_CONSULT_DELAY_MS;
+      else process.env.MIYA_PSYCHE_CONSULT_DELAY_MS = prevConsultDelay;
+    }
+  });
+
   test('enforces fixability retry budget to prevent infinite auto-retry loops', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);

@@ -1000,6 +1000,33 @@ function resolvePsycheConsultEnabled(projectDir: string, mode: PsycheModeConfig)
   return mode.resonanceEnabled;
 }
 
+function resolvePsycheConsultTimeoutMs(input: {
+  userInitiated: boolean;
+  shadow: boolean;
+}): number {
+  if (input.shadow) {
+    const raw = Number(process.env.MIYA_PSYCHE_SHADOW_TIMEOUT_MS ?? 900);
+    if (!Number.isFinite(raw)) return 900;
+    return Math.max(200, Math.min(8_000, Math.floor(raw)));
+  }
+  const fallback = input.userInitiated ? 3_500 : 1_600;
+  const raw = Number(process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS ?? fallback);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(300, Math.min(12_000, Math.floor(raw)));
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, code: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(code)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function gatewayOwnerLockFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-owner.json');
 }
@@ -2635,22 +2662,26 @@ async function sendChannelMessageGuarded(
   if (primarySlowBrainEnabled) {
     try {
       const daemon = getMiyaClient(projectDir);
-      const consult = await daemon.psycheConsult({
-        intent: `outbound.send.${input.channel}`,
-        urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
-        channel: input.channel,
-        userInitiated,
-        allowScreenProbe: psycheMode.captureProbeEnabled,
-        allowSignalOverride: signalOverrideEnabled,
-        signals: overrideSignals,
-        captureLimitations: input.outboundCheck?.captureLimitations,
-        trust: {
-          target: `${input.channel}:${input.destination}`,
-          source: `session:${input.sessionID}`,
-          action: `outbound.send.${input.channel}`,
-          evidenceConfidence,
-        },
-      });
+      const consult = await withTimeout(
+        daemon.psycheConsult({
+          intent: `outbound.send.${input.channel}`,
+          urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
+          channel: input.channel,
+          userInitiated,
+          allowScreenProbe: psycheMode.captureProbeEnabled,
+          allowSignalOverride: signalOverrideEnabled,
+          signals: overrideSignals,
+          captureLimitations: input.outboundCheck?.captureLimitations,
+          trust: {
+            target: `${input.channel}:${input.destination}`,
+            source: `session:${input.sessionID}`,
+            action: `outbound.send.${input.channel}`,
+            evidenceConfidence,
+          },
+        }),
+        resolvePsycheConsultTimeoutMs({ userInitiated, shadow: false }),
+        'psyche_consult_timeout',
+      );
       psycheConsult = {
         auditID: consult.auditID,
         intent: consult.intent,
@@ -2816,22 +2847,26 @@ async function sendChannelMessageGuarded(
   if (psycheShadowSampled) {
     try {
       const daemon = getMiyaClient(projectDir);
-      const shadow = await daemon.psycheConsult({
-        intent: `outbound.send.${input.channel}`,
-        urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
-        channel: input.channel,
-        userInitiated,
-        allowScreenProbe: false,
-        allowSignalOverride: signalOverrideEnabled,
-        signals: overrideSignals,
-        captureLimitations: input.outboundCheck?.captureLimitations,
-        trust: {
-          target: `${input.channel}:${input.destination}`,
-          source: `session:${input.sessionID}`,
-          action: `outbound.send.${input.channel}`,
-          evidenceConfidence,
-        },
-      });
+      const shadow = await withTimeout(
+        daemon.psycheConsult({
+          intent: `outbound.send.${input.channel}`,
+          urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
+          channel: input.channel,
+          userInitiated,
+          allowScreenProbe: false,
+          allowSignalOverride: signalOverrideEnabled,
+          signals: overrideSignals,
+          captureLimitations: input.outboundCheck?.captureLimitations,
+          trust: {
+            target: `${input.channel}:${input.destination}`,
+            source: `session:${input.sessionID}`,
+            action: `outbound.send.${input.channel}`,
+            evidenceConfidence,
+          },
+        }),
+        resolvePsycheConsultTimeoutMs({ userInitiated, shadow: true }),
+        'psyche_shadow_timeout',
+      );
       const primaryDecision = primarySlowBrainEnabled
         ? (psycheConsult?.state ? 'consulted' : 'allow_without_consult')
         : 'allow_by_config';

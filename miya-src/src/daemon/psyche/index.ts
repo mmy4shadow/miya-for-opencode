@@ -38,6 +38,10 @@ export {
   type ScreenProbeResult,
 } from './screen-probe';
 export {
+  PsycheNativeSignalHub,
+  type PsycheNativeSignalHubStatus,
+} from './signal-hub';
+export {
   getTrustScore,
   updateTrustScore,
   trustTierFromScore,

@@ -14,10 +14,12 @@ import { getMiyaRuntimeDir } from '../workflow';
 import { maybeAutoReflectCompanionMemory } from '../companion/memory-reflect';
 import {
   PsycheConsultService,
+  PsycheNativeSignalHub,
   type PsycheConsultRequest,
   type PsycheConsultResult,
   type PsycheOutcomeRequest,
   type PsycheOutcomeResult,
+  type PsycheNativeSignalHubStatus,
 } from './psyche';
 import {
   ensurePythonRuntime,
@@ -129,6 +131,7 @@ export class MiyaDaemonService {
   private readonly projectDir: string;
   private readonly sessionID: string;
   private readonly onProgress?: (event: DaemonJobProgressEvent) => void;
+  private readonly signalHub: PsycheNativeSignalHub;
   private readonly psyche: PsycheConsultService;
   private readonly audioFiller: AudioFillerController;
   private readonly vramMutex = new VramMutex();
@@ -146,7 +149,10 @@ export class MiyaDaemonService {
     this.projectDir = projectDir;
     this.sessionID = toSessionID(projectDir);
     this.onProgress = options?.onProgress;
-    this.psyche = new PsycheConsultService(projectDir);
+    this.signalHub = new PsycheNativeSignalHub();
+    this.psyche = new PsycheConsultService(projectDir, {
+      nativeSignalsProvider: () => this.signalHub.readSnapshot(),
+    });
     this.audioFiller = new AudioFillerController(projectDir);
   }
 
@@ -321,12 +327,14 @@ export class MiyaDaemonService {
     if (this.started) return;
     this.started = true;
     this.startedAtIso = nowIso();
+    this.signalHub.start();
     this.writeRuntimeState('running');
   }
 
   stop(): void {
     if (!this.started) return;
     this.started = false;
+    this.signalHub.stop();
     this.writeRuntimeState('stopped');
   }
 
@@ -351,6 +359,10 @@ export class MiyaDaemonService {
 
   registerPsycheOutcome(input: PsycheOutcomeRequest): PsycheOutcomeResult {
     return this.psyche.registerOutcome(input);
+  }
+
+  getPsycheSignalHubStatus(): PsycheNativeSignalHubStatus {
+    return this.signalHub.getStatus();
   }
 
   getModelLockStatus(): Record<string, { expected: string; ok: boolean; reason?: string }> {

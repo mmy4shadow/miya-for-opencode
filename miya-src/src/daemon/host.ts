@@ -123,6 +123,12 @@ function stableHash(input: unknown): string {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex');
 }
 
+function resolvePsycheConsultDelayMs(): number {
+  const raw = Number(process.env.MIYA_PSYCHE_CONSULT_DELAY_MS ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.max(0, Math.min(30_000, Math.floor(raw)));
+}
+
 const args = parseArgs(process.argv);
 ensureRuntimeDir(args.projectDir);
 const sockets = new Set<Bun.ServerWebSocket<unknown>>();
@@ -178,6 +184,7 @@ function baseStatus(): Record<string, unknown> {
     vramTotalMB: gpu.totalMB,
     lastSeenAt: new Date(lastSeenMs).toISOString(),
     policyHash: currentPolicyHash(args.projectDir),
+    psycheSignalHub: daemonService.getPsycheSignalHubStatus(),
   };
 }
 
@@ -283,6 +290,10 @@ const server = Bun.serve({
 
       if (frame.method === 'daemon.psyche.consult') {
         try {
+          const consultDelayMs = resolvePsycheConsultDelayMs();
+          if (consultDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, consultDelayMs));
+          }
           const urgencyRaw = String(params.urgency ?? 'medium').trim().toLowerCase();
           const urgency =
             urgencyRaw === 'low' || urgencyRaw === 'high' || urgencyRaw === 'critical'
@@ -355,6 +366,20 @@ const server = Bun.serve({
             ),
           );
         }
+        return;
+      }
+
+      if (frame.method === 'daemon.psyche.signals.get') {
+        ws.send(
+          JSON.stringify(
+            DaemonResponseFrameSchema.parse({
+              type: 'response',
+              id: frame.id,
+              ok: true,
+              result: daemonService.getPsycheSignalHubStatus(),
+            }),
+          ),
+        );
         return;
       }
 

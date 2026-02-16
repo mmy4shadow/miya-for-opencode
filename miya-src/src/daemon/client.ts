@@ -207,6 +207,10 @@ export class MiyaClient {
       15_000,
     ) as Promise<PsycheOutcomeResult>;
   }
+
+  async psycheSignalsGet(): Promise<unknown> {
+    return daemonInvoke(this.projectDir, 'daemon.psyche.signals.get', {}, 10_000);
+  }
 }
 
 const clients = new Map<string, MiyaClient>();
