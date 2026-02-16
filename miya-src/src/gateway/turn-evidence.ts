@@ -37,6 +37,11 @@ export interface TurnEvidencePack {
   leftBrain?: Record<string, unknown>;
   rightBrain?: Record<string, unknown>;
   routing?: Record<string, unknown>;
+  contextPipeline?: {
+    lowConfidenceSafeFallback?: boolean;
+    personaWorldPromptInjected?: boolean;
+    learningInjected?: boolean;
+  };
 }
 
 function evidenceFile(projectDir: string): string {
@@ -48,4 +53,3 @@ export function appendTurnEvidencePack(projectDir: string, pack: TurnEvidencePac
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, `${JSON.stringify(pack)}\n`, 'utf-8');
 }
-

@@ -96,5 +96,36 @@ describe('cortex arbiter', () => {
     expect(result.rightBrainSuppressed).toBe(true);
     expect(result.responseHints.length).toBe(0);
   });
-});
 
+  test('falls back to work safety mode when mode-kernel confidence is low', () => {
+    const modeKernel = {
+      mode: 'chat' as const,
+      confidence: 0.41,
+      why: ['sanitizer=chat'],
+      scores: { work: 0.7, chat: 0.8, mixed: 0.2 },
+    };
+    const result = arbitrateCortex({
+      modeKernel,
+      safety: { blocked: false },
+      userExplicit: detectUserExplicitIntent('随便聊聊'),
+      leftBrain: buildLeftBrainActionPlan({
+        routePlan: {
+          intent: 'code_fix',
+          complexity: 'medium',
+          stage: 'medium',
+          executionMode: 'auto',
+          reasons: ['route_complexity=medium'],
+        },
+        modeKernel,
+      }),
+      rightBrain: buildRightBrainResponsePlan({
+        text: '今天有点焦虑',
+        modeKernel,
+      }),
+    });
+    expect(result.mode).toBe('work');
+    expect(result.why.some((item) => item.includes('low_confidence_safe_work_fallback'))).toBe(
+      true,
+    );
+  });
+});

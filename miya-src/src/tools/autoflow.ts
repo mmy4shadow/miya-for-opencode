@@ -102,11 +102,11 @@ export function createAutoflowTools(
       plan_bundle_id: z
         .string()
         .optional()
-        .describe('PlanBundle id. Auto-generated if omitted.'),
+        .describe('PlanBundle id. Required for direct run when no prepared bundle exists.'),
       policy_hash: z
         .string()
         .optional()
-        .describe('Policy hash for this autonomous run.'),
+        .describe('Policy hash for this autonomous run (required for direct run without prepared bundle).'),
       risk_tier: z
         .enum(['LIGHT', 'STANDARD', 'THOROUGH'])
         .optional()
@@ -223,18 +223,42 @@ export function createAutoflowTools(
       }
 
       const existingBinding = readPlanBundleBinding(projectDir, sessionID);
-      const planBundleID =
-        (typeof args.plan_bundle_id === 'string' && args.plan_bundle_id.trim()) ||
-        existingBinding?.bundleId ||
-        `pb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const policyHash =
-        (typeof args.policy_hash === 'string' && args.policy_hash.trim()) ||
-        existingBinding?.policyHash ||
-        currentPolicyHash(projectDir);
-      const riskTier =
+      const providedBundleID =
+        typeof args.plan_bundle_id === 'string' ? args.plan_bundle_id.trim() : '';
+      const providedPolicyHash =
+        typeof args.policy_hash === 'string' ? args.policy_hash.trim() : '';
+      const providedRiskTier =
         args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
           ? args.risk_tier
-          : existingBinding?.riskTier || 'THOROUGH';
+          : undefined;
+      const bindingLocked =
+        existingBinding &&
+        (existingBinding.status === 'prepared' || existingBinding.status === 'running');
+      if (bindingLocked) {
+        if (existingBinding.sourceTool !== 'miya_autoflow') {
+          throw new Error(
+            `plan_bundle_source_mismatch:expected=${existingBinding.sourceTool}:got=miya_autoflow`,
+          );
+        }
+        if (providedBundleID && providedBundleID !== existingBinding.bundleId) {
+          throw new Error('plan_bundle_frozen_field_mismatch:bundle_id');
+        }
+        if (providedPolicyHash && providedPolicyHash !== existingBinding.policyHash) {
+          throw new Error('plan_bundle_frozen_field_mismatch:policy_hash');
+        }
+        if (providedRiskTier && providedRiskTier !== existingBinding.riskTier) {
+          throw new Error('plan_bundle_frozen_field_mismatch:risk_tier');
+        }
+      }
+      const planBundleID = providedBundleID || existingBinding?.bundleId || '';
+      const policyHash = providedPolicyHash || existingBinding?.policyHash || '';
+      if (!planBundleID || !policyHash) {
+        throw new Error(
+          'plan_bundle_required:autoflow_run_requires_plan_bundle_id_and_policy_hash',
+        );
+      }
+      const riskTier =
+        providedRiskTier || existingBinding?.riskTier || 'THOROUGH';
       preparePlanBundleBinding(projectDir, {
         sessionID,
         bundleId: planBundleID,

@@ -75,10 +75,9 @@ import {
   createWorkflowTools,
 } from './tools';
 import { mergePluginAgentConfigs } from './config/runtime-merge';
-import { currentPolicyHash } from './policy';
 import { startTmuxCheck } from './utils';
 import { log } from './utils/logger';
-import { preparePlanBundleBinding } from './autopilot';
+import { preparePlanBundleBinding, readPlanBundleBinding } from './autopilot';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -212,8 +211,23 @@ function parseToolMode(args: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+function isAutonomousTool(tool: string): boolean {
+  return tool === 'miya_autopilot' || tool === 'miya_autoflow';
+}
+
+function isAutonomousReadOnlyMode(tool: string, args: unknown): boolean {
+  const mode = parseToolMode(args);
+  if (tool === 'miya_autopilot') {
+    return mode === 'status' || mode === 'stats';
+  }
+  if (tool === 'miya_autoflow') {
+    return mode === 'status';
+  }
+  return false;
+}
+
 function isAutonomousRunTool(tool: string, args: unknown): boolean {
-  if (tool !== 'miya_autopilot' && tool !== 'miya_autoflow') return false;
+  if (!isAutonomousTool(tool)) return false;
   const mode = parseToolMode(args);
   if (tool === 'miya_autopilot') {
     return mode === 'run';
@@ -462,33 +476,63 @@ const MiyaPlugin: Plugin = async (ctx) => {
       output.args && typeof output.args === 'object' && !Array.isArray(output.args)
         ? (output.args as Record<string, unknown>)
         : undefined;
+    const autonomousTool = isAutonomousTool(tool);
     const autonomousRun = isAutonomousRunTool(tool, argObject);
     let effectivePermission = tool;
+    if (autonomousTool) {
+      effectivePermission = isAutonomousReadOnlyMode(tool, argObject) ? 'read_only' : 'bash';
+    }
     if (autonomousRun) {
-      effectivePermission = 'bash';
-      const existingBundleID =
-        argObject && typeof argObject.plan_bundle_id === 'string'
-          ? argObject.plan_bundle_id.trim()
-          : '';
-      const existingPolicyHash =
-        argObject && typeof argObject.policy_hash === 'string'
-          ? argObject.policy_hash.trim()
-          : '';
-      const bundleId = existingBundleID || `pb_${randomUUID()}`;
-      const policyHash = existingPolicyHash || currentPolicyHash(ctx.directory);
-      const riskTier =
-        argObject &&
-        (argObject.risk_tier === 'LIGHT' ||
-          argObject.risk_tier === 'STANDARD' ||
-          argObject.risk_tier === 'THOROUGH')
+      if (!argObject) {
+        throw new Error('miya_plan_bundle_required:autonomous_run_requires_object_args');
+      }
+      const sourceTool = tool === 'miya_autoflow' ? 'miya_autoflow' : 'miya_autopilot';
+      const modeLabel = parseToolMode(argObject) || 'run';
+      const existingBinding = readPlanBundleBinding(ctx.directory, sessionID);
+      const bindingLocked =
+        existingBinding &&
+        (existingBinding.status === 'prepared' || existingBinding.status === 'running');
+      const providedBundleID =
+        typeof argObject.plan_bundle_id === 'string' ? argObject.plan_bundle_id.trim() : '';
+      const providedPolicyHash =
+        typeof argObject.policy_hash === 'string' ? argObject.policy_hash.trim() : '';
+      const providedRiskTier =
+        argObject.risk_tier === 'LIGHT' ||
+        argObject.risk_tier === 'STANDARD' ||
+        argObject.risk_tier === 'THOROUGH'
           ? String(argObject.risk_tier)
-          : 'THOROUGH';
-      const modeLabel =
-        argObject && typeof argObject.mode === 'string'
-          ? argObject.mode.trim().toLowerCase()
-          : 'run';
+          : '';
+      if (bindingLocked) {
+        if (existingBinding.sourceTool !== sourceTool) {
+          throw new Error(
+            `miya_plan_bundle_binding_source_mismatch:expected=${existingBinding.sourceTool}:got=${sourceTool}`,
+          );
+        }
+        if (providedBundleID && providedBundleID !== existingBinding.bundleId) {
+          throw new Error(
+            `miya_plan_bundle_frozen_field_mismatch:bundle_id:${providedBundleID}->${existingBinding.bundleId}`,
+          );
+        }
+        if (providedPolicyHash && providedPolicyHash !== existingBinding.policyHash) {
+          throw new Error('miya_plan_bundle_frozen_field_mismatch:policy_hash');
+        }
+        if (providedRiskTier && providedRiskTier !== existingBinding.riskTier) {
+          throw new Error('miya_plan_bundle_frozen_field_mismatch:risk_tier');
+        }
+      }
+      const canUseBinding = Boolean(existingBinding && existingBinding.sourceTool === sourceTool);
+      const bundleId = providedBundleID || (canUseBinding ? existingBinding!.bundleId : '');
+      const policyHash =
+        providedPolicyHash || (canUseBinding ? existingBinding!.policyHash : '');
+      if (!bundleId || !policyHash) {
+        throw new Error(
+          'miya_plan_bundle_required:autonomous_run_requires_plan_bundle_id_and_policy_hash',
+        );
+      }
+      const riskTier =
+        providedRiskTier || (canUseBinding ? existingBinding!.riskTier : 'THOROUGH');
       const normalizedArgs = {
-        ...(argObject ?? {}),
+        ...argObject,
         plan_bundle_id: bundleId,
         policy_hash: policyHash,
         risk_tier: riskTier,
@@ -497,11 +541,21 @@ const MiyaPlugin: Plugin = async (ctx) => {
       preparePlanBundleBinding(ctx.directory, {
         sessionID,
         bundleId,
-        sourceTool: tool === 'miya_autoflow' ? 'miya_autoflow' : 'miya_autopilot',
+        sourceTool,
         mode: 'work',
         riskTier: riskTier as 'LIGHT' | 'STANDARD' | 'THOROUGH',
         policyHash,
       });
+      const preparedBinding = readPlanBundleBinding(ctx.directory, sessionID);
+      if (
+        !preparedBinding ||
+        preparedBinding.sourceTool !== sourceTool ||
+        preparedBinding.bundleId !== bundleId ||
+        preparedBinding.policyHash !== policyHash ||
+        preparedBinding.riskTier !== riskTier
+      ) {
+        throw new Error('miya_plan_bundle_binding_not_effective');
+      }
       log('[miya] autonomous tool plan bundle prepared', {
         sessionID,
         tool,

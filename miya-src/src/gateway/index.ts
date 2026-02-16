@@ -216,6 +216,10 @@ import {
   listSkillDrafts,
   setSkillDraftStatus,
 } from '../learning';
+import {
+  applyModeSafeWorkFallback,
+  shouldInjectPersonaWorldPrompt,
+} from '../context/pipeline';
 import { recordStrategyObservation, replayStrategyOffline, readStrategyExperimentConfig, resolveStrategyVariant, writeStrategyExperimentConfig } from '../strategy';
 import {
   readAutoflowPersistentConfig,
@@ -3601,14 +3605,10 @@ async function routeSessionMessage(
     },
     lastMode: modeObs.lastMode,
   });
-  const lowConfidenceSafeFallback = modeKernelRaw.confidence < 0.5;
-  const modeKernel = lowConfidenceSafeFallback
-    ? {
-        ...modeKernelRaw,
-        mode: 'work' as const,
-        why: [...modeKernelRaw.why, 'low_confidence_safe_work_fallback'],
-      }
-    : modeKernelRaw;
+  const { modeKernel, lowConfidenceSafeFallback } = applyModeSafeWorkFallback(
+    modeKernelRaw,
+    0.5,
+  );
   const turnID = `turn_${randomUUID()}`;
   const userExplicit = detectUserExplicitIntent(payload.payload);
   const rightBrain = buildRightBrainResponsePlan({
@@ -3669,6 +3669,10 @@ async function routeSessionMessage(
 
   const personaWorld = resolveSessionPersonaWorld(projectDir, input.sessionID);
   const personaWorldPrompt = buildPersonaWorldPrompt(projectDir, input.sessionID);
+  const personaWorldPromptInjected = shouldInjectPersonaWorldPrompt({
+    mode: arbiter.mode,
+    executeWork: arbiter.executeWork,
+  });
 
   const learning = arbiter.executeWork
     ? buildLearningInjection(projectDir, effectiveSafeText, {
@@ -3686,7 +3690,7 @@ async function routeSessionMessage(
 
   const enrichedText = [
     routeMeta,
-    personaWorldPrompt,
+    personaWorldPromptInjected ? personaWorldPrompt : '',
     personaWorld.risk === 'high'
       ? '[MIYA_PERSONA_WORLD_SAFETY] 当前会话风险较高，所有外发/执行动作必须先显式确认。'
       : '',
@@ -3757,6 +3761,11 @@ async function routeSessionMessage(
         agent: plan.agent,
         finalAgent,
         reasons: plan.reasons,
+      },
+      contextPipeline: {
+        lowConfidenceSafeFallback,
+        personaWorldPromptInjected,
+        learningInjected: Boolean(learning.snippet && learning.snippet.trim()),
       },
     });
     recordModeObservability(projectDir, {

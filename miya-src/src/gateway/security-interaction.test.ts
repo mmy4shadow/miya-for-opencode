@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as path from 'node:path';
-import { ensureGatewayRunning, stopGateway } from './index';
+import { ensureGatewayRunning, registerGatewayDependencies, stopGateway } from './index';
 import { createGatewayAcceptanceProjectDir } from './test-helpers';
 
 interface GatewayWsClient {
@@ -12,6 +12,10 @@ interface GatewayWsClient {
 
 function pendingQueueFile(projectDir: string): string {
   return path.join(projectDir, '.opencode', 'miya', 'gateway-pending-outbound-queue.json');
+}
+
+function turnEvidenceFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'gateway-turn-evidence.jsonl');
 }
 
 async function allocateFreePort(): Promise<number> {
@@ -151,6 +155,44 @@ async function connectGateway(
 }
 
 describe('gateway security interaction acceptance', () => {
+  test('suppresses persona block on work execution route and records pipeline evidence', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    let capturedPrompt = '';
+    registerGatewayDependencies(projectDir, {
+      client: {
+        session: {
+          prompt: async (input: { body?: { parts?: Array<{ text?: string }> } }) => {
+            capturedPrompt = String(input.body?.parts?.[0]?.text ?? '');
+          },
+        },
+      } as any,
+    });
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      const result = (await client.request('sessions.send', {
+        sessionID: 'main',
+        source: 'gateway-test',
+        text: '请修复 src/index.ts 的 TypeError 并运行 bun test',
+      })) as { delivered?: boolean; queued?: boolean };
+      expect(result.delivered).toBe(true);
+      expect(result.queued).toBe(false);
+      expect(capturedPrompt).toContain('[MIYA_CORTEX_ARBITER]');
+      expect(capturedPrompt.includes('[MIYA_PERSONA id=')).toBe(false);
+
+      const evidenceRows = fs
+        .readFileSync(turnEvidenceFile(projectDir), 'utf-8')
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { contextPipeline?: { personaWorldPromptInjected?: boolean } });
+      const latest = evidenceRows[evidenceRows.length - 1];
+      expect(latest?.contextPipeline?.personaWorldPromptInjected).toBe(false);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
   test('ui role is stateless and restricted to intervention methods', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);

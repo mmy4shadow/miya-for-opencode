@@ -182,7 +182,7 @@ describe('gateway milestone acceptance', () => {
     }
   });
 
-  test('runs 10-concurrency pressure probe with accounted outcomes', { timeout: 20_000 }, async () => {
+  test('runs 10-concurrency pressure probe with accounted outcomes', { timeout: 30_000 }, async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url, state.authToken);

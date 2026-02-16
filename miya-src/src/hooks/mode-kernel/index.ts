@@ -1,4 +1,5 @@
 import { evaluateModeKernel } from '../../gateway/mode-kernel';
+import { applyModeSafeWorkFallback } from '../../context/pipeline';
 import {
   extractUserIntentText,
   findLastUserTextPart,
@@ -50,15 +51,10 @@ export function createModeKernelHook(rawConfig?: ModeKernelHookConfig) {
       const modeKernelRaw = evaluateModeKernel({
         text: intentText,
       });
-      const lowConfidenceSafeFallback =
-        modeKernelRaw.confidence < config.minConfidenceForSafeMode;
-      const modeKernel = lowConfidenceSafeFallback
-        ? {
-            ...modeKernelRaw,
-            mode: 'work' as const,
-            why: [...modeKernelRaw.why, 'low_confidence_safe_work_fallback'],
-          }
-        : modeKernelRaw;
+      const { modeKernel, lowConfidenceSafeFallback } = applyModeSafeWorkFallback(
+        modeKernelRaw,
+        config.minConfidenceForSafeMode,
+      );
 
       const block = [
         '[MIYA_MODE_KERNEL v1]',

@@ -1,6 +1,7 @@
 import type { RouteExecutionPlan } from '../router';
 import type { GatewayMode } from './sanitizer';
 import type { ModeKernelResult } from './mode-kernel';
+import { DEFAULT_MODE_SAFE_WORK_CONFIDENCE } from '../context/pipeline';
 
 export interface SafetySignal {
   blocked: boolean;
@@ -169,6 +170,12 @@ export function arbitrateCortex(input: CortexArbiterInput): CortexArbiterResult 
   const reasons: string[] = [];
   let mode: GatewayMode = input.modeKernel.mode;
   let executeWork = input.leftBrain.executeWork;
+  if (input.modeKernel.confidence < DEFAULT_MODE_SAFE_WORK_CONFIDENCE) {
+    mode = 'work';
+    reasons.push(
+      `mode_kernel_low_confidence_safe_work_fallback:${Number(input.modeKernel.confidence).toFixed(3)}`,
+    );
+  }
 
   if (input.safety.blocked) {
     executeWork = false;
@@ -215,4 +222,3 @@ export function arbitrateCortex(input: CortexArbiterInput): CortexArbiterResult 
     executionTrack: 'left_brain_single_track',
   };
 }
-

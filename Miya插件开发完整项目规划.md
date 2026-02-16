@@ -1060,7 +1060,7 @@ Miya 通过随 OpenCode 启动/退出的轻量 daemon 获得“精简版 OpenCla
 #### **4.2.1 工作/对话自主判定（Mode Router，用户无需选择）**
 > 目标：你不需要手动切换“工作/对话”；Miya 必须自主判断，并且在不确定时优先安全。
 
-- **落实状态（2026-02-15）**：已升级为 **Mode Kernel（统一模式核）**，统一输出 `mode/confidence/why`，并融合 `sanitizer + 路由复杂度 + psyche 信号 + 会话状态`；替代此前分散判定。
+- **落实状态（2026-02-16）**：已升级为 **Mode Kernel（统一模式核）**，统一输出 `mode/confidence/why`，并融合 `sanitizer + 路由复杂度 + psyche 信号 + 会话状态`；且已在 `Gateway + transform hook + Cortex Arbiter` 统一执行“低置信度回退到 `work` 安全策略”。
 - **输出**：`mode` ∈ {`work`, `chat`, `mixed`} + `confidence`（0~1）+ `why`（可解释要点）。
 - **输入信号（建议组合）**：
   - 文本特征：代码块/命令/报错/文件路径/“修复/测试/PR”等关键词 → 倾向 `work`
@@ -1385,6 +1385,7 @@ interface CheckTrainingProgressOutput {
   - 对话任务仅检索 personal/traits；代码任务仅检索 work context；默认禁止跨域混注。
   - System Prompt 禁止承载全量记忆，只允许固定骨架 + 检索片段。
 - **审计**：每次写入记忆必须带"来源证据"（哪条消息、哪次向导、哪次你确认）
+- **落实状态（2026-02-16）**：记忆检索注入块已补齐来源证据字段（`source_message_id`、`source_type`、`memory_id`），不再仅有文本/score。
 - **记忆写入 = 副作用动作（硬规则）**：任何 `memory_write/memory_delete` 都必须走 Policy Engine（Arch Advisor 裁决）+ 证据包；不得“对话里随口记住”直接落盘。
 - **两阶段生效（默认保守，防幻记忆与注入污染）**：
   - **Pending 记忆**：允许自动生成候选，但默认不注入任何 agent prompt；只在 Gateway 列表里展示为待确认。
@@ -2027,7 +2028,11 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 | P0-5 代理配置持久化主链路切换（agent-runtime） | 已完成（2026-02-14） | 已完成 revision/原子写/legacy 迁移与六代理独立配置防串写验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`, `miya-src/src/index.ts` |
 | P0-6 严格进程隔离封口（插件仅 RPC） | 已完成（2026-02-14） | 已收口为 launcher/host/client 主链路 + 新增静态防回归测试，禁止非 daemon 模块直接引用 `daemon/service` 或 `MiyaDaemonService`（测试：`bun test src/daemon/isolation-guard.test.ts src/daemon/service.test.ts`） | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/isolation-guard.test.ts`, `miya-src/src/daemon/service.test.ts` |
 | P0-7 通信背压压测与拒绝语义稳定性 | 已完成（2026-02-14） | 已固化“10 指令并发”压测验收用例；并修复 Gateway 事件帧 `undefined` 字段导致的协议异常 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
+| P0-8 自治执行安全收口（Autopilot/Autoflow） | 已完成（2026-02-16） | `tool.execute.before` 对自治工具非只读模式统一走副作用权限与 `miya_self_approve`，并新增 PlanBundle 冻结字段校验（`bundleId/policyHash/riskTier`）与“无单据拒绝” | `miya-src/src/index.ts`, `miya-src/src/safety/risk.ts`, `miya-src/src/tools/autopilot.ts`, `miya-src/src/tools/autoflow.ts`, `miya-src/src/safety/risk.test.ts` |
 | P1-3 Provider 层覆盖注入 | 已完成（2026-02-14） | 已完成 activeAgent provider 覆盖 + provider override 审计日志落盘/查询，支持端到端验收 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/provider-override-audit.ts`, `miya-src/src/config/provider-override-audit.test.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts` |
+| P1-4 Context Pipeline 统一与 Zero-Persona 执行链 | 已完成（2026-02-16） | 新增共享 Context Pipeline 模块，Gateway 与 transform hooks 复用同一套 mode fallback / memory domain / persona 注入规则；work 执行链默认抑制 persona block，并补 Gateway 注入链回归测试 | `miya-src/src/context/pipeline.ts`, `miya-src/src/gateway/index.ts`, `miya-src/src/hooks/mode-kernel/index.ts`, `miya-src/src/hooks/memory-weaver/index.ts`, `miya-src/src/gateway/security-interaction.test.ts` |
+| P2-1 压测验收稳定性修正 | 已完成（2026-02-16） | `gateway.pressure.run` 验收超时窗口提升到现实值，避免 15s 级执行被错误判失败 | `miya-src/src/gateway/milestone-acceptance.test.ts` |
+| P2-2 记忆注入可追溯性补齐 | 已完成（2026-02-16） | 记忆注入行格式包含 `source_message_id/source_type/memory_id`，与 Memory Vector 证据字段对齐 | `miya-src/src/hooks/memory-weaver/index.ts`, `miya-src/src/companion/memory-vector.ts`, `miya-src/src/hooks/memory-weaver/index.test.ts` |
 | P2 稳定性与体验优化（通道扩展/性能/可观测） | 进行中 | 控制台稳态与安全交互主链路已完成；通道扩展、性能与 MCP-UI 采样能力继续收敛 | `miya-src/src/channel/`, `miya-src/src/gateway/control-ui.ts`, `miya-src/src/gateway/security-interaction.test.ts`, `miya-src/src/resource-scheduler/` |
 
 ### **6.2 质量基线复核项（持续监控）**
@@ -2037,7 +2042,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 | 视觉识别“真实场景”覆盖率 | 持续监控 | 按周回归 QQ/微信 深浅色 + 多 DPI 基准集，若跌破阈值立即回滚模型或规则 |
 | OCR 脆弱场景策略（DPI/主题导致 `ui_style_mismatch`） | 持续监控 | 保持 `ui_style_mismatch` 对抗用例常驻 CI；新增主题/缩放组合时补样本 |
 | Input Mutex 对抗闭环 | 持续监控 | 每次桌控链路改动后复跑会话争用用例，确保 `input_mutex_timeout` 仍可触发 |
-| Context Contamination 收口 | 持续监控 | 维持执行链 Zero-Persona 回归测试，禁止人格提示回流修复链 |
+| Context Contamination 收口 | 持续监控 | 已补 Gateway 注入链回归（work 执行链 `personaWorldPromptInjected=false`），继续保持执行链 Zero-Persona 常驻回归 |
 | Ralph Loop 生产闭环 | 持续优化 | 在已闭环基础上增加失败分类统计与修复成功率看板 |
 | MCP-UI/采样增强 | 持续优化 | 按 MCP 服务变更同步更新 capability 暴露清单与验收测试 |
 | Inbound-only 通道治理（非主线） | 持续监控 | 仅保留 Inbound-only/Read-only 能力；严禁引入新外发通道 |

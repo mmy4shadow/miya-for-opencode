@@ -2,6 +2,11 @@ import {
   searchCompanionMemoryVectors,
   type MemoryDomain,
 } from '../../companion/memory-vector';
+import {
+  applyModeSafeWorkFallback,
+  buildMemoryDomainPlan,
+  formatMemoryEvidenceMeta,
+} from '../../context/pipeline';
 import { evaluateModeKernel } from '../../gateway/mode-kernel';
 import {
   extractUserIntentText,
@@ -15,12 +20,6 @@ import {
 
 interface MemoryWeaverConfig {
   enabled?: boolean;
-}
-
-interface DomainPlan {
-  domain: MemoryDomain;
-  limit: number;
-  threshold: number;
 }
 
 function resolveModeAndConfidence(text: string): {
@@ -37,29 +36,11 @@ function resolveModeAndConfidence(text: string): {
   const raw = evaluateModeKernel({
     text: extractUserIntentText(text) || text,
   });
-  if (raw.confidence < 0.5) {
-    return {
-      mode: 'work',
-      confidence: raw.confidence,
-    };
-  }
+  const { modeKernel } = applyModeSafeWorkFallback(raw, 0.5);
   return {
-    mode: raw.mode,
-    confidence: raw.confidence,
+    mode: modeKernel.mode,
+    confidence: modeKernel.confidence,
   };
-}
-
-function buildDomainPlan(mode: 'work' | 'chat' | 'mixed'): DomainPlan[] {
-  if (mode === 'work') {
-    return [{ domain: 'work', limit: 3, threshold: 0.22 }];
-  }
-  if (mode === 'chat') {
-    return [{ domain: 'relationship', limit: 6, threshold: 0.16 }];
-  }
-  return [
-    { domain: 'work', limit: 2, threshold: 0.22 },
-    { domain: 'relationship', limit: 4, threshold: 0.16 },
-  ];
 }
 
 function formatNote(input: {
@@ -68,9 +49,19 @@ function formatNote(input: {
   rankScore: number;
   confidence: number;
   source: string;
+  sourceMessageID?: string;
+  sourceType?: string;
+  memoryID?: string;
 }): string {
   const snippet = input.text.replace(/\s+/g, ' ').trim().slice(0, 220);
-  return `- [${input.domain}] ${snippet} (score=${input.rankScore.toFixed(3)}, confidence=${input.confidence.toFixed(3)}, source=${input.source})`;
+  return `- [${input.domain}] ${snippet} (${formatMemoryEvidenceMeta({
+    score: input.rankScore,
+    confidence: input.confidence,
+    source: input.source,
+    sourceMessageID: input.sourceMessageID,
+    sourceType: input.sourceType,
+    memoryID: input.memoryID,
+  })})`;
 }
 
 function resolveConfig(input?: MemoryWeaverConfig): Required<MemoryWeaverConfig> {
@@ -100,7 +91,7 @@ export function createMemoryWeaverHook(
 
       const { mode, confidence } = resolveModeAndConfidence(currentText);
       const query = extractUserIntentText(currentText) || currentText.trim();
-      const plans = buildDomainPlan(mode);
+      const plans = buildMemoryDomainPlan(mode);
 
       const notes: string[] = [];
       for (const plan of plans) {
@@ -116,6 +107,9 @@ export function createMemoryWeaverHook(
               rankScore: hit.rankScore,
               confidence: hit.confidence,
               source: hit.sourceMessageID ?? hit.source,
+              sourceMessageID: hit.sourceMessageID,
+              sourceType: hit.sourceType,
+              memoryID: hit.id,
             }),
           );
         }

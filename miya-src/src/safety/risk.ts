@@ -67,6 +67,8 @@ export function isSideEffectPermission(permission: string): boolean {
   return (
     permission === 'edit' ||
     permission === 'bash' ||
+    permission === 'miya_autopilot' ||
+    permission === 'miya_autoflow' ||
     permission === 'external_directory' ||
     permission === 'external_message' ||
     permission === 'desktop_control' ||
@@ -84,6 +86,9 @@ export function requiredTierForRequest(
   if (request.permission === 'external_directory') return 'THOROUGH';
   if (request.permission === 'external_message') return 'THOROUGH';
   if (request.permission === 'desktop_control') return 'THOROUGH';
+  if (request.permission === 'miya_autopilot' || request.permission === 'miya_autoflow') {
+    return hasIrreversiblePattern(patterns) ? 'THOROUGH' : 'STANDARD';
+  }
   if (request.permission === 'node_invoke') {
     const patterns = request.patterns.map(normalizePattern).join(' ');
     if (

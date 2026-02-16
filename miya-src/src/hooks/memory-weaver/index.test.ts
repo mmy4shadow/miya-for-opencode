@@ -18,6 +18,8 @@ describe('memory weaver hook', () => {
       text: '项目使用 bun test 执行单测',
       domain: 'work',
       source: 'test',
+      sourceMessageID: 'msg_work_1',
+      sourceType: 'conversation',
       activate: true,
       confidence: 0.9,
     });
@@ -50,5 +52,7 @@ describe('memory weaver hook', () => {
     expect(text).toContain('[MIYA_MEMORY_CONTEXT v1 reference_only=1]');
     expect(text).toContain('[work]');
     expect(text).not.toContain('[relationship]');
+    expect(text).toContain('source_message_id=msg_work_1');
+    expect(text).toContain('source_type=conversation');
   });
 });
