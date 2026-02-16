@@ -159,12 +159,12 @@ function domainLabel(domain: string): string {
 function statusTone(status?: string): string {
   const normalized = (status || '').toLowerCase();
   if (normalized === 'running' || normalized === 'completed' || normalized === 'connected') {
-    return 'text-emerald-300';
+    return 'text-emerald-700';
   }
   if (normalized === 'paused' || normalized === 'queued' || normalized === 'degraded') {
-    return 'text-amber-300';
+    return 'text-amber-700';
   }
-  return 'text-rose-300';
+  return 'text-rose-700';
 }
 
 function guardianReasonLabel(reason?: string): string {
@@ -361,87 +361,107 @@ export default function App() {
     }, `已切换为：${killSwitchLabel(mode)}`);
   };
 
+  const panelClass = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
+
   return (
-    <div className="min-h-screen bg-miya-bg text-miya-text">
-      <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-6">
-        <header className="rounded-2xl border border-white/10 bg-miya-card/35 p-4 backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold">Miya 网关控制台</h1>
-              <p className="text-xs text-slate-300">给不懂技术的用户设计：先看状态，再用开关，最后看日志。</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`rounded-full px-3 py-1 text-xs ${connected ? 'bg-emerald-500/20 text-emerald-200' : 'bg-rose-500/20 text-rose-200'}`}>
-                {connected ? '系统在线' : '系统降级'}
-              </span>
+    <div className="min-h-screen bg-[#dfe7ec] text-slate-700">
+      <div className="mx-auto flex max-w-[1520px] gap-4 p-3 md:p-5">
+        <aside className="hidden w-[300px] shrink-0 flex-col rounded-3xl border border-slate-200 bg-[#f4f8fb] shadow-sm lg:flex">
+          <div className="border-b border-slate-200 p-6">
+            <p className="text-4xl leading-none">M</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-wide text-slate-800">Miya</h1>
+            <p className="mt-1 text-sm text-slate-500">控制台</p>
+          </div>
+          <nav className="space-y-1 px-3 py-4 text-base">
+            {['聊天', 'IM 通道', '技能', '模块', '状态'].map((item) => (
               <button
+                key={item}
                 type="button"
-                onClick={() => void refresh()}
-                className="rounded-lg border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                className={`flex w-full items-center rounded-xl px-4 py-3 text-left ${item === '模块' ? 'border border-sky-200 bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'}`}
               >
-                刷新
+                {item}
               </button>
-            </div>
+            ))}
+          </nav>
+          <div className="mt-auto border-t border-slate-200 p-4 text-sm text-slate-500">
+            <p>配置</p>
+            <p className="mt-3">Gateway UI v1.0</p>
           </div>
-          <div className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-3">
-            <div className="rounded border border-white/10 bg-black/20 p-2">
-              <p className="font-medium">步骤 1：看总状态</p>
-              <p className="text-slate-300">先确认连接在线、任务数正常。</p>
-            </div>
-            <div className="rounded border border-white/10 bg-black/20 p-2">
-              <p className="font-medium">步骤 2：调安全开关</p>
-              <p className="text-slate-300">外发或桌控异常时，先用紧急开关。</p>
-            </div>
-            <div className="rounded border border-white/10 bg-black/20 p-2">
-              <p className="font-medium">步骤 3：写操作备注</p>
-              <p className="text-slate-300">每次人工干预都写一句备注，方便追踪。</p>
-            </div>
-          </div>
-          {errorText ? <p className="mt-2 text-xs text-rose-300">错误：{errorText}</p> : null}
-          {successText ? <p className="mt-2 text-xs text-emerald-300">成功：{successText}</p> : null}
-        </header>
+        </aside>
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {quickStats.map((item) => (
-            <article key={item.title} className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
-              <p className="text-xs uppercase tracking-wide text-slate-300">{item.title}</p>
-              <p className="mt-1 text-lg font-semibold">{item.value}</p>
-              <p className="mt-1 text-xs text-slate-300">{item.desc}</p>
-            </article>
-          ))}
-        </section>
-
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
-            <h2 className="text-sm font-semibold">Psyche Signal Hub</h2>
-            {signalHub ? (
-              <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-                <div className="rounded border border-white/10 bg-black/20 p-2">
-                  <p>运行状态：{signalHub.running ? 'running' : 'stopped'}</p>
-                  <p>序号：{signalHub.sequence ?? '-'}</p>
-                  <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
-                  <p>过期：{signalHub.stale ? 'yes' : 'no'}</p>
+        <main className="min-w-0 flex-1 space-y-4 rounded-3xl border border-slate-200 bg-[#eef3f7] p-3 md:p-5">
+          <header className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-4">
+                <p className="rounded-lg bg-slate-100 px-3 py-2 text-xl font-semibold text-slate-800">default</p>
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <span className={`h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                  <span>{connected ? '运行中' : '已降级'}</span>
                 </div>
-                <div className="rounded border border-white/10 bg-black/20 p-2">
-                  <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
-                  <p>采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms</p>
-                  <p>突发间隔：{signalHub.burstIntervalMs ?? '-'}ms</p>
-                  <p>过期阈值：{signalHub.staleAfterMs ?? '-'}ms</p>
-                </div>
-                {signalHub.lastError ? (
-                  <p className="md:col-span-2 text-rose-300">lastError: {signalHub.lastError}</p>
-                ) : null}
+                <p className="text-sm text-slate-500">{snapshot.nodes?.connected ?? 0} 端点</p>
               </div>
-            ) : (
-              <p className="mt-2 text-xs text-amber-300">未收到 daemon signal hub 指标。</p>
-            )}
-          </article>
-        </section>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void refresh()}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-100"
+                >
+                  刷新
+                </button>
+                <span className={`rounded-full px-3 py-1 text-xs ${connected ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                  {connected ? '系统在线' : '系统降级'}
+                </span>
+              </div>
+            </div>
+            {errorText ? <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">错误：{errorText}</p> : null}
+            {successText ? (
+              <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">成功：{successText}</p>
+            ) : null}
+          </header>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+          <section className={`${panelClass}`}>
+            <h2 className="text-3xl font-semibold text-slate-800">模块管理</h2>
+            <p className="mt-2 text-sm text-slate-500">管理控制面板与安全模块。先看状态，再操作，再写入时间线。</p>
+            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
+              {quickStats.map((item) => (
+                <article key={item.title} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-xs text-slate-500">{item.title}</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-800">{item.value}</p>
+                  <p className="mt-1 text-xs text-slate-600">{item.desc}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <article className={panelClass}>
+              <h2 className="text-base font-semibold text-slate-800">Psyche Signal Hub</h2>
+              {signalHub ? (
+                <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <p>运行状态：{signalHub.running ? 'running' : 'stopped'}</p>
+                    <p>序号：{signalHub.sequence ?? '-'}</p>
+                    <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
+                    <p>过期：{signalHub.stale ? 'yes' : 'no'}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
+                    <p>采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms</p>
+                    <p>突发间隔：{signalHub.burstIntervalMs ?? '-'}ms</p>
+                    <p>过期阈值：{signalHub.staleAfterMs ?? '-'}ms</p>
+                  </div>
+                  {signalHub.lastError ? <p className="text-rose-700 md:col-span-2">lastError: {signalHub.lastError}</p> : null}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-amber-700">未收到 daemon signal hub 指标。</p>
+              )}
+            </article>
+          </section>
+
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <article className={panelClass}>
             <h2 className="text-sm font-semibold">安全总开关（紧急开关）</h2>
-            <p className="mt-1 text-xs text-slate-300">当前模式：{killSwitchLabel(killSwitchMode)}</p>
+            <p className="mt-1 text-xs text-slate-500">当前模式：{killSwitchLabel(killSwitchMode)}</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {([
                 { mode: 'off', text: '正常运行', hint: '外发和桌控都可用' },
@@ -454,18 +474,18 @@ export default function App() {
                   type="button"
                   disabled={loading}
                   onClick={() => void setKillSwitchMode(item.mode)}
-                  className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-miya-primary bg-miya-primary/20' : 'border-white/20 hover:bg-white/10'}`}
+                  className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}
                 >
                   <p className="font-medium">{item.text}</p>
-                  <p className="mt-1 text-[11px] text-slate-300">{item.hint}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">{item.hint}</p>
                 </button>
               ))}
             </div>
           </article>
 
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+          <article className={panelClass}>
             <h2 className="text-sm font-semibold">信任阈值（审批疲劳优化）</h2>
-            <p className="mt-1 text-xs text-slate-300">分数高于静默阈值可自动放行，低于阻断阈值必须人工确认。</p>
+            <p className="mt-1 text-xs text-slate-500">分数高于静默阈值可自动放行，低于阻断阈值必须人工确认。</p>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
               <label className="flex flex-col gap-1">
                 <span>静默阈值（推荐 90）</span>
@@ -477,7 +497,7 @@ export default function App() {
                   onChange={(event) =>
                     setTrustModeForm((prev) => ({ ...prev, silentMin: Number(event.target.value) }))
                   }
-                  className="rounded border border-white/20 bg-black/20 px-2 py-1"
+                  className="rounded border border-slate-300 bg-white px-2 py-1"
                 />
               </label>
               <label className="flex flex-col gap-1">
@@ -490,7 +510,7 @@ export default function App() {
                   onChange={(event) =>
                     setTrustModeForm((prev) => ({ ...prev, modalMax: Number(event.target.value) }))
                   }
-                  className="rounded border border-white/20 bg-black/20 px-2 py-1"
+                  className="rounded border border-slate-300 bg-white px-2 py-1"
                 />
               </label>
             </div>
@@ -503,7 +523,7 @@ export default function App() {
                     await invokeGateway('trust.set_mode', trustModeForm as unknown as Record<string, unknown>);
                   }, '信任阈值已保存')
                 }
-                className="rounded-lg border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
               >
                 保存
               </button>
@@ -513,23 +533,23 @@ export default function App() {
                 onClick={() => {
                   setTrustModeForm({ silentMin: 90, modalMax: 50 });
                 }}
-                className="rounded-lg border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
               >
                 恢复推荐值
               </button>
             </div>
             {trust ? (
-              <p className="mt-2 text-xs text-slate-300">
+              <p className="mt-2 text-xs text-slate-500">
                 当前信任：{trust.minScore}（{trustTierLabel(trust.tier)}）/ 目标 {trust.target}，来源 {trust.source}，动作 {trust.action}
               </p>
             ) : null}
           </article>
 
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+          <article className={panelClass}>
             <h2 className="text-sm font-semibold">守门员开关（新手推荐）</h2>
-            <p className="mt-1 text-xs text-slate-300">关闭共鸣层后，自动触达将进入静默等待；关闭截图核验后，系统不再做截图/VLM探测。</p>
+            <p className="mt-1 text-xs text-slate-500">关闭共鸣层后，自动触达将进入静默等待；关闭截图核验后，系统不再做截图/VLM探测。</p>
             <div className="mt-3 space-y-2 text-xs">
-              <label className="flex items-center justify-between rounded border border-white/15 bg-black/20 px-3 py-2">
+              <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <span>共鸣层（主动陪伴）</span>
                 <input
                   type="checkbox"
@@ -539,7 +559,7 @@ export default function App() {
                   }
                 />
               </label>
-              <label className="flex items-center justify-between rounded border border-white/15 bg-black/20 px-3 py-2">
+              <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <span>截图/VLM 核验</span>
                 <input
                   type="checkbox"
@@ -552,7 +572,7 @@ export default function App() {
                   }
                 />
               </label>
-              <label className="flex items-center justify-between rounded border border-white/15 bg-black/20 px-3 py-2">
+              <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <span>proactive_ping（主动问候）</span>
                 <input
                   type="checkbox"
@@ -565,7 +585,7 @@ export default function App() {
                   }
                 />
               </label>
-              <label className="flex items-center justify-between rounded border border-white/15 bg-black/20 px-3 py-2">
+              <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <span>quiet_hours（静默时段）</span>
                 <input
                   type="checkbox"
@@ -579,7 +599,7 @@ export default function App() {
                 />
               </label>
               <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 rounded border border-white/15 bg-black/20 px-3 py-2">
+                <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                   <span>最小间隔（分钟）</span>
                   <input
                     type="number"
@@ -592,10 +612,10 @@ export default function App() {
                         proactivePingMinIntervalMinutes: Number(event.target.value),
                       }))
                     }
-                    className="rounded border border-white/20 bg-black/30 px-2 py-1"
+                    className="rounded border border-slate-300 bg-white px-2 py-1"
                   />
                 </label>
-                <label className="flex flex-col gap-1 rounded border border-white/15 bg-black/20 px-3 py-2">
+                <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                   <span>每日上限</span>
                   <input
                     type="number"
@@ -608,10 +628,10 @@ export default function App() {
                         proactivePingMaxPerDay: Number(event.target.value),
                       }))
                     }
-                    className="rounded border border-white/20 bg-black/30 px-2 py-1"
+                    className="rounded border border-slate-300 bg-white px-2 py-1"
                   />
                 </label>
-                <label className="flex flex-col gap-1 rounded border border-white/15 bg-black/20 px-3 py-2">
+                <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                   <span>静默开始</span>
                   <input
                     type="time"
@@ -622,10 +642,10 @@ export default function App() {
                         quietHoursStart: event.target.value,
                       }))
                     }
-                    className="rounded border border-white/20 bg-black/30 px-2 py-1"
+                    className="rounded border border-slate-300 bg-white px-2 py-1"
                   />
                 </label>
-                <label className="flex flex-col gap-1 rounded border border-white/15 bg-black/20 px-3 py-2">
+                <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                   <span>静默结束</span>
                   <input
                     type="time"
@@ -636,12 +656,12 @@ export default function App() {
                         quietHoursEnd: event.target.value,
                       }))
                     }
-                    className="rounded border border-white/20 bg-black/30 px-2 py-1"
+                    className="rounded border border-slate-300 bg-white px-2 py-1"
                   />
                 </label>
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-slate-400">
+            <p className="mt-2 text-[11px] text-slate-500">
               当前降级原因：{guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}
             </p>
             <div className="mt-3 flex gap-2">
@@ -653,7 +673,7 @@ export default function App() {
                     await invokeGateway('psyche.mode.set', psycheModeForm as unknown as Record<string, unknown>);
                   }, '守门员开关已保存')
                 }
-                className="rounded-lg border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
               >
                 保存守门员设置
               </button>
@@ -662,12 +682,12 @@ export default function App() {
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+          <article className={panelClass}>
             <h2 className="text-sm font-semibold">能力域状态</h2>
-            <p className="mt-1 text-xs text-slate-300">可直接暂停/恢复单个能力域。</p>
+            <p className="mt-1 text-xs text-slate-500">可直接暂停/恢复单个能力域。</p>
             <div className="mt-3 space-y-2">
               {domains.map((domain) => (
-                <div key={domain.domain} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs">
+                <div key={domain.domain} className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
                   <div>
                     <p className="font-medium">{domainLabel(domain.domain)}</p>
                     <p className={statusTone(domain.status)}>{domain.status === 'running' ? '运行中' : '已暂停'}</p>
@@ -683,29 +703,29 @@ export default function App() {
                         );
                       }, `${domainLabel(domain.domain)} 已${domain.status === 'running' ? '暂停' : '恢复'}`)
                     }
-                    className="rounded border border-white/20 px-2 py-1 hover:bg-white/10"
+                    className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
                   >
                     {domain.status === 'running' ? '暂停' : '恢复'}
                   </button>
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-slate-400">策略哈希：{snapshot.policyHash ?? '暂无'}</p>
+            <p className="mt-2 text-[11px] text-slate-500">策略哈希：{snapshot.policyHash ?? '暂无'}</p>
           </article>
 
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+          <article className={panelClass}>
             <h2 className="text-sm font-semibold">节点状态</h2>
-            <p className="mt-1 text-xs text-slate-300">
+            <p className="mt-1 text-xs text-slate-500">
               在线节点 {snapshot.nodes?.connected ?? 0} / {snapshot.nodes?.total ?? 0}
             </p>
             <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
               {(snapshot.nodes?.list ?? []).map((node) => (
-                <div key={node.id ?? Math.random().toString()} className="rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs">
+                <div key={node.id ?? Math.random().toString()} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
                   <p className="font-medium">{node.label || node.id || '未命名节点'}</p>
-                  <p className={node.connected ? 'text-emerald-300' : 'text-rose-300'}>
+                  <p className={node.connected ? 'text-emerald-700' : 'text-rose-700'}>
                     {node.connected ? '在线' : '离线'}
                   </p>
-                  <p className="text-slate-300">平台：{node.platform || '未知'}</p>
+                  <p className="text-slate-500">平台：{node.platform || '未知'}</p>
                 </div>
               ))}
             </div>
@@ -713,27 +733,27 @@ export default function App() {
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+          <article className={panelClass}>
             <h2 className="text-sm font-semibold">最近任务执行</h2>
             <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
               {(snapshot.jobs?.recentRuns ?? []).map((run, index) => (
-                <div key={`${run.id ?? 'run'}-${index}`} className="rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs">
+                <div key={`${run.id ?? 'run'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
                   <p className="font-medium">{run.id ?? '任务'}</p>
                   <p className={statusTone(run.status)}>{run.status ?? '未知状态'}</p>
-                  <p className="text-slate-300">触发方式：{run.trigger ?? '手动'} / 更新时间：{run.updatedAt ?? '暂无'}</p>
+                  <p className="text-slate-500">触发方式：{run.trigger ?? '手动'} / 更新时间：{run.updatedAt ?? '暂无'}</p>
                 </div>
               ))}
             </div>
           </article>
 
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+          <article className={panelClass}>
             <h2 className="text-sm font-semibold">系统时间线</h2>
-            <p className="mt-1 text-xs text-slate-300">人工干预后建议写一条备注，后续排障更快。</p>
+            <p className="mt-1 text-xs text-slate-500">人工干预后建议写一条备注，后续排障更快。</p>
             <div className="mt-2 flex gap-2">
               <input
                 value={insightText}
                 onChange={(event) => setInsightText(event.target.value)}
-                className="w-full rounded border border-white/20 bg-black/20 px-2 py-1 text-xs"
+                className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
                 placeholder="例如：已手工暂停外发，等本人确认。"
               />
               <button
@@ -745,16 +765,16 @@ export default function App() {
                     setInsightText('');
                   }, '备注已写入时间线')
                 }
-                className="rounded border border-white/20 px-2 py-1 text-xs hover:bg-white/10"
+                className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
               >
                 记录
               </button>
             </div>
             <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
               {(snapshot.nexus?.insights ?? []).map((item, index) => (
-                <div key={`${item.at ?? 'ins'}-${index}`} className="rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs">
-                  <p className="text-slate-100">{item.text ?? '无内容'}</p>
-                  <p className="text-slate-400">{item.at ?? '暂无'} {item.auditID ? `| ${item.auditID}` : ''}</p>
+                <div key={`${item.at ?? 'ins'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                  <p className="text-slate-700">{item.text ?? '无内容'}</p>
+                  <p className="text-slate-500">{item.at ?? '暂无'} {item.auditID ? `| ${item.auditID}` : ''}</p>
                 </div>
               ))}
             </div>
@@ -762,34 +782,34 @@ export default function App() {
         </section>
 
         <section className="grid grid-cols-1 gap-4">
-          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+          <article className={panelClass}>
             <h2 className="text-sm font-semibold">Evidence Pack V5（外发证据预览）</h2>
-            <p className="mt-1 text-xs text-slate-300">用于审批前快速核验：目标、发送状态、截图、限制项。</p>
+            <p className="mt-1 text-xs text-slate-500">用于审批前快速核验：目标、发送状态、截图、限制项。</p>
             <div className="mt-3 max-h-[28rem] space-y-3 overflow-auto pr-1">
               {(snapshot.channels?.recentOutbound ?? []).slice(0, 10).map((row, index) => (
-                <div key={`${row.id ?? 'audit'}-${index}`} className="rounded-lg border border-white/10 bg-black/15 p-3 text-xs">
+                <div key={`${row.id ?? 'audit'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-medium">
                       {row.channel ?? 'channel'}
                       {' -> '}
                       {row.destination ?? 'unknown'}
                     </p>
-                    <span className={row.sent ? 'text-emerald-300' : 'text-rose-300'}>
+                    <span className={row.sent ? 'text-emerald-700' : 'text-rose-700'}>
                       {row.sent ? '已发送' : '已阻断'}
                     </span>
                   </div>
-                  <p className="mt-1 text-slate-300">{row.message ?? '-'}</p>
-                  <p className="mt-1 text-slate-400">
+                  <p className="mt-1 text-slate-600">{row.message ?? '-'}</p>
+                  <p className="mt-1 text-slate-500">
                     审计ID: {row.id ?? '-'} | 时间: {row.at ?? '-'} | 置信度: {typeof row.evidenceConfidence === 'number' ? row.evidenceConfidence.toFixed(2) : '-'}
                   </p>
-                  <p className="mt-1 text-slate-400">
+                  <p className="mt-1 text-slate-500">
                     recipient={row.recipientTextCheck ?? '-'} | send={row.sendStatusCheck ?? '-'} | receipt={row.receiptStatus ?? '-'} | simulation={row.simulationStatus ?? '-'}
                   </p>
                   {Array.isArray(row.evidenceLimitations) && row.evidenceLimitations.length > 0 ? (
-                    <p className="mt-1 text-amber-300">limitations: {row.evidenceLimitations.join(', ')}</p>
+                    <p className="mt-1 text-amber-700">limitations: {row.evidenceLimitations.join(', ')}</p>
                   ) : null}
                   {row.semanticSummary?.conclusion ? (
-                    <p className="mt-1 text-slate-300">结论: {row.semanticSummary.conclusion}</p>
+                    <p className="mt-1 text-slate-600">结论: {row.semanticSummary.conclusion}</p>
                   ) : null}
                   {row.id ? (
                     <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -797,13 +817,13 @@ export default function App() {
                         src={evidenceImageUrl(row.id, 'pre')}
                         alt="pre-send evidence"
                         loading="lazy"
-                        className="max-h-44 w-full rounded border border-white/10 object-cover"
+                        className="max-h-44 w-full rounded border border-slate-200 object-cover"
                       />
                       <img
                         src={evidenceImageUrl(row.id, 'post')}
                         alt="post-send evidence"
                         loading="lazy"
-                        className="max-h-44 w-full rounded border border-white/10 object-cover"
+                        className="max-h-44 w-full rounded border border-slate-200 object-cover"
                       />
                     </div>
                   ) : null}
@@ -812,6 +832,7 @@ export default function App() {
             </div>
           </article>
         </section>
+        </main>
       </div>
     </div>
   );
