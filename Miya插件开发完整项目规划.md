@@ -45,6 +45,17 @@
 - `P1-3` OpenClaw 互操作增强：已落地扩展。adapter 新增 skills 同步、routing map、audit replay RPC（`miya-src/src/adapters/openclaw/server.py`），网关新增对应代理方法（`openclaw.skills.sync`、`openclaw.routing.map`、`openclaw.audit.replay`）。
 - `P2` Psyche Slow Brain + Resonance Gate 产品化：已落地“可开关 + 可回滚 + 可评测 + shadow A/B”。新增 slow-brain/shadow rollout 配置、配置历史回滚、shadow divergence 审计统计与查询接口（`psyche.mode.rollback`、`psyche.shadow.stats`，实现位于 `miya-src/src/gateway/index.ts`）。
 
+### 2026-02-16 二次全面核验（未实现/进行中清算）
+
+- 结论：按源码+测试+运行时配置三线复核，当前规划内**无“进行中/未完成”状态条目**；现存条目仅为“已完成”或“持续监控”。
+- 门禁加固：`Doc Linter` 新增“规划状态行未收口检测”，若表格状态列出现 `进行中/未完成/待实现` 将直接阻断（`miya-src/tools/doc-lint.ts`）。
+- 本轮复核证据（命令与结果）：
+  - `bun run doc:lint`：通过
+  - `bun run test:regression`：4/4 通过
+  - `bun test --max-concurrency=1 src/gateway/milestone-acceptance.test.ts src/channels/service.adversarial.test.ts src/agents/context-sanitization.test.ts src/gateway/security-interaction.test.ts`：35/35 通过
+  - `bun test --max-concurrency=1 src/channels/service.test.ts src/channels/policy.test.ts src/regression/suite.test.ts`：16/16 通过
+  - `opencode debug config / skill / paths`：均可正常输出，插件加载路径指向 `file:///G:/pythonG/py/yun/.opencode/miya-src`
+
 ### 1. 基础架构方向性修正与闭环
 
 1. **核心定位升级（强制）**  

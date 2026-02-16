@@ -30,6 +30,8 @@ const UNRESOLVED_PLANNING_MARKERS = [
   '规划态',
 ];
 
+const UNRESOLVED_STATUS_TOKENS = ['进行中', '未完成', '待实现'];
+
 function requireFile(path: string, code: string): void {
   if (!existsSync(path)) {
     violations.push({ code, message: `missing file: ${path}` });
@@ -149,6 +151,29 @@ function assertNoLegacyTerms(content: string, scope: string): void {
   }
 }
 
+function assertNoUnresolvedStatusRows(planning: string): void {
+  const lines = planning.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? '';
+    if (!line.startsWith('|')) continue;
+    const cells = line
+      .split('|')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    if (cells.length < 2) continue;
+    const statusCell = cells[1] ?? '';
+    if (
+      !UNRESOLVED_STATUS_TOKENS.some((token) => statusCell.includes(token))
+    ) {
+      continue;
+    }
+    violations.push({
+      code: 'planning.status.unresolved',
+      message: `规划表格仍包含未收口状态（line ${index + 1}）: ${statusCell}`,
+    });
+  }
+}
+
 const repoRoot = process.cwd();
 const workspaceRoot = join(repoRoot, '..');
 const planningPath = join(workspaceRoot, 'Miya插件开发完整项目规划.md');
@@ -238,6 +263,7 @@ if (existsSync(readmePath)) {
 if (existsSync(planningPath)) {
   const planning = readFileSync(planningPath, 'utf8');
   assertNoLegacyTerms(planning, '规划文档');
+  assertNoUnresolvedStatusRows(planning);
   for (const marker of UNRESOLVED_PLANNING_MARKERS) {
     if (planning.includes(marker)) {
       violations.push({
