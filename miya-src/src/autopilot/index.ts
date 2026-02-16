@@ -12,6 +12,12 @@ export {
 } from './plan-bundle';
 export { summarizeAutopilotPlan, summarizeVerification } from './verifier';
 export { readAutopilotStats, recordAutopilotRunDigest } from './stats';
+export {
+  clearPlanBundleBinding,
+  preparePlanBundleBinding,
+  readPlanBundleBinding,
+  updatePlanBundleBindingStatus,
+} from './plan-bundle-binding';
 export type {
   AutopilotApprovalInput,
   AutopilotCommandResult,
@@ -23,7 +29,14 @@ export type {
   AutopilotStats,
   PlanBundleApproval,
   PlanBundleAuditEvent,
+  PlanBundleBudget,
+  PlanBundleCapabilities,
+  PlanBundleLifecycleState,
+  PlanBundleMode,
+  PlanBundleRiskTier,
   PlanBundleRollback,
+  PlanBundleStep,
   PlanBundleStage,
   PlanBundleV1,
+  PlanBundleVerificationPlan,
 } from './types';

@@ -32,6 +32,49 @@ function summarize(value: unknown): string {
   }
 }
 
+function normalizeMode(input: AutopilotRunInput): PlanBundleV1['mode'] {
+  if (
+    input.mode === 'work' ||
+    input.mode === 'chat' ||
+    input.mode === 'mixed' ||
+    input.mode === 'subagent'
+  ) {
+    return input.mode;
+  }
+  return 'work';
+}
+
+function normalizeRiskTier(input: AutopilotRunInput): PlanBundleV1['riskTier'] {
+  if (
+    input.riskTier === 'LIGHT' ||
+    input.riskTier === 'STANDARD' ||
+    input.riskTier === 'THOROUGH'
+  ) {
+    return input.riskTier;
+  }
+  return 'STANDARD';
+}
+
+function toFrozenSteps(plan: AutopilotPlan): PlanBundleV1['steps'] {
+  return plan.steps.map((step) => ({
+    id: step.id,
+    intent: step.title,
+    tools:
+      step.kind === 'execution' || step.kind === 'verification'
+        ? ['bash']
+        : ['analysis'],
+    expectedArtifacts:
+      step.kind === 'analysis'
+        ? ['analysis_note']
+        : step.kind === 'verification'
+          ? ['verification_report']
+          : ['command_result'],
+    rollback: 'rollback_command_or_manual_recovery',
+    done: step.done,
+    command: step.command,
+  }));
+}
+
 export function appendPlanBundleAudit(
   bundle: PlanBundleV1,
   input: {
@@ -54,7 +97,7 @@ export function appendPlanBundleAudit(
     inputHash: digest(summaryText),
     approvalBasis: input.approvalBasis?.trim() || 'none',
     resultHash: digest(resultText),
-    replayToken: replayToken(bundle.id, id, input.action),
+    replayToken: replayToken(bundle.bundleId, id, input.action),
   };
   bundle.audit.push(event);
   bundle.updatedAt = event.at;
@@ -69,12 +112,60 @@ export function createPlanBundleV1(input: {
   const createdAt = nowIso();
   const approvalRequired = input.runInput.approval?.required === true;
   const autoApprove = input.runInput.approval?.autoApprove === true;
+  const policyHash =
+    String(
+      input.runInput.approval?.policyHash ??
+        input.runInput.policyHash ??
+        'UNSPECIFIED_POLICY_HASH',
+    ).trim() || 'UNSPECIFIED_POLICY_HASH';
+  const bundleId =
+    String(input.runInput.planBundleID ?? '').trim() || `pb_${randomUUID()}`;
+  const mode = normalizeMode(input.runInput);
+  const riskTier = normalizeRiskTier(input.runInput);
+  const maxRetries =
+    typeof input.runInput.maxRetriesPerCommand === 'number'
+      ? Math.max(0, Math.floor(input.runInput.maxRetriesPerCommand))
+      : 1;
+  const timeoutMs = Math.max(1_000, Math.floor(input.runInput.timeoutMs));
+  const capabilities = Array.isArray(input.runInput.capabilitiesNeeded)
+    ? input.runInput.capabilitiesNeeded
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+    : ['bash'];
   const status: PlanBundleV1['status'] =
     approvalRequired && !autoApprove ? 'pending_approval' : approvalRequired ? 'approved' : 'draft';
+  const lifecycleState: PlanBundleV1['lifecycleState'] =
+    status === 'approved'
+      ? 'approved'
+      : status === 'pending_approval'
+        ? 'proposed'
+        : 'draft';
   const bundle: PlanBundleV1 = {
-    id: `pb_${randomUUID()}`,
+    bundleId,
+    id: bundleId,
     version: '1.0',
     goal: input.goal.trim(),
+    mode,
+    riskTier,
+    lifecycleState,
+    budget: {
+      timeMs: timeoutMs * Math.max(1, input.runInput.commands.length),
+      costUsd: 0,
+      retries: maxRetries,
+    },
+    capabilitiesNeeded: capabilities,
+    steps: toFrozenSteps(input.plan),
+    approvalPolicy: {
+      required: approvalRequired,
+      mode: autoApprove ? 'auto' : 'manual',
+    },
+    verificationPlan: {
+      command: input.runInput.verificationCommand?.trim() || undefined,
+      checks: input.runInput.verificationCommand?.trim()
+        ? ['verification_command_exit_code_zero']
+        : ['command_exit_codes'],
+    },
+    policyHash,
     createdAt,
     updatedAt: createdAt,
     status,
@@ -84,7 +175,7 @@ export function createPlanBundleV1(input: {
       approved: !approvalRequired || autoApprove,
       approver: autoApprove ? input.runInput.approval?.approver || 'auto' : undefined,
       reason: input.runInput.approval?.reason,
-      policyHash: input.runInput.approval?.policyHash,
+      policyHash,
       requestedAt: approvalRequired ? createdAt : undefined,
       approvedAt: autoApprove ? createdAt : undefined,
     },
@@ -135,6 +226,7 @@ export function markPlanBundleApproved(
   bundle.approval.policyHash = input.policyHash;
   bundle.approval.approvedAt = approvedAt;
   bundle.status = 'approved';
+  bundle.lifecycleState = 'approved';
   bundle.updatedAt = approvedAt;
   appendPlanBundleAudit(bundle, {
     stage: 'approval',
@@ -151,6 +243,7 @@ export function markPlanBundleApproved(
 
 export function markPlanBundleRunning(bundle: PlanBundleV1): void {
   bundle.status = 'running';
+  bundle.lifecycleState = 'executing';
   bundle.updatedAt = nowIso();
   appendPlanBundleAudit(bundle, {
     stage: 'execution',
@@ -191,6 +284,7 @@ export function markPlanBundleVerification(
   verification: AutopilotCommandResult,
 ): void {
   bundle.verification = verification;
+  bundle.lifecycleState = 'verifying';
   bundle.updatedAt = nowIso();
   appendPlanBundleAudit(bundle, {
     stage: 'execution',
@@ -223,6 +317,7 @@ export function markPlanBundleRollback(
     reason,
   };
   bundle.status = result?.ok ? 'rolled_back' : 'failed';
+  bundle.lifecycleState = 'failed';
   bundle.updatedAt = nowIso();
   appendPlanBundleAudit(bundle, {
     stage: 'rollback',
@@ -248,6 +343,7 @@ export function markPlanBundleFinalized(
   input: { success: boolean; summary: string },
 ): void {
   bundle.status = input.success ? 'completed' : bundle.status === 'rolled_back' ? 'rolled_back' : 'failed';
+  bundle.lifecycleState = input.success ? 'done' : 'postmortem';
   bundle.updatedAt = nowIso();
   appendPlanBundleAudit(bundle, {
     stage: 'finalize',

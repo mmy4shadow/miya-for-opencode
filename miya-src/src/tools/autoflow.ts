@@ -9,6 +9,13 @@ import {
   stopAutoflowSession,
   writeAutoflowPersistentConfig,
 } from '../autoflow';
+import {
+  clearPlanBundleBinding,
+  preparePlanBundleBinding,
+  readPlanBundleBinding,
+  updatePlanBundleBindingStatus,
+} from '../autopilot';
+import { currentPolicyHash } from '../policy';
 
 const z = tool.schema;
 
@@ -92,6 +99,18 @@ export function createAutoflowTools(
       max_parallel: z.number().optional().describe('DAG worker concurrency'),
       timeout_ms: z.number().optional().describe('Shell command timeout'),
       working_directory: z.string().optional().describe('Shell command cwd'),
+      plan_bundle_id: z
+        .string()
+        .optional()
+        .describe('PlanBundle id. Auto-generated if omitted.'),
+      policy_hash: z
+        .string()
+        .optional()
+        .describe('Policy hash for this autonomous run.'),
+      risk_tier: z
+        .enum(['LIGHT', 'STANDARD', 'THOROUGH'])
+        .optional()
+        .describe('Risk tier for this autonomous execution bundle'),
       force_restart: z
         .boolean()
         .optional()
@@ -120,6 +139,7 @@ export function createAutoflowTools(
       }
 
       if (mode === 'stop') {
+        clearPlanBundleBinding(projectDir, sessionID);
         const state = stopAutoflowSession(projectDir, sessionID);
         return [...formatStateSummary(state), 'autoflow=stopped'].join('\n');
       }
@@ -156,6 +176,27 @@ export function createAutoflowTools(
       }
 
       if (mode === 'start') {
+        const existingBinding = readPlanBundleBinding(projectDir, sessionID);
+        const planBundleID =
+          (typeof args.plan_bundle_id === 'string' && args.plan_bundle_id.trim()) ||
+          existingBinding?.bundleId ||
+          `pb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        const policyHash =
+          (typeof args.policy_hash === 'string' && args.policy_hash.trim()) ||
+          existingBinding?.policyHash ||
+          currentPolicyHash(projectDir);
+        const riskTier =
+          args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
+            ? args.risk_tier
+            : existingBinding?.riskTier || 'THOROUGH';
+        preparePlanBundleBinding(projectDir, {
+          sessionID,
+          bundleId: planBundleID,
+          sourceTool: 'miya_autoflow',
+          mode: 'work',
+          riskTier,
+          policyHash,
+        });
         const state = configureAutoflowSession(projectDir, {
           sessionID,
           goal: typeof args.goal === 'string' ? args.goal : undefined,
@@ -173,11 +214,40 @@ export function createAutoflowTools(
         });
         return [
           ...formatStateSummary(state),
+          `plan_bundle_id=${planBundleID}`,
+          `policy_hash=${policyHash}`,
+          `risk_tier=${riskTier}`,
           ...formatPersistentSummary(projectDir, sessionID),
           'autoflow=configured',
         ].join('\n');
       }
 
+      const existingBinding = readPlanBundleBinding(projectDir, sessionID);
+      const planBundleID =
+        (typeof args.plan_bundle_id === 'string' && args.plan_bundle_id.trim()) ||
+        existingBinding?.bundleId ||
+        `pb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const policyHash =
+        (typeof args.policy_hash === 'string' && args.policy_hash.trim()) ||
+        existingBinding?.policyHash ||
+        currentPolicyHash(projectDir);
+      const riskTier =
+        args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
+          ? args.risk_tier
+          : existingBinding?.riskTier || 'THOROUGH';
+      preparePlanBundleBinding(projectDir, {
+        sessionID,
+        bundleId: planBundleID,
+        sourceTool: 'miya_autoflow',
+        mode: 'work',
+        riskTier,
+        policyHash,
+      });
+      updatePlanBundleBindingStatus(projectDir, {
+        sessionID,
+        bundleId: planBundleID,
+        status: 'running',
+      });
       const result = await runAutoflow({
         projectDir,
         sessionID,
@@ -200,8 +270,16 @@ export function createAutoflowTools(
             : undefined,
         forceRestart: Boolean(args.force_restart),
       });
+      updatePlanBundleBindingStatus(projectDir, {
+        sessionID,
+        bundleId: planBundleID,
+        status: result.success ? 'completed' : 'failed',
+      });
 
       const lines = [
+        `plan_bundle_id=${planBundleID}`,
+        `policy_hash=${policyHash}`,
+        `risk_tier=${riskTier}`,
         `autoflow_success=${result.success}`,
         `summary=${result.summary}`,
         ...formatStateSummary(result.state),

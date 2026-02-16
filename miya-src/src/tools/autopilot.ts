@@ -1,12 +1,17 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import {
+  clearPlanBundleBinding,
   configureAutopilotSession,
   createAutopilotPlan,
+  preparePlanBundleBinding,
+  readPlanBundleBinding,
   readAutopilotStats,
   runAutopilot,
   summarizeAutopilotPlan,
   summarizeVerification,
+  updatePlanBundleBindingStatus,
 } from '../autopilot';
+import { currentPolicyHash } from '../policy';
 import { getSessionState } from '../workflow';
 
 const z = tool.schema;
@@ -48,6 +53,18 @@ export function createAutopilotTools(
         .number()
         .optional()
         .describe('Retry budget for transient command failures in mode=run'),
+      plan_bundle_id: z
+        .string()
+        .optional()
+        .describe('PlanBundle id. Auto-generated if omitted.'),
+      policy_hash: z
+        .string()
+        .optional()
+        .describe('Policy hash for this autonomous run.'),
+      risk_tier: z
+        .enum(['LIGHT', 'STANDARD', 'THOROUGH'])
+        .optional()
+        .describe('Risk tier for this autonomous execution bundle'),
       working_directory: z
         .string()
         .optional()
@@ -91,6 +108,7 @@ export function createAutopilotTools(
       }
 
       if (mode === 'stop') {
+        clearPlanBundleBinding(projectDir, sessionID);
         const state = configureAutopilotSession({
           projectDir,
           sessionID,
@@ -105,8 +123,35 @@ export function createAutopilotTools(
 
       const goal = String(args.goal ?? '').trim();
       if (mode === 'run') {
+        const existingBinding = readPlanBundleBinding(projectDir, sessionID);
+        const planBundleID =
+          (typeof args.plan_bundle_id === 'string' && args.plan_bundle_id.trim()) ||
+          existingBinding?.bundleId ||
+          `pb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        const policyHash =
+          (typeof args.policy_hash === 'string' && args.policy_hash.trim()) ||
+          existingBinding?.policyHash ||
+          currentPolicyHash(projectDir);
+        const riskTier =
+          args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
+            ? args.risk_tier
+            : existingBinding?.riskTier || 'THOROUGH';
+        preparePlanBundleBinding(projectDir, {
+          sessionID,
+          bundleId: planBundleID,
+          sourceTool: 'miya_autopilot',
+          mode: 'work',
+          riskTier,
+          policyHash,
+        });
+        updatePlanBundleBindingStatus(projectDir, {
+          sessionID,
+          bundleId: planBundleID,
+          status: 'running',
+        });
         const execution = runAutopilot({
           projectDir,
+          sessionID,
           goal: goal || 'autopilot run',
           commands: Array.isArray(args.commands) ? args.commands.map(String) : [],
           verificationCommand: args.verification_command
@@ -117,12 +162,25 @@ export function createAutopilotTools(
             typeof args.max_retries_per_command === 'number'
               ? Number(args.max_retries_per_command)
               : undefined,
+          mode: 'work',
+          riskTier,
+          policyHash,
+          planBundleID: planBundleID,
+          capabilitiesNeeded: ['bash'],
           workingDirectory: args.working_directory
             ? String(args.working_directory)
             : undefined,
         });
+        updatePlanBundleBindingStatus(projectDir, {
+          sessionID,
+          bundleId: planBundleID,
+          status: execution.success ? 'completed' : 'failed',
+        });
         const lines = [
           `session=${sessionID}`,
+          `plan_bundle_id=${planBundleID}`,
+          `policy_hash=${policyHash}`,
+          `risk_tier=${riskTier}`,
           `autopilot_run_success=${execution.success}`,
           `execution_steps=${execution.execution.length}`,
           `retry_count=${execution.retryCount}`,
@@ -143,6 +201,27 @@ export function createAutopilotTools(
       }
 
       const plan = createAutopilotPlan(goal || 'autopilot goal');
+      const existingBinding = readPlanBundleBinding(projectDir, sessionID);
+      const planBundleID =
+        (typeof args.plan_bundle_id === 'string' && args.plan_bundle_id.trim()) ||
+        existingBinding?.bundleId ||
+        `pb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const policyHash =
+        (typeof args.policy_hash === 'string' && args.policy_hash.trim()) ||
+        existingBinding?.policyHash ||
+        currentPolicyHash(projectDir);
+      const riskTier =
+        args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
+          ? args.risk_tier
+          : existingBinding?.riskTier || 'THOROUGH';
+      preparePlanBundleBinding(projectDir, {
+        sessionID,
+        bundleId: planBundleID,
+        sourceTool: 'miya_autopilot',
+        mode: 'work',
+        riskTier,
+        policyHash,
+      });
       const state = configureAutopilotSession({
         projectDir,
         sessionID,
@@ -161,6 +240,9 @@ export function createAutopilotTools(
 
       return [
         `session=${sessionID}`,
+        `plan_bundle_id=${planBundleID}`,
+        `policy_hash=${policyHash}`,
+        `risk_tier=${riskTier}`,
         'autopilot=started',
         `loop_enabled=${state.loopEnabled}`,
         `auto_continue=${state.autoContinue}`,

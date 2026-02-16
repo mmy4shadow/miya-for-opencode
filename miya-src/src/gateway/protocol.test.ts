@@ -274,9 +274,38 @@ describe('gateway protocol', () => {
 
   test('validates plan bundle v1 payload', () => {
     const bundle = PlanBundleSchema.parse({
+      bundleId: 'pb_1',
       id: 'pb_1',
       version: '1.0',
       goal: 'run tests',
+      mode: 'work',
+      riskTier: 'STANDARD',
+      lifecycleState: 'done',
+      budget: {
+        timeMs: 60000,
+        costUsd: 0,
+        retries: 1,
+      },
+      capabilitiesNeeded: ['bash'],
+      steps: [
+        {
+          id: 'exec_1',
+          intent: 'Execute command #1',
+          tools: ['bash'],
+          expectedArtifacts: ['command_result'],
+          rollback: 'rollback_command_or_manual_recovery',
+          done: true,
+          command: 'bun test',
+        },
+      ],
+      approvalPolicy: {
+        required: false,
+        mode: 'manual',
+      },
+      verificationPlan: {
+        checks: ['command_exit_codes'],
+      },
+      policyHash: 'a0ca6bcf8bc8f9a9fa7f2f2b729fe3ca',
       createdAt: '2026-02-16T00:00:00.000Z',
       updatedAt: '2026-02-16T00:00:00.000Z',
       status: 'completed',

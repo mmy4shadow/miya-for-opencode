@@ -30,6 +30,43 @@ export type PlanBundleStage =
   | 'audit'
   | 'finalize';
 
+export type PlanBundleMode = 'work' | 'chat' | 'mixed' | 'subagent';
+export type PlanBundleRiskTier = 'LIGHT' | 'STANDARD' | 'THOROUGH';
+export type PlanBundleLifecycleState =
+  | 'draft'
+  | 'proposed'
+  | 'approved'
+  | 'executing'
+  | 'verifying'
+  | 'done'
+  | 'failed'
+  | 'postmortem';
+
+export interface PlanBundleBudget {
+  timeMs: number;
+  costUsd: number;
+  retries: number;
+}
+
+export interface PlanBundleCapabilities {
+  needed: string[];
+}
+
+export interface PlanBundleStep {
+  id: string;
+  intent: string;
+  tools: string[];
+  expectedArtifacts: string[];
+  rollback: string;
+  done: boolean;
+  command?: string;
+}
+
+export interface PlanBundleVerificationPlan {
+  command?: string;
+  checks: string[];
+}
+
 export interface PlanBundleAuditEvent {
   id: string;
   at: string;
@@ -62,9 +99,22 @@ export interface PlanBundleRollback {
 }
 
 export interface PlanBundleV1 {
+  bundleId: string;
   id: string;
   version: '1.0';
   goal: string;
+  mode: PlanBundleMode;
+  riskTier: PlanBundleRiskTier;
+  lifecycleState: PlanBundleLifecycleState;
+  budget: PlanBundleBudget;
+  capabilitiesNeeded: string[];
+  steps: PlanBundleStep[];
+  approvalPolicy: {
+    required: boolean;
+    mode: 'manual' | 'auto';
+  };
+  verificationPlan: PlanBundleVerificationPlan;
+  policyHash: string;
   createdAt: string;
   updatedAt: string;
   status:
@@ -93,6 +143,7 @@ export interface AutopilotApprovalInput {
 
 export interface AutopilotRunInput {
   projectDir?: string;
+  sessionID?: string;
   goal: string;
   commands: string[];
   verificationCommand?: string;
@@ -101,6 +152,12 @@ export interface AutopilotRunInput {
   approval?: AutopilotApprovalInput;
   timeoutMs: number;
   workingDirectory?: string;
+  mode?: PlanBundleMode;
+  riskTier?: PlanBundleRiskTier;
+  capabilitiesNeeded?: string[];
+  policyHash?: string;
+  planBundleID?: string;
+  enforceSafetyGate?: boolean;
 }
 
 export interface AutopilotRunDigest {

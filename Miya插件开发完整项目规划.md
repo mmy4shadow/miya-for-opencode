@@ -28,6 +28,10 @@
 - `P1` 后台睡眠反思 worker：已落地（`miya-src/src/companion/memory-reflect-worker.ts`），支持异步队列、写入预算、冲突合并。
 - `P1` 技能供应链治理：已落地（`miya-src/src/skills/governance.ts` + `miya-src/src/skills/sync.ts`），支持版本锁、签名校验、兼容矩阵、smoke 验证。
 - `P1` Persona/WorldInfo 层：已落地（`miya-src/src/companion/persona-world.ts`），并接入会话绑定与安全提示链路。
+- `P0` 自治执行闸门收口：已落地（`miya-src/src/index.ts` 对 `miya_autopilot/miya_autoflow` 统一映射 `bash` 风险权限，执行前强制安全门；`miya-src/src/autopilot/plan-bundle-binding.ts` 持久化会话单据绑定）。
+- `P0` PlanBundle v1 冻结字段补齐：已落地（`miya-src/src/autopilot/types.ts`、`miya-src/src/autopilot/plan-bundle.ts`、`miya-src/src/gateway/protocol.ts`；新增 `bundleId/mode/riskTier/budget/capabilitiesNeeded/steps/approvalPolicy/verificationPlan/policyHash`）。
+- `P1` 模式低置信安全回退 + 记忆注入可追溯：已落地（`miya-src/src/gateway/index.ts`，低置信回退 `work` 安全策略；记忆块改为 `reference_only` 并附 `confidence/source`）。
+- `P0` Windows 弹窗治理：已落地（`miya-src/src/index.ts`；Auto UI Open 改为显式 opt-in，默认关闭；Windows 启动改为隐藏 PowerShell 拉起，抑制反复 terminal 弹窗）。
 - `P2` 策略实验框架：已落地（`miya-src/src/strategy/experiments.ts`），支持 A/B 分流与离线回放汇总，已接入路由/记忆写入/审批阈值观测。
 
 ### 2026-02-16 增量实装状态回填（本轮）

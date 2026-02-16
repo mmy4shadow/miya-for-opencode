@@ -46,9 +46,48 @@ export const PlanBundleRollbackSchema = z.object({
 });
 
 export const PlanBundleSchema = z.object({
+  bundleId: z.string().min(1),
   id: z.string().min(1),
   version: z.literal('1.0'),
   goal: z.string().min(1),
+  mode: z.enum(['work', 'chat', 'mixed', 'subagent']),
+  riskTier: z.enum(['LIGHT', 'STANDARD', 'THOROUGH']),
+  lifecycleState: z.enum([
+    'draft',
+    'proposed',
+    'approved',
+    'executing',
+    'verifying',
+    'done',
+    'failed',
+    'postmortem',
+  ]),
+  budget: z.object({
+    timeMs: z.number().int().nonnegative(),
+    costUsd: z.number().nonnegative(),
+    retries: z.number().int().nonnegative(),
+  }),
+  capabilitiesNeeded: z.array(z.string().min(1)),
+  steps: z.array(
+    z.object({
+      id: z.string().min(1),
+      intent: z.string().min(1),
+      tools: z.array(z.string().min(1)),
+      expectedArtifacts: z.array(z.string().min(1)),
+      rollback: z.string().min(1),
+      done: z.boolean(),
+      command: z.string().optional(),
+    }),
+  ),
+  approvalPolicy: z.object({
+    required: z.boolean(),
+    mode: z.enum(['manual', 'auto']),
+  }),
+  verificationPlan: z.object({
+    command: z.string().optional(),
+    checks: z.array(z.string().min(1)),
+  }),
+  policyHash: z.string().min(16),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
   status: z.enum([

@@ -1,4 +1,5 @@
 import { getSessionState, setSessionState } from '../workflow';
+import { currentPolicyHash } from '../policy';
 import { attachCommandSteps, createAutopilotPlan } from './planner';
 import {
   appendPlanBundleAudit,
@@ -93,6 +94,19 @@ function withAttemptSuffix(result: AutopilotCommandResult, attempt: number): Aut
 
 export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
   const maxRetriesPerCommand = resolveRetryLimit(input.maxRetriesPerCommand);
+  const resolvedPolicyHash =
+    String(input.policyHash ?? '').trim() ||
+    (input.projectDir ? currentPolicyHash(input.projectDir) : 'UNSPECIFIED_POLICY_HASH');
+  const normalizedInput: AutopilotRunInput = {
+    ...input,
+    policyHash: resolvedPolicyHash,
+    capabilitiesNeeded:
+      Array.isArray(input.capabilitiesNeeded) && input.capabilitiesNeeded.length > 0
+        ? input.capabilitiesNeeded
+        : ['bash'],
+    riskTier: input.riskTier ?? 'STANDARD',
+    mode: input.mode ?? 'work',
+  };
   const basePlan = createAutopilotPlan(input.goal);
   const plan = attachCommandSteps(
     basePlan,
@@ -102,7 +116,7 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
   const bundle = createPlanBundleV1({
     goal: input.goal,
     plan,
-    runInput: input,
+    runInput: normalizedInput,
   });
   if (bundle.approval.required && !bundle.approval.approved) {
     const summary = 'Execution blocked: approval required before run.';

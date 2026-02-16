@@ -1,5 +1,6 @@
 import type { Plugin } from '@opencode-ai/plugin';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getAgentConfigs } from './agents';
@@ -71,8 +72,10 @@ import {
   createWorkflowTools,
 } from './tools';
 import { mergePluginAgentConfigs } from './config/runtime-merge';
+import { currentPolicyHash } from './policy';
 import { startTmuxCheck } from './utils';
 import { log } from './utils/logger';
+import { preparePlanBundleBinding } from './autopilot';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -134,7 +137,8 @@ function isPidAlive(pid: number): boolean {
 
 function openUrlSilently(url: string): void {
   if (process.platform === 'win32') {
-    const child = spawn('cmd', ['/c', 'start', '', url], {
+    const escaped = url.replace(/'/g, "''");
+    const child = spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', `Start-Process '${escaped}'`], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
@@ -172,9 +176,9 @@ function launchDockSilently(projectDir: string): void {
       if (isPidAlive(pid)) return;
     } catch {}
   }
-  const bat = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-launch.bat');
-  if (!fs.existsSync(bat)) return;
-  const child = spawn('cmd', ['/c', bat], {
+  const ps1 = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-dock.ps1');
+  if (!fs.existsSync(ps1)) return;
+  const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1], {
     cwd: projectDir,
     detached: true,
     stdio: 'ignore',
@@ -197,6 +201,22 @@ function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
 
 function isInteractiveSession(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+function parseToolMode(args: unknown): string {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
+  const value = (args as Record<string, unknown>).mode;
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function isAutonomousRunTool(tool: string, args: unknown): boolean {
+  if (tool !== 'miya_autopilot' && tool !== 'miya_autoflow') return false;
+  const mode = parseToolMode(args);
+  if (tool === 'miya_autopilot') {
+    return mode === 'run';
+  }
+  // miya_autoflow defaults to run mode when omitted.
+  return mode === '' || mode === 'run';
 }
 
 const MiyaPlugin: Plugin = async (ctx) => {
@@ -229,11 +249,13 @@ const MiyaPlugin: Plugin = async (ctx) => {
       | Record<string, unknown>
       | undefined) ?? {};
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
+  const autoOpenOptIn = process.env.MIYA_AUTO_UI_OPEN === '1' || dashboardConfig.openOnStart === true;
+  const autoOpenEnabledResolved = autoOpenEnabled && autoOpenOptIn;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === '0';
   const autoOpenCooldownMs =
     typeof dashboardConfig.autoOpenCooldownMs === 'number'
       ? Math.max(10_000, Math.min(24 * 60_000, Math.floor(Number(dashboardConfig.autoOpenCooldownMs))))
-      : 2 * 60_000;
+      : 10 * 60_000;
   const dockAutoLaunch =
     process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
     dashboardConfig.dockAutoLaunch === true;
@@ -243,6 +265,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
     log('[miya-launcher] daemon bootstrap', daemonLaunch);
     if (
       autoOpenEnabled &&
+      autoOpenEnabledResolved &&
       !autoOpenBlockedByEnv &&
       interactiveSession &&
       shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
@@ -273,6 +296,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
     } else {
       log('[miya] auto ui open skipped', {
         autoOpenEnabled,
+        autoOpenEnabledResolved,
         autoOpenBlockedByEnv,
         interactiveSession,
         cooldownMs: autoOpenCooldownMs,
@@ -387,6 +411,12 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const postReadNudgeHook = createPostReadNudgeHook();
   const postWriteSimplicityHook = createPostWriteSimplicityHook();
   const contextGovernorHook = createContextGovernorHook(config.contextGovernance);
+  const chatTransformPipeline = [
+    slashCommandBridgeHook,
+    loopGuardHook,
+    phaseReminderHook,
+    contextGovernorHook,
+  ];
   const slimCompatEnabled = config.slimCompat?.enabled ?? true;
   const postWriteSimplicityEnabled =
     slimCompatEnabled &&
@@ -419,6 +449,59 @@ const MiyaPlugin: Plugin = async (ctx) => {
     const tool = String(input.tool ?? '');
     const sessionID = String(input.sessionID ?? 'main');
     const callID = typeof input.callID === 'string' ? input.callID : undefined;
+    const argObject =
+      output.args && typeof output.args === 'object' && !Array.isArray(output.args)
+        ? (output.args as Record<string, unknown>)
+        : undefined;
+    const autonomousRun = isAutonomousRunTool(tool, argObject);
+    let effectivePermission = tool;
+    if (autonomousRun) {
+      effectivePermission = 'bash';
+      const existingBundleID =
+        argObject && typeof argObject.plan_bundle_id === 'string'
+          ? argObject.plan_bundle_id.trim()
+          : '';
+      const existingPolicyHash =
+        argObject && typeof argObject.policy_hash === 'string'
+          ? argObject.policy_hash.trim()
+          : '';
+      const bundleId = existingBundleID || `pb_${randomUUID()}`;
+      const policyHash = existingPolicyHash || currentPolicyHash(ctx.directory);
+      const riskTier =
+        argObject &&
+        (argObject.risk_tier === 'LIGHT' ||
+          argObject.risk_tier === 'STANDARD' ||
+          argObject.risk_tier === 'THOROUGH')
+          ? String(argObject.risk_tier)
+          : 'THOROUGH';
+      const modeLabel =
+        argObject && typeof argObject.mode === 'string'
+          ? argObject.mode.trim().toLowerCase()
+          : 'run';
+      const normalizedArgs = {
+        ...(argObject ?? {}),
+        plan_bundle_id: bundleId,
+        policy_hash: policyHash,
+        risk_tier: riskTier,
+      };
+      output.args = normalizedArgs;
+      preparePlanBundleBinding(ctx.directory, {
+        sessionID,
+        bundleId,
+        sourceTool: tool === 'miya_autoflow' ? 'miya_autoflow' : 'miya_autopilot',
+        mode: 'work',
+        riskTier: riskTier as 'LIGHT' | 'STANDARD' | 'THOROUGH',
+        policyHash,
+      });
+      log('[miya] autonomous tool plan bundle prepared', {
+        sessionID,
+        tool,
+        mode: modeLabel,
+        bundleId,
+        policyHash,
+        riskTier,
+      });
+    }
     const argSummary: string[] = [];
     if (output.args && typeof output.args === 'object') {
       for (const [key, value] of Object.entries(output.args as Record<string, unknown>)) {
@@ -439,7 +522,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
     const intakeGate = shouldInterceptWriteAfterWebsearch(ctx.directory, {
       sessionID,
-      permission: tool,
+      permission: effectivePermission,
     });
     if (intakeGate.intercept) {
       throw new Error('miya_intake_gate_blocked:write_after_websearch_requires_revalidation');
@@ -447,7 +530,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
     const safety = await handlePermissionAsk(ctx.directory, {
       sessionID,
-      permission: tool,
+      permission: effectivePermission,
       patterns: argSummary,
       metadata:
         output.args && typeof output.args === 'object'
@@ -851,13 +934,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
     // Inject loop guard + phase reminder before sending to API.
     'experimental.chat.messages.transform': async (input, output) => {
-      await slashCommandBridgeHook['experimental.chat.messages.transform'](
-        input,
-        output,
-      );
-      await loopGuardHook['experimental.chat.messages.transform'](input, output);
-      await phaseReminderHook['experimental.chat.messages.transform'](input, output);
-      await contextGovernorHook['experimental.chat.messages.transform'](input, output);
+      for (const hook of chatTransformPipeline) {
+        await hook['experimental.chat.messages.transform'](input, output);
+      }
     },
 
     // Nudge after file reads to encourage delegation + track websearch usage for intake gate

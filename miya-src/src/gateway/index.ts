@@ -1270,6 +1270,18 @@ function resolveGatewayListenOptions(projectDir: string): {
   return { hostname, port };
 }
 
+function isAddressInUseError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const code = String((error as { code?: unknown }).code ?? '');
+  if (code === 'EADDRINUSE') {
+    return true;
+  }
+  const message = String((error as { message?: unknown }).message ?? '');
+  return message.includes('EADDRINUSE');
+}
+
 function logControlUiFallback(
   projectDir: string,
   pathname: string,
@@ -3577,7 +3589,7 @@ async function routeSessionMessage(
     });
   const loopState = getSessionState(projectDir, input.sessionID);
   const routeComplexity = analyzeRouteComplexity(payload.payload);
-  const modeKernel = evaluateModeKernel({
+  const modeKernelRaw = evaluateModeKernel({
     text: payload.payload,
     routeComplexity,
     sessionState: {
@@ -3589,6 +3601,14 @@ async function routeSessionMessage(
     },
     lastMode: modeObs.lastMode,
   });
+  const lowConfidenceSafeFallback = modeKernelRaw.confidence < 0.5;
+  const modeKernel = lowConfidenceSafeFallback
+    ? {
+        ...modeKernelRaw,
+        mode: 'work' as const,
+        why: [...modeKernelRaw.why, 'low_confidence_safe_work_fallback'],
+      }
+    : modeKernelRaw;
   const turnID = `turn_${randomUUID()}`;
   const userExplicit = detectUserExplicitIntent(payload.payload);
   const rightBrain = buildRightBrainResponsePlan({
@@ -3661,8 +3681,11 @@ async function routeSessionMessage(
     });
     if (hits.length === 0) continue;
     memoryBlocks.push(
-      `[MIYA_${domain.toUpperCase()}_MEMORY]\n${hits
-        .map((item) => `- ${item.text} (score=${item.rankScore.toFixed(3)})`)
+      `[MIYA_${domain.toUpperCase()}_MEMORY reference_only=1]\n${hits
+        .map(
+          (item) =>
+            `- ${item.text} (score=${item.rankScore.toFixed(3)}, confidence=${item.confidence.toFixed(3)}, source=${item.sourceMessageID ?? item.source})`,
+        )
         .join('\n')}`,
     );
   }
@@ -3679,6 +3702,9 @@ async function routeSessionMessage(
   const turnMeta = [
     `[MIYA_TURN turn_id=${turnID}]`,
     `[MIYA_MODE_KERNEL] mode=${modeKernel.mode} confidence=${modeKernel.confidence} why=${modeKernel.why.join('|')}`,
+    lowConfidenceSafeFallback
+      ? `[MIYA_MODE_SAFETY_FALLBACK] mode=work source_mode=${modeKernelRaw.mode} confidence=${modeKernelRaw.confidence}`
+      : '',
     `[MIYA_CORTEX_ARBITER] mode=${arbiter.mode} execute_work=${arbiter.executeWork ? '1' : '0'} priority=${arbiter.priorityTrail.join('>')}`,
     `[MIYA_EXECUTION_TRACK] ${arbiter.executionTrack}`,
     arbiter.responseHints.length > 0
@@ -7352,12 +7378,11 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       challengeRequired: authConfig.challengeRequired,
     },
   });
-  let server: ReturnType<typeof Bun.serve>;
-  try {
-    server = Bun.serve({
-    hostname: listen.hostname,
-    port: listen.port,
-    fetch(request, currentServer) {
+  const createGatewayServer = (port: number): ReturnType<typeof Bun.serve> =>
+    Bun.serve({
+      hostname: listen.hostname,
+      port,
+      fetch(request, currentServer) {
       const url = new URL(request.url);
       if (url.pathname === '/ws') {
         const upgraded = currentServer.upgrade(request, { data: {} });
@@ -7410,20 +7435,20 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       }
 
       return new Response('Not Found', { status: 404 });
-    },
-    websocket: {
-      open(ws) {
-        ensureWsData(runtime, ws);
       },
-      close(ws) {
+      websocket: {
+        open(ws) {
+        ensureWsData(runtime, ws);
+        },
+        close(ws) {
         const wsData = ensureWsData(runtime, ws);
         if (wsData.nodeID) {
           runtime.nodeSockets.delete(wsData.nodeID);
           markNodeDisconnected(projectDir, wsData.nodeID);
         }
         runtime.wsMeta.delete(ws);
-      },
-      async message(ws, message) {
+        },
+        async message(ws, message) {
         const wsData = ensureWsData(runtime, ws);
         const parsed = parseIncomingFrame(message);
         if (!parsed.frame) {
@@ -7693,9 +7718,25 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
             ),
           );
         }
+        },
       },
-    },
     });
+
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    try {
+      server = createGatewayServer(listen.port);
+    } catch (error) {
+      if (!isAddressInUseError(error) || listen.port <= 0) {
+        throw error;
+      }
+      server = createGatewayServer(0);
+      log('[gateway] configured port already in use; fallback to ephemeral port', {
+        projectDir,
+        listen,
+        resolvedPort: Number(server.port ?? 0),
+      });
+    }
   } catch (error) {
     clearGatewayStateFile(projectDir);
     removeOwnerLock(projectDir);
