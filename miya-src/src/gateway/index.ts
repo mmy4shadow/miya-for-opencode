@@ -227,6 +227,7 @@ import {
 } from '../skills/sync';
 import { buildMcpServiceManifest } from '../mcp';
 import { log } from '../utils/logger';
+import { safeInterval } from '../utils/safe-interval';
 import { getMiyaRuntimeDir, getSessionState } from '../workflow';
 import {
   buildLearningInjection,
@@ -603,6 +604,19 @@ interface GatewayOwnerLock {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function periodicTaskError(projectDir: string, input: {
+  taskName: string;
+  error: unknown;
+  cooldownUntilMs?: number;
+}): void {
+  log('[gateway] periodic task failed', {
+    projectDir,
+    task: input.taskName,
+    error: input.error instanceof Error ? input.error.message : String(input.error),
+    cooldownUntilMs: input.cooldownUntilMs,
+  });
 }
 
 function resolveKillSwitchMode(projectDir: string, kill: ReturnType<typeof readKillSwitch>): 'all_stop' | 'outbound_only' | 'desktop_only' | 'off' {
@@ -8426,31 +8440,67 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
 
   runtime.methods = createMethods(projectDir, runtime);
   runtimes.set(projectDir, runtime);
-  runtime.wizardTickTimer = setInterval(() => {
-    void runWizardTrainingWorker(projectDir, runtime);
-  }, 1_200);
-  runtime.ownerBeatTimer = setInterval(() => {
-    touchOwnerLock(projectDir);
-  }, 5_000);
-  runtime.memoryReflectTimer = setInterval(() => {
-    // MemoryWorker v2: queue idle jobs, then process with write/conflict budgets.
-    scheduleAutoReflectJob(projectDir, {
-      idleMinutes: 5,
-      minPendingLogs: 1,
-      cooldownMinutes: 3,
-      maxLogs: 120,
-      maxWrites: 40,
-    });
-    const tick = runReflectWorkerTick(projectDir, {
-      maxJobs: 1,
-      writeBudget: 40,
-      mergeBudget: 40,
-    });
-    if (tick.completed > 0) syncCompanionProfileMemoryFacts(projectDir);
-  }, 20_000);
-  runtime.pendingQueueTimer = setInterval(() => {
-    void processPendingOutboundQueue(projectDir, runtime);
-  }, 5_000);
+  runtime.wizardTickTimer = safeInterval(
+    'gateway.wizard.training',
+    1_200,
+    async () => {
+      await runWizardTrainingWorker(projectDir, runtime);
+    },
+    {
+      maxConsecutiveErrors: 3,
+      cooldownMs: 15_000,
+      onError: (error) => periodicTaskError(projectDir, error),
+    },
+  );
+  runtime.ownerBeatTimer = safeInterval(
+    'gateway.owner.beat',
+    5_000,
+    () => {
+      touchOwnerLock(projectDir);
+    },
+    {
+      maxConsecutiveErrors: 3,
+      cooldownMs: 20_000,
+      onError: (error) => periodicTaskError(projectDir, error),
+    },
+  );
+  runtime.memoryReflectTimer = safeInterval(
+    'gateway.memory.reflect',
+    20_000,
+    () => {
+      // MemoryWorker v2: queue idle jobs, then process with write/conflict budgets.
+      scheduleAutoReflectJob(projectDir, {
+        idleMinutes: 5,
+        minPendingLogs: 1,
+        cooldownMinutes: 3,
+        maxLogs: 120,
+        maxWrites: 40,
+      });
+      const tick = runReflectWorkerTick(projectDir, {
+        maxJobs: 1,
+        writeBudget: 40,
+        mergeBudget: 40,
+      });
+      if (tick.completed > 0) syncCompanionProfileMemoryFacts(projectDir);
+    },
+    {
+      maxConsecutiveErrors: 3,
+      cooldownMs: 30_000,
+      onError: (error) => periodicTaskError(projectDir, error),
+    },
+  );
+  runtime.pendingQueueTimer = safeInterval(
+    'gateway.pending.outbound',
+    5_000,
+    async () => {
+      await processPendingOutboundQueue(projectDir, runtime);
+    },
+    {
+      maxConsecutiveErrors: 3,
+      cooldownMs: 15_000,
+      onError: (error) => periodicTaskError(projectDir, error),
+    },
+  );
   runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === 'job.progress') {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
@@ -24,6 +25,10 @@ export interface AutoflowPersistentSessionRuntime {
   resumeAttempts: number;
   resumeFailures: number;
   userStopped: boolean;
+  stopIntentToken?: string;
+  stopIntentSource?: 'user' | 'system';
+  stopIntentRequestedAt?: string;
+  stopIntentAckedAt?: string;
   lastStopAt?: string;
   lastStopType?: string;
   lastStopReason?: string;
@@ -41,6 +46,10 @@ export interface AutoflowPersistentEventInput {
   type?: string;
   properties?: {
     sessionID?: string;
+    stopIntent?: {
+      token?: string;
+      source?: string;
+    };
     status?: {
       type?: string;
       reason?: string;
@@ -67,6 +76,8 @@ const DEFAULT_CONFIG: AutoflowPersistentConfig = {
   maxConsecutiveResumeFailures: 3,
   resumeTimeoutMs: 90_000,
 };
+
+const STOP_INTENT_SOURCE_FALLBACK: 'user' = 'user';
 
 function storeFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'autoflow-persistent.json');
@@ -103,6 +114,13 @@ function normalizeRuntime(
     resumeAttempts: clamp(Number(raw?.resumeAttempts ?? 0), 0, 1_000),
     resumeFailures: clamp(Number(raw?.resumeFailures ?? 0), 0, 1_000),
     userStopped: Boolean(raw?.userStopped),
+    stopIntentToken: raw?.stopIntentToken ? String(raw.stopIntentToken) : undefined,
+    stopIntentSource:
+      raw?.stopIntentSource === 'system' || raw?.stopIntentSource === 'user'
+        ? raw.stopIntentSource
+        : undefined,
+    stopIntentRequestedAt: raw?.stopIntentRequestedAt ? String(raw.stopIntentRequestedAt) : undefined,
+    stopIntentAckedAt: raw?.stopIntentAckedAt ? String(raw.stopIntentAckedAt) : undefined,
     lastStopAt: raw?.lastStopAt ? String(raw.lastStopAt) : undefined,
     lastStopType: raw?.lastStopType ? String(raw.lastStopType) : undefined,
     lastStopReason: raw?.lastStopReason ? String(raw.lastStopReason) : undefined,
@@ -176,14 +194,47 @@ function parseStopReason(event: AutoflowPersistentEventInput): string {
   return text || 'unknown_stop_reason';
 }
 
+function parseStopIntentSource(raw: unknown): 'user' | 'system' {
+  if (String(raw ?? '').trim().toLowerCase() === 'system') return 'system';
+  return STOP_INTENT_SOURCE_FALLBACK;
+}
+
 function isStopStatus(statusType: string): boolean {
   return ['stopped', 'stop', 'error', 'failed', 'terminated', 'aborted', 'cancelled', 'canceled'].some((item) =>
     statusType.includes(item),
   );
 }
 
-function isUserInitiatedStop(reason: string): boolean {
-  return /(user|manual|operator|cancel_by_user|interrupted_by_user|用户|手动|停止|取消)/i.test(reason);
+function issueStopIntent(
+  projectDir: string,
+  sessionID: string,
+  input?: { source?: unknown; token?: unknown; acked?: boolean },
+): AutoflowPersistentSessionRuntime {
+  const runtime = getSessionRuntime(projectDir, sessionID);
+  const source = parseStopIntentSource(input?.source);
+  const token = String(input?.token ?? '').trim() || `stop_${randomUUID()}`;
+  const now = nowIso();
+  runtime.stopIntentSource = source;
+  runtime.stopIntentToken = token;
+  runtime.stopIntentRequestedAt = runtime.stopIntentRequestedAt ?? now;
+  if (input?.acked === true) {
+    runtime.stopIntentAckedAt = now;
+  }
+  runtime.userStopped = source === 'user';
+  runtime.lastOutcomePhase = source === 'user' ? 'stopped' : runtime.lastOutcomePhase;
+  runtime.lastOutcomeSummary =
+    source === 'user'
+      ? input?.acked === true
+        ? 'user_stop_acked'
+        : 'user_stop_requested'
+      : runtime.lastOutcomeSummary;
+  return saveSessionRuntime(projectDir, runtime);
+}
+
+function hasUserStopIntent(runtime: AutoflowPersistentSessionRuntime): boolean {
+  if (!runtime.userStopped) return false;
+  if ((runtime.stopIntentSource ?? 'user') !== 'user') return false;
+  return true;
 }
 
 function isActiveAutoflowPhase(phase: string): boolean {
@@ -214,6 +265,42 @@ export function writeAutoflowPersistentConfig(
   return writeStore(projectDir, store).config;
 }
 
+export function markAutoflowStopRequested(
+  projectDir: string,
+  input: { sessionID: string; source?: 'user' | 'system'; token?: string },
+): AutoflowPersistentSessionRuntime {
+  return issueStopIntent(projectDir, input.sessionID, {
+    source: input.source,
+    token: input.token,
+    acked: false,
+  });
+}
+
+export function markAutoflowStopAcked(
+  projectDir: string,
+  input: { sessionID: string; token?: string },
+): AutoflowPersistentSessionRuntime {
+  return issueStopIntent(projectDir, input.sessionID, {
+    source: 'user',
+    token: input.token,
+    acked: true,
+  });
+}
+
+export function clearAutoflowStopIntent(
+  projectDir: string,
+  sessionID: string,
+): AutoflowPersistentSessionRuntime {
+  const runtime = getSessionRuntime(projectDir, sessionID);
+  runtime.userStopped = false;
+  runtime.stopIntentToken = undefined;
+  runtime.stopIntentSource = undefined;
+  runtime.stopIntentRequestedAt = undefined;
+  runtime.stopIntentAckedAt = undefined;
+  runtime.lastOutcomeSummary = 'stop_intent_cleared';
+  return saveSessionRuntime(projectDir, runtime);
+}
+
 export function getAutoflowPersistentRuntimeSnapshot(
   projectDir: string,
   limit = 50,
@@ -229,6 +316,45 @@ export async function handleAutoflowPersistentEvent(input: {
   manager: AutoflowManager;
   event: AutoflowPersistentEventInput;
 }): Promise<AutoflowPersistentEventResult> {
+  if (input.event.type === 'autoflow.stop.requested') {
+    const sessionID = String(input.event.properties?.sessionID ?? '').trim();
+    if (!sessionID) return { handled: false, resumed: false };
+    const runtime = markAutoflowStopRequested(input.projectDir, {
+      sessionID,
+      source: parseStopIntentSource(
+        input.event.properties?.stopIntent?.source ?? input.event.properties?.source,
+      ),
+      token: String(input.event.properties?.stopIntent?.token ?? '').trim() || undefined,
+    });
+    if (runtime.userStopped) {
+      stopAutoflowSession(input.projectDir, sessionID);
+    }
+    return {
+      handled: true,
+      resumed: false,
+      reason: runtime.userStopped ? 'user_stop_requested' : 'system_stop_requested',
+      phase: 'stopped',
+      summary: runtime.userStopped ? 'autoflow_stop_requested_by_user' : 'autoflow_stop_requested',
+    };
+  }
+
+  if (input.event.type === 'autoflow.stop.acked') {
+    const sessionID = String(input.event.properties?.sessionID ?? '').trim();
+    if (!sessionID) return { handled: false, resumed: false };
+    markAutoflowStopAcked(input.projectDir, {
+      sessionID,
+      token: String(input.event.properties?.stopIntent?.token ?? '').trim() || undefined,
+    });
+    stopAutoflowSession(input.projectDir, sessionID);
+    return {
+      handled: true,
+      resumed: false,
+      reason: 'user_stop_acked',
+      phase: 'stopped',
+      summary: 'autoflow_stopped_by_user_ack',
+    };
+  }
+
   if (input.event.type !== 'session.status') return { handled: false, resumed: false };
   const sessionID = String(input.event.properties?.sessionID ?? '').trim();
   if (!sessionID) return { handled: false, resumed: false };
@@ -247,16 +373,16 @@ export async function handleAutoflowPersistentEvent(input: {
   runtime.lastStopReason = reason;
   saveSessionRuntime(input.projectDir, runtime);
 
-  if (isUserInitiatedStop(reason)) {
+  if (hasUserStopIntent(runtime)) {
     runtime.userStopped = true;
     runtime.lastOutcomePhase = 'stopped';
-    runtime.lastOutcomeSummary = 'user_initiated_stop';
+    runtime.lastOutcomeSummary = 'user_initiated_stop_ticket';
     saveSessionRuntime(input.projectDir, runtime);
     stopAutoflowSession(input.projectDir, sessionID);
     return {
       handled: true,
       resumed: false,
-      reason: 'user_initiated_stop',
+      reason: 'user_initiated_stop_ticket',
       phase: 'stopped',
       summary: 'autoflow_stopped_by_user',
     };
@@ -317,4 +443,3 @@ export async function handleAutoflowPersistentEvent(input: {
     summary: result.summary,
   };
 }
-

@@ -56,6 +56,14 @@
   - `bun test --max-concurrency=1 src/channels/service.test.ts src/channels/policy.test.ts src/regression/suite.test.ts`：16/16 通过
   - `opencode debug config / skill / paths`：均可正常输出，插件加载路径指向 `file:///G:/pythonG/py/yun/.opencode/miya-src`
 
+### 2026-02-16 P0 止血重构（本轮推进）
+
+- 生命周期收口（第一阶段，已实装）：`miya-src/src/daemon/launcher.ts` 新增 `desired_state + lifecycle_state + run_epoch`，重连定时器按 epoch 约束执行；新增 `launcher.runtime.json` 持久化 `retry_halted/manual_stop_cooldown`，降低插件重载后的重拉起风暴。
+- 取消语义票据化（第一阶段，已实装）：`miya-src/src/autoflow/persistent.ts` 增加 `autoflow.stop.requested/acked` 事件处理与本地 stop intent 票据；`miya-src/src/tools/autoflow.ts` 的 `mode=stop` 改为先发 `requested` 再 `acked`，去除基于 reason 正则猜测用户取消。
+- 后台定时任务异常收口（第一阶段，已实装）：新增 `miya-src/src/utils/safe-interval.ts`，`miya-src/src/gateway/index.ts` 的 wizard/memory/pending/owner 周期任务统一切换为安全包装，默认异常计数 + 冷却，避免 unhandled rejection 外溢。
+- Wizard 会话目录并发容错（已实装）：`miya-src/src/companion/wizard.ts` 对 sessions 目录竞争删除场景做可恢复处理，避免 `readdirSync` 抛错击穿后台 worker。
+- 本轮验证（已执行）：`bun --cwd miya-src test --max-concurrency=1 src/autoflow/persistent.test.ts src/companion/wizard.test.ts src/utils/safe-interval.test.ts src/daemon/launcher.test.ts src/gateway/milestone-acceptance.test.ts` 通过。
+
 ### 1. 基础架构方向性修正与闭环
 
 1. **核心定位升级（强制）**  

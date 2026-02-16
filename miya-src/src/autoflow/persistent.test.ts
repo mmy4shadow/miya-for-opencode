@@ -99,6 +99,20 @@ describe('autoflow persistent resume', () => {
       phase: 'execution',
     });
 
+    const stopRequested = await handleAutoflowPersistentEvent({
+      projectDir,
+      manager: new FakeManager(),
+      event: {
+        type: 'autoflow.stop.requested',
+        properties: {
+          sessionID: 's-user',
+        },
+      },
+    });
+    expect(stopRequested.handled).toBe(true);
+    expect(stopRequested.resumed).toBe(false);
+    expect(stopRequested.reason).toBe('user_stop_requested');
+
     const result = await handleAutoflowPersistentEvent({
       projectDir,
       manager: new FakeManager(),
@@ -108,6 +122,42 @@ describe('autoflow persistent resume', () => {
           sessionID: 's-user',
           status: {
             type: 'stopped',
+            reason: 'transport_restart',
+          },
+        },
+      },
+    });
+
+    expect(result.handled).toBe(false);
+    expect(result.resumed).toBe(false);
+    expect(getAutoflowSession(projectDir, 's-user').phase).toBe('stopped');
+  });
+
+  test('does not infer user stop from free-text reason without stop ticket', async () => {
+    const projectDir = tempProjectDir();
+    configureAutoflowSession(projectDir, {
+      sessionID: 's-text',
+      goal: 'ship',
+      tasks: [
+        {
+          id: 'scan',
+          agent: '2-code-search',
+          prompt: 'scan',
+          description: 'scan',
+        },
+      ],
+      phase: 'planning',
+    });
+
+    const result = await handleAutoflowPersistentEvent({
+      projectDir,
+      manager: new FakeManager(),
+      event: {
+        type: 'session.status',
+        properties: {
+          sessionID: 's-text',
+          status: {
+            type: 'stopped',
             reason: 'user_cancelled',
           },
         },
@@ -115,9 +165,9 @@ describe('autoflow persistent resume', () => {
     });
 
     expect(result.handled).toBe(true);
-    expect(result.resumed).toBe(false);
-    expect(result.phase).toBe('stopped');
-    expect(getAutoflowSession(projectDir, 's-user').phase).toBe('stopped');
+    expect(result.resumed).toBe(true);
+    expect(result.success).toBe(true);
+    expect(getAutoflowSession(projectDir, 's-text').phase).toBe('completed');
   });
 
   test('respects persistent enabled switch', async () => {
@@ -203,4 +253,3 @@ describe('autoflow persistent resume', () => {
     expect(runtime?.resumeFailures).toBeGreaterThanOrEqual(1);
   });
 });
-

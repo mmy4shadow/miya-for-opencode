@@ -1,9 +1,12 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import type { BackgroundTaskManager } from '../background';
 import {
+  clearAutoflowStopIntent,
   configureAutoflowSession,
   getAutoflowSession,
   getAutoflowPersistentRuntimeSnapshot,
+  markAutoflowStopAcked,
+  markAutoflowStopRequested,
   readAutoflowPersistentConfig,
   runAutoflow,
   stopAutoflowSession,
@@ -140,6 +143,14 @@ export function createAutoflowTools(
 
       if (mode === 'stop') {
         clearPlanBundleBinding(projectDir, sessionID);
+        const stopTicket = markAutoflowStopRequested(projectDir, {
+          sessionID,
+          source: 'user',
+        });
+        markAutoflowStopAcked(projectDir, {
+          sessionID,
+          token: stopTicket.stopIntentToken,
+        });
         const state = stopAutoflowSession(projectDir, sessionID);
         return [...formatStateSummary(state), 'autoflow=stopped'].join('\n');
       }
@@ -176,6 +187,7 @@ export function createAutoflowTools(
       }
 
       if (mode === 'start') {
+        clearAutoflowStopIntent(projectDir, sessionID);
         const existingBinding = readPlanBundleBinding(projectDir, sessionID);
         const planBundleID =
           (typeof args.plan_bundle_id === 'string' && args.plan_bundle_id.trim()) ||
@@ -272,6 +284,7 @@ export function createAutoflowTools(
         bundleId: planBundleID,
         status: 'running',
       });
+      clearAutoflowStopIntent(projectDir, sessionID);
       const result = await runAutoflow({
         projectDir,
         sessionID,

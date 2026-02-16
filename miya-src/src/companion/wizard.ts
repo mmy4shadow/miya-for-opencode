@@ -256,10 +256,15 @@ function moveCurrentToHistory(projectDir: string, sessionId: string): void {
 function listSessionDirs(projectDir: string): string[] {
   const root = path.join(profilesRoot(projectDir), 'sessions');
   if (!fs.existsSync(root)) return [];
-  return fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name);
+  try {
+    return fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    // The sessions folder may be removed between exists-check and readdir under concurrent cleanup.
+    return [];
+  }
 }
 
 function sessionHasWizardFile(projectDir: string, sessionDirName: string): boolean {

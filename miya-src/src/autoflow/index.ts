@@ -9,8 +9,11 @@ export {
 } from './state';
 export { runAutoflow } from './engine';
 export {
+  clearAutoflowStopIntent,
   getAutoflowPersistentRuntimeSnapshot,
   handleAutoflowPersistentEvent,
+  markAutoflowStopAcked,
+  markAutoflowStopRequested,
   readAutoflowPersistentConfig,
   writeAutoflowPersistentConfig,
   type AutoflowPersistentConfig,

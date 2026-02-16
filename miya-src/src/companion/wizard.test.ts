@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -7,6 +7,7 @@ import { detectMultimodalIntent } from '../multimodal/intent';
 import {
   cancelCompanionWizardTraining,
   isCompanionWizardEmpty,
+  listCompanionWizardSessions,
   markTrainingJobFinished,
   markTrainingJobRunning,
   requeueTrainingJob,
@@ -194,4 +195,24 @@ describe('companion wizard', () => {
     });
     expect(failedVoice.state).toBe('training_voice');
   }, 15_000);
+
+  test('recovers when sessions directory disappears during listing', () => {
+    const projectDir = tempProjectDir();
+    startCompanionWizard(projectDir, { sessionId: 'race_case', forceReset: true });
+    const original = fs.readdirSync;
+    const sessionsPathToken = path.join('profiles', 'companion', 'sessions');
+    const spy = spyOn(fs, 'readdirSync').mockImplementation(((targetPath: fs.PathLike, options?: unknown) => {
+      if (String(targetPath).includes(sessionsPathToken)) {
+        const err = new Error('ENOENT: no such file or directory');
+        (err as NodeJS.ErrnoException).code = 'ENOENT';
+        throw err;
+      }
+      return (original as any)(targetPath, options);
+    }) as any);
+    try {
+      expect(listCompanionWizardSessions(projectDir)).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

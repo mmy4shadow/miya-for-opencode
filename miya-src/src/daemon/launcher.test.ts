@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { getMiyaRuntimeDir } from '../workflow';
 import { getLauncherBackpressureStats, getLauncherDaemonSnapshot } from './launcher';
+import { ensureMiyaLauncher, stopMiyaLauncher } from './launcher';
+
+function tempProjectDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-launcher-test-'));
+}
 
 describe('daemon launcher snapshot', () => {
   test('returns empty snapshot when launcher is not started', () => {
@@ -17,5 +26,41 @@ describe('daemon launcher snapshot', () => {
     expect(stats.pendingRequests).toBe(0);
     expect(stats.rejectedRequests).toBe(0);
     expect(stats.maxPendingRequests).toBeGreaterThanOrEqual(4);
+  });
+
+  test('persists manual stop cooldown and blocks immediate relaunch', () => {
+    const projectDir = tempProjectDir();
+    stopMiyaLauncher(projectDir);
+    const snapshot = ensureMiyaLauncher(projectDir);
+    expect(snapshot.desiredState).toBe('stopped');
+    expect(snapshot.lifecycleState).toBe('STOPPED');
+    expect(typeof snapshot.manualStopUntil).toBe('string');
+    stopMiyaLauncher(projectDir);
+  });
+
+  test('loads persisted retry halt state from launcher runtime store', () => {
+    const projectDir = tempProjectDir();
+    const daemonDir = path.join(getMiyaRuntimeDir(projectDir), 'daemon');
+    fs.mkdirSync(daemonDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(daemonDir, 'launcher.runtime.json'),
+      `${JSON.stringify(
+        {
+          runEpoch: 9,
+          retryHalted: true,
+          retryHaltedUntilMs: Date.now() + 60_000,
+          consecutiveLaunchFailures: 8,
+          manualStopUntilMs: 0,
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+    const snapshot = ensureMiyaLauncher(projectDir);
+    expect(snapshot.runEpoch).toBeGreaterThanOrEqual(9);
+    expect(snapshot.retryHalted).toBe(true);
+    expect(snapshot.lifecycleState).toBe('BACKOFF');
+    stopMiyaLauncher(projectDir);
   });
 });

@@ -5,6 +5,7 @@ interface PersistentAutoflowEventInput {
   type?: string;
   properties?: {
     sessionID?: string;
+    stopIntent?: { token?: string; source?: string };
     status?: { type?: string; reason?: string; source?: string };
     reason?: string;
     source?: string;
@@ -25,4 +26,3 @@ export function createPersistentAutoflowHook(
     },
   };
 }
-
