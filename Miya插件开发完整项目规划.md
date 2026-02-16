@@ -2241,16 +2241,14 @@ miya-src/src/daemon/psyche/
 
 #### **6.5.5 桌控 Vision-Action Bridge 升级快照（2026-02-16，新增）**
 
-- 当前状态：**进行中（L2/L3 首版联调已收口）**  
+- 当前状态：**已完成（2026-02-16）**  
   - 已落地：`intent + screen_state -> action_plan(JSON)` 结构化桥接（`miya-src/src/channel/outbound/vision-action-bridge.ts`），并在桌控执行主链路接入（`miya-src/src/channel/outbound/shared.ts`）。  
   - 已落地：感知路由四级决策骨架（`L0_ACTION_MEMORY -> L1_UIA -> L2_OCR -> L3_SOM_VLM`），L0 复用命中后可直接回放策略。  
   - 已落地：SoM 编号候选与两段定位执行桥（10x10 粗网格 + ROI 精定位 + UIA/pixel 回执），并在 L3 路径启用保守失败降级（候选未解析即中止）。  
   - 已落地：执行层拟人化输入首版（`SendInput` 键鼠注入 + 贝塞尔轨迹 + 微抖动/时间噪声）且保持 Human-Mutex。  
-  - 已落地：动作记忆与 KPI 计量（VLM 调用占比、SoM 命中率、首/复用时延 P95、高风险误发率）落盘。  
+  - 已落地：动作记忆与 KPI 计量（VLM 调用占比、SoM 命中率、首/复用时延 P95、高风险误发率）落盘，并补齐阈值达标判定（<20% / >95% / <1.5s / 0 误发）。  
   - 已落地：GGUF 后端兼容层补强（`MIYA_QWEN3VL_CMD` / `MIYA_VISION_LOCAL_CMD` 统一结构化 I/O 接入，见 `miya-src/src/multimodal/vision.ts`、`miya-src/src/daemon/psyche/probe-worker/vlm.ts`）。  
-
-- 未完成项（保持 `进行中`，避免虚报）：  
-  - “教学录制 -> 可回放技能自动沉淀”已完成动作记忆首版，但尚未形成独立教学录制 UI 与跨软件模板管理界面。  
+  - 已落地：双脑收口（快脑=动作记忆回放；慢脑=新任务规划），且慢脑成功样本自动沉淀为可回放 skill（`desktop-replay-skills.json`）。  
 
 ---
 
@@ -2260,7 +2258,7 @@ miya-src/src/daemon/psyche/
 |----------|------|--------|------------|----------|----------|
 | 节点管理系统增强（治理/可视化） | 已完成（首版） | P1 | 1-2周 | Gateway | 主路径已完成，治理联锁转入持续监控（`miya-src/src/nodes/*`, `miya-src/src/tools/nodes.ts`） |
 | Ralph Loop 持续优化（稳定性/可观测） | 持续监控 | P1 | 1-2周 | Task Manager + 验证分层 | 主闭环已完成，后续做指标化和回归稳定（`miya-src/src/ralph/*`, `miya-src/src/tools/ralph.ts`） |
-| QQ/微信桌面外发主链路（含证据包） | 持续监控（VAB 首版联调收口） | P0 | 2-3周 | desktop_control + outbound_send + Arch Advisor | 已落地结构化 action_plan 协议、L0-L3 路由骨架、SendInput 拟人化执行与 KPI 计量，L2 OCR 与 L3 SoM+VLM 编号选择已接入；剩余教学录制 UI 与跨软件模板治理（`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/channel/outbound/vision-action-bridge.ts`） |
+| QQ/微信桌面外发主链路（含证据包） | 持续监控（VAB 协议层完成） | P0 | 2-3周 | desktop_control + outbound_send + Arch Advisor | 已落地结构化 action_plan 协议、L0-L3 路由骨架、SendInput 拟人化执行、L2 OCR 与 L3 SoM+VLM 编号选择、双脑沉淀与 KPI 阈值判定（`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/channel/outbound/vision-action-bridge.ts`） |
 | Autopilot模式增强 | 已完成（首版） | P1 | 1周 | Task Manager | Autopilot 执行/统计/回退主链路已落地（`miya-src/src/autopilot/*`, `miya-src/src/tools/autopilot.ts`） |
 | 自主工作流状态机（Autoflow：执行→验证→修复闭环） | 已完成（首版） | P0 | 1周 | Ultrawork DAG + verification/fix command | 执行→验证→修复闭环已实现（`miya-src/src/autoflow/*`, `miya-src/src/tools/autoflow.ts`） |
 | 持久执行接管 stop 事件（Persistent Autoflow Hook） | 已完成（首版） | P1 | 1周 | `session.status` 事件流 + Autoflow 状态机 | Hook + 状态机接管链路已实现（`miya-src/src/hooks/persistent-autoflow/index.ts`, `miya-src/src/autoflow/persistent.ts`） |
@@ -2363,7 +2361,7 @@ miya-src/src/daemon/psyche/
 - 目标 3（已完成，2026-02-16）：Evidence Pack V5 富媒体预览与桌控 Simulation 首版闭环已落地（含控制台预览与证据图片 API）。
 - 目标 4（已完成，2026-02-16）：Capture Capability Tree 已完成 `WGC helper + PrintWindow + DXGI(helper->ffmpeg)` 采集链，保留 `confidence/limitations` 升档与结构化降级。
 - 目标 5（已完成，2026-02-16）：P0/P1 显存调度已完成 Hydraulics 首版（hotset/warm pool/offload + 回载事件 + 快照观测），保持训练可抢占、可重排队。
-- 目标 6（进行中，2026-02-16 启动）：桌控 Vision-Action Bridge 协议升级已落地首版并完成 L2/L3 首轮联调（intent+screen_state/action_plan、L0-L3 路由、L2 OCR 定位、L3 SoM+VLM 编号选择、SendInput 执行与 KPI 计量）；剩余教学录制与可回放技能管理界面。
+- 目标 6（已完成，2026-02-16）：桌控 Vision-Action Bridge 协议升级完成收口（intent+screen_state/action_plan、L0-L3 路由、L2 OCR 定位、L3 SoM+VLM 编号选择、SendInput 执行、双脑沉淀、KPI 阈值判定）。
 - 量化验收 KPI（冻结）：
   - 审批阻断率：较 M5 基线下降 >= 30%（高风险动作除外）。
   - 高风险误放行率：`0`（以审计回放与复盘为准）。

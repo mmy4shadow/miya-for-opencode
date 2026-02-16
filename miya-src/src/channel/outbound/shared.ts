@@ -5,6 +5,7 @@ import {
   buildDesktopActionPlan,
   readDesktopAutomationKpi,
   recordDesktopActionOutcome,
+  type DesktopAutomationAcceptanceSnapshot,
   type AutomationRisk,
   type DesktopActionPlan,
   type DesktopPerceptionRoute,
@@ -47,6 +48,7 @@ export interface DesktopOutboundResult {
     highRiskMisfireRate: number;
     reuseRuns: number;
     firstRuns: number;
+    acceptance?: DesktopAutomationAcceptanceSnapshot;
   };
 }
 

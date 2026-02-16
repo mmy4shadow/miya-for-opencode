@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildDesktopActionPlan,
+  listDesktopReplaySkills,
   readDesktopAutomationKpi,
   recordDesktopActionOutcome,
   type DesktopAutomationIntent,
@@ -62,6 +63,8 @@ describe('vision-action-bridge', () => {
     });
     expect(first.action_plan.routeLevel).toBe('L1_UIA');
     expect(first.action_plan.memoryHit).toBe(false);
+    expect(first.action_plan.brains.fastBrain.active).toBe(false);
+    expect(first.action_plan.brains.slowBrain.active).toBe(true);
 
     recordDesktopActionOutcome(projectDir, {
       intent: first.intent,
@@ -80,6 +83,8 @@ describe('vision-action-bridge', () => {
     });
     expect(second.action_plan.routeLevel).toBe('L0_ACTION_MEMORY');
     expect(second.action_plan.memoryHit).toBe(true);
+    expect(second.action_plan.brains.fastBrain.active).toBe(true);
+    expect(second.action_plan.brains.slowBrain.active).toBe(false);
   });
 
   test('falls back to L2 then L3 when higher levels are unavailable', () => {
@@ -203,6 +208,7 @@ process.stdout.write(JSON.stringify({ candidateId, confidence: 0.88 }));`,
     expect(kpi.vlmCallRatio).toBe(0.5);
     expect(kpi.somPathHitRate).toBe(1);
     expect(kpi.highRiskMisfireRate).toBe(0);
+    expect(kpi.acceptance?.checks.highRiskMisfireRate).toBe(true);
   });
 
   test('counts both L2 and L3 runs in SoM hit-rate KPI', () => {
@@ -279,5 +285,83 @@ process.stdout.write(JSON.stringify({ candidateId, confidence: 0.88 }));`,
     const kpi = readDesktopAutomationKpi(projectDir);
     expect(kpi.totalRuns).toBe(2);
     expect(kpi.somPathHitRate).toBe(0.5);
+  });
+
+  test('promotes successful slow-brain task to replay skill store', () => {
+    const projectDir = makeProjectDir();
+    const plan = buildDesktopActionPlan({
+      projectDir,
+      intent: {
+        ...baseIntent,
+        destination: 'ProjectGroup-42',
+      },
+      screenState: {
+        ...baseScreen,
+        uiaAvailable: false,
+        ocrAvailable: true,
+        ocrBoxes: [
+          {
+            x: 1624,
+            y: 972,
+            width: 138,
+            height: 58,
+            text: '发送到 ProjectGroup-42',
+            confidence: 0.92,
+          },
+        ],
+      },
+    });
+    expect(plan.action_plan.memoryHit).toBe(false);
+    expect(plan.action_plan.brains.slowBrain.promoteReplaySkillOnSuccess).toBe(true);
+    recordDesktopActionOutcome(projectDir, {
+      intent: plan.intent,
+      screenState: plan.screen_state,
+      actionPlan: plan,
+      sent: true,
+      latencyMs: 980,
+      vlmCallsUsed: 0,
+      somSucceeded: true,
+      highRiskMisfire: false,
+    });
+    const replaySkills = listDesktopReplaySkills(projectDir, 10);
+    expect(replaySkills.length).toBeGreaterThan(0);
+    expect(replaySkills[0]?.id).toBe(plan.action_plan.replaySkillId);
+    expect(replaySkills[0]?.successCount).toBe(1);
+  });
+
+  test('evaluates acceptance thresholds with sample-aware checks', () => {
+    const projectDir = makeProjectDir();
+    setEnv('MIYA_DESKTOP_KPI_MAX_VLM_RATIO', '0.2');
+    setEnv('MIYA_DESKTOP_KPI_MIN_SOM_HIT_RATE', '0.95');
+    setEnv('MIYA_DESKTOP_KPI_MAX_REUSE_P95_MS', '1500');
+    setEnv('MIYA_DESKTOP_KPI_MAX_HIGH_RISK_MISFIRE_RATE', '0');
+
+    const l3 = buildDesktopActionPlan({
+      projectDir,
+      intent: {
+        ...baseIntent,
+        destination: 'KPI-L3',
+      },
+      screenState: {
+        ...baseScreen,
+        uiaAvailable: false,
+        ocrAvailable: false,
+      },
+    });
+    recordDesktopActionOutcome(projectDir, {
+      intent: l3.intent,
+      screenState: l3.screen_state,
+      actionPlan: l3,
+      sent: false,
+      latencyMs: 1900,
+      vlmCallsUsed: 2,
+      somSucceeded: false,
+      highRiskMisfire: false,
+    });
+
+    const kpi = readDesktopAutomationKpi(projectDir);
+    expect(kpi.acceptance?.pass).toBe(false);
+    expect(kpi.acceptance?.checks.vlmCallRatio).toBe(false);
+    expect(kpi.acceptance?.checks.somPathHitRate).toBe(false);
   });
 });

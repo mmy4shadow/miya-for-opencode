@@ -128,6 +128,68 @@ def _infer_screen_probe_tags(text: str) -> list[str]:
     return tags[:8]
 
 
+def _norm_text(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _select_som_candidate(payload: dict[str, Any]) -> dict[str, Any]:
+    candidates_raw = payload.get("candidates")
+    candidates = candidates_raw if isinstance(candidates_raw, list) else []
+    if not candidates:
+        raise RuntimeError("som_candidates_missing")
+    intent = payload.get("intent")
+    intent_map = intent if isinstance(intent, dict) else {}
+    destination = _norm_text(intent_map.get("destination"))
+    send_hints = ("send", "发送", "sent", "deliver", "提交", "确认")
+    screen_state = payload.get("screen_state")
+    screen_map = screen_state if isinstance(screen_state, dict) else {}
+    display = screen_map.get("display")
+    display_map = display if isinstance(display, dict) else {}
+    display_width = max(1.0, _to_float(display_map.get("width"), 1.0))
+    display_height = max(1.0, _to_float(display_map.get("height"), 1.0))
+
+    scored: list[tuple[float, int]] = []
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        candidate_id = int(_to_float(item.get("id"), -1))
+        if candidate_id <= 0:
+            continue
+        label = _norm_text(item.get("label"))
+        score = 0.0
+        if destination and destination in label:
+            score += 2.4
+        if any(hint in label for hint in send_hints):
+            score += 1.6
+        confidence = _to_float(item.get("confidence"), 0.0)
+        if confidence > 0:
+            score += min(1.0, max(0.0, confidence)) * 0.45
+        center = item.get("center")
+        center_map = center if isinstance(center, dict) else {}
+        score += min(1.0, max(0.0, _to_float(center_map.get("x")) / display_width)) * 0.22
+        score += min(1.0, max(0.0, _to_float(center_map.get("y")) / display_height)) * 0.42
+        score += max(0.0, 0.08 - candidate_id * 0.0002)
+        scored.append((score, candidate_id))
+
+    if not scored:
+        raise RuntimeError("som_candidates_invalid")
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    top_score, top_id = scored[0]
+    bounded_conf = min(0.98, max(0.35, 0.45 + top_score * 0.12))
+    return {
+        "candidateId": int(top_id),
+        "confidence": round(bounded_conf, 3),
+        "source": "local_heuristic",
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Miya Qwen3VL local inference wrapper")
     parser.add_argument(
@@ -149,7 +211,6 @@ def main() -> int:
     question = str(payload.get("question") or args.question or "").strip()
 
     try:
-        image_bytes = _load_image_bytes(payload)
         if args.backend_cmd:
             backend_payload = {
                 **payload,
@@ -160,6 +221,13 @@ def main() -> int:
             result = _run_backend_command(args.backend_cmd, backend_payload, args.timeout_ms)
             print(json.dumps(result, ensure_ascii=False), flush=True)
             return 0
+
+        if mode == "som_candidate_select":
+            result = _select_som_candidate(payload)
+            print(json.dumps(result, ensure_ascii=False), flush=True)
+            return 0
+
+        image_bytes = _load_image_bytes(payload)
 
         text = _run_transformers_inference(
             str(args.model_dir),

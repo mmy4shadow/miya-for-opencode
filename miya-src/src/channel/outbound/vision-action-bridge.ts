@@ -102,6 +102,19 @@ const desktopActionPlanSchema = z.object({
       vlmCallsPlanned: z.number().int().min(0).max(2),
       candidates: z.array(somCandidateSchema).max(120),
     }),
+    brains: z.object({
+      fastBrain: z.object({
+        role: z.literal('FAST_ACTION_MEMORY_REPLAY'),
+        active: z.boolean(),
+        replaySkillId: z.string().trim().max(120).optional(),
+      }),
+      slowBrain: z.object({
+        role: z.literal('SLOW_TASK_PLANNER'),
+        active: z.boolean(),
+        planningRoute: z.enum(['L1_UIA', 'L2_OCR', 'L3_SOM_VLM']).optional(),
+        promoteReplaySkillOnSuccess: z.literal(true),
+      }),
+    }),
     steps: z.array(actionPlanStepSchema).min(3).max(12),
   }),
 });
@@ -149,6 +162,28 @@ interface DesktopAutomationMetricsStore {
   firstLatencyMs: number[];
 }
 
+export interface DesktopReplaySkillRecord {
+  id: string;
+  key: string;
+  channel: DesktopAutomationIntent['channel'];
+  appName: DesktopAutomationIntent['appName'];
+  destination: string;
+  routeLevel: DesktopPerceptionRoute;
+  stepKinds: Array<z.infer<typeof actionPlanStepSchema>['kind']>;
+  verifyPolicy: string[];
+  somCandidateId?: number;
+  windowFingerprint?: string;
+  successCount: number;
+  avgLatencyMs: number;
+  createdAt: string;
+  updatedAt: string;
+  lastSuccessAt?: string;
+}
+
+interface DesktopReplaySkillStore {
+  records: DesktopReplaySkillRecord[];
+}
+
 export interface DesktopActionOutcomeInput {
   intent: DesktopAutomationIntent;
   screenState: DesktopScreenState;
@@ -170,6 +205,29 @@ export interface DesktopAutomationKpiSnapshot {
   highRiskMisfireRate: number;
   reuseRuns: number;
   firstRuns: number;
+  acceptance?: DesktopAutomationAcceptanceSnapshot;
+}
+
+export interface DesktopAutomationAcceptanceSnapshot {
+  pass: boolean;
+  thresholds: {
+    maxVlmCallRatio: number;
+    minSomPathHitRate: number;
+    maxReuseTaskP95Ms: number;
+    maxHighRiskMisfireRate: number;
+  };
+  checks: {
+    vlmCallRatio: boolean;
+    somPathHitRate: boolean;
+    reuseTaskP95Ms: boolean;
+    highRiskMisfireRate: boolean;
+  };
+  sample: {
+    totalRuns: number;
+    somRuns: number;
+    reuseRuns: number;
+    highRiskRuns: number;
+  };
 }
 
 function nowIso(): string {
@@ -195,6 +253,10 @@ function actionMemoryFile(projectDir: string): string {
 
 function metricsFile(projectDir: string): string {
   return path.join(runtimeDir(projectDir), 'desktop-automation-metrics.json');
+}
+
+function replaySkillFile(projectDir: string): string {
+  return path.join(runtimeDir(projectDir), 'desktop-replay-skills.json');
 }
 
 function readJsonFile<T>(file: string, fallback: T): T {
@@ -266,6 +328,116 @@ function readActionMemory(projectDir: string): ActionMemoryStore {
 
 function writeActionMemory(projectDir: string, store: ActionMemoryStore): void {
   writeJsonFile(actionMemoryFile(projectDir), normalizeMemoryStore(store));
+}
+
+function normalizeReplaySkillStore(raw: DesktopReplaySkillStore): DesktopReplaySkillStore {
+  if (!raw || !Array.isArray(raw.records)) return { records: [] };
+  const normalized = raw.records
+    .filter((row) => row && typeof row === 'object')
+    .map((row) => {
+      const stepKinds = Array.isArray(row.stepKinds)
+        ? row.stepKinds
+            .map((item) => String(item ?? '').trim())
+            .filter(Boolean)
+            .filter((item): item is z.infer<typeof actionPlanStepSchema>['kind'] =>
+              actionPlanStepSchema.shape.kind.options.includes(
+                item as z.infer<typeof actionPlanStepSchema>['kind'],
+              ),
+            )
+        : [];
+      const verifyPolicy = Array.isArray(row.verifyPolicy)
+        ? [...new Set(row.verifyPolicy.map((item) => String(item ?? '').trim()).filter(Boolean))]
+        : [];
+      return {
+        id: String(row.id ?? randomUUID()),
+        key: String(row.key ?? ''),
+        channel: (row.channel === 'wechat' ? 'wechat' : 'qq') as DesktopReplaySkillRecord['channel'],
+        appName: (row.appName === 'WeChat' ? 'WeChat' : 'QQ') as DesktopReplaySkillRecord['appName'],
+        destination: normalizeDestination(String(row.destination ?? '')),
+        routeLevel: normalizeRoute(row.routeLevel),
+        stepKinds,
+        verifyPolicy,
+        somCandidateId:
+          typeof row.somCandidateId === 'number' && Number.isFinite(row.somCandidateId)
+            ? Math.floor(row.somCandidateId)
+            : undefined,
+        windowFingerprint: row.windowFingerprint ? String(row.windowFingerprint) : undefined,
+        successCount: Math.max(0, Math.floor(Number(row.successCount ?? 0) || 0)),
+        avgLatencyMs: clamp(Number(row.avgLatencyMs ?? 0), 0, 60_000),
+        createdAt: String(row.createdAt ?? nowIso()),
+        updatedAt: String(row.updatedAt ?? nowIso()),
+        lastSuccessAt: row.lastSuccessAt ? String(row.lastSuccessAt) : undefined,
+      } satisfies DesktopReplaySkillRecord;
+    })
+    .filter((row) => row.key.length > 0)
+    .slice(0, 1_000);
+  return {
+    records: normalized.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+  };
+}
+
+function readReplaySkills(projectDir: string): DesktopReplaySkillStore {
+  const store = readJsonFile<DesktopReplaySkillStore>(replaySkillFile(projectDir), { records: [] });
+  const normalized = normalizeReplaySkillStore(store);
+  writeJsonFile(replaySkillFile(projectDir), normalized);
+  return normalized;
+}
+
+function writeReplaySkills(projectDir: string, store: DesktopReplaySkillStore): void {
+  writeJsonFile(replaySkillFile(projectDir), normalizeReplaySkillStore(store));
+}
+
+function promoteSlowBrainReplaySkill(projectDir: string, input: {
+  intent: DesktopAutomationIntent;
+  screenState: DesktopScreenState;
+  actionPlan: DesktopActionPlan;
+  latencyMs: number;
+  sent: boolean;
+}): void {
+  if (!input.sent) return;
+  if (input.actionPlan.action_plan.memoryHit) return;
+  const replaySkillId = String(input.actionPlan.action_plan.replaySkillId ?? '').trim();
+  if (!replaySkillId) return;
+  const key = buildMemoryKey(input.intent);
+  const routeLevel = input.actionPlan.action_plan.routeLevel;
+  const steps = input.actionPlan.action_plan.steps;
+  const stepKinds = steps.map((step) => step.kind);
+  const verifyPolicy = [...new Set(steps.flatMap((step) => step.verify))];
+  const now = nowIso();
+
+  const store = readReplaySkills(projectDir);
+  const index = store.records.findIndex((row) => row.id === replaySkillId || row.key === key);
+  const existing = index >= 0 ? store.records[index] : undefined;
+  const previousRuns = existing?.successCount ?? 0;
+  const avgLatencyMs =
+    previousRuns <= 0
+      ? input.latencyMs
+      : Number((((existing?.avgLatencyMs ?? input.latencyMs) * previousRuns + input.latencyMs) / (previousRuns + 1)).toFixed(2));
+  const next: DesktopReplaySkillRecord = {
+    id: existing?.id ?? replaySkillId,
+    key,
+    channel: input.intent.channel,
+    appName: input.intent.appName,
+    destination: normalizeDestination(input.intent.destination),
+    routeLevel,
+    stepKinds,
+    verifyPolicy,
+    somCandidateId: input.actionPlan.action_plan.som.selectedCandidateId ?? existing?.somCandidateId,
+    windowFingerprint: input.screenState.windowFingerprint ?? existing?.windowFingerprint,
+    successCount: previousRuns + 1,
+    avgLatencyMs,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    lastSuccessAt: now,
+  };
+  if (index >= 0) store.records[index] = next;
+  else store.records.unshift(next);
+  writeReplaySkills(projectDir, store);
+}
+
+export function listDesktopReplaySkills(projectDir: string, limit = 100): DesktopReplaySkillRecord[] {
+  const normalizedLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 100)));
+  return readReplaySkills(projectDir).records.slice(0, normalizedLimit);
 }
 
 function memoryExpiryMs(): number {
@@ -665,6 +837,8 @@ export function buildDesktopActionPlan(input: {
     `desktop_replay_${intent.channel}_${createHash('sha1').update(memoryKey).digest('hex').slice(0, 8)}`;
   const somCandidatesForPlan =
     routeLevel === 'L2_OCR' || routeLevel === 'L3_SOM_VLM' ? somCandidates : [];
+  const fastBrainActive = routeLevel === 'L0_ACTION_MEMORY' && Boolean(matchedMemory);
+  const slowBrainRoute = routeLevel === 'L0_ACTION_MEMORY' ? undefined : routeLevel;
 
   return desktopActionPlanSchema.parse({
     protocol: 'vision_action_bridge.v1',
@@ -688,6 +862,19 @@ export function buildDesktopActionPlan(input: {
         vlmCallsBudget,
         vlmCallsPlanned,
         candidates: somCandidatesForPlan,
+      },
+      brains: {
+        fastBrain: {
+          role: 'FAST_ACTION_MEMORY_REPLAY',
+          active: fastBrainActive,
+          replaySkillId,
+        },
+        slowBrain: {
+          role: 'SLOW_TASK_PLANNER',
+          active: !fastBrainActive,
+          planningRoute: slowBrainRoute,
+          promoteReplaySkillOnSuccess: true,
+        },
       },
       steps: buildSteps(routeLevel, intent),
     },
@@ -758,6 +945,52 @@ function p95(rows: number[]): number {
   return sorted[index] ?? 0;
 }
 
+function readAcceptanceThresholds() {
+  const maxVlmCallRatio = clamp(Number(process.env.MIYA_DESKTOP_KPI_MAX_VLM_RATIO ?? 0.2), 0, 1);
+  const minSomPathHitRate = clamp(Number(process.env.MIYA_DESKTOP_KPI_MIN_SOM_HIT_RATE ?? 0.95), 0, 1);
+  const maxReuseTaskP95Ms = clamp(
+    Number(process.env.MIYA_DESKTOP_KPI_MAX_REUSE_P95_MS ?? 1_500),
+    200,
+    120_000,
+  );
+  const maxHighRiskMisfireRate = clamp(
+    Number(process.env.MIYA_DESKTOP_KPI_MAX_HIGH_RISK_MISFIRE_RATE ?? 0),
+    0,
+    1,
+  );
+  return {
+    maxVlmCallRatio: Number(maxVlmCallRatio.toFixed(4)),
+    minSomPathHitRate: Number(minSomPathHitRate.toFixed(4)),
+    maxReuseTaskP95Ms: Math.floor(maxReuseTaskP95Ms),
+    maxHighRiskMisfireRate: Number(maxHighRiskMisfireRate.toFixed(4)),
+  };
+}
+
+function evaluateDesktopAutomationAcceptance(
+  metrics: DesktopAutomationMetricsStore,
+  kpi: Omit<DesktopAutomationKpiSnapshot, 'acceptance'>,
+): DesktopAutomationAcceptanceSnapshot {
+  const thresholds = readAcceptanceThresholds();
+  const checks = {
+    vlmCallRatio: metrics.totalRuns === 0 ? true : kpi.vlmCallRatio <= thresholds.maxVlmCallRatio,
+    somPathHitRate: metrics.somRuns === 0 ? true : kpi.somPathHitRate >= thresholds.minSomPathHitRate,
+    reuseTaskP95Ms: metrics.reuseRuns === 0 ? true : kpi.reuseTaskP95Ms <= thresholds.maxReuseTaskP95Ms,
+    highRiskMisfireRate:
+      metrics.highRiskRuns === 0 ? true : kpi.highRiskMisfireRate <= thresholds.maxHighRiskMisfireRate,
+  };
+  return {
+    pass: checks.vlmCallRatio && checks.somPathHitRate && checks.reuseTaskP95Ms && checks.highRiskMisfireRate,
+    thresholds,
+    checks,
+    sample: {
+      totalRuns: metrics.totalRuns,
+      somRuns: metrics.somRuns,
+      reuseRuns: metrics.reuseRuns,
+      highRiskRuns: metrics.highRiskRuns,
+    },
+  };
+}
+
 export function recordDesktopActionOutcome(projectDir: string, input: DesktopActionOutcomeInput): void {
   const intent = desktopIntentSchema.parse(input.intent);
   const screenState = desktopScreenStateSchema.parse(input.screenState);
@@ -803,6 +1036,13 @@ export function recordDesktopActionOutcome(projectDir: string, input: DesktopAct
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
     .slice(0, 800);
   writeActionMemory(projectDir, memory);
+  promoteSlowBrainReplaySkill(projectDir, {
+    intent,
+    screenState,
+    actionPlan: plan,
+    latencyMs,
+    sent: input.sent,
+  });
 
   const metrics = readMetrics(projectDir);
   metrics.updatedAt = now;
@@ -830,10 +1070,10 @@ export function recordDesktopActionOutcome(projectDir: string, input: DesktopAct
 
 export function readDesktopAutomationKpi(projectDir: string): DesktopAutomationKpiSnapshot {
   const metrics = readMetrics(projectDir);
-  const totalRuns = Math.max(1, metrics.totalRuns);
-  const somRuns = Math.max(1, metrics.somRuns);
-  const highRiskRuns = Math.max(1, metrics.highRiskRuns);
-  return {
+  const totalRuns = metrics.totalRuns > 0 ? metrics.totalRuns : 1;
+  const somRuns = metrics.somRuns > 0 ? metrics.somRuns : 1;
+  const highRiskRuns = metrics.highRiskRuns > 0 ? metrics.highRiskRuns : 1;
+  const snapshot: Omit<DesktopAutomationKpiSnapshot, 'acceptance'> = {
     totalRuns: metrics.totalRuns,
     successfulRuns: metrics.successfulRuns,
     vlmCallRatio: Number((metrics.vlmCalls / totalRuns).toFixed(4)),
@@ -843,5 +1083,28 @@ export function readDesktopAutomationKpi(projectDir: string): DesktopAutomationK
     highRiskMisfireRate: Number((metrics.highRiskMisfireRuns / highRiskRuns).toFixed(4)),
     reuseRuns: metrics.reuseRuns,
     firstRuns: metrics.firstRuns,
+  };
+  return {
+    ...snapshot,
+    acceptance: evaluateDesktopAutomationAcceptance(metrics, snapshot),
+  };
+}
+
+export function readDesktopAutomationAcceptance(projectDir: string): DesktopAutomationAcceptanceSnapshot {
+  return readDesktopAutomationKpi(projectDir).acceptance ?? {
+    pass: true,
+    thresholds: readAcceptanceThresholds(),
+    checks: {
+      vlmCallRatio: true,
+      somPathHitRate: true,
+      reuseTaskP95Ms: true,
+      highRiskMisfireRate: true,
+    },
+    sample: {
+      totalRuns: 0,
+      somRuns: 0,
+      reuseRuns: 0,
+      highRiskRuns: 0,
+    },
   };
 }
