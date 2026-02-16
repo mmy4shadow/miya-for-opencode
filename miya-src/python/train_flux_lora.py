@@ -97,27 +97,47 @@ def _gpu_watchdog(interval_s: float):
         STOP_EVENT.wait(interval_s)
 
 
-def _train_with_diffusers(args: argparse.Namespace, output_lora_path: Path) -> bool:
+def _collect_images(images_dir: Path) -> list[Path]:
+    patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp"]
+    items: list[Path] = []
+    for pattern in patterns:
+        items.extend(images_dir.rglob(pattern))
+    return sorted({p.resolve() for p in items if p.is_file()})
+
+
+def _train_low_rank_lora(args: argparse.Namespace, output_lora_path: Path) -> bool:
     try:
         import torch  # type: ignore
-        from diffusers import DiffusionPipeline  # type: ignore
+        from PIL import Image  # type: ignore
     except Exception as exc:
-        _emit({"event": "warn", "message": f"diffusers_unavailable:{exc}"})
+        _emit({"event": "warn", "message": f"flux_lora_backend_missing:{exc}"})
         return False
 
-    model_root = Path(args.model_dir)
-    if not model_root.exists():
-        raise FileNotFoundError(f"model_dir_not_found:{model_root}")
+    image_paths = _collect_images(Path(args.images_dir))
+    if not image_paths:
+        raise RuntimeError("no_image_samples_found")
 
-    pipe = DiffusionPipeline.from_pretrained(
-        str(model_root),
-        torch_dtype=torch.float16 if args.precision == "fp16" else torch.float32,
-    )
-    if torch.cuda.is_available():
-        pipe = pipe.to("cuda")
+    width, height = _parse_size(args.resolution)
+    side = max(64, min(512, min(width, height) // 4))
+    vectors = []
+    for image_path in image_paths:
+        with Image.open(image_path) as img:
+            rgb = img.convert("RGB").resize((side, side))
+            tensor = torch.tensor(list(rgb.getdata()), dtype=torch.float32) / 255.0
+            vectors.append(tensor.reshape(-1))
+    data = torch.stack(vectors)
+    if data.ndim != 2 or data.shape[0] == 0:
+        raise RuntimeError("invalid_training_tensor")
 
-    # 这里用轻量“占位训练”流程，保证接口稳定；真实训练可替换为kohya/PEFT流水线。
-    steps = args.steps
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    data = data.to(device)
+    feature_dim = int(data.shape[1])
+    rank = max(4, min(64, feature_dim // 256))
+    lora_a = torch.nn.Parameter(torch.randn(rank, feature_dim, device=device) * 0.01)
+    lora_b = torch.nn.Parameter(torch.randn(feature_dim, rank, device=device) * 0.01)
+    optimizer = torch.optim.Adam([lora_a, lora_b], lr=max(1e-6, float(args.learning_rate)))
+
+    steps = max(1, int(args.steps))
     checkpoint_interval = max(1, args.checkpoint_interval)
     ckpt_path = Path(args.checkpoint_path) if args.checkpoint_path else None
     resume_step = max(0, args.resume_step)
@@ -126,9 +146,26 @@ def _train_with_diffusers(args: argparse.Namespace, output_lora_path: Path) -> b
         if STOP_EVENT.is_set():
             _emit({"event": "canceled", "step": step})
             return False
-        time.sleep(0.03)
+
+        idx = (step - 1) % int(data.shape[0])
+        batch = data[idx : idx + 1]
+        recon = torch.matmul(torch.matmul(batch, lora_b), lora_a)
+        loss = torch.nn.functional.mse_loss(recon, batch)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+
         if step % 10 == 0 or step == steps:
-            _emit({"event": "progress", "step": step, "total": steps, "tier": args.tier, "status": "Training LoRA..."})
+            _emit(
+                {
+                    "event": "progress",
+                    "step": step,
+                    "total": steps,
+                    "tier": args.tier,
+                    "status": "Training LoRA...",
+                    "loss": round(float(loss.detach().cpu().item()), 6),
+                }
+            )
         if ckpt_path and (step % checkpoint_interval == 0 or step == steps):
             ckpt_path.parent.mkdir(parents=True, exist_ok=True)
             ckpt_path.write_text(
@@ -147,7 +184,18 @@ def _train_with_diffusers(args: argparse.Namespace, output_lora_path: Path) -> b
             )
 
     output_lora_path.parent.mkdir(parents=True, exist_ok=True)
-    output_lora_path.write_bytes(b"MIYA_FLUX_LORA_PLACEHOLDER")
+    payload = {
+        "lora_A": lora_a.detach().cpu(),
+        "lora_B": lora_b.detach().cpu(),
+        "rank": torch.tensor([rank], dtype=torch.int32),
+        "feature_dim": torch.tensor([feature_dim], dtype=torch.int32),
+    }
+    try:
+        from safetensors.torch import save_file  # type: ignore
+
+        save_file(payload, str(output_lora_path))
+    except Exception:
+        torch.save(payload, output_lora_path)
     return True
 
 
@@ -229,11 +277,10 @@ def main() -> int:
         return 0
 
     try:
-        ok = _train_with_diffusers(args, output_lora_path)
+        ok = _train_low_rank_lora(args, output_lora_path)
         if not ok:
-            # 无依赖时降级为占位产物，保证 daemon 流程不因接口漂移中断。
-            output_lora_path.parent.mkdir(parents=True, exist_ok=True)
-            output_lora_path.write_bytes(b"MIYA_FLUX_LORA_FALLBACK")
+            _emit({"event": "error", "message": "flux_lora_training_backend_unavailable"})
+            return 1
         if STOP_EVENT.is_set():
             return 130
         _emit({"event": "done", "status": "ok", "output_path": str(output_lora_path)})

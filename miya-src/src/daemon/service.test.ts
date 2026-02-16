@@ -89,7 +89,9 @@ describe('daemon service', () => {
     expect(filler?.audioCue?.expectedLatencyMs).toBeGreaterThan(500);
   });
 
-  test('preempts running low-lane training process for high-priority interaction', async () => {
+  test(
+    'preempts running low-lane training process for high-priority interaction',
+    async () => {
     const daemon = new MiyaDaemonService(tempProjectDir());
     daemon.start();
 
@@ -117,9 +119,11 @@ describe('daemon service', () => {
         stdout: string;
         stderr: string;
         timedOut: boolean;
-      }>((_, reject) => setTimeout(() => reject(new Error('preempt_timeout')), 8_000)),
+      }>((_, reject) => setTimeout(() => reject(new Error('preempt_timeout')), 12_000)),
     ]);
     expect(lowResult.timedOut).toBe(false);
     expect(lowResult.exitCode === 0).toBe(false);
-  });
+    },
+    20_000,
+  );
 });

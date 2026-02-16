@@ -6,7 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 from typing import Any
-from path_layout import flux_klein_dir, flux_schnell_dir, sovits_dir
+from path_layout import flux_klein_dir, flux_schnell_dir, qwen3vl_dir, sovits_dir
 
 
 def _to_mb(v: int) -> float:
@@ -48,6 +48,12 @@ def _probe_paths() -> dict[str, Any]:
             str(sovits_dir()),
         )
     )
+    vision_path = Path(
+        os.getenv(
+            "MIYA_QWEN3VL_MODEL_DIR",
+            str(qwen3vl_dir()),
+        )
+    )
     return {
         "flux1_exists": flux_path.exists(),
         "flux1_path": str(flux_path),
@@ -55,6 +61,8 @@ def _probe_paths() -> dict[str, Any]:
         "flux2_path": str(flux2_path),
         "sovits_exists": sovits_path.exists(),
         "sovits_path": str(sovits_path),
+        "qwen3vl_exists": vision_path.exists(),
+        "qwen3vl_path": str(vision_path),
     }
 
 

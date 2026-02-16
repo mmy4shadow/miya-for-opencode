@@ -46,7 +46,11 @@ function ensureDir(dirPath: string): void {
 }
 
 export function getMiyaRuntimeDir(projectDir: string): string {
-  return path.join(projectDir, '.opencode', 'miya');
+  const normalized = path.resolve(projectDir);
+  if (path.basename(normalized).toLowerCase() === '.opencode') {
+    return path.join(normalized, 'miya');
+  }
+  return path.join(normalized, '.opencode', 'miya');
 }
 
 function getLoopStatePath(projectDir: string): string {

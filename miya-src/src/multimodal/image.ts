@@ -2,7 +2,6 @@ import { addCompanionAsset } from '../companion/store';
 import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
 import { getMiyaImageTempDir } from '../model/paths';
-import { readConfig } from '../settings';
 import { getMiyaRuntimeDir } from '../workflow';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -10,6 +9,7 @@ import type { GenerateImageInput, GenerateImageResult } from './types';
 
 const DEFAULT_IMAGE_MODEL = 'local:flux.1-schnell';
 const DEFAULT_IMAGE_SIZE = '1024x1024';
+const MULTIMODAL_TEST_MODE_ENV = 'MIYA_MULTIMODAL_TEST_MODE';
 const BLANK_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6sYz0AAAAASUVORK5CYII=';
 
@@ -39,12 +39,11 @@ function parseModelUpdateTarget(error: unknown): string | null {
   return normalized || null;
 }
 
-function useMultimodalTestMode(projectDir: string): boolean {
-  if (process.env.MIYA_MULTIMODAL_TEST_MODE === '1') return true;
-  const config = readConfig(projectDir);
-  const runtime = config.runtime as Record<string, unknown> | undefined;
-  const multimodal = runtime?.multimodal as Record<string, unknown> | undefined;
-  return multimodal?.test_mode === true;
+function useMultimodalTestMode(): boolean {
+  const raw = String(process.env[MULTIMODAL_TEST_MODE_ENV] ?? '')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
 export async function generateImage(
@@ -81,7 +80,7 @@ export async function generateImage(
     degraded: boolean;
     message: string;
   };
-  if (useMultimodalTestMode(projectDir)) {
+  if (useMultimodalTestMode()) {
     inference = {
       outputPath,
       tier: 'reference',
@@ -94,6 +93,7 @@ export async function generateImage(
         prompt,
         outputPath,
         profileDir,
+        model,
         references: references
           .map((item) => item.localPath)
           .filter((item): item is string => Boolean(item)),
@@ -122,7 +122,11 @@ export async function generateImage(
       };
     }
   }
-  const payloadBase64 = toBase64FromFile(inference.outputPath) ?? BLANK_PNG_BASE64;
+  const generatedBase64 = toBase64FromFile(inference.outputPath);
+  if (!generatedBase64 && !inference.message.startsWith('python_runtime_not_ready:')) {
+    throw new Error(`image_generate_output_missing:${inference.message}`);
+  }
+  const payloadBase64 = generatedBase64 ?? BLANK_PNG_BASE64;
 
   const media = ingestMedia(projectDir, {
     source: 'multimodal.image.generate',

@@ -1,7 +1,10 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import * as path from 'node:path';
+import { venvPythonPath } from '../daemon/python-runtime';
 import { getMediaItem } from '../media/store';
+import { getMiyaQwen3VlModelDir } from '../model/paths';
 import { readOcrCoordinateCache, writeOcrCoordinateCache } from './ocr-cache';
 import type { VisionAnalyzeInput, VisionAnalyzeResult } from './types';
 
@@ -100,12 +103,42 @@ async function runRemoteVisionInference(
   }
 }
 
+interface LocalVisionCommandSpec {
+  command: string;
+  args: string[];
+  shell: boolean;
+}
+
+function resolveLocalVisionCommand(projectDir: string): LocalVisionCommandSpec | null {
+  const command = process.env.MIYA_VISION_LOCAL_CMD?.trim();
+  if (command) return { command, args: [], shell: true };
+
+  const scriptPath = path.join(projectDir, 'miya-src', 'python', 'infer_qwen3_vl.py');
+  if (!fs.existsSync(scriptPath)) return null;
+  const pythonOverride = String(process.env.MIYA_VISION_PYTHON ?? '').trim();
+  const venvPython = venvPythonPath(projectDir);
+  const python =
+    pythonOverride || (fs.existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3');
+  return {
+    command: python,
+    args: [
+      scriptPath,
+      '--model-dir',
+      getMiyaQwen3VlModelDir(projectDir),
+      '--mode',
+      'vision_ocr',
+    ],
+    shell: false,
+  };
+}
+
 function runLocalVisionInference(
+  projectDir: string,
   imagePath: string,
   question?: string,
 ): { text: string; summary?: string; boxes?: Array<Record<string, unknown>> } {
-  const command = process.env.MIYA_VISION_LOCAL_CMD?.trim();
-  if (!command) return { text: '' };
+  const commandSpec = resolveLocalVisionCommand(projectDir);
+  if (!commandSpec) return { text: '' };
   if (!fs.existsSync(imagePath)) return { text: '' };
   const timeoutMsRaw = Number(process.env.MIYA_VISION_LOCAL_TIMEOUT_MS ?? 6_000);
   const timeoutMs = Number.isFinite(timeoutMsRaw)
@@ -125,11 +158,11 @@ function runLocalVisionInference(
     mode: 'vision_ocr',
   });
   try {
-    const result = spawnSync(command, [], {
+    const result = spawnSync(commandSpec.command, commandSpec.args, {
       input: payload,
       timeout: timeoutMs,
       encoding: 'utf-8',
-      shell: true,
+      shell: commandSpec.shell,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -151,13 +184,17 @@ function runLocalVisionInference(
   }
 }
 
-async function readTextFromImage(imagePath: string, question?: string): Promise<{
+async function readTextFromImage(
+  imagePath: string,
+  question?: string,
+  projectDir = process.cwd(),
+): Promise<{
   source: 'remote_vlm' | 'tesseract' | 'none';
   text: string;
   summary?: string;
   boxes?: Array<Record<string, unknown>>;
 }> {
-  const local = runLocalVisionInference(imagePath, question);
+  const local = runLocalVisionInference(projectDir, imagePath, question);
   if (local.text) {
     return {
       source: 'remote_vlm',
@@ -570,7 +607,7 @@ export async function analyzeVision(
   if (media.kind !== 'image') throw new Error('invalid_vision_media_kind');
   const filePath = media.localPath && fs.existsSync(media.localPath) ? media.localPath : '';
   const ocr: Awaited<ReturnType<typeof readTextFromImage>> = filePath
-    ? await readTextFromImage(filePath, input.question)
+    ? await readTextFromImage(filePath, input.question, projectDir)
     : { source: 'none', text: '' };
   const metadataSummary = summarizeFromMetadata(media.metadata);
   const summary = ocr.summary || ocr.text || metadataSummary;

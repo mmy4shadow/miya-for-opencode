@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 import time
+import wave
 from pathlib import Path
 from typing import Optional
 from path_layout import sovits_dir
@@ -163,6 +164,125 @@ def _write_artifact(output_path: Path, payload: dict):
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _load_audio_tensor(audio_path: str, target_sr: int):
+    try:
+        import torch  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(f"torch_required:{exc}") from exc
+
+    path = Path(audio_path)
+    if not path.exists():
+        raise RuntimeError(f"audio_not_found:{path}")
+
+    try:
+        import torchaudio  # type: ignore
+
+        waveform, sample_rate = torchaudio.load(str(path))
+        if waveform.ndim == 2 and waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        if sample_rate != target_sr:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, target_sr)
+        return waveform.squeeze(0).float()
+    except Exception:
+        if path.suffix.lower() != ".wav":
+            raise RuntimeError(f"torchaudio_missing_for_non_wav:{path.suffix.lower()}")
+        with wave.open(str(path), "rb") as wf:
+            channels = wf.getnchannels()
+            sample_rate = wf.getframerate()
+            sample_width = wf.getsampwidth()
+            frames = wf.readframes(wf.getnframes())
+        if sample_width != 2:
+            raise RuntimeError(f"unsupported_sample_width:{sample_width}")
+        pcm = torch.frombuffer(frames, dtype=torch.int16).clone().float() / 32768.0
+        if channels > 1:
+            pcm = pcm.reshape(-1, channels).mean(dim=1)
+        if sample_rate != target_sr:
+            ratio = float(target_sr) / float(sample_rate)
+            idx = torch.arange(int(pcm.shape[0] * ratio), dtype=torch.float32)
+            idx = torch.clamp((idx / ratio).round().long(), 0, pcm.shape[0] - 1)
+            pcm = pcm[idx]
+        return pcm
+
+
+def _train_speaker_embed(
+    args: argparse.Namespace,
+    rows: list[tuple[str, str]],
+    output_path: Path,
+    checkpoint_path: Optional[Path],
+) -> int:
+    try:
+        import torch  # type: ignore
+    except Exception as exc:
+        _emit({"event": "error", "message": f"torch_required:{exc}"})
+        return 1
+
+    features = []
+    for audio_path, _ in rows:
+        wav = _load_audio_tensor(audio_path, args.sample_rate)
+        if wav.numel() < 64:
+            continue
+        spec = torch.stft(
+            wav,
+            n_fft=512,
+            hop_length=128,
+            win_length=512,
+            return_complex=True,
+        ).abs()
+        feature = torch.log1p(spec).mean(dim=1)
+        features.append(feature)
+    if not features:
+        _emit({"event": "error", "message": "no_valid_audio_features"})
+        return 1
+
+    target = torch.stack(features)
+    feature_dim = int(target.shape[1])
+    embed_dim = max(128, min(512, feature_dim))
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    target = target.to(device)
+    speaker_embed = torch.nn.Parameter(torch.randn(embed_dim, device=device) * 0.02)
+    projection = torch.nn.Linear(embed_dim, feature_dim, bias=False, device=device)
+    optimizer = torch.optim.Adam([speaker_embed, *projection.parameters()], lr=max(1e-6, args.learning_rate))
+
+    start = max(0, min(args.steps, args.resume_step))
+    for step in range(start + 1, args.steps + 1):
+        if STOP_EVENT.is_set():
+            if checkpoint_path:
+                _write_checkpoint(checkpoint_path, args, step)
+            _emit({"event": "canceled", "step": step})
+            return 130
+        idx = (step - 1) % int(target.shape[0])
+        predicted = projection(speaker_embed)
+        loss = torch.nn.functional.mse_loss(predicted, target[idx])
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+        if step % 10 == 0 or step == args.steps:
+            _emit(
+                {
+                    "event": "progress",
+                    "step": step,
+                    "total": args.steps,
+                    "status": "Training voice...",
+                    "loss": round(float(loss.detach().cpu().item()), 6),
+                }
+            )
+        if checkpoint_path and (step % max(1, args.checkpoint_interval) == 0 or step == args.steps):
+            _write_checkpoint(checkpoint_path, args, step)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "speaker_embed": speaker_embed.detach().cpu(),
+            "projection": projection.state_dict(),
+            "sample_rate": args.sample_rate,
+            "samples": len(rows),
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        },
+        output_path,
+    )
+    return 0
+
+
 def main() -> int:
     args = build_parser().parse_args()
     threading.Thread(target=_stdin_parent_watchdog, daemon=True).start()
@@ -201,32 +321,11 @@ def main() -> int:
         STOP_EVENT.set()
         return 0
 
-    # 占位训练循环：保持参数协议、进度、恢复点与中断行为一致。
-    start = max(0, min(args.steps, args.resume_step))
-    for step in range(start + 1, args.steps + 1):
-        if STOP_EVENT.is_set():
-            if checkpoint_path:
-                _write_checkpoint(checkpoint_path, args, step)
-            _emit({"event": "canceled", "step": step})
-            return 130
-        if step % 10 == 0 or step == args.steps:
-            _emit({"event": "progress", "step": step, "total": args.steps, "status": "Training voice..."})
-        if checkpoint_path and (step % max(1, args.checkpoint_interval) == 0 or step == args.steps):
-            _write_checkpoint(checkpoint_path, args, step)
-        time.sleep(0.03)
+    train_exit = _train_speaker_embed(args, rows, output_path, checkpoint_path)
+    if train_exit != 0:
+        STOP_EVENT.set()
+        return train_exit
 
-    _write_artifact(
-        output_path,
-        {
-            "status": "ok",
-            "model": "gpt-sovits-v2pro",
-            "jobID": args.job_id,
-            "tier": args.tier,
-            "sampleRate": args.sample_rate,
-            "samples": len(rows),
-            "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        },
-    )
     _emit({"event": "done", "status": "ok", "output_path": str(output_path)})
     STOP_EVENT.set()
     return 0

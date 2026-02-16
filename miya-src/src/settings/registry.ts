@@ -477,7 +477,7 @@ export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
   entry({
     key: 'runtime.multimodal.test_mode',
     type: 'boolean',
-    defaultValue: true,
+    defaultValue: false,
     risk: 'LOW',
     description: '多模态单元测试模式（使用可追溯降级资产）。',
   }),

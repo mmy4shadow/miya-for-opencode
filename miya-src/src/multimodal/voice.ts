@@ -2,7 +2,6 @@ import { addCompanionAsset } from '../companion/store';
 import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
 import { getMiyaVoiceTempDir } from '../model/paths';
-import { readConfig } from '../settings';
 import { appendVoiceHistory } from '../voice/state';
 import { getMiyaRuntimeDir } from '../workflow';
 import * as fs from 'node:fs';
@@ -16,6 +15,7 @@ import type {
 
 const DEFAULT_VOICE = 'default';
 const DEFAULT_TTS_MODEL = 'local:gpt-sovits-v2pro';
+const MULTIMODAL_TEST_MODE_ENV = 'MIYA_MULTIMODAL_TEST_MODE';
 
 function resolveVoiceInputText(projectDir: string, input: VoiceInputIngest): string {
   const explicit = input.text?.trim();
@@ -105,12 +105,11 @@ function parseModelUpdateTarget(error: unknown): string | null {
   return normalized || null;
 }
 
-function useMultimodalTestMode(projectDir: string): boolean {
-  if (process.env.MIYA_MULTIMODAL_TEST_MODE === '1') return true;
-  const config = readConfig(projectDir);
-  const runtime = config.runtime as Record<string, unknown> | undefined;
-  const multimodal = runtime?.multimodal as Record<string, unknown> | undefined;
-  return multimodal?.test_mode === true;
+function useMultimodalTestMode(): boolean {
+  const raw = String(process.env[MULTIMODAL_TEST_MODE_ENV] ?? '')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
 export async function synthesizeVoiceOutput(
@@ -141,7 +140,7 @@ export async function synthesizeVoiceOutput(
     degraded: boolean;
     message: string;
   };
-  if (useMultimodalTestMode(projectDir)) {
+  if (useMultimodalTestMode()) {
     tts = {
       outputPath,
       tier: 'reference',
@@ -180,7 +179,11 @@ export async function synthesizeVoiceOutput(
       };
     }
   }
-  const wavBase64 = toBase64FromFile(tts.outputPath) ?? buildSilentWavBase64(estDurationMs);
+  const generatedBase64 = toBase64FromFile(tts.outputPath);
+  if (!generatedBase64 && !tts.message.startsWith('python_runtime_not_ready:')) {
+    throw new Error(`sovits_tts_output_missing:${tts.message}`);
+  }
+  const wavBase64 = generatedBase64 ?? buildSilentWavBase64(estDurationMs);
 
   const media = ingestMedia(projectDir, {
     source: 'multimodal.voice.output',

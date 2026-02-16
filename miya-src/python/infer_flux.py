@@ -154,7 +154,13 @@ def main() -> int:
     try:
         ok = _run_with_diffusers(args, width, height, output)
         if not ok:
-            _save_blank_png(output)
+            _emit(
+                {
+                    "event": "error",
+                    "message": "flux_backend_not_available:install_diffusers_and_torch",
+                }
+            )
+            return 1
         _emit({"event": "done", "status": "ok", "output_path": str(output)})
         return 0
     except Exception as exc:

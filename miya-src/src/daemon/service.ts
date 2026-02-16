@@ -6,6 +6,7 @@ import { getResourceScheduler } from '../resource-scheduler';
 import type { ResourceTaskKind } from '../resource-scheduler';
 import {
   MIYA_MODEL_BRANCH,
+  getMiyaFluxKleinModelDir,
   getMiyaFluxModelDir,
   getMiyaModelPath,
   getMiyaSovitsModelDir,
@@ -65,30 +66,6 @@ interface TrainingRunResult {
   artifactPath?: string;
   checkpointPath?: string;
 }
-
-const TRAINING_PRESET_HALF = {
-  image: {
-    resolutionMax: '1024x1024',
-    stepRange: [50, 100] as const,
-    defaultSteps: 80,
-    batchSize: 1,
-    precision: 'fp16',
-    cachePolicy: 'disk+memory',
-    fallbackChain: ['lora', 'embedding', 'reference'] as const,
-    checkpointInterval: 50,
-  },
-  voice: {
-    sampleRate: 32000,
-    stepRange: [100, 200] as const,
-    defaultSteps: 120,
-    batchSize: 2,
-    precision: 'fp16',
-    cachePolicy: 'stream+memory',
-    fallbackChain: ['lora', 'embedding', 'reference'] as const,
-    checkpointInterval: 100,
-    minCheckpointIntervalSec: 300,
-  },
-};
 
 const EXPECTED_MODEL_VERSION = {
   flux_schnell: '2.0',
@@ -246,7 +223,11 @@ export class MiyaDaemonService {
         this.requestTrainingCancel(target.trainingJobID);
       }
     }
-    await delay(2_000);
+    for (let probe = 0; probe < 8; probe += 1) {
+      const pending = targets.some((target) => this.vramMutex.hasActiveJob(target.daemonJobID));
+      if (!pending) return;
+      await delay(150);
+    }
     for (const target of targets) {
       if (!this.vramMutex.hasActiveJob(target.daemonJobID)) continue;
       this.emitProgress({
@@ -701,6 +682,7 @@ export class MiyaDaemonService {
     profileDir: string;
     references: string[];
     size: string;
+    model?: string;
   }): Promise<{
     outputPath: string;
     tier: ModelTier;
@@ -708,17 +690,20 @@ export class MiyaDaemonService {
     message: string;
   }> {
     const runtime = this.assertPythonRuntimeReady();
+    const fluxTarget = this.resolveFluxModelTarget(input.model);
     const tier = this.resolveTierByBudget({
       kind: 'image.generate',
-      modelID: 'local:flux.1-schnell',
+      modelID: fluxTarget.modelID,
       fullTaskVramMB: 1536,
-      fullModelVramMB: 4096,
+      fullModelVramMB: fluxTarget.fullModelVramMB,
       embeddingTaskVramMB: 768,
-      embeddingModelVramMB: 2048,
+      embeddingModelVramMB: fluxTarget.embeddingModelVramMB,
     });
     const modelDir = getMiyaModelPath(this.projectDir, MIYA_MODEL_BRANCH.image);
-    const fluxModelDir = getMiyaFluxModelDir(this.projectDir);
-    this.assertModelVersion('flux_schnell', fluxModelDir);
+    const fluxModelDir = fluxTarget.modelDir;
+    if (fluxTarget.requiresLock) {
+      this.assertModelVersion('flux_schnell', fluxModelDir);
+    }
     fs.mkdirSync(path.dirname(input.outputPath), { recursive: true });
     fs.mkdirSync(modelDir, { recursive: true });
 
@@ -729,9 +714,19 @@ export class MiyaDaemonService {
       scriptPath: path.join(this.projectDir, 'miya-src', 'python', 'infer_flux.py'),
       scriptArgs: [],
       resourceByTier: {
-        lora: { priority: 100, vramMB: 1536, modelID: 'local:flux.1-schnell', modelVramMB: 4096 },
-        embedding: { priority: 100, vramMB: 768, modelID: 'local:flux.1-schnell', modelVramMB: 2048 },
-        reference: { priority: 100, vramMB: 256, modelID: 'local:flux.1-schnell', modelVramMB: 0 },
+        lora: {
+          priority: 100,
+          vramMB: 1536,
+          modelID: fluxTarget.modelID,
+          modelVramMB: fluxTarget.fullModelVramMB,
+        },
+        embedding: {
+          priority: 100,
+          vramMB: 768,
+          modelID: fluxTarget.modelID,
+          modelVramMB: fluxTarget.embeddingModelVramMB,
+        },
+        reference: { priority: 100, vramMB: 256, modelID: fluxTarget.modelID, modelVramMB: 0 },
       },
       tier,
       timeoutMs: 180_000,
@@ -743,11 +738,13 @@ export class MiyaDaemonService {
         MIYA_FLUX_REFERENCES: JSON.stringify(input.references),
         MIYA_FLUX_SIZE: input.size,
         MIYA_FLUX_TIER: tier,
+        MIYA_FLUX_MODEL_ID: fluxTarget.modelID,
         MIYA_FLUX_MODEL_DIR: fluxModelDir,
+        MIYA_FLUX2_MODEL_DIR: getMiyaFluxKleinModelDir(this.projectDir),
         MIYA_FLUX_LORA_PATH: path.join(input.profileDir, 'lora', 'lora_weights.safetensors'),
         MIYA_FLUX_EMBED_PATH: path.join(input.profileDir, 'embeddings', 'face_embedding.pt'),
       },
-      metadata: { stage: 'daemon.flux.generate', tier },
+      metadata: { stage: 'daemon.flux.generate', tier, modelID: fluxTarget.modelID },
       progress: {
         jobID: `flux-generate-${Date.now()}`,
         phase: 'image.generate',
@@ -757,16 +754,18 @@ export class MiyaDaemonService {
     });
 
     if (proc.executed && proc.exitCode === 0 && fs.existsSync(input.outputPath)) {
-      return { outputPath: input.outputPath, tier, degraded: tier !== 'lora', message: 'flux_generate_ok' };
+      return {
+        outputPath: input.outputPath,
+        tier,
+        degraded: tier !== 'lora',
+        message: `flux_generate_ok:${fluxTarget.modelID}`,
+      };
     }
-    return {
-      outputPath: input.outputPath,
-      tier: 'reference',
-      degraded: true,
-      message: proc.executed
-        ? `flux_generate_fallback:${proc.stderr || proc.stdout || proc.exitCode}`
+    throw new Error(
+      proc.executed
+        ? `flux_generate_failed:${proc.stderr || proc.stdout || proc.exitCode}`
         : 'flux_generate_command_not_configured',
-    };
+    );
   }
 
   async runSovitsTts(input: {
@@ -828,14 +827,11 @@ export class MiyaDaemonService {
     if (proc.executed && proc.exitCode === 0 && fs.existsSync(input.outputPath)) {
       return { outputPath: input.outputPath, tier, degraded: tier !== 'lora', message: 'sovits_tts_ok' };
     }
-    return {
-      outputPath: input.outputPath,
-      tier: 'reference',
-      degraded: true,
-      message: proc.executed
-        ? `sovits_tts_fallback:${proc.stderr || proc.stdout || proc.exitCode}`
+    throw new Error(
+      proc.executed
+        ? `sovits_tts_failed:${proc.stderr || proc.stdout || proc.exitCode}`
         : 'sovits_tts_command_not_configured',
-    };
+    );
   }
 
   async runFluxTraining(input: {
@@ -879,7 +875,6 @@ export class MiyaDaemonService {
         embedding: { priority: 10, vramMB: 768, modelID: 'local:flux.1-schnell', modelVramMB: 1024 },
         reference: { priority: 10, vramMB: 256, modelID: 'local:flux.1-schnell', modelVramMB: 0 },
       },
-      preset: TRAINING_PRESET_HALF.image,
     });
     return result;
   }
@@ -925,7 +920,6 @@ export class MiyaDaemonService {
         embedding: { priority: 10, vramMB: 512, modelID: 'local:gpt-sovits-v2pro', modelVramMB: 1024 },
         reference: { priority: 10, vramMB: 128, modelID: 'local:gpt-sovits-v2pro', modelVramMB: 0 },
       },
-      preset: TRAINING_PRESET_HALF.voice,
     });
   }
 
@@ -935,6 +929,37 @@ export class MiyaDaemonService {
       return 100;
     }
     return 50;
+  }
+
+  private resolveFluxModelTarget(model?: string): {
+    variant: 'flux1' | 'flux2';
+    modelID: string;
+    modelDir: string;
+    fullModelVramMB: number;
+    embeddingModelVramMB: number;
+    requiresLock: boolean;
+  } {
+    const raw = String(model ?? '').trim().toLowerCase();
+    const wantsFlux2 =
+      raw.includes('flux.2') || raw.includes('flux2') || raw.includes('klein');
+    if (wantsFlux2) {
+      return {
+        variant: 'flux2',
+        modelID: 'local:flux.2-klein',
+        modelDir: getMiyaFluxKleinModelDir(this.projectDir),
+        fullModelVramMB: 3584,
+        embeddingModelVramMB: 1792,
+        requiresLock: false,
+      };
+    }
+    return {
+      variant: 'flux1',
+      modelID: 'local:flux.1-schnell',
+      modelDir: getMiyaFluxModelDir(this.projectDir),
+      fullModelVramMB: 4096,
+      embeddingModelVramMB: 2048,
+      requiresLock: true,
+    };
   }
 
   private modelLockTargets(target?: string): Array<{ key: ModelLockKey; dir: string }> {
@@ -1001,6 +1026,17 @@ export class MiyaDaemonService {
     };
   }
 
+  private applyCommandTemplate(
+    raw: string,
+    placeholders: Record<string, string>,
+  ): string {
+    let rendered = raw;
+    for (const [key, value] of Object.entries(placeholders)) {
+      rendered = rendered.replaceAll(`{${key}}`, value);
+    }
+    return rendered;
+  }
+
   private async runModelCommand(input: {
     kind: ResourceTaskKind;
     envKey: string;
@@ -1019,8 +1055,24 @@ export class MiyaDaemonService {
       endProgress: number;
     };
   }): Promise<ModelProcessResult> {
-    const command = input.pythonPath;
-    const args = [input.scriptPath, ...(input.scriptArgs ?? [])];
+    const defaultSpec = {
+      command: input.pythonPath,
+      args: [input.scriptPath, ...(input.scriptArgs ?? [])],
+    };
+    const commandOverrideRaw = String(process.env[input.envKey] ?? '').trim();
+    const overrideSpec =
+      commandOverrideRaw.length > 0
+        ? this.parseCommandSpec(
+            this.applyCommandTemplate(commandOverrideRaw, {
+              python: input.pythonPath,
+              script: input.scriptPath,
+              tier: input.tier,
+              projectDir: this.projectDir,
+            }),
+          )
+        : null;
+    const command = overrideSpec?.command || defaultSpec.command;
+    const args = overrideSpec?.args || defaultSpec.args;
     const resource = input.resourceByTier[input.tier];
     let currentProgress = input.progress?.startProgress ?? 12;
     const proc = await this.runIsolatedProcess({
@@ -1030,7 +1082,11 @@ export class MiyaDaemonService {
       cwd: this.projectDir,
       timeoutMs: input.timeoutMs,
       env: input.env,
-      metadata: input.metadata,
+      metadata: {
+        ...input.metadata,
+        envKey: input.envKey,
+        commandOverride: commandOverrideRaw || undefined,
+      },
       resource,
       onStdoutLine: (line) => {
         if (!input.progress) return;
@@ -1075,9 +1131,6 @@ export class MiyaDaemonService {
     jobID: string;
     envBase: Record<string, string>;
     checkpointPath?: string;
-    preset:
-      | (typeof TRAINING_PRESET_HALF.image)
-      | (typeof TRAINING_PRESET_HALF.voice);
     artifactByTier: Record<ModelTier, string>;
     resourceByTier: Record<ModelTier, { priority: number; vramMB: number; modelID: string; modelVramMB: number }>;
   }): Promise<TrainingRunResult> {
@@ -1125,11 +1178,7 @@ export class MiyaDaemonService {
         });
         if (proc.executed && proc.exitCode === 0) {
           if (!fs.existsSync(artifactPath)) {
-            fs.writeFileSync(
-              artifactPath,
-              `${JSON.stringify({ tier, generatedAt: nowIso(), jobID: input.jobID })}\n`,
-              'utf-8',
-            );
+            throw new Error(`training_artifact_missing:${artifactPath}`);
           }
           this.clearTrainingCancel(input.jobID);
           return {
@@ -1140,42 +1189,20 @@ export class MiyaDaemonService {
             checkpointPath,
           };
         }
-        const fallback = await this.runBuiltinTrainingRunner({
-          jobID: input.jobID,
-          tier,
-          artifactPath,
-          checkpointPath,
-          resumeStep,
-          preset: input.preset,
-        });
-        if (fallback.status === 'canceled') {
-          return fallback;
-        }
-        if (fallback.status === 'completed' || fallback.status === 'degraded') {
-          this.clearTrainingCancel(input.jobID);
-          return fallback;
-        }
-        resumeStep = this.readCheckpointStep(checkpointPath);
-        if (!proc.executed && tier === 'reference') {
-          fs.writeFileSync(
-            artifactPath,
-            `${JSON.stringify({ tier: 'reference', generatedAt: nowIso(), jobID: input.jobID, fallback: true })}\n`,
-            'utf-8',
-          );
-          this.clearTrainingCancel(input.jobID);
+        if (this.isTrainingCanceled(input.jobID)) {
           return {
-            status: 'degraded',
-            tier: 'reference',
-            message: 'training_degraded_reference_command_missing',
-            artifactPath,
+            status: 'canceled',
+            tier,
+            message: 'training_canceled_by_request',
             checkpointPath,
           };
         }
+        resumeStep = this.readCheckpointStep(checkpointPath);
       }
       return {
         status: 'failed',
         tier: input.preferredTier,
-        message: 'training_failed_all_tiers',
+        message: 'training_failed_all_tiers:external_runner_required',
         checkpointPath,
       };
     } finally {
@@ -1194,103 +1221,6 @@ export class MiyaDaemonService {
     } catch {
       return 0;
     }
-  }
-
-  private writeCheckpoint(checkpointPath: string, input: {
-    jobID: string;
-    tier: ModelTier;
-    step: number;
-    totalSteps: number;
-  }): void {
-    fs.mkdirSync(path.dirname(checkpointPath), { recursive: true });
-    fs.writeFileSync(
-      checkpointPath,
-      `${JSON.stringify(
-        {
-          jobID: input.jobID,
-          tier: input.tier,
-          step: input.step,
-          totalSteps: input.totalSteps,
-          updatedAt: nowIso(),
-        },
-        null,
-        2,
-      )}\n`,
-      'utf-8',
-    );
-  }
-
-  private async runBuiltinTrainingRunner(input: {
-    jobID: string;
-    tier: ModelTier;
-    artifactPath: string;
-    checkpointPath: string;
-    resumeStep: number;
-    preset: (typeof TRAINING_PRESET_HALF.image) | (typeof TRAINING_PRESET_HALF.voice);
-  }): Promise<TrainingRunResult> {
-    const totalSteps = Number(input.preset.defaultSteps) || 80;
-    const checkpointInterval = Math.max(1, Number(input.preset.checkpointInterval || 50));
-    const startStep = Math.max(0, Math.min(totalSteps, Math.floor(input.resumeStep)));
-    for (let step = startStep + 1; step <= totalSteps; step += 1) {
-      if (this.isTrainingCanceled(input.jobID)) {
-        this.writeCheckpoint(input.checkpointPath, {
-          jobID: input.jobID,
-          tier: input.tier,
-          step,
-          totalSteps,
-        });
-        return {
-          status: 'canceled',
-          tier: input.tier,
-          message: 'training_canceled_by_request',
-          checkpointPath: input.checkpointPath,
-        };
-      }
-      if (step % checkpointInterval === 0 || step === totalSteps) {
-        this.writeCheckpoint(input.checkpointPath, {
-          jobID: input.jobID,
-          tier: input.tier,
-          step,
-          totalSteps,
-        });
-        this.emitProgress({
-          jobID: input.jobID,
-          kind: input.preset === TRAINING_PRESET_HALF.image ? 'training.image' : 'training.voice',
-          progress: Math.floor(10 + (step / totalSteps) * 85),
-          status: 'Training',
-          phase: `training.builtin.${input.tier}`,
-        });
-      }
-      // Built-in fallback runner keeps training executable without external env command.
-      await delay(10);
-    }
-
-    fs.mkdirSync(path.dirname(input.artifactPath), { recursive: true });
-    fs.writeFileSync(
-      input.artifactPath,
-      `${JSON.stringify(
-        {
-          tier: input.tier,
-          generatedAt: nowIso(),
-          jobID: input.jobID,
-          preset: '0.5',
-          builtinRunner: true,
-        },
-        null,
-        2,
-      )}\n`,
-      'utf-8',
-    );
-    return {
-      status: input.tier === 'lora' ? 'completed' : 'degraded',
-      tier: input.tier,
-      message:
-        input.tier === 'lora'
-          ? 'training_completed_builtin_runner'
-          : 'training_completed_with_degrade_builtin_runner',
-      artifactPath: input.artifactPath,
-      checkpointPath: input.checkpointPath,
-    };
   }
 
   private writeRuntimeState(status: DaemonRuntimeState['status']): void {

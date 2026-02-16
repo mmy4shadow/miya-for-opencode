@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { ProbeVlmResult } from './types';
 
 interface LocalVlmRaw {
@@ -9,10 +11,62 @@ interface LocalVlmRaw {
   appHint?: string;
 }
 
-function parseLocalCommand(): string {
+interface LocalVlmCommandSpec {
+  command: string;
+  args: string[];
+  shell: boolean;
+}
+
+function parseCommandSpec(raw: string): { command: string; args: string[] } | null {
+  const input = raw.trim();
+  if (!input) return null;
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i] ?? '';
+    if ((ch === '"' || ch === "'") && (!quote || quote === ch)) {
+      quote = quote ? null : (ch as '"' | "'");
+      continue;
+    }
+    if (!quote && /\s/.test(ch)) {
+      if (current) tokens.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current) tokens.push(current);
+  if (tokens.length === 0) return null;
+  return { command: tokens[0] as string, args: tokens.slice(1) };
+}
+
+function parseLocalCommand(): LocalVlmCommandSpec | null {
   const dedicated = String(process.env.MIYA_SCREEN_PROBE_LOCAL_VLM_CMD ?? '').trim();
-  if (dedicated) return dedicated;
-  return String(process.env.MIYA_VISION_LOCAL_CMD ?? '').trim();
+  if (dedicated) {
+    const parsed = parseCommandSpec(dedicated);
+    if (!parsed) return null;
+    return { ...parsed, shell: false };
+  }
+  const shared = String(process.env.MIYA_VISION_LOCAL_CMD ?? '').trim();
+  if (shared) return { command: shared, args: [], shell: true };
+
+  const projectDir = process.cwd();
+  const scriptPath = path.join(projectDir, 'miya-src', 'python', 'infer_qwen3_vl.py');
+  if (!fs.existsSync(scriptPath)) return null;
+  const modelRoot =
+    path.basename(projectDir).toLowerCase() === '.opencode'
+      ? path.join(projectDir, 'miya', 'model')
+      : path.join(projectDir, '.opencode', 'miya', 'model');
+  const modelDir =
+    String(process.env.MIYA_QWEN3VL_MODEL_DIR ?? '').trim() ||
+    path.join(modelRoot, 'shi jue', 'Qwen3VL-4B-Instruct-Q4_K_M');
+  const python = String(process.env.MIYA_VISION_PYTHON ?? '').trim() || 'python';
+  return {
+    command: python,
+    args: [scriptPath, '--mode', 'screen_probe', '--model-dir', modelDir],
+    shell: false,
+  };
 }
 
 function parseJson<T>(text: string): T | null {
@@ -55,8 +109,8 @@ export function runScreenProbeVlm(input: {
   question: string;
   timeoutMs: number;
 }): ProbeVlmResult {
-  const command = parseLocalCommand();
-  if (!command) {
+  const commandSpec = parseLocalCommand();
+  if (!commandSpec) {
     return {
       ok: false,
       sceneTags: [],
@@ -71,11 +125,11 @@ export function runScreenProbeVlm(input: {
     question: input.question,
     mode: 'screen_probe',
   });
-  const run = spawnSync(command, [], {
+  const run = spawnSync(commandSpec.command, commandSpec.args, {
     input: payload,
     timeout: Math.max(600, input.timeoutMs),
     encoding: 'utf-8',
-    shell: true,
+    shell: commandSpec.shell,
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   });

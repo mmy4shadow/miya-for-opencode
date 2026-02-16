@@ -5,6 +5,7 @@ import {
   getMiyaFluxModelDir,
   getMiyaModelPath,
   getMiyaModelRootDir,
+  getMiyaQwen3VlModelDir,
   getMiyaSovitsModelDir,
   getMiyaVoiceprintModelDir,
   getMiyaVoiceprintSampleDir,
@@ -23,36 +24,51 @@ afterEach(() => {
 describe('model path resolver', () => {
   test('uses project/.opencode/miya/model by default', () => {
     delete process.env.MIYA_MODEL_ROOT_DIR;
-    const root = getMiyaModelRootDir('/repo/workspace');
-    expect(root).toBe(path.join('/repo/workspace', '.opencode', 'miya', 'model'));
-    expect(getMiyaModelPath('/repo/workspace', 'tu pian', 'lin shi')).toBe(
-      path.join('/repo/workspace', '.opencode', 'miya', 'model', 'tu pian', 'lin shi'),
+    const projectDir = path.resolve(path.sep, 'repo', 'workspace');
+    const root = getMiyaModelRootDir(projectDir);
+    expect(root).toBe(path.join(projectDir, '.opencode', 'miya', 'model'));
+    expect(getMiyaModelPath(projectDir, 'tu pian', 'lin shi')).toBe(
+      path.join(projectDir, '.opencode', 'miya', 'model', 'tu pian', 'lin shi'),
+    );
+  });
+
+  test('uses project/miya/model when project dir already points to .opencode root', () => {
+    delete process.env.MIYA_MODEL_ROOT_DIR;
+    const projectDir = path.resolve(path.sep, 'repo', '.opencode');
+    const root = getMiyaModelRootDir(projectDir);
+    expect(root).toBe(path.join(projectDir, 'miya', 'model'));
+    expect(getMiyaQwen3VlModelDir(projectDir)).toBe(
+      path.join(projectDir, 'miya', 'model', 'shi jue', 'Qwen3VL-4B-Instruct-Q4_K_M'),
     );
   });
 
   test('supports absolute env override', () => {
     process.env.MIYA_MODEL_ROOT_DIR = path.join(path.sep, 'data', 'miya-models');
-    expect(getMiyaModelRootDir('/repo/workspace')).toBe(path.join(path.sep, 'data', 'miya-models'));
+    expect(getMiyaModelRootDir(path.resolve(path.sep, 'repo', 'workspace'))).toBe(
+      path.join(path.sep, 'data', 'miya-models'),
+    );
   });
 
   test('supports project-relative env override', () => {
     process.env.MIYA_MODEL_ROOT_DIR = path.join('custom', 'models');
-    expect(getMiyaModelRootDir('/repo/workspace')).toBe(
-      path.join('/repo/workspace', 'custom', 'models'),
+    const projectDir = path.resolve(path.sep, 'repo', 'workspace');
+    expect(getMiyaModelRootDir(projectDir)).toBe(
+      path.join(projectDir, 'custom', 'models'),
     );
   });
 
   test('keeps canonical automation/model layout helpers aligned', () => {
     delete process.env.MIYA_MODEL_ROOT_DIR;
-    expect(getMiyaAutomationDir('/repo/workspace')).toBe(
-      path.join('/repo/workspace', '.opencode', 'miya', 'automation'),
+    const projectDir = path.resolve(path.sep, 'repo', 'workspace');
+    expect(getMiyaAutomationDir(projectDir)).toBe(
+      path.join(projectDir, '.opencode', 'miya', 'automation'),
     );
-    expect(getMiyaFluxModelDir('/repo/workspace')).toBe(
-      path.join('/repo/workspace', '.opencode', 'miya', 'model', 'tu pian', 'FLUX.1 schnell'),
+    expect(getMiyaFluxModelDir(projectDir)).toBe(
+      path.join(projectDir, '.opencode', 'miya', 'model', 'tu pian', 'FLUX.1 schnell'),
     );
-    expect(getMiyaSovitsModelDir('/repo/workspace')).toBe(
+    expect(getMiyaSovitsModelDir(projectDir)).toBe(
       path.join(
-        '/repo/workspace',
+        projectDir,
         '.opencode',
         'miya',
         'model',
@@ -60,11 +76,11 @@ describe('model path resolver', () => {
         'GPT-SoVITS-v2pro-20250604',
       ),
     );
-    expect(getMiyaVoiceprintModelDir('/repo/workspace')).toBe(
-      path.join('/repo/workspace', '.opencode', 'miya', 'model', 'shi bie', 'eres2net'),
+    expect(getMiyaVoiceprintModelDir(projectDir)).toBe(
+      path.join(projectDir, '.opencode', 'miya', 'model', 'shi bie', 'eres2net'),
     );
-    expect(getMiyaVoiceprintSampleDir('/repo/workspace')).toBe(
-      path.join('/repo/workspace', '.opencode', 'miya', 'model', 'shi bie', 'ben ren'),
+    expect(getMiyaVoiceprintSampleDir(projectDir)).toBe(
+      path.join(projectDir, '.opencode', 'miya', 'model', 'shi bie', 'ben ren'),
     );
   });
 });

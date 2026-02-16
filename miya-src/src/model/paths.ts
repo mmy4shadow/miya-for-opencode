@@ -11,11 +11,20 @@ export const MIYA_MODEL_BRANCH = {
 } as const;
 
 export const MIYA_MODEL_NAME = {
+  qwen3vl: 'Qwen3VL-4B-Instruct-Q4_K_M',
   fluxSchnell: 'FLUX.1 schnell',
   fluxKlein: 'FLUX.2 [klein] 4B（Apache-2.0）',
   eres2net: 'eres2net',
   sovits: 'GPT-SoVITS-v2pro-20250604',
 } as const;
+
+function normalizeProjectDir(projectDir: string): string {
+  return path.resolve(projectDir);
+}
+
+function isOpenCodeRoot(projectDir: string): boolean {
+  return path.basename(projectDir).toLowerCase() === '.opencode';
+}
 
 function normalizeModelRoot(projectDir: string, root: string): string {
   const trimmed = root.trim();
@@ -25,7 +34,11 @@ function normalizeModelRoot(projectDir: string, root: string): string {
 }
 
 export function getMiyaDataRootDir(projectDir: string): string {
-  return path.join(projectDir, ...MIYA_ROOT_SEGMENTS);
+  const normalized = normalizeProjectDir(projectDir);
+  if (isOpenCodeRoot(normalized)) {
+    return path.join(normalized, 'miya');
+  }
+  return path.join(normalized, ...MIYA_ROOT_SEGMENTS);
 }
 
 export function getMiyaAutomationDir(projectDir: string): string {
@@ -74,6 +87,10 @@ export function getMiyaFluxModelDir(projectDir: string): string {
 
 export function getMiyaFluxKleinModelDir(projectDir: string): string {
   return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.image, MIYA_MODEL_NAME.fluxKlein);
+}
+
+export function getMiyaQwen3VlModelDir(projectDir: string): string {
+  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.vision, MIYA_MODEL_NAME.qwen3vl);
 }
 
 export function getMiyaSovitsModelDir(projectDir: string): string {

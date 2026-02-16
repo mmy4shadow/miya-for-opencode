@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 import wave
 from pathlib import Path
@@ -63,13 +64,39 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _try_sovits_tts(args: argparse.Namespace, wav_out: Path) -> bool:
-    # 给后续接入真实GPT-SoVITS保留稳定调用位置。
-    try:
-        _ = args.model_dir
-        _ = args.voice
-        _ = args.speaker_embed
-        # 若本地已接入真实推理实现，可在此替换为实际加载与推理。
+    backend_cmd = str(os.getenv("MIYA_SOVITS_BACKEND_CMD", "")).strip()
+    if not backend_cmd:
         return False
+    rendered = (
+        backend_cmd.replace("{text}", args.text)
+        .replace("{voice}", args.voice)
+        .replace("{model_dir}", str(args.model_dir))
+        .replace("{speaker_embed}", str(args.speaker_embed or ""))
+        .replace("{output_path}", str(wav_out))
+        .replace("{mode}", str(args.mode))
+    )
+    try:
+        proc = subprocess.run(
+            rendered,
+            shell=True,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if proc.returncode != 0:
+            print(
+                json.dumps(
+                    {
+                        "event": "error",
+                        "message": f"sovits_backend_nonzero_exit:{proc.returncode}",
+                        "stderr": proc.stderr.strip(),
+                    }
+                ),
+                flush=True,
+            )
+            return False
+        return wav_out.exists() and wav_out.stat().st_size > 44
     except Exception:
         return False
 
@@ -114,7 +141,16 @@ def main() -> int:
     try:
         ok = _try_sovits_tts(args, wav_out)
         if not ok:
-            _write_silent_wav(wav_out, ms=max(600, min(7000, len(args.text) * 55)), sample_rate=args.sample_rate)
+            print(
+                json.dumps(
+                    {
+                        "event": "error",
+                        "message": "sovits_backend_not_available:configure_MIYA_SOVITS_BACKEND_CMD",
+                    }
+                ),
+                flush=True,
+            )
+            return 1
 
         final = _convert_if_needed(wav_out, args.format)
         if final != out:

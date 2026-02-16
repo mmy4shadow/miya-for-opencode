@@ -32,10 +32,13 @@ def flux_schnell_dir() -> Path:
     return default_model_root() / "tu pian" / "FLUX.1 schnell"
 
 
+def qwen3vl_dir() -> Path:
+    return default_model_root() / "shi jue" / "Qwen3VL-4B-Instruct-Q4_K_M"
+
+
 def flux_klein_dir() -> Path:
     return default_model_root() / "tu pian" / "FLUX.2 [klein] 4B（Apache-2.0）"
 
 
 def sovits_dir() -> Path:
     return default_model_root() / "sheng yin" / "GPT-SoVITS-v2pro-20250604"
-

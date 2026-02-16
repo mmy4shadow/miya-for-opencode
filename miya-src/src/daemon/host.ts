@@ -626,6 +626,7 @@ const server = Bun.serve({
             prompt: String(params.prompt ?? ''),
             outputPath: String(params.outputPath ?? ''),
             profileDir: String(params.profileDir ?? ''),
+            model: typeof params.model === 'string' ? params.model : undefined,
             references: Array.isArray(params.references) ? params.references.map(String) : [],
             size: String(params.size ?? '1024x1024'),
           });

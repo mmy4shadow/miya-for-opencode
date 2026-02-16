@@ -29,6 +29,7 @@ export class MiyaClient {
     prompt: string;
     outputPath: string;
     profileDir: string;
+    model?: string;
     references: string[];
     size: string;
   }): Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }> {
