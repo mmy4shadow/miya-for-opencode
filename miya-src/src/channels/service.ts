@@ -115,6 +115,23 @@ export interface ChannelOutboundAudit {
   preSendScreenshotPath?: string;
   postSendScreenshotPath?: string;
   failureStep?: string;
+  routeLevel?: 'L0_ACTION_MEMORY' | 'L1_UIA' | 'L2_OCR' | 'L3_SOM_VLM';
+  somSelectionSource?: 'memory' | 'heuristic' | 'vlm' | 'none';
+  somSelectedCandidateId?: number;
+  vlmCallsUsed?: number;
+  actionPlanMemoryHit?: boolean;
+  automationLatencyMs?: number;
+  automationKpi?: {
+    totalRuns: number;
+    successfulRuns: number;
+    vlmCallRatio: number;
+    somPathHitRate: number;
+    reuseTaskP95Ms: number;
+    firstTaskP95Ms: number;
+    highRiskMisfireRate: number;
+    reuseRuns: number;
+    firstRuns: number;
+  };
   ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
   ocrPreview?: string;
   captureMethod?: 'wgc_hwnd' | 'print_window' | 'dxgi_duplication' | 'uia_only' | 'unknown';
@@ -140,6 +157,10 @@ export interface ChannelOutboundAudit {
       foregroundAfter?: string;
       uiaPath?: 'valuepattern' | 'clipboard_sendkeys' | 'none';
       fallbackReason?: string;
+      routeLevel?: 'L0_ACTION_MEMORY' | 'L1_UIA' | 'L2_OCR' | 'L3_SOM_VLM';
+      somSelectionSource?: 'memory' | 'heuristic' | 'vlm' | 'none';
+      somSelectedCandidateId?: string;
+      vlmCallsUsed?: string;
       ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
       ocrPreview?: string;
     };
@@ -320,6 +341,11 @@ function buildEvidenceBundle(
       foregroundAfter: row.foregroundAfter,
       uiaPath: row.uiaPath,
       fallbackReason: row.fallbackReason,
+      routeLevel: row.routeLevel,
+      somSelectionSource: row.somSelectionSource,
+      somSelectedCandidateId:
+        typeof row.somSelectedCandidateId === 'number' ? String(row.somSelectedCandidateId) : undefined,
+      vlmCallsUsed: typeof row.vlmCallsUsed === 'number' ? String(row.vlmCallsUsed) : undefined,
       ocrSource: row.ocrSource,
       ocrPreview: row.ocrPreview,
     },
@@ -839,6 +865,11 @@ export class ChannelRuntime {
       visualPrecheck: row.visualPrecheck,
       visualPostcheck: row.visualPostcheck,
       automationPath: row.automationPath,
+      uiaPath: row.uiaPath,
+      targetHwnd: row.targetHwnd,
+      foregroundBefore: row.foregroundBefore,
+      foregroundAfter: row.foregroundAfter,
+      fallbackReason: row.fallbackReason,
       simulationStatus: row.simulationStatus,
       simulationRiskHints: row.simulationRiskHints,
       receiptStatus: row.receiptStatus,
@@ -849,6 +880,13 @@ export class ChannelRuntime {
       preSendScreenshotPath: row.preSendScreenshotPath,
       postSendScreenshotPath: row.postSendScreenshotPath,
       failureStep: row.failureStep,
+      routeLevel: row.routeLevel,
+      somSelectionSource: row.somSelectionSource,
+      somSelectedCandidateId: row.somSelectedCandidateId,
+      vlmCallsUsed: row.vlmCallsUsed,
+      actionPlanMemoryHit: row.actionPlanMemoryHit,
+      automationLatencyMs: row.automationLatencyMs,
+      automationKpi: row.automationKpi,
       ocrSource: row.ocrSource,
       ocrPreview: row.ocrPreview,
       captureMethod: row.captureMethod,
@@ -1300,6 +1338,7 @@ export class ChannelRuntime {
             destination: input.destination,
             text,
             mediaPath,
+            riskLevel,
           });
           const visionCheck = await this.analyzeDesktopOutboundEvidenceImpl({
             destination: input.destination,
@@ -1369,6 +1408,13 @@ export class ChannelRuntime {
             visualPrecheck: result.visualPrecheck,
             visualPostcheck: result.visualPostcheck,
             receiptStatus: result.receiptStatus,
+            routeLevel: result.routeLevel,
+            somSelectionSource: result.somSelectionSource,
+            somSelectedCandidateId: result.somSelectedCandidateId,
+            vlmCallsUsed: result.vlmCallsUsed,
+            actionPlanMemoryHit: result.actionPlanMemoryHit,
+            automationLatencyMs: result.latencyMs,
+            automationKpi: result.kpiSnapshot,
           });
           if (result.sent) {
             this.clearMutexStrike(sessionID);
@@ -1388,6 +1434,7 @@ export class ChannelRuntime {
           destination: input.destination,
           text,
           mediaPath,
+          riskLevel,
         });
         const visionCheck = await this.analyzeDesktopOutboundEvidenceImpl({
           destination: input.destination,
@@ -1457,6 +1504,13 @@ export class ChannelRuntime {
           visualPrecheck: result.visualPrecheck,
           visualPostcheck: result.visualPostcheck,
           receiptStatus: result.receiptStatus,
+          routeLevel: result.routeLevel,
+          somSelectionSource: result.somSelectionSource,
+          somSelectedCandidateId: result.somSelectedCandidateId,
+          vlmCallsUsed: result.vlmCallsUsed,
+          actionPlanMemoryHit: result.actionPlanMemoryHit,
+          automationLatencyMs: result.latencyMs,
+          automationKpi: result.kpiSnapshot,
         });
         if (result.sent) {
           this.clearMutexStrike(sessionID);

@@ -109,25 +109,61 @@ interface LocalVisionCommandSpec {
   shell: boolean;
 }
 
+function parseCommandSpec(raw: string): { command: string; args: string[] } | null {
+  const input = raw.trim();
+  if (!input) return null;
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i] ?? '';
+    if ((ch === '"' || ch === "'") && (!quote || quote === ch)) {
+      quote = quote ? null : (ch as '"' | "'");
+      continue;
+    }
+    if (!quote && /\s/.test(ch)) {
+      if (current) tokens.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current) tokens.push(current);
+  if (tokens.length === 0) return null;
+  return {
+    command: tokens[0] as string,
+    args: tokens.slice(1),
+  };
+}
+
 function resolveLocalVisionCommand(projectDir: string): LocalVisionCommandSpec | null {
-  const command = process.env.MIYA_VISION_LOCAL_CMD?.trim();
-  if (command) return { command, args: [], shell: true };
+  const explicit = process.env.MIYA_VISION_LOCAL_CMD?.trim();
+  if (explicit) {
+    const parsed = parseCommandSpec(explicit);
+    if (parsed) return { ...parsed, shell: false };
+    return { command: explicit, args: [], shell: true };
+  }
 
   const scriptPath = path.join(projectDir, 'miya-src', 'python', 'infer_qwen3_vl.py');
   if (!fs.existsSync(scriptPath)) return null;
+  const backendCmd = String(process.env.MIYA_QWEN3VL_CMD ?? '').trim();
   const pythonOverride = String(process.env.MIYA_VISION_PYTHON ?? '').trim();
   const venvPython = venvPythonPath(projectDir);
   const python =
     pythonOverride || (fs.existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3');
+  const args = [
+    scriptPath,
+    '--model-dir',
+    getMiyaQwen3VlModelDir(projectDir),
+    '--mode',
+    'vision_ocr',
+  ];
+  if (backendCmd) {
+    args.push('--backend-cmd', backendCmd);
+  }
   return {
     command: python,
-    args: [
-      scriptPath,
-      '--model-dir',
-      getMiyaQwen3VlModelDir(projectDir),
-      '--mode',
-      'vision_ocr',
-    ],
+    args,
     shell: false,
   };
 }

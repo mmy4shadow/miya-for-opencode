@@ -1,6 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import { getMiyaVisionTempDir } from '../../model/paths';
+import {
+  buildDesktopActionPlan,
+  readDesktopAutomationKpi,
+  recordDesktopActionOutcome,
+  type AutomationRisk,
+  type DesktopActionPlan,
+  type DesktopPerceptionRoute,
+} from './vision-action-bridge';
 
 export interface DesktopOutboundResult {
   sent: boolean;
@@ -22,6 +30,24 @@ export interface DesktopOutboundResult {
   recipientTextCheck?: 'matched' | 'uncertain' | 'mismatch';
   preSendScreenshotPath?: string;
   postSendScreenshotPath?: string;
+  routeLevel?: DesktopPerceptionRoute;
+  actionPlan?: DesktopActionPlan;
+  somSelectionSource?: 'memory' | 'heuristic' | 'vlm' | 'none';
+  somSelectedCandidateId?: number;
+  vlmCallsUsed?: number;
+  actionPlanMemoryHit?: boolean;
+  latencyMs?: number;
+  kpiSnapshot?: {
+    totalRuns: number;
+    successfulRuns: number;
+    vlmCallRatio: number;
+    somPathHitRate: number;
+    reuseTaskP95Ms: number;
+    firstTaskP95Ms: number;
+    highRiskMisfireRate: number;
+    reuseRuns: number;
+    firstRuns: number;
+  };
 }
 
 function safeValueFromSignal(signal: string, key: string): string | undefined {
@@ -59,6 +85,7 @@ export async function sendDesktopOutbound(input: {
   destination: string;
   text?: string;
   mediaPath?: string;
+  riskLevel?: AutomationRisk;
 }): Promise<DesktopOutboundResult> {
   const destination = input.destination.trim();
   const text = (input.text ?? '').trim();
@@ -108,6 +135,37 @@ export async function sendDesktopOutbound(input: {
     });
   }
 
+  const rawDisplayWidth = Number(process.env.MIYA_DESKTOP_DISPLAY_WIDTH ?? 1920);
+  const rawDisplayHeight = Number(process.env.MIYA_DESKTOP_DISPLAY_HEIGHT ?? 1080);
+  const displayWidth = Number.isFinite(rawDisplayWidth) ? Math.max(640, Math.min(16_384, Math.floor(rawDisplayWidth))) : 1920;
+  const displayHeight = Number.isFinite(rawDisplayHeight) ? Math.max(480, Math.min(16_384, Math.floor(rawDisplayHeight))) : 1080;
+  const actionPlan = buildDesktopActionPlan({
+    projectDir: input.projectDir,
+    intent: {
+      kind: 'desktop_outbound_send',
+      channel: input.channel,
+      appName: input.appName,
+      destination,
+      payloadHash,
+      hasText: text.length > 0,
+      hasMedia: mediaPath.length > 0,
+      risk: input.riskLevel ?? 'LOW',
+    },
+    screenState: {
+      windowFingerprint: undefined,
+      captureMethod: 'unknown',
+      display: {
+        width: displayWidth,
+        height: displayHeight,
+      },
+      uiaAvailable: process.env.MIYA_DESKTOP_UIA_FIRST !== '0',
+      ocrAvailable:
+        String(process.env.MIYA_VISION_LOCAL_CMD ?? '').trim().length > 0 ||
+        String(process.env.MIYA_QWEN3VL_CMD ?? '').trim().length > 0 ||
+        String(process.env.MIYA_VISION_OCR_ENDPOINT ?? '').trim().length > 0,
+    },
+  });
+
   const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -134,6 +192,91 @@ public static class MiyaWinApi {
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 }
+public static class MiyaHumanInput {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct INPUT {
+    public uint type;
+    public InputUnion U;
+  }
+
+  [StructLayout(LayoutKind.Explicit)]
+  public struct InputUnion {
+    [FieldOffset(0)]
+    public MOUSEINPUT mi;
+    [FieldOffset(0)]
+    public KEYBDINPUT ki;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MOUSEINPUT {
+    public int dx;
+    public int dy;
+    public uint mouseData;
+    public uint dwFlags;
+    public uint time;
+    public IntPtr dwExtraInfo;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct KEYBDINPUT {
+    public ushort wVk;
+    public ushort wScan;
+    public uint dwFlags;
+    public uint time;
+    public IntPtr dwExtraInfo;
+  }
+
+  [DllImport("user32.dll", SetLastError = true)]
+  public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+  [DllImport("user32.dll", SetLastError = true)]
+  public static extern bool SetCursorPos(int X, int Y);
+
+  public const uint INPUT_MOUSE = 0;
+  public const uint INPUT_KEYBOARD = 1;
+  public const uint KEYEVENTF_KEYUP = 0x0002;
+  public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+  public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+  public static void KeyTap(ushort vk) {
+    INPUT[] inputs = new INPUT[2];
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].U.ki.wVk = vk;
+    inputs[0].U.ki.dwFlags = 0;
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].U.ki.wVk = vk;
+    inputs[1].U.ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+  }
+
+  public static void KeyChord(ushort modifier, ushort key) {
+    INPUT[] inputs = new INPUT[4];
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].U.ki.wVk = modifier;
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].U.ki.wVk = key;
+    inputs[2].type = INPUT_KEYBOARD;
+    inputs[2].U.ki.wVk = key;
+    inputs[2].U.ki.dwFlags = KEYEVENTF_KEYUP;
+    inputs[3].type = INPUT_KEYBOARD;
+    inputs[3].U.ki.wVk = modifier;
+    inputs[3].U.ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+  }
+
+  public static void LeftClick() {
+    INPUT[] inputs = new INPUT[2];
+    inputs[0].type = INPUT_MOUSE;
+    inputs[0].U.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    inputs[1].type = INPUT_MOUSE;
+    inputs[1].U.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+  }
+
+  public static void Move(int x, int y) {
+    SetCursorPos(x, y);
+  }
+}
 "@
 
 $destination = $env:MIYA_DESTINATION
@@ -143,6 +286,7 @@ $appName = $env:MIYA_APP_NAME
 $payloadHash = $env:MIYA_PAYLOAD_HASH
 $traceId = $env:MIYA_TRACE_ID
 $evidenceDir = $env:MIYA_EVIDENCE_DIR
+$actionPlanRaw = $env:MIYA_ACTION_PLAN_JSON
 $shell = New-Object -ComObject WScript.Shell
 
 $step = "bootstrap"
@@ -161,6 +305,35 @@ $foregroundBeforeText = ""
 $foregroundAfterText = ""
 $fallbackReasons = New-Object System.Collections.Generic.List[string]
 $riskHints = New-Object System.Collections.Generic.List[string]
+$routeLevel = "L1_UIA"
+$somSelectionSource = "none"
+$somSelectedCandidate = ""
+$vlmCallsUsed = 0
+$sendInputEnabled = ($env:MIYA_DESKTOP_SENDINPUT_ENABLED -ne '0')
+$actionPlan = $null
+try {
+  if ($actionPlanRaw) {
+    $actionPlan = $actionPlanRaw | ConvertFrom-Json -Depth 24
+    if ($actionPlan -and $actionPlan.action_plan) {
+      $routeRaw = [string]$actionPlan.action_plan.routeLevel
+      if ($routeRaw -in @('L0_ACTION_MEMORY','L1_UIA','L2_OCR','L3_SOM_VLM')) {
+        $routeLevel = $routeRaw
+      }
+      $som = $actionPlan.action_plan.som
+      if ($som) {
+        $sourceRaw = [string]$som.selectionSource
+        if ($sourceRaw -in @('memory','heuristic','vlm','none')) {
+          $somSelectionSource = $sourceRaw
+        }
+        if ($som.selectedCandidateId) {
+          $somSelectedCandidate = [string][int]$som.selectedCandidateId
+        }
+      }
+    }
+  }
+} catch {
+  $riskHints.Add("action_plan_parse_failed")
+}
 
 function Safe-Token {
   param([string]$Value)
@@ -247,6 +420,138 @@ function Assert-NoUserInterference {
   if ($moved -or (Test-KeyboardActivity)) {
     throw "input_mutex_timeout:user_interference"
   }
+}
+
+function Start-JitterSleep {
+  param([int]$MinMs = 18, [int]$MaxMs = 52)
+  $min = [Math]::Max(1, $MinMs)
+  $max = [Math]::Max($min + 1, $MaxMs)
+  Start-Sleep -Milliseconds (Get-Random -Minimum $min -Maximum $max)
+}
+
+function Invoke-HumanKeyTap {
+  param([int]$Vk, [string]$Fallback)
+  if ($sendInputEnabled) {
+    [MiyaHumanInput]::KeyTap([uint16]$Vk)
+    Start-JitterSleep
+    return
+  }
+  [System.Windows.Forms.SendKeys]::SendWait($Fallback)
+}
+
+function Invoke-HumanPaste {
+  if ($sendInputEnabled) {
+    [MiyaHumanInput]::KeyChord([uint16]0x11, [uint16]0x56)
+    Start-JitterSleep -MinMs 24 -MaxMs 76
+    return
+  }
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+}
+
+function Invoke-HumanEnter {
+  Invoke-HumanKeyTap -Vk 0x0D -Fallback '{ENTER}'
+}
+
+function Invoke-HumanLeftClick {
+  [MiyaHumanInput]::LeftClick()
+  Start-JitterSleep -MinMs 18 -MaxMs 60
+}
+
+function Move-HumanMouseBezier {
+  param([int]$TargetX, [int]$TargetY, [int]$DurationMs = 260)
+  $start = Get-CursorPoint
+  $steps = [Math]::Max(10, [Math]::Min(36, [int]($DurationMs / 14)))
+  $dx = $TargetX - $start.X
+  $dy = $TargetY - $start.Y
+  $ctrl1x = $start.X + [int]($dx * 0.25) + (Get-Random -Minimum -26 -Maximum 27)
+  $ctrl1y = $start.Y + [int]($dy * 0.15) + (Get-Random -Minimum -22 -Maximum 23)
+  $ctrl2x = $start.X + [int]($dx * 0.75) + (Get-Random -Minimum -26 -Maximum 27)
+  $ctrl2y = $start.Y + [int]($dy * 0.85) + (Get-Random -Minimum -22 -Maximum 23)
+  for ($i = 1; $i -le $steps; $i++) {
+    $t = [double]$i / [double]$steps
+    $u = 1.0 - $t
+    $x = [int]([Math]::Round(($u*$u*$u*$start.X) + (3*$u*$u*$t*$ctrl1x) + (3*$u*$t*$t*$ctrl2x) + ($t*$t*$t*$TargetX)))
+    $y = [int]([Math]::Round(($u*$u*$u*$start.Y) + (3*$u*$u*$t*$ctrl1y) + (3*$u*$t*$t*$ctrl2y) + ($t*$t*$t*$TargetY)))
+    $jx = $x + (Get-Random -Minimum -1 -Maximum 2)
+    $jy = $y + (Get-Random -Minimum -1 -Maximum 2)
+    [MiyaHumanInput]::Move($jx, $jy)
+    Start-JitterSleep -MinMs 6 -MaxMs 18
+  }
+}
+
+function Get-PixelFingerprint {
+  param([int]$X, [int]$Y)
+  try {
+    $w = 16
+    $h = 16
+    $bitmap = New-Object System.Drawing.Bitmap $w, $h
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.CopyFromScreen([Math]::Max(0, $X - 8), [Math]::Max(0, $Y - 8), 0, 0, [System.Drawing.Size]::new($w, $h))
+    $sum = 0L
+    for ($yy = 0; $yy -lt $h; $yy += 2) {
+      for ($xx = 0; $xx -lt $w; $xx += 2) {
+        $c = $bitmap.GetPixel($xx, $yy)
+        $sum += [int]$c.R + [int]$c.G + [int]$c.B
+      }
+    }
+    $graphics.Dispose()
+    $bitmap.Dispose()
+    return [string]$sum
+  } catch {
+    return ""
+  }
+}
+
+function Resolve-SomCandidatePoint {
+  param($Som, [int]$DisplayWidth, [int]$DisplayHeight)
+  if (-not $Som) { return $null }
+  $candidateId = $Som.selectedCandidateId
+  if (-not $candidateId) { return $null }
+  $candidate = $Som.candidates | Where-Object { $_.id -eq $candidateId } | Select-Object -First 1
+  if (-not $candidate) { return $null }
+  $coarseRow = if ($candidate.coarse -and $candidate.coarse.row -ne $null) { [int]$candidate.coarse.row } else { 4 }
+  $coarseCol = if ($candidate.coarse -and $candidate.coarse.col -ne $null) { [int]$candidate.coarse.col } else { 4 }
+  $cellW = [Math]::Max(1, [int]($DisplayWidth / 10))
+  $cellH = [Math]::Max(1, [int]($DisplayHeight / 10))
+  $coarseX = [Math]::Min($DisplayWidth - 1, [Math]::Max(0, $coarseCol * $cellW + [int]($cellW / 2)))
+  $coarseY = [Math]::Min($DisplayHeight - 1, [Math]::Max(0, $coarseRow * $cellH + [int]($cellH / 2)))
+  $roiX = if ($candidate.roi -and $candidate.roi.x -ne $null) { [int]$candidate.roi.x } else { $coarseCol * $cellW }
+  $roiY = if ($candidate.roi -and $candidate.roi.y -ne $null) { [int]$candidate.roi.y } else { $coarseRow * $cellH }
+  $roiW = if ($candidate.roi -and $candidate.roi.width -ne $null) { [int]$candidate.roi.width } else { $cellW }
+  $roiH = if ($candidate.roi -and $candidate.roi.height -ne $null) { [int]$candidate.roi.height } else { $cellH }
+  $fineX = [Math]::Min($DisplayWidth - 1, [Math]::Max(0, $roiX + [int]($roiW / 2) + (Get-Random -Minimum -3 -Maximum 4)))
+  $fineY = [Math]::Min($DisplayHeight - 1, [Math]::Max(0, $roiY + [int]($roiH / 2) + (Get-Random -Minimum -3 -Maximum 4)))
+  return @{
+    id = [int]$candidateId
+    coarseX = [int]$coarseX
+    coarseY = [int]$coarseY
+    fineX = [int]$fineX
+    fineY = [int]$fineY
+  }
+}
+
+function Invoke-SomCandidateActivation {
+  param($Som, [int]$DisplayWidth, [int]$DisplayHeight, [int]$ExpectedPid)
+  $point = Resolve-SomCandidatePoint -Som $Som -DisplayWidth $DisplayWidth -DisplayHeight $DisplayHeight
+  if (-not $point) { return $false }
+  $beforeFingerprint = Get-PixelFingerprint -X $point.fineX -Y $point.fineY
+  Move-HumanMouseBezier -TargetX $point.coarseX -TargetY $point.coarseY -DurationMs 190
+  Move-HumanMouseBezier -TargetX $point.fineX -TargetY $point.fineY -DurationMs 180
+  Invoke-HumanLeftClick
+  $afterFingerprint = Get-PixelFingerprint -X $point.fineX -Y $point.fineY
+  if ($beforeFingerprint -and $afterFingerprint -and $beforeFingerprint -eq $afterFingerprint) {
+    $riskHints.Add("som_pixel_fingerprint_static")
+  }
+  try {
+    $el = [System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new([double]$point.fineX, [double]$point.fineY))
+    if (-not $el -or ($ExpectedPid -gt 0 -and $el.Current.ProcessId -ne $ExpectedPid)) {
+      $riskHints.Add("som_uia_hit_test_failed")
+    }
+  } catch {
+    $riskHints.Add("som_uia_hit_test_unavailable")
+  }
+  $somSelectedCandidate = [string]$point.id
+  return $true
 }
 
 function Get-WindowTitle {
@@ -408,7 +713,7 @@ function Try-SendTextViaUia {
     if ($focused.Current.IsEnabled -ne $true) { return $false }
     $valuePattern.SetValue($Value)
     Start-Sleep -Milliseconds 120
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Invoke-HumanEnter
     return $true
   } catch {
     return $false
@@ -461,6 +766,19 @@ try {
     }
   }
 
+  if ($routeLevel -eq 'L3_SOM_VLM') {
+    $step = "locate.som"
+    if ($actionPlan -and $actionPlan.action_plan -and $actionPlan.action_plan.som) {
+      $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      $somActivated = Invoke-SomCandidateActivation -Som $actionPlan.action_plan.som -DisplayWidth $bounds.Width -DisplayHeight $bounds.Height -ExpectedPid $target.processId
+      if (-not $somActivated) {
+        throw "som_candidate_unresolved"
+      }
+    } else {
+      throw "som_plan_missing"
+    }
+  }
+
   if ($mediaPath) {
     Assert-NoUserInterference -LockPoint $lockPoint
     [void](Assert-TargetStable -AppName $appName -Destination $destination -ExpectedHwnd $targetHwnd -ExpectedFingerprint $windowFingerprint -Phase "media_prepare")
@@ -474,10 +792,10 @@ try {
     $data.SetFileDropList($list)
     [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
     Start-Sleep -Milliseconds 220
-    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Invoke-HumanPaste
     $step = "send.media_commit"
     Start-Sleep -Milliseconds 220
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Invoke-HumanEnter
     Start-Sleep -Milliseconds 220
     if ($automationPath -eq "uia") { $automationPath = "mixed" } else { $automationPath = "sendkeys" }
     if ($env:MIYA_DESKTOP_UIA_FIRST -ne '0') { $riskHints.Add("media_sendkeys_path") }
@@ -502,10 +820,10 @@ try {
       $step = "send.text_prepare.clipboard"
       Set-Clipboard -Value $payload
       Start-Sleep -Milliseconds 180
-      [System.Windows.Forms.SendKeys]::SendWait('^v')
+      Invoke-HumanPaste
       $step = "send.text_commit.clipboard"
       Start-Sleep -Milliseconds 120
-      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+      Invoke-HumanEnter
       if ($automationPath -eq "uia") { $automationPath = "mixed" } else { $automationPath = "sendkeys" }
       $uiaPath = "clipboard_sendkeys"
     }
@@ -525,16 +843,33 @@ try {
   Save-Screenshot -TargetPath $postShot
 
   $fallbackReason = if ($fallbackReasons.Count -gt 0) { ($fallbackReasons -join ',') } else { "none" }
-  Write-Output ("desktop_send_ok|step=" + $step + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + Safe-Token($windowFingerprint) + "|target_hwnd=" + $targetHwndText + "|foreground_before=" + $foregroundBeforeText + "|foreground_after=" + $foregroundAfterText + "|uia_path=" + $uiaPath + "|fallback_reason=" + Safe-Token($fallbackReason) + "|pre_shot=" + Safe-Token($preShot) + "|post_shot=" + Safe-Token($postShot) + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|risk=" + Safe-Token(($riskHints -join ',')))
+  $windowFpToken = Safe-Token -Value $windowFingerprint
+  $fallbackToken = Safe-Token -Value $fallbackReason
+  $preShotToken = Safe-Token -Value $preShot
+  $postShotToken = Safe-Token -Value $postShot
+  $somCandidateToken = Safe-Token -Value $somSelectedCandidate
+  $riskToken = Safe-Token -Value ($riskHints -join ',')
+  Write-Output ("desktop_send_ok|step=" + $step + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + $windowFpToken + "|target_hwnd=" + $targetHwndText + "|foreground_before=" + $foregroundBeforeText + "|foreground_after=" + $foregroundAfterText + "|uia_path=" + $uiaPath + "|fallback_reason=" + $fallbackToken + "|pre_shot=" + $preShotToken + "|post_shot=" + $postShotToken + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|route_level=" + $routeLevel + "|som_source=" + $somSelectionSource + "|som_candidate=" + $somCandidateToken + "|vlm_calls=" + ([string]$vlmCallsUsed) + "|risk=" + $riskToken)
   exit 0
 } catch {
   $err = Safe-Token($_.Exception.Message)
   $fallbackReason = if ($fallbackReasons.Count -gt 0) { ($fallbackReasons -join ',') } else { "none" }
-  Write-Output ("desktop_send_fail|step=" + $step + "|error=" + $err + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + Safe-Token($windowFingerprint) + "|target_hwnd=" + Safe-Token($targetHwndText) + "|foreground_before=" + Safe-Token($foregroundBeforeText) + "|foreground_after=" + Safe-Token($foregroundAfterText) + "|uia_path=" + Safe-Token($uiaPath) + "|fallback_reason=" + Safe-Token($fallbackReason) + "|pre_shot=" + Safe-Token($preShot) + "|post_shot=" + Safe-Token($postShot) + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|risk=" + Safe-Token(($riskHints -join ',')))
+  $windowFpToken = Safe-Token -Value $windowFingerprint
+  $targetHwndToken = Safe-Token -Value $targetHwndText
+  $foregroundBeforeToken = Safe-Token -Value $foregroundBeforeText
+  $foregroundAfterToken = Safe-Token -Value $foregroundAfterText
+  $uiaPathToken = Safe-Token -Value $uiaPath
+  $fallbackToken = Safe-Token -Value $fallbackReason
+  $preShotToken = Safe-Token -Value $preShot
+  $postShotToken = Safe-Token -Value $postShot
+  $somCandidateToken = Safe-Token -Value $somSelectedCandidate
+  $riskToken = Safe-Token -Value ($riskHints -join ',')
+  Write-Output ("desktop_send_fail|step=" + $step + "|error=" + $err + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + $windowFpToken + "|target_hwnd=" + $targetHwndToken + "|foreground_before=" + $foregroundBeforeToken + "|foreground_after=" + $foregroundAfterToken + "|uia_path=" + $uiaPathToken + "|fallback_reason=" + $fallbackToken + "|pre_shot=" + $preShotToken + "|post_shot=" + $postShotToken + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|route_level=" + $routeLevel + "|som_source=" + $somSelectionSource + "|som_candidate=" + $somCandidateToken + "|vlm_calls=" + ([string]$vlmCallsUsed) + "|risk=" + $riskToken)
   exit 2
 }
 `.trim();
 
+  const startedAt = Date.now();
   const proc = Bun.spawn(
     ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
     {
@@ -547,6 +882,7 @@ try {
         MIYA_PAYLOAD_HASH: payloadHash,
         MIYA_TRACE_ID: traceID,
         MIYA_EVIDENCE_DIR: evidenceDir,
+        MIYA_ACTION_PLAN_JSON: JSON.stringify(actionPlan),
       },
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -597,10 +933,59 @@ try {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+  const routeLevelRaw = safeValueFromSignal(signal, 'route_level');
+  const routeLevel: DesktopPerceptionRoute =
+    routeLevelRaw === 'L0_ACTION_MEMORY' ||
+    routeLevelRaw === 'L1_UIA' ||
+    routeLevelRaw === 'L2_OCR' ||
+    routeLevelRaw === 'L3_SOM_VLM'
+      ? routeLevelRaw
+      : actionPlan.action_plan.routeLevel;
+  const somSelectionSourceRaw = safeValueFromSignal(signal, 'som_source');
+  const somSelectionSource =
+    somSelectionSourceRaw === 'memory' ||
+    somSelectionSourceRaw === 'heuristic' ||
+    somSelectionSourceRaw === 'vlm' ||
+    somSelectionSourceRaw === 'none'
+      ? somSelectionSourceRaw
+      : actionPlan.action_plan.som.selectionSource;
+  const somSelectedCandidateRaw = Number(safeValueFromSignal(signal, 'som_candidate') ?? Number.NaN);
+  const somSelectedCandidateId = Number.isFinite(somSelectedCandidateRaw)
+    ? Math.max(1, Math.floor(somSelectedCandidateRaw))
+    : actionPlan.action_plan.som.selectedCandidateId;
+  const vlmCallsRaw = Number(safeValueFromSignal(signal, 'vlm_calls') ?? Number.NaN);
+  const vlmCallsUsed = Number.isFinite(vlmCallsRaw)
+    ? Math.max(0, Math.min(2, Math.floor(vlmCallsRaw)))
+    : 0;
+  const latencyMs = Math.max(1, Date.now() - startedAt);
   if (fallbackReason && fallbackReason !== 'none') {
     simulationRiskHints.push(`focus_fallback:${fallbackReason}`);
   }
+  const writeOutcomeAndReadKpi = (sent: boolean) => {
+    try {
+      recordDesktopActionOutcome(input.projectDir, {
+        intent: actionPlan.intent,
+        screenState: {
+          ...actionPlan.screen_state,
+          windowFingerprint: windowFingerprint ?? actionPlan.screen_state.windowFingerprint,
+        },
+        actionPlan,
+        sent,
+        latencyMs,
+        vlmCallsUsed,
+        somSucceeded: routeLevel === 'L3_SOM_VLM' ? sent : false,
+        highRiskMisfire:
+          (input.riskLevel ?? 'LOW') === 'HIGH' &&
+          sent &&
+          recipientTextCheck === 'mismatch',
+      });
+      return readDesktopAutomationKpi(input.projectDir);
+    } catch {
+      return undefined;
+    }
+  };
   if (exitCode === 0 && stdout.includes('desktop_send_ok') && !timedOut) {
+    const kpiSnapshot = writeOutcomeAndReadKpi(true);
     return {
       sent: true,
       message: `${input.channel}_desktop_sent`,
@@ -621,6 +1006,14 @@ try {
       preSendScreenshotPath,
       postSendScreenshotPath,
       failureStep,
+      routeLevel,
+      actionPlan,
+      somSelectionSource,
+      somSelectedCandidateId,
+      vlmCallsUsed,
+      actionPlanMemoryHit: actionPlan.action_plan.memoryHit,
+      latencyMs,
+      kpiSnapshot,
     };
   }
 
@@ -631,6 +1024,7 @@ try {
     timedOut,
     exitCode,
   });
+  const kpiSnapshot = writeOutcomeAndReadKpi(false);
   return {
     sent: false,
     message: `${input.channel}_desktop_send_failed:${detail}`,
@@ -651,5 +1045,13 @@ try {
     recipientTextCheck,
     preSendScreenshotPath,
     postSendScreenshotPath,
+    routeLevel,
+    actionPlan,
+    somSelectionSource,
+    somSelectedCandidateId,
+    vlmCallsUsed,
+    actionPlanMemoryHit: actionPlan.action_plan.memoryHit,
+    latencyMs,
+    kpiSnapshot,
   };
 }

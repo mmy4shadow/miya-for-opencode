@@ -1,31 +1,12 @@
-import { sendDesktopOutbound } from './shared';
+import { sendDesktopOutbound, type DesktopOutboundResult } from './shared';
 
 export async function sendWechatDesktopMessage(input: {
   projectDir: string;
   destination: string;
   text?: string;
   mediaPath?: string;
-}): Promise<{
-  sent: boolean;
-  message: string;
-  automationPath?: 'uia' | 'sendkeys' | 'mixed';
-  uiaPath?: 'valuepattern' | 'clipboard_sendkeys' | 'none';
-  targetHwnd?: string;
-  foregroundBefore?: string;
-  foregroundAfter?: string;
-  fallbackReason?: string;
-  simulationStatus?: 'captured' | 'not_available';
-  simulationRiskHints?: string[];
-  visualPrecheck?: string;
-  visualPostcheck?: string;
-  receiptStatus?: 'confirmed' | 'uncertain';
-  failureStep?: string;
-  payloadHash?: string;
-  windowFingerprint?: string;
-  recipientTextCheck?: 'matched' | 'uncertain' | 'mismatch';
-  preSendScreenshotPath?: string;
-  postSendScreenshotPath?: string;
-}> {
+  riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+}): Promise<DesktopOutboundResult> {
   return await sendDesktopOutbound({
     projectDir: input.projectDir,
     appName: 'WeChat',
@@ -33,5 +14,6 @@ export async function sendWechatDesktopMessage(input: {
     destination: input.destination,
     text: input.text,
     mediaPath: input.mediaPath,
+    riskLevel: input.riskLevel,
   });
 }

@@ -49,11 +49,16 @@ function parseLocalCommand(): LocalVlmCommandSpec | null {
     return { ...parsed, shell: false };
   }
   const shared = String(process.env.MIYA_VISION_LOCAL_CMD ?? '').trim();
-  if (shared) return { command: shared, args: [], shell: true };
+  if (shared) {
+    const parsed = parseCommandSpec(shared);
+    if (parsed) return { ...parsed, shell: false };
+    return { command: shared, args: [], shell: true };
+  }
 
   const projectDir = process.cwd();
   const scriptPath = path.join(projectDir, 'miya-src', 'python', 'infer_qwen3_vl.py');
   if (!fs.existsSync(scriptPath)) return null;
+  const backendCmd = String(process.env.MIYA_QWEN3VL_CMD ?? '').trim();
   const modelRoot =
     path.basename(projectDir).toLowerCase() === '.opencode'
       ? path.join(projectDir, 'miya', 'model')
@@ -62,9 +67,11 @@ function parseLocalCommand(): LocalVlmCommandSpec | null {
     String(process.env.MIYA_QWEN3VL_MODEL_DIR ?? '').trim() ||
     path.join(modelRoot, 'shi jue', 'Qwen3VL-4B-Instruct-Q4_K_M');
   const python = String(process.env.MIYA_VISION_PYTHON ?? '').trim() || 'python';
+  const args = [scriptPath, '--mode', 'screen_probe', '--model-dir', modelDir];
+  if (backendCmd) args.push('--backend-cmd', backendCmd);
   return {
     command: python,
-    args: [scriptPath, '--mode', 'screen_probe', '--model-dir', modelDir],
+    args,
     shell: false,
   };
 }
