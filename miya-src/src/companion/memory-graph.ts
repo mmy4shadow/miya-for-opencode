@@ -9,6 +9,8 @@ export interface CompanionMemoryGraphEdge {
   predicate: string;
   object: string;
   memoryKind: string;
+  semanticLayer: string;
+  domain: string;
   confidence: number;
   sourceMessageID?: string;
   updatedAt: string;
@@ -33,11 +35,19 @@ function openGraphDb(projectDir: string): Database {
       predicate TEXT NOT NULL,
       object TEXT NOT NULL,
       memory_kind TEXT NOT NULL,
+      semantic_layer TEXT DEFAULT 'episodic',
+      domain TEXT DEFAULT 'relationship',
       confidence REAL DEFAULT 0.5,
       source_message_id TEXT,
       updated_at TEXT NOT NULL
     );
   `);
+  try {
+    db.exec(`ALTER TABLE long_term_graph ADD COLUMN semantic_layer TEXT DEFAULT 'episodic'`);
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE long_term_graph ADD COLUMN domain TEXT DEFAULT 'relationship'`);
+  } catch {}
   return db;
 }
 
@@ -64,7 +74,7 @@ export function searchCompanionMemoryGraph(
   projectDir: string,
   query: string,
   limit = 8,
-  options?: { minConfidence?: number },
+  options?: { minConfidence?: number; semanticLayer?: string; domain?: string },
 ): CompanionMemoryGraphEdge[] {
   const text = String(query ?? '').trim();
   if (!text) return [];
@@ -77,6 +87,8 @@ export function searchCompanionMemoryGraph(
   try {
     db = openGraphDb(projectDir);
     const like = `%${text.replace(/[%_]/g, '')}%`;
+    const layer = typeof options?.semanticLayer === 'string' ? options.semanticLayer.trim() : '';
+    const domain = typeof options?.domain === 'string' ? options.domain.trim() : '';
     const rows = db
       .query(
         `
@@ -86,22 +98,26 @@ export function searchCompanionMemoryGraph(
             predicate,
             object,
             memory_kind AS memoryKind,
+            semantic_layer AS semanticLayer,
+            domain,
             confidence,
             source_message_id AS sourceMessageID,
             updated_at AS updatedAt
           FROM long_term_graph
           WHERE
             confidence >= ?1
+            AND (?2 = '' OR semantic_layer = ?2)
+            AND (?3 = '' OR domain = ?3)
             AND (
-              subject LIKE ?2
-              OR predicate LIKE ?2
-              OR object LIKE ?2
+              subject LIKE ?4
+              OR predicate LIKE ?4
+              OR object LIKE ?4
             )
           ORDER BY confidence DESC, updated_at DESC
-          LIMIT ?3
+          LIMIT ?5
         `,
       )
-      .all(minConfidence, like, safeLimit * 4) as Array<
+      .all(minConfidence, layer, domain, like, safeLimit * 4) as Array<
       Omit<CompanionMemoryGraphEdge, 'score'> & { confidence?: number }
     >;
     const tokens = tokenize(text);
@@ -112,6 +128,8 @@ export function searchCompanionMemoryGraph(
         const score = Number((0.55 * lexical + 0.45 * confidence).toFixed(4));
         return {
           ...row,
+          semanticLayer: String(row.semanticLayer ?? 'episodic'),
+          domain: String(row.domain ?? 'relationship'),
           confidence,
           score,
         };
@@ -146,6 +164,8 @@ export function listCompanionMemoryGraphNeighbors(
             predicate,
             object,
             memory_kind AS memoryKind,
+            semantic_layer AS semanticLayer,
+            domain,
             confidence,
             source_message_id AS sourceMessageID,
             updated_at AS updatedAt
@@ -158,6 +178,8 @@ export function listCompanionMemoryGraphNeighbors(
       .all(like, safeLimit) as Array<Omit<CompanionMemoryGraphEdge, 'score'>>;
     return rows.map((row) => ({
       ...row,
+      semanticLayer: String(row.semanticLayer ?? 'episodic'),
+      domain: String(row.domain ?? 'relationship'),
       confidence: Number(row.confidence ?? 0.5),
       score: Number(row.confidence ?? 0.5),
     }));
@@ -172,6 +194,7 @@ export function getCompanionMemoryGraphStats(projectDir: string): {
   sqlitePath: string;
   edgeCount: number;
   avgConfidence: number;
+  byLayer: Record<string, number>;
   updatedAt?: string;
 } {
   let db: Database | null = null;
@@ -188,10 +211,24 @@ export function getCompanionMemoryGraphStats(projectDir: string): {
         `,
       )
       .get() as { edgeCount?: number; avgConfidence?: number; updatedAt?: string } | null;
+    const layerRows = db
+      .query(
+        `
+          SELECT semantic_layer AS layer, COUNT(1) AS c
+          FROM long_term_graph
+          GROUP BY semantic_layer
+        `,
+      )
+      .all() as Array<{ layer?: string; c?: number }>;
+    const byLayer: Record<string, number> = {};
+    for (const item of layerRows) {
+      byLayer[String(item.layer ?? 'unknown')] = Number(item.c ?? 0);
+    }
     return {
       sqlitePath: sqlitePath(projectDir),
       edgeCount: Number(row?.edgeCount ?? 0),
       avgConfidence: Number(Number(row?.avgConfidence ?? 0).toFixed(4)),
+      byLayer,
       updatedAt: row?.updatedAt,
     };
   } finally {

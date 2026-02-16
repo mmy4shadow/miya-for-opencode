@@ -208,6 +208,74 @@ def _handle_pairing_query(params: Dict[str, Any]) -> Dict[str, Any]:
         return {"provider": "openclaw", "source": "rest", "pairing": data}
 
 
+def _handle_skills_sync(params: Dict[str, Any]) -> Dict[str, Any]:
+    action = str(params.get("action", "list")).strip().lower()
+    if action == "list":
+        data = _jsonrpc("miya.sync.list", {})
+        return {"provider": "openclaw", "source": "jsonrpc", "sync": data}
+    if action == "diff":
+        payload = {
+            "source": str(params.get("source", "")).strip() or None,
+            "target": str(params.get("target", "")).strip() or None,
+        }
+        data = _jsonrpc("miya.sync.diff", payload)
+        return {"provider": "openclaw", "source": "jsonrpc", "sync": data}
+    if action == "apply":
+        payload = {
+            "source": str(params.get("source", "")).strip() or None,
+            "target": str(params.get("target", "")).strip() or None,
+            "dryRun": bool(params.get("dryRun", False)),
+        }
+        data = _jsonrpc("miya.sync.apply", payload)
+        return {"provider": "openclaw", "source": "jsonrpc", "sync": data}
+    if action == "verify":
+        payload = {
+            "source": str(params.get("source", "")).strip() or None,
+            "target": str(params.get("target", "")).strip() or None,
+        }
+        data = _jsonrpc("miya.sync.verify", payload)
+        return {"provider": "openclaw", "source": "jsonrpc", "sync": data}
+    raise ValueError(f"unsupported_sync_action:{action}")
+
+
+def _handle_routing_map(params: Dict[str, Any]) -> Dict[str, Any]:
+    limit = params.get("limit", 100)
+    try:
+        limit_num = max(1, min(1000, int(limit)))
+    except Exception:
+        limit_num = 100
+    data = _jsonrpc("routing.stats.get", {"limit": limit_num})
+    mode = data.get("mode") if isinstance(data, dict) else None
+    recent = data.get("recent", []) if isinstance(data, dict) else []
+    return {
+        "provider": "openclaw",
+        "source": "jsonrpc",
+        "routing": {
+            "mode": mode,
+            "recent": recent,
+            "cost": data.get("cost") if isinstance(data, dict) else None,
+        },
+    }
+
+
+def _handle_audit_replay(params: Dict[str, Any]) -> Dict[str, Any]:
+    limit = params.get("limit", 50)
+    try:
+        limit_num = max(1, min(500, int(limit)))
+    except Exception:
+        limit_num = 50
+    data = _jsonrpc("audit.ledger.list", {"limit": limit_num})
+    replay_token = str(params.get("replayToken", "")).strip()
+    if replay_token and isinstance(data, dict) and isinstance(data.get("items"), list):
+        items = [item for item in data.get("items", []) if isinstance(item, dict) and item.get("replayToken") == replay_token]
+        return {
+            "provider": "openclaw",
+            "source": "jsonrpc",
+            "audit": {"items": items, "matched": len(items), "replayToken": replay_token},
+        }
+    return {"provider": "openclaw", "source": "jsonrpc", "audit": data}
+
+
 def _handle(req: Dict[str, Any]) -> Dict[str, Any]:
     rpc_id = str(req.get("id", "unknown"))
     method = str(req.get("method", "")).strip()
@@ -247,6 +315,24 @@ def _handle(req: Dict[str, Any]) -> Dict[str, Any]:
     if method in ("pairing.query", "pairing.list", "nodes.pair.list", "nodes.pair.status"):
         try:
             return _ok(rpc_id, _handle_pairing_query(params))
+        except Exception as exc:
+            return _error(rpc_id, "openclaw_gateway_unavailable", str(exc))
+
+    if method in ("skills.sync", "miya.sync", "sync.skills"):
+        try:
+            return _ok(rpc_id, _handle_skills_sync(params))
+        except Exception as exc:
+            return _error(rpc_id, "openclaw_gateway_unavailable", str(exc))
+
+    if method in ("routing.map", "routing.stats"):
+        try:
+            return _ok(rpc_id, _handle_routing_map(params))
+        except Exception as exc:
+            return _error(rpc_id, "openclaw_gateway_unavailable", str(exc))
+
+    if method in ("audit.replay", "audit.ledger", "audit.list"):
+        try:
+            return _ok(rpc_id, _handle_audit_replay(params))
         except Exception as exc:
             return _error(rpc_id, "openclaw_gateway_unavailable", str(exc))
 

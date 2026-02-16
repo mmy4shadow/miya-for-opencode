@@ -12,6 +12,11 @@ import {
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from './memory-vector';
+import {
+  readEmbeddingProviderConfig,
+  writeEmbeddingProviderConfig,
+} from './memory-embedding';
+import { runMemoryRecallBenchmark } from './memory-recall-benchmark';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-memory-vector-test-'));
@@ -139,6 +144,67 @@ describe('companion memory vectors', () => {
     });
     expect(work.every((item) => item.domain === 'work')).toBe(true);
     expect(relationship.every((item) => item.domain === 'relationship')).toBe(true);
+  });
+
+  test('supports layered retrieval and dual-channel lexical recall', () => {
+    const projectDir = tempProjectDir();
+    upsertCompanionMemoryVector(projectDir, {
+      text: 'Tool trace: cargo test failed due to missing feature flag',
+      source: 'test',
+      activate: true,
+      domain: 'work',
+      semanticLayer: 'tool_trace',
+    });
+    upsertCompanionMemoryVector(projectDir, {
+      text: 'User likes oat milk latte',
+      source: 'test',
+      activate: true,
+      domain: 'relationship',
+      semanticLayer: 'preference',
+    });
+    const traceHits = searchCompanionMemoryVectors(projectDir, 'feature flag missing in test', 5, {
+      threshold: 0,
+      domain: 'work',
+      semanticLayers: ['tool_trace'],
+      semanticWeight: 0.2,
+      lexicalWeight: 0.8,
+    });
+    expect(traceHits.length).toBeGreaterThan(0);
+    expect(traceHits[0]?.semanticLayer).toBe('tool_trace');
+    expect(traceHits[0]?.lexicalSimilarity).toBeGreaterThan(0);
+    const prefHits = searchCompanionMemoryVectors(projectDir, 'what latte does user like', 5, {
+      threshold: 0,
+      semanticLayers: ['preference'],
+    });
+    expect(prefHits.length).toBeGreaterThan(0);
+    expect(prefHits[0]?.semanticLayer).toBe('preference');
+  });
+
+  test('supports pluggable embedding provider with fallback config', () => {
+    const projectDir = tempProjectDir();
+    const next = writeEmbeddingProviderConfig(projectDir, {
+      kind: 'local-ngram',
+      dims: 96,
+    });
+    expect(next.kind).toBe('local-ngram');
+    const loaded = readEmbeddingProviderConfig(projectDir);
+    expect(loaded.kind).toBe('local-ngram');
+    upsertCompanionMemoryVector(projectDir, {
+      text: '用户偏好热美式',
+      source: 'test',
+      activate: true,
+      semanticLayer: 'preference',
+    });
+    const hits = searchCompanionMemoryVectors(projectDir, '热美式偏好', 3, { threshold: 0 });
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0]?.embeddingProvider.includes('local-ngram')).toBe(true);
+  });
+
+  test('runs offline recall benchmark with recall@k output', () => {
+    const report = runMemoryRecallBenchmark();
+    expect(report.cases).toBeGreaterThan(0);
+    expect(report.recallAtK['recall@3']).toBeGreaterThan(0.5);
+    expect(report.caseResults.length).toBe(report.cases);
   });
 
   test('requires evidence to activate cross-domain memory writes', () => {

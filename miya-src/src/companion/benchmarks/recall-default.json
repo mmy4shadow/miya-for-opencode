@@ -1,0 +1,63 @@
+{
+  "name": "miya-memory-recall-v1",
+  "fixtures": [
+    {
+      "id": "pref_matcha",
+      "text": "User likes matcha latte with low sugar",
+      "domain": "relationship",
+      "semanticLayer": "preference"
+    },
+    {
+      "id": "work_ts",
+      "text": "Project requires TypeScript strict mode and lint pass",
+      "domain": "work",
+      "semanticLayer": "semantic"
+    },
+    {
+      "id": "trace_timeout",
+      "text": "Tool trace: build command timed out on CI pipeline",
+      "domain": "work",
+      "semanticLayer": "tool_trace"
+    },
+    {
+      "id": "episodic_trip",
+      "text": "User said yesterday that weekend plan is hiking",
+      "domain": "relationship",
+      "semanticLayer": "episodic"
+    }
+  ],
+  "cases": [
+    {
+      "id": "q1",
+      "query": "What drink does user prefer?",
+      "expected": ["pref_matcha"],
+      "domain": "relationship",
+      "semanticLayers": ["preference"],
+      "k": 3
+    },
+    {
+      "id": "q2",
+      "query": "How to keep TypeScript quality gate green?",
+      "expected": ["work_ts"],
+      "domain": "work",
+      "semanticLayers": ["semantic"],
+      "k": 3
+    },
+    {
+      "id": "q3",
+      "query": "Any trace about timeout in build?",
+      "expected": ["trace_timeout"],
+      "domain": "work",
+      "semanticLayers": ["tool_trace"],
+      "k": 3
+    },
+    {
+      "id": "q4",
+      "query": "What did user mention about weekend?",
+      "expected": ["episodic_trip"],
+      "domain": "relationship",
+      "semanticLayers": ["episodic"],
+      "k": 3
+    }
+  ]
+}

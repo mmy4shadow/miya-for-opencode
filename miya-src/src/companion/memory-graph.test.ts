@@ -36,5 +36,6 @@ describe('companion memory graph', () => {
     expect(neighbors.length).toBeGreaterThan(0);
     const stats = getCompanionMemoryGraphStats(projectDir);
     expect(stats.edgeCount).toBeGreaterThanOrEqual(2);
+    expect(Object.keys(stats.byLayer).length).toBeGreaterThan(0);
   });
 });

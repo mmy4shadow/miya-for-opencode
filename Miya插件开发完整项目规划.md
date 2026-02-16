@@ -30,6 +30,17 @@
 - `P1` Persona/WorldInfo 层：已落地（`miya-src/src/companion/persona-world.ts`），并接入会话绑定与安全提示链路。
 - `P2` 策略实验框架：已落地（`miya-src/src/strategy/experiments.ts`），支持 A/B 分流与离线回放汇总，已接入路由/记忆写入/审批阈值观测。
 
+### 2026-02-16 增量实装状态回填（本轮）
+
+- `P0-1` Gateway 拆域重构（先不改协议）：已落地第一阶段。`gateway/index.ts` 已按域接入子注册器（`miya-src/src/gateway/methods/channels.ts`、`security.ts`、`nodes.ts`、`companion.ts`、`memory.ts`），协议版本与 method 名保持不变。
+- `P0-2` 记忆检索“双通道召回 + 可评测”：已落地。新增可插拔 embedding provider（本地 hash/ngram + 远程 HTTP 回退）与 dual-recall 融合检索（semantic + lexical），并新增离线 recall@k 数据集与评测工具（`miya-src/src/companion/memory-embedding.ts`、`memory-recall-benchmark.ts`、`src/companion/benchmarks/recall-default.json`、`tools/memory-recall-benchmark.ts`）。
+- `P0-3` 路由“规则+轻模型判别”：已落地。规则层与轻量模型层做融合打分，保留规则兜底并补充模型证据链（`miya-src/src/router/classifier.ts`、`miya-src/src/router/light-model.ts`）。
+- `P0-4` 回归/基准套件：已落地最小可用集。新增 `src/regression/suite.test.ts`，覆盖外发安全、审批疲劳、mixed 模式、记忆跨域写入四类场景；新增 `npm script`：`test:regression`、`benchmark:memory-recall`。
+- `P1-1` 记忆分层语义（episodic/semantic/preference/tool-trace）：已落地到存储与检索路径。JSON/SQLite/Graph 均补齐分层字段与学习阶段（ephemeral/candidate/persistent），反思抽取新增 tool-trace 信号（`memory-vector.ts`、`memory-sqlite.ts`、`memory-graph.ts`、`memory-reflect.ts`）。
+- `P1-2` Team Pipeline 对齐（plan->exec->verify->fix）：已落地到 Autoflow 输出层。`runAutoflow` 结果新增统一 pipeline 快照，失败结果统一返回 `fixability + budget` 结构化信息（`miya-src/src/autoflow/types.ts`、`engine.ts`）。
+- `P1-3` OpenClaw 互操作增强：已落地扩展。adapter 新增 skills 同步、routing map、audit replay RPC（`miya-src/src/adapters/openclaw/server.py`），网关新增对应代理方法（`openclaw.skills.sync`、`openclaw.routing.map`、`openclaw.audit.replay`）。
+- `P2` Psyche Slow Brain + Resonance Gate 产品化：已落地“可开关 + 可回滚 + 可评测 + shadow A/B”。新增 slow-brain/shadow rollout 配置、配置历史回滚、shadow divergence 审计统计与查询接口（`psyche.mode.rollback`、`psyche.shadow.stats`，实现位于 `miya-src/src/gateway/index.ts`）。
+
 ### 1. 基础架构方向性修正与闭环
 
 1. **核心定位升级（强制）**  
@@ -1192,10 +1203,7 @@ interface WizardSession {
 ├── companion/                    # 女友人格资产根目录
 │   ├── current/                  # 当前激活的人格
 │   │   ├── metadata.json         # 人格元数据
-│   │   ├── photos/               # 参考照片索引（指向 .opencode/miya/model/tu pian/chang qi）
-│   │   │   ├── 01_original.jpg
-│   │   │   ├── 02_original.jpg
-│   │   │   └── ...
+│   │   │
 │   │   ├── embeddings/           # 人脸embedding（轻方案）
 │   │   │   └── face_embedding.pt
 │   │   ├── lora/                 # LoRA权重（中方案，可选）

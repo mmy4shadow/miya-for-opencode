@@ -10,6 +10,37 @@ export type AutoflowPhase =
   | 'failed'
   | 'stopped';
 
+export type AutoflowPipelineStage = 'plan' | 'exec' | 'verify' | 'fix' | 'terminal';
+
+export type AutoflowFixability =
+  | 'rewrite'
+  | 'reduce_scope'
+  | 'need_evidence'
+  | 'retry_later'
+  | 'impossible'
+  | 'unknown';
+
+export interface AutoflowFailureBudget {
+  maxFixRounds: number;
+  usedFixRounds: number;
+  remainingFixRounds: number;
+  fixCommandsTotal: number;
+}
+
+export interface AutoflowFailureSummary {
+  phase: AutoflowPhase;
+  stage: AutoflowPipelineStage;
+  reason: string;
+  fixability: AutoflowFixability;
+  budget: AutoflowFailureBudget;
+}
+
+export interface AutoflowPipelineSnapshot {
+  graph: 'plan->exec->verify->fix';
+  phase: AutoflowPhase;
+  stage: AutoflowPipelineStage;
+}
+
 export interface AutoflowRuntimeTask {
   id: string;
   agent: string;
@@ -103,8 +134,10 @@ export interface AutoflowRunResult {
   success: boolean;
   phase: AutoflowPhase;
   summary: string;
+  pipeline: AutoflowPipelineSnapshot;
   state: AutoflowSessionState;
   dagResult?: UltraworkDagResult;
   verification?: AutoflowCommandResult;
   fixResult?: AutoflowCommandResult;
+  failure?: AutoflowFailureSummary;
 }

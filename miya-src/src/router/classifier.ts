@@ -1,3 +1,5 @@
+import { scoreRouteIntentLightModel } from './light-model';
+
 export type RouteIntent =
   | 'code_fix'
   | 'code_search'
@@ -43,30 +45,44 @@ function seedScores(): Record<RouteIntent, number> {
 
 export function analyzeRouteSemantics(text: string): RouteSemanticSignal {
   const lower = String(text ?? '').toLowerCase();
-  const scores = seedScores();
+  const ruleScores = seedScores();
   const evidence: string[] = [];
   for (const rule of INTENT_RULES) {
     if (!rule.pattern.test(lower)) continue;
-    scores[rule.intent] += rule.weight;
+    ruleScores[rule.intent] += rule.weight;
     evidence.push(rule.evidence);
   }
 
   if (/```[\s\S]*```/.test(lower)) {
-    scores.code_fix += 0.6;
-    scores.code_search += 0.4;
+    ruleScores.code_fix += 0.6;
+    ruleScores.code_search += 0.4;
     evidence.push('code_block_present');
   }
   if (/(截图|mockup|figma|视觉稿)/i.test(lower)) {
-    scores.ui_design += 0.7;
+    ruleScores.ui_design += 0.7;
     evidence.push('design_asset_signal');
   }
   if (/(并行|pipeline|workflow|编排|自动化)/i.test(lower)) {
-    scores.architecture += 0.5;
-    scores.code_fix += 0.3;
+    ruleScores.architecture += 0.5;
+    ruleScores.code_fix += 0.3;
     evidence.push('workflow_signal');
   }
+  if (/(state graph|状态图|budget|预算|fixability|postmortem)/i.test(lower)) {
+    ruleScores.architecture += 1.05;
+    evidence.push('state_graph_budget_signal');
+  }
 
-  const ranked = Object.entries(scores)
+  const model = scoreRouteIntentLightModel(lower);
+  const modelScale = 1.6;
+  const modelWeight = 0.52;
+  const combinedScores = seedScores();
+  for (const intent of Object.keys(combinedScores) as RouteIntent[]) {
+    combinedScores[intent] =
+      (ruleScores[intent] ?? 0) + (model.probabilities[intent] ?? 0) * modelScale * modelWeight;
+  }
+  evidence.push(...model.evidence.map((item) => `light_model:${item}`));
+
+  const ranked = Object.entries(combinedScores)
     .filter(([intent]) => intent !== 'general')
     .sort((a, b) => b[1] - a[1]) as Array<[RouteIntent, number]>;
   const top = ranked[0];
@@ -81,7 +97,7 @@ export function analyzeRouteSemantics(text: string): RouteSemanticSignal {
     intent,
     confidence,
     evidence: [...new Set(evidence)].slice(0, 8),
-    scores,
+    scores: combinedScores,
     ambiguity,
   };
 }

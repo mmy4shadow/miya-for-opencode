@@ -1,10 +1,13 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import { syncCompanionMemoriesToSqlite } from './memory-sqlite';
+import { embedTextWithProvider } from './memory-embedding';
 
 export type MemoryDomain = 'work' | 'relationship';
+export type MemorySemanticLayer = 'episodic' | 'semantic' | 'preference' | 'tool_trace';
+export type MemoryLearningStage = 'ephemeral' | 'candidate' | 'persistent';
 
 export interface CompanionMemoryVector {
   id: string;
@@ -19,7 +22,10 @@ export interface CompanionMemoryVector {
     approvedAt?: string;
   };
   memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
+  semanticLayer: MemorySemanticLayer;
+  learningStage: MemoryLearningStage;
   source: string;
+  embeddingProvider: string;
   embedding: number[];
   score: number;
   confidence: number;
@@ -38,7 +44,7 @@ export interface CompanionMemoryVector {
 }
 
 interface MemoryVectorStore {
-  version: 1;
+  version: 2;
   items: CompanionMemoryVector[];
 }
 
@@ -73,82 +79,213 @@ function ensureDir(projectDir: string): void {
   fs.mkdirSync(path.dirname(filePath(projectDir)), { recursive: true });
 }
 
+function normalizeText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+function normalizeSemanticLayer(
+  value: unknown,
+  fallback: MemorySemanticLayer,
+): MemorySemanticLayer {
+  if (
+    value === 'episodic' ||
+    value === 'semantic' ||
+    value === 'preference' ||
+    value === 'tool_trace'
+  ) {
+    return value;
+  }
+  return fallback;
+}
+
+function normalizeLearningStage(
+  value: unknown,
+  fallback: MemoryLearningStage,
+): MemoryLearningStage {
+  if (value === 'ephemeral' || value === 'candidate' || value === 'persistent') {
+    return value;
+  }
+  return fallback;
+}
+
+const WORK_DOMAIN_HINT =
+  /(bug|fix|error|code|commit|branch|build|deploy|api|test|typescript|python|sql|修复|报错|代码|编译|部署|接口|脚本|函数|测试)/i;
+
+function inferSemanticLayerByText(
+  text: string,
+  kind?: CompanionMemoryVector['memoryKind'],
+  sourceType?: CompanionMemoryVector['sourceType'],
+): MemorySemanticLayer {
+  if (kind === 'UserPreference') return 'preference';
+  if (sourceType === 'reflect' && /(trace|stack|command|tool|shell|stderr|stdout|日志|报错)/i.test(text)) {
+    return 'tool_trace';
+  }
+  if (kind === 'Insight') return 'semantic';
+  if (/(喜欢|不喜欢|偏好|prefer|avoid|爱|讨厌)/i.test(text)) return 'preference';
+  if (/(策略|原则|规则|习惯|tends to|usually|always|often)/i.test(text)) return 'semantic';
+  if (/(trace|stack|command|tool|shell|stderr|stdout|日志|报错|执行了)/i.test(text)) {
+    return 'tool_trace';
+  }
+  return 'episodic';
+}
+
+function inferLearningStageByStatus(
+  status: CompanionMemoryVector['status'],
+): MemoryLearningStage {
+  if (status === 'active') return 'persistent';
+  if (status === 'pending') return 'candidate';
+  return 'candidate';
+}
+
+export function inferMemoryDomain(text: string): MemoryDomain {
+  return WORK_DOMAIN_HINT.test(text) ? 'work' : 'relationship';
+}
+
+function tokenize(text: string): string[] {
+  return normalizeText(text)
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 80);
+}
+
+function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 1) sum += a[i] * b[i];
+  return sum;
+}
+
+function lexicalSimilarity(queryTokens: string[], docTokens: string[], docFreq: Map<string, number>, corpusSize: number): number {
+  if (queryTokens.length === 0 || docTokens.length === 0 || corpusSize <= 0) return 0;
+  const tf = new Map<string, number>();
+  for (const token of docTokens) {
+    tf.set(token, (tf.get(token) ?? 0) + 1);
+  }
+  let score = 0;
+  for (const token of queryTokens) {
+    const termFreq = (tf.get(token) ?? 0) / docTokens.length;
+    if (termFreq <= 0) continue;
+    const df = docFreq.get(token) ?? 0;
+    const idf = Math.log((corpusSize + 1) / (df + 1)) + 1;
+    score += termFreq * idf;
+  }
+  return score;
+}
+
+function buildDocFreq(tokensList: string[][]): Map<string, number> {
+  const freq = new Map<string, number>();
+  for (const tokens of tokensList) {
+    const uniq = new Set(tokens);
+    for (const token of uniq) {
+      freq.set(token, (freq.get(token) ?? 0) + 1);
+    }
+  }
+  return freq;
+}
+
+function extractConflictKey(text: string): { key?: string; polarity: 'positive' | 'negative' | 'neutral' } {
+  const negative = text.match(/(?:不喜欢|讨厌|不想|不要)\s*([^，。!！?？]+)/);
+  if (negative?.[1]) return { key: normalizeText(negative[1]), polarity: 'negative' };
+  const positive = text.match(/(?:喜欢|爱|偏好|想要)\s*([^，。!！?？]+)/);
+  if (positive?.[1]) return { key: normalizeText(positive[1]), polarity: 'positive' };
+  return { polarity: 'neutral' };
+}
+
 function readStore(projectDir: string): MemoryVectorStore {
   const file = filePath(projectDir);
-  if (!fs.existsSync(file)) return { version: 1, items: [] };
+  if (!fs.existsSync(file)) return { version: 2, items: [] };
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MemoryVectorStore>;
     return {
-      version: 1,
+      version: 2,
       items: Array.isArray(parsed.items)
-        ? parsed.items.map((item) => ({
-            ...item,
-            confidence:
-              typeof item.confidence === 'number' && Number.isFinite(item.confidence)
-                ? Math.max(0, Math.min(1, item.confidence))
-                : 0.7,
-            tier: item.tier === 'L1' || item.tier === 'L2' || item.tier === 'L3' ? item.tier : 'L2',
-            sourceMessageID:
-              typeof item.sourceMessageID === 'string' && item.sourceMessageID.trim()
-                ? item.sourceMessageID
-                : undefined,
-            sourceType:
+        ? parsed.items.map((item) => {
+            const status: CompanionMemoryVector['status'] =
+              item.status === 'active' || item.status === 'pending' || item.status === 'superseded'
+                ? item.status
+                : 'active';
+            const memoryKind: CompanionMemoryVector['memoryKind'] =
+              item.memoryKind === 'Fact' ||
+              item.memoryKind === 'Insight' ||
+              item.memoryKind === 'UserPreference'
+                ? item.memoryKind
+                : undefined;
+            const sourceType: CompanionMemoryVector['sourceType'] =
               item.sourceType === 'manual' ||
               item.sourceType === 'conversation' ||
               item.sourceType === 'reflect' ||
               item.sourceType === 'direct_correction'
                 ? item.sourceType
-                : 'manual',
-            memoryKind:
-              item.memoryKind === 'Fact' ||
-              item.memoryKind === 'Insight' ||
-              item.memoryKind === 'UserPreference'
-                ? item.memoryKind
-                : undefined,
-            domain:
-              item.domain === 'work' || item.domain === 'relationship'
-                ? item.domain
-                : 'relationship',
-            inferredDomain:
-              item.inferredDomain === 'work' || item.inferredDomain === 'relationship'
-                ? item.inferredDomain
-                : undefined,
-            crossDomainWrite:
-              item.crossDomainWrite &&
-              typeof item.crossDomainWrite === 'object' &&
-              (item.crossDomainWrite.from === 'work' ||
-                item.crossDomainWrite.from === 'relationship') &&
-              (item.crossDomainWrite.to === 'work' ||
-                item.crossDomainWrite.to === 'relationship')
-                ? {
-                    from: item.crossDomainWrite.from,
-                    to: item.crossDomainWrite.to,
-                    requiresApproval: item.crossDomainWrite.requiresApproval !== false,
-                    evidence: Array.isArray(item.crossDomainWrite.evidence)
-                      ? item.crossDomainWrite.evidence.map((entry) => String(entry)).slice(0, 20)
-                      : [],
-                    approvedAt:
-                      typeof item.crossDomainWrite.approvedAt === 'string'
-                        ? item.crossDomainWrite.approvedAt
-                        : undefined,
-                  }
-                : undefined,
-            status:
-              item.status === 'active' ||
-              item.status === 'pending' ||
-              item.status === 'superseded'
-                ? item.status
-                : 'active',
-            accessCount:
-              typeof item.accessCount === 'number' && Number.isFinite(item.accessCount)
-                ? Math.max(0, Math.floor(item.accessCount))
-                : 0,
-            isArchived: typeof item.isArchived === 'boolean' ? item.isArchived : false,
-          }))
+                : 'manual';
+            const text = typeof item.text === 'string' ? item.text : '';
+            return {
+              ...item,
+              confidence:
+                typeof item.confidence === 'number' && Number.isFinite(item.confidence)
+                  ? Math.max(0, Math.min(1, item.confidence))
+                  : 0.7,
+              tier:
+                item.tier === 'L1' || item.tier === 'L2' || item.tier === 'L3' ? item.tier : 'L2',
+              sourceMessageID:
+                typeof item.sourceMessageID === 'string' && item.sourceMessageID.trim()
+                  ? item.sourceMessageID
+                  : undefined,
+              sourceType,
+              memoryKind,
+              semanticLayer: normalizeSemanticLayer(
+                item.semanticLayer,
+                inferSemanticLayerByText(text, memoryKind, sourceType),
+              ),
+              learningStage: normalizeLearningStage(
+                item.learningStage,
+                inferLearningStageByStatus(status),
+              ),
+              domain:
+                item.domain === 'work' || item.domain === 'relationship'
+                  ? item.domain
+                  : 'relationship',
+              inferredDomain:
+                item.inferredDomain === 'work' || item.inferredDomain === 'relationship'
+                  ? item.inferredDomain
+                  : undefined,
+              crossDomainWrite:
+                item.crossDomainWrite &&
+                typeof item.crossDomainWrite === 'object' &&
+                (item.crossDomainWrite.from === 'work' ||
+                  item.crossDomainWrite.from === 'relationship') &&
+                (item.crossDomainWrite.to === 'work' ||
+                  item.crossDomainWrite.to === 'relationship')
+                  ? {
+                      from: item.crossDomainWrite.from,
+                      to: item.crossDomainWrite.to,
+                      requiresApproval: item.crossDomainWrite.requiresApproval !== false,
+                      evidence: Array.isArray(item.crossDomainWrite.evidence)
+                        ? item.crossDomainWrite.evidence.map((entry) => String(entry)).slice(0, 20)
+                        : [],
+                      approvedAt:
+                        typeof item.crossDomainWrite.approvedAt === 'string'
+                          ? item.crossDomainWrite.approvedAt
+                          : undefined,
+                    }
+                  : undefined,
+              status,
+              accessCount:
+                typeof item.accessCount === 'number' && Number.isFinite(item.accessCount)
+                  ? Math.max(0, Math.floor(item.accessCount))
+                  : 0,
+              embeddingProvider:
+                typeof item.embeddingProvider === 'string' && item.embeddingProvider.trim()
+                  ? item.embeddingProvider
+                  : 'local-hash',
+              isArchived: typeof item.isArchived === 'boolean' ? item.isArchived : false,
+            } as CompanionMemoryVector;
+          })
         : [],
     };
   } catch {
-    return { version: 1, items: [] };
+    return { version: 2, items: [] };
   }
 }
 
@@ -180,48 +317,6 @@ function writeStore(projectDir: string, store: MemoryVectorStore): MemoryVectorS
   fs.writeFileSync(filePath(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
   syncCompanionMemoriesToSqlite(projectDir, store.items);
   return store;
-}
-
-function normalizeText(text: string): string {
-  return text.trim().replace(/\s+/g, ' ');
-}
-
-const WORK_DOMAIN_HINT =
-  /(bug|fix|error|code|commit|branch|build|deploy|api|test|typescript|python|sql|修复|报错|代码|编译|部署|接口|脚本|函数|测试)/i;
-
-export function inferMemoryDomain(text: string): MemoryDomain {
-  return WORK_DOMAIN_HINT.test(text) ? 'work' : 'relationship';
-}
-
-function textToEmbedding(text: string, dims = 64): number[] {
-  const vec = new Array<number>(dims).fill(0);
-  const parts = normalizeText(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (parts.length === 0) return vec;
-  for (const part of parts) {
-    const hash = createHash('sha256').update(part).digest();
-    for (let i = 0; i < 8; i += 1) {
-      const idx = hash[i] % dims;
-      vec[idx] += 1 + (hash[i + 8] % 3);
-    }
-  }
-  const norm = Math.sqrt(vec.reduce((sum, value) => sum + value * value, 0));
-  if (norm <= 0) return vec;
-  return vec.map((value) => value / norm);
-}
-
-function cosine(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0;
-  let sum = 0;
-  for (let i = 0; i < a.length; i += 1) sum += a[i] * b[i];
-  return sum;
-}
-
-function extractConflictKey(text: string): { key?: string; polarity: 'positive' | 'negative' | 'neutral' } {
-  const negative = text.match(/(?:不喜欢|讨厌|不想|不要)\s*([^，。!！?？]+)/);
-  if (negative?.[1]) return { key: normalizeText(negative[1]), polarity: 'negative' };
-  const positive = text.match(/(?:喜欢|爱|偏好|想要)\s*([^，。!！?？]+)/);
-  if (positive?.[1]) return { key: normalizeText(positive[1]), polarity: 'positive' };
-  return { polarity: 'neutral' };
 }
 
 export function decayCompanionMemoryVectors(
@@ -263,6 +358,8 @@ export function upsertCompanionMemoryVector(
     sourceMessageID?: string;
     sourceType?: 'manual' | 'conversation' | 'reflect' | 'direct_correction';
     memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
+    semanticLayer?: MemorySemanticLayer;
+    learningStage?: MemoryLearningStage;
   },
 ): CompanionMemoryVector {
   const text = normalizeText(input.text);
@@ -270,7 +367,8 @@ export function upsertCompanionMemoryVector(
 
   decayCompanionMemoryVectors(projectDir);
   const store = readStore(projectDir);
-  const embedding = textToEmbedding(text);
+  const embedded = embedTextWithProvider(projectDir, text);
+  const embedding = embedded.embedding;
   const now = nowIso();
   const inferredDomain = inferMemoryDomain(text);
   const requestedDomain = input.domain ?? inferredDomain;
@@ -306,6 +404,14 @@ export function upsertCompanionMemoryVector(
           ? 0.4
           : 0.7;
   const confidence = Math.max(0, Math.min(1, confidenceInput));
+  const sourceType = input.sourceType ?? 'manual';
+  const memoryKind = input.memoryKind;
+  const defaultStatus: CompanionMemoryVector['status'] =
+    crossDomain ? 'pending' : input.activate ? 'active' : 'pending';
+  const semanticLayer = normalizeSemanticLayer(
+    input.semanticLayer,
+    inferSemanticLayerByText(text, memoryKind, sourceType),
+  );
 
   const created: CompanionMemoryVector = {
     id: `mem_${randomUUID()}`,
@@ -321,14 +427,20 @@ export function upsertCompanionMemoryVector(
         }
       : undefined,
     source: input.source?.trim() || 'manual',
+    embeddingProvider: embedded.provider,
     embedding,
     score: 1,
     confidence,
     tier: input.tier ?? (confidence >= 0.95 ? 'L1' : confidence >= 0.6 ? 'L2' : 'L3'),
     sourceMessageID: input.sourceMessageID,
-    sourceType: input.sourceType ?? 'manual',
-    memoryKind: input.memoryKind,
-    status: crossDomain ? 'pending' : input.activate ? 'active' : 'pending',
+    sourceType,
+    memoryKind,
+    semanticLayer,
+    learningStage: normalizeLearningStage(
+      input.learningStage,
+      inferLearningStageByStatus(defaultStatus),
+    ),
+    status: defaultStatus,
     conflictKey: preference.key,
     accessCount: 0,
     isArchived: false,
@@ -363,6 +475,7 @@ export function upsertCompanionMemoryVector(
 
       if (shouldOverwrite && !crossDomain) {
         created.status = 'active';
+        created.learningStage = 'persistent';
         for (const other of conflicting) {
           other.status = 'superseded';
           other.supersededBy = created.id;
@@ -383,6 +496,7 @@ export function upsertCompanionMemoryVector(
         writeCorrectionStore(projectDir, correctionStore);
         created.conflictWizardID = wizard.id;
         created.status = 'pending';
+        created.learningStage = 'candidate';
       }
     }
   }
@@ -404,11 +518,25 @@ export function searchCompanionMemoryVectors(
     gamma?: number;
     domain?: MemoryDomain;
     domains?: MemoryDomain[];
+    semanticWeight?: number;
+    lexicalWeight?: number;
+    semanticLayers?: MemorySemanticLayer[];
+    learningStages?: MemoryLearningStage[];
   },
-): Array<CompanionMemoryVector & { similarity: number; rankScore: number }> {
+): Array<
+  CompanionMemoryVector & {
+    similarity: number;
+    semanticSimilarity: number;
+    lexicalSimilarity: number;
+    rankScore: number;
+    channels: { semantic: number; lexical: number };
+  }
+> {
   const q = normalizeText(query);
   if (!q) return [];
-  const qEmb = textToEmbedding(q);
+  const embeddedQuery = embedTextWithProvider(projectDir, q);
+  const qEmb = embeddedQuery.embedding;
+  const qTokens = tokenize(q);
   const store = readStore(projectDir);
   const nowMs = Date.now();
   const recencyHalfLifeDays = Math.max(1, options?.recencyHalfLifeDays ?? 30);
@@ -416,6 +544,9 @@ export function searchCompanionMemoryVectors(
   const beta = options?.beta ?? 0.2;
   const gamma = options?.gamma ?? 0.2;
   const threshold = Math.max(0, options?.threshold ?? 0.15);
+  const semanticWeight = Math.max(0, options?.semanticWeight ?? 0.7);
+  const lexicalWeight = Math.max(0, options?.lexicalWeight ?? 0.3);
+  const combinedWeightBase = Math.max(0.001, semanticWeight + lexicalWeight);
   const domainAllow = new Set<MemoryDomain>();
   if (options?.domain === 'work' || options?.domain === 'relationship') {
     domainAllow.add(options.domain);
@@ -423,6 +554,24 @@ export function searchCompanionMemoryVectors(
   if (Array.isArray(options?.domains)) {
     for (const item of options.domains) {
       if (item === 'work' || item === 'relationship') domainAllow.add(item);
+    }
+  }
+
+  const semanticLayerAllow = new Set<MemorySemanticLayer>();
+  if (Array.isArray(options?.semanticLayers)) {
+    for (const layer of options.semanticLayers) {
+      if (layer === 'episodic' || layer === 'semantic' || layer === 'preference' || layer === 'tool_trace') {
+        semanticLayerAllow.add(layer);
+      }
+    }
+  }
+
+  const learningStageAllow = new Set<MemoryLearningStage>();
+  if (Array.isArray(options?.learningStages)) {
+    for (const stage of options.learningStages) {
+      if (stage === 'ephemeral' || stage === 'candidate' || stage === 'persistent') {
+        learningStageAllow.add(stage);
+      }
     }
   }
 
@@ -435,21 +584,43 @@ export function searchCompanionMemoryVectors(
     return Math.exp(-lambda * deltaDays);
   };
 
-  const results = store.items
-    .filter((item) => {
-      if (item.status !== 'active' || item.isArchived) return false;
-      if (domainAllow.size > 0 && !domainAllow.has(item.domain)) return false;
-      return true;
-    })
-    .map((item) => {
-      const similarity = cosine(item.embedding, qEmb);
+  const candidates = store.items.filter((item) => {
+    if (item.status !== 'active' || item.isArchived) return false;
+    if (domainAllow.size > 0 && !domainAllow.has(item.domain)) return false;
+    if (semanticLayerAllow.size > 0 && !semanticLayerAllow.has(item.semanticLayer)) return false;
+    if (learningStageAllow.size > 0 && !learningStageAllow.has(item.learningStage)) return false;
+    return true;
+  });
+
+  const tokenizedDocs = candidates.map((item) => tokenize(item.text));
+  const docFreq = buildDocFreq(tokenizedDocs);
+
+  const results = candidates
+    .map((item, index) => {
+      const semanticSimilarity = cosine(item.embedding, qEmb);
+      const lexicalRaw = lexicalSimilarity(qTokens, tokenizedDocs[index] ?? [], docFreq, Math.max(1, candidates.length));
+      const lexicalSimilarityNorm = Math.max(0, Math.min(1, lexicalRaw / 3));
+      const similarity =
+        (semanticSimilarity * semanticWeight + lexicalSimilarityNorm * lexicalWeight) /
+        combinedWeightBase;
       const importance = importanceFromTier(item.tier) * item.score * item.confidence;
       const rankScore = alpha * similarity + beta * recency(item.lastAccessedAt) + gamma * importance;
-      return { ...item, similarity, rankScore };
+      return {
+        ...item,
+        similarity,
+        semanticSimilarity,
+        lexicalSimilarity: lexicalSimilarityNorm,
+        channels: {
+          semantic: semanticSimilarity,
+          lexical: lexicalSimilarityNorm,
+        },
+        rankScore,
+      };
     })
     .filter((item) => item.rankScore >= threshold)
     .sort((a, b) => b.rankScore - a.rankScore)
     .slice(0, Math.max(1, limit));
+
   for (const item of results) {
     const target = store.items.find((existing) => existing.id === item.id);
     if (!target) continue;
@@ -540,6 +711,7 @@ export function confirmCompanionMemoryVector(
   const now = nowIso();
   if (!input.confirm) {
     target.status = 'superseded';
+    target.learningStage = 'candidate';
     target.updatedAt = now;
   } else {
     if (target.crossDomainWrite?.requiresApproval) {
@@ -557,6 +729,7 @@ export function confirmCompanionMemoryVector(
       };
     }
     target.status = 'active';
+    target.learningStage = 'persistent';
     target.updatedAt = now;
     target.lastAccessedAt = now;
     if (input.supersedeConflicts && target.conflictKey) {

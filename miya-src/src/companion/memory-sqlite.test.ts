@@ -31,8 +31,8 @@ describe('companion memory sqlite sync', () => {
     const stats = getCompanionMemorySqliteStats(projectDir);
     expect(stats.memoryCount).toBeGreaterThanOrEqual(2);
     expect(stats.vectorCount).toBeGreaterThanOrEqual(2);
+    expect(stats.byLearningStage.persistent).toBeGreaterThanOrEqual(1);
     expect(stats.sqlitePath.endsWith('memories.sqlite')).toBe(true);
     expect(fs.existsSync(stats.sqlitePath)).toBe(true);
   });
 });
-

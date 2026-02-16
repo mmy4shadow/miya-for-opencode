@@ -139,12 +139,18 @@ import {
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
+import {
+  listEmbeddingProviders,
+  readEmbeddingProviderConfig,
+  writeEmbeddingProviderConfig,
+} from '../companion/memory-embedding';
 import { getCompanionMemorySqliteStats } from '../companion/memory-sqlite';
 import {
   getCompanionMemoryGraphStats,
   listCompanionMemoryGraphNeighbors,
   searchCompanionMemoryGraph,
 } from '../companion/memory-graph';
+import { runMemoryRecallBenchmark } from '../companion/memory-recall-benchmark';
 import {
   appendShortTermMemoryLog,
   getMemoryReflectStatus,
@@ -243,6 +249,11 @@ import {
   listToolActionLedgerEvents,
 } from './kernel/action-ledger';
 import { registerGatewayCoreMethods } from './methods/core';
+import { registerGatewayChannelMethods } from './methods/channels';
+import { registerGatewaySecurityMethods } from './methods/security';
+import { registerGatewayNodeMethods } from './methods/nodes';
+import { registerGatewayCompanionMethods } from './methods/companion';
+import { registerGatewayMemoryMethods } from './methods/memory';
 import {
   GATEWAY_PROTOCOL_VERSION,
   LEGACY_GATEWAY_PROTOCOL_VERSION,
@@ -287,6 +298,10 @@ interface TrustModeConfig {
 interface PsycheModeConfig {
   resonanceEnabled: boolean;
   captureProbeEnabled: boolean;
+  slowBrainEnabled: boolean;
+  slowBrainShadowEnabled: boolean;
+  slowBrainShadowRollout: number;
+  shadowCohortSalt: string;
 }
 
 interface LearningGateConfig {
@@ -681,6 +696,10 @@ const DEFAULT_TRUST_MODE: TrustModeConfig = {
 const DEFAULT_PSYCHE_MODE: PsycheModeConfig = {
   resonanceEnabled: true,
   captureProbeEnabled: true,
+  slowBrainEnabled: true,
+  slowBrainShadowEnabled: true,
+  slowBrainShadowRollout: 15,
+  shadowCohortSalt: 'miya-psyche-shadow-v1',
 };
 
 const DEFAULT_LEARNING_GATE: LearningGateConfig = {
@@ -694,6 +713,14 @@ function trustModeFile(projectDir: string): string {
 
 function psycheModeFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-psyche-mode.json');
+}
+
+function psycheModeHistoryFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-psyche-mode-history.jsonl');
+}
+
+function psycheShadowAuditFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-psyche-shadow-audit.jsonl');
 }
 
 function learningGateFile(projectDir: string): string {
@@ -728,6 +755,10 @@ function writeTrustModeConfig(projectDir: string, config: TrustModeConfig): Trus
 }
 
 function normalizePsycheMode(input?: Partial<PsycheModeConfig>): PsycheModeConfig {
+  const rolloutRaw = Number(input?.slowBrainShadowRollout ?? DEFAULT_PSYCHE_MODE.slowBrainShadowRollout);
+  const rollout = Number.isFinite(rolloutRaw)
+    ? Math.max(0, Math.min(100, Math.round(rolloutRaw)))
+    : DEFAULT_PSYCHE_MODE.slowBrainShadowRollout;
   return {
     resonanceEnabled:
       typeof input?.resonanceEnabled === 'boolean'
@@ -737,6 +768,19 @@ function normalizePsycheMode(input?: Partial<PsycheModeConfig>): PsycheModeConfi
       typeof input?.captureProbeEnabled === 'boolean'
         ? input.captureProbeEnabled
         : DEFAULT_PSYCHE_MODE.captureProbeEnabled,
+    slowBrainEnabled:
+      typeof input?.slowBrainEnabled === 'boolean'
+        ? input.slowBrainEnabled
+        : DEFAULT_PSYCHE_MODE.slowBrainEnabled,
+    slowBrainShadowEnabled:
+      typeof input?.slowBrainShadowEnabled === 'boolean'
+        ? input.slowBrainShadowEnabled
+        : DEFAULT_PSYCHE_MODE.slowBrainShadowEnabled,
+    slowBrainShadowRollout: rollout,
+    shadowCohortSalt:
+      typeof input?.shadowCohortSalt === 'string' && input.shadowCohortSalt.trim().length > 0
+        ? input.shadowCohortSalt.trim().slice(0, 80)
+        : DEFAULT_PSYCHE_MODE.shadowCohortSalt,
   };
 }
 
@@ -748,6 +792,18 @@ function readPsycheModeConfig(projectDir: string): PsycheModeConfig {
       typeof raw.resonanceEnabled === 'boolean' ? raw.resonanceEnabled : undefined,
     captureProbeEnabled:
       typeof raw.captureProbeEnabled === 'boolean' ? raw.captureProbeEnabled : undefined,
+    slowBrainEnabled:
+      typeof raw.slowBrainEnabled === 'boolean' ? raw.slowBrainEnabled : undefined,
+    slowBrainShadowEnabled:
+      typeof raw.slowBrainShadowEnabled === 'boolean'
+        ? raw.slowBrainShadowEnabled
+        : undefined,
+    slowBrainShadowRollout:
+      typeof raw.slowBrainShadowRollout === 'number'
+        ? raw.slowBrainShadowRollout
+        : undefined,
+    shadowCohortSalt:
+      typeof raw.shadowCohortSalt === 'string' ? raw.shadowCohortSalt : undefined,
   });
 }
 
@@ -758,7 +814,115 @@ function writePsycheModeConfig(projectDir: string, config: Partial<PsycheModeCon
     ...config,
   });
   writeJsonAtomic(psycheModeFile(projectDir), normalized);
+  fs.mkdirSync(path.dirname(psycheModeHistoryFile(projectDir)), { recursive: true });
+  fs.appendFileSync(
+    psycheModeHistoryFile(projectDir),
+    `${JSON.stringify({
+      at: nowIso(),
+      token: `psy_mode_${randomUUID()}`,
+      previous: current,
+      next: normalized,
+    })}\n`,
+    'utf-8',
+  );
   return normalized;
+}
+
+function rollbackPsycheModeConfig(
+  projectDir: string,
+  token?: string,
+): { mode: PsycheModeConfig; rollbackToken?: string } {
+  const file = psycheModeHistoryFile(projectDir);
+  if (!fs.existsSync(file)) {
+    return { mode: readPsycheModeConfig(projectDir) };
+  }
+  const rows = fs
+    .readFileSync(file, 'utf-8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as {
+          token?: string;
+          previous?: Partial<PsycheModeConfig>;
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter((row): row is { token?: string; previous?: Partial<PsycheModeConfig> } => Boolean(row));
+  if (rows.length === 0) return { mode: readPsycheModeConfig(projectDir) };
+  const target =
+    token && token.trim()
+      ? rows.find((row) => row.token === token.trim())
+      : rows[rows.length - 1];
+  if (!target?.previous) return { mode: readPsycheModeConfig(projectDir) };
+  const restored = normalizePsycheMode(target.previous);
+  writeJsonAtomic(psycheModeFile(projectDir), restored);
+  return {
+    mode: restored,
+    rollbackToken: target.token,
+  };
+}
+
+function appendPsycheShadowAudit(
+  projectDir: string,
+  input: {
+    sessionID: string;
+    channel: string;
+    destination: string;
+    payloadHash: string;
+    primaryDecision: string;
+    shadowDecision: string;
+    divergence: boolean;
+    at?: string;
+  },
+): void {
+  fs.mkdirSync(path.dirname(psycheShadowAuditFile(projectDir)), { recursive: true });
+  fs.appendFileSync(
+    psycheShadowAuditFile(projectDir),
+    `${JSON.stringify({
+      id: `psy_shadow_${randomUUID()}`,
+      at: input.at ?? nowIso(),
+      ...input,
+    })}\n`,
+    'utf-8',
+  );
+}
+
+function readPsycheShadowAuditSummary(projectDir: string, limit = 200): {
+  samples: number;
+  divergence: number;
+  divergenceRate: number;
+  recent: Array<Record<string, unknown>>;
+} {
+  const file = psycheShadowAuditFile(projectDir);
+  if (!fs.existsSync(file)) {
+    return { samples: 0, divergence: 0, divergenceRate: 0, recent: [] };
+  }
+  const rows = fs
+    .readFileSync(file, 'utf-8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })
+    .filter((row): row is Record<string, unknown> => Boolean(row));
+  const recent = rows.slice(-Math.max(1, Math.min(2_000, limit)));
+  const divergence = recent.filter((row) => row.divergence === true).length;
+  return {
+    samples: recent.length,
+    divergence,
+    divergenceRate:
+      recent.length > 0 ? Number((divergence / recent.length).toFixed(4)) : 0,
+    recent: recent.slice(-50),
+  };
 }
 
 function normalizeLearningGate(input?: Partial<LearningGateConfig>): LearningGateConfig {
@@ -1163,6 +1327,19 @@ function hashText(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
+function shouldSamplePsycheShadow(input: {
+  mode: PsycheModeConfig;
+  sessionID: string;
+  payloadHash: string;
+}): boolean {
+  if (!input.mode.slowBrainShadowEnabled) return false;
+  if (input.mode.slowBrainShadowRollout <= 0) return false;
+  const key = `${input.mode.shadowCohortSalt}|${input.sessionID}|${input.payloadHash}`;
+  const hash = hashText(key);
+  const bucket = Number.parseInt(hash.slice(0, 8), 16) % 100;
+  return bucket < input.mode.slowBrainShadowRollout;
+}
+
 function parseText(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
@@ -1374,6 +1551,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'policy.domains.list',
   'policy.incidents.list',
   'psyche.mode.get',
+  'psyche.shadow.stats',
   'psyche.training.summary',
   'learning.gate.get',
   'nodes.list',
@@ -1391,6 +1569,8 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'openclaw.skills.list',
   'openclaw.session.status',
   'openclaw.pairing.query',
+  'openclaw.routing.map',
+  'openclaw.audit.replay',
   'media.get',
   'media.list',
   'voice.status',
@@ -1409,9 +1589,12 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'companion.memory.search',
   'companion.memory.vector.list',
   'miya.memory.sqlite.stats',
+  'miya.memory.embedding.providers.list',
+  'miya.memory.embedding.provider.get',
   'miya.memory.graph.stats',
   'miya.memory.graph.search',
   'miya.memory.graph.neighbors',
+  'miya.memory.recall.benchmark.run',
   'miya.memory.reflect.queue.list',
   'daemon.vram.budget',
   'autoflow.status.get',
@@ -2158,6 +2341,12 @@ async function sendChannelMessageGuarded(
 
   const psycheMode = runtime.nexus.psycheMode;
   const psycheConsultEnabled = resolvePsycheConsultEnabled(projectDir, psycheMode);
+  const psycheShadowSampled = shouldSamplePsycheShadow({
+    mode: psycheMode,
+    sessionID: input.sessionID,
+    payloadHash,
+  });
+  const primarySlowBrainEnabled = psycheMode.slowBrainEnabled && psycheConsultEnabled;
   if (!psycheMode.resonanceEnabled && !userInitiated) {
     runtime.nexus.guardianSafeHoldReason = 'resonance_disabled';
     appendNexusInsight(runtime, {
@@ -2216,7 +2405,7 @@ async function sendChannelMessageGuarded(
         state: 'FOCUS' | 'CONSUME' | 'PLAY' | 'AWAY' | 'UNKNOWN';
       }
     | null = null;
-  if (psycheConsultEnabled) {
+  if (primarySlowBrainEnabled) {
     try {
       const daemon = getMiyaClient(projectDir);
       const consult = await daemon.psycheConsult({
@@ -2380,6 +2569,41 @@ async function sendChannelMessageGuarded(
         };
       }
     }
+  }
+  if (psycheShadowSampled) {
+    try {
+      const daemon = getMiyaClient(projectDir);
+      const shadow = await daemon.psycheConsult({
+        intent: `outbound.send.${input.channel}`,
+        urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
+        channel: input.channel,
+        userInitiated,
+        allowScreenProbe: false,
+        signals: input.outboundCheck?.psycheSignals,
+        captureLimitations: input.outboundCheck?.captureLimitations,
+        trust: {
+          target: `${input.channel}:${input.destination}`,
+          source: `session:${input.sessionID}`,
+          action: `outbound.send.${input.channel}`,
+          evidenceConfidence,
+        },
+      });
+      const primaryDecision = primarySlowBrainEnabled
+        ? (psycheConsult?.state ? 'consulted' : 'allow_without_consult')
+        : 'allow_by_config';
+      appendPsycheShadowAudit(projectDir, {
+        sessionID: input.sessionID,
+        channel: input.channel,
+        destination: input.destination,
+        payloadHash,
+        primaryDecision,
+        shadowDecision: shadow.decision,
+        divergence:
+          (primarySlowBrainEnabled && psycheConsult === null && shadow.decision !== 'allow') ||
+          (primarySlowBrainEnabled && psycheConsult !== null && shadow.decision === 'deny') ||
+          (!primarySlowBrainEnabled && shadow.decision !== 'allow'),
+      });
+    } catch {}
   }
 
   const outboundTicket = resolveApprovalTicket({
@@ -4261,7 +4485,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return service.rejectApproval(approvalID);
   });
 
-  methods.register('channels.list', async () => runtime.channelRuntime.listChannels());
+  registerGatewayChannelMethods(methods, (methods) => {
+    methods.register('channels.list', async () => runtime.channelRuntime.listChannels());
   methods.register('channels.status', async () => ({
     channels: runtime.channelRuntime.listChannels(),
     pendingPairs: runtime.channelRuntime.listPairs('pending'),
@@ -4314,7 +4539,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       contacts: listContactTiers(projectDir, channel ?? undefined),
     };
   });
-  methods.register('channels.message.send', async (params) => {
+    methods.register('channels.message.send', async (params) => {
     const channel = parseChannel(params.channel);
     const destination = parseText(params.destination);
     const text = parseText(params.text);
@@ -4385,7 +4610,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       params.confirmation && typeof params.confirmation === 'object'
         ? (params.confirmation as Record<string, unknown>)
         : null;
-    return sendChannelMessageGuarded(projectDir, runtime, {
+      return sendChannelMessageGuarded(projectDir, runtime, {
       channel,
       destination,
       text,
@@ -4412,14 +4637,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
             ? String(confirmationRaw.ownerSyncToken)
             : undefined,
       },
+      });
     });
   });
 
-  methods.register('security.audit', async () => {
+  registerGatewaySecurityMethods(methods, (methods) => {
+    methods.register('security.audit', async () => {
     return runGatewaySecurityAudit(projectDir, runtime);
   });
 
-  methods.register('security.identity.status', async () => {
+    methods.register('security.identity.status', async () => {
     const state = readOwnerIdentityState(projectDir);
     return {
       ...state,
@@ -4942,6 +5169,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return {
       mode,
       consultEnabled: resolvePsycheConsultEnabled(projectDir, mode),
+      shadow: readPsycheShadowAuditSummary(projectDir, 120),
     };
   });
   methods.register('psyche.training.summary', async (params) => {
@@ -4959,10 +5187,26 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         typeof params.captureProbeEnabled === 'boolean'
           ? Boolean(params.captureProbeEnabled)
           : undefined,
+      slowBrainEnabled:
+        typeof params.slowBrainEnabled === 'boolean'
+          ? Boolean(params.slowBrainEnabled)
+          : undefined,
+      slowBrainShadowEnabled:
+        typeof params.slowBrainShadowEnabled === 'boolean'
+          ? Boolean(params.slowBrainShadowEnabled)
+          : undefined,
+      slowBrainShadowRollout:
+        typeof params.slowBrainShadowRollout === 'number'
+          ? Number(params.slowBrainShadowRollout)
+          : undefined,
+      shadowCohortSalt:
+        typeof params.shadowCohortSalt === 'string'
+          ? String(params.shadowCohortSalt)
+          : undefined,
     });
     runtime.nexus.psycheMode = next;
     appendNexusInsight(runtime, {
-      text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}`,
+      text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}，slow_brain=${next.slowBrainEnabled ? '开启' : '关闭'}，shadow=${next.slowBrainShadowEnabled ? '开启' : '关闭'}(${next.slowBrainShadowRollout}%)`,
     });
     publishGatewayEvent(runtime, 'psyche.mode.update', {
       at: nowIso(),
@@ -4972,6 +5216,33 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return {
       mode: next,
       consultEnabled: resolvePsycheConsultEnabled(projectDir, next),
+      shadow: readPsycheShadowAuditSummary(projectDir, 120),
+    };
+  });
+  methods.register('psyche.mode.rollback', async (params) => {
+    const token = parseText(params.token) || undefined;
+    const restored = rollbackPsycheModeConfig(projectDir, token);
+    runtime.nexus.psycheMode = restored.mode;
+    appendNexusInsight(runtime, {
+      text: `守门员模式已回滚：token=${restored.rollbackToken ?? 'latest'}`,
+    });
+    publishGatewayEvent(runtime, 'psyche.mode.rollback', {
+      at: nowIso(),
+      mode: restored.mode,
+      rollbackToken: restored.rollbackToken,
+    });
+    return {
+      mode: restored.mode,
+      rollbackToken: restored.rollbackToken,
+      consultEnabled: resolvePsycheConsultEnabled(projectDir, restored.mode),
+    };
+  });
+  methods.register('psyche.shadow.stats', async (params) => {
+    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 200;
+    const limit = Math.max(20, Math.min(2000, Math.floor(limitRaw)));
+    return {
+      mode: readPsycheModeConfig(projectDir),
+      stats: readPsycheShadowAuditSummary(projectDir, limit),
     };
   });
   methods.register('learning.gate.get', async () => {
@@ -5018,8 +5289,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       auditID: auditID || undefined,
     };
   });
+  });
 
-  methods.register('nodes.register', async (params, context) => {
+  registerGatewayNodeMethods(methods, (methods) => {
+    methods.register('nodes.register', async (params, context) => {
     const nodeID = parseText(params.nodeID);
     const deviceID = parseText(params.deviceID);
     if (!nodeID || !deviceID) throw new Error('invalid_nodes_register_args');
@@ -5221,6 +5494,25 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('openclaw.pairing.query', async (params) => {
     return callOpenClaw('pairing.query', {
       pairID: parseText(params.pairID) || undefined,
+    });
+  });
+  methods.register('openclaw.skills.sync', async (params) => {
+    return callOpenClaw('skills.sync', {
+      action: parseText(params.action) || 'list',
+      source: parseText(params.source) || undefined,
+      target: parseText(params.target) || undefined,
+      dryRun: typeof params.dryRun === 'boolean' ? Boolean(params.dryRun) : undefined,
+    });
+  });
+  methods.register('openclaw.routing.map', async (params) => {
+    return callOpenClaw('routing.map', {
+      limit: typeof params.limit === 'number' ? Number(params.limit) : undefined,
+    });
+  });
+  methods.register('openclaw.audit.replay', async (params) => {
+    return callOpenClaw('audit.replay', {
+      limit: typeof params.limit === 'number' ? Number(params.limit) : undefined,
+      replayToken: parseText(params.replayToken) || undefined,
     });
   });
   methods.register('miya.sync.list', async () => listEcosystemBridge(projectDir));
@@ -5664,8 +5956,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requireDomainRunning(projectDir, 'fs_write');
     return closeCanvasDoc(projectDir, docID, parseText(params.actor) || 'gateway');
   });
+  });
 
-  methods.register('companion.status', async () => readCompanionProfile(projectDir));
+  registerGatewayCompanionMethods(methods, (methods) => {
+    methods.register('companion.status', async () => readCompanionProfile(projectDir));
   methods.register('companion.persona.presets.list', async () => {
     requireOwnerMode(projectDir);
     return listPersonaPresets(projectDir);
@@ -5935,7 +6229,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       style: parseText(params.style) || undefined,
     });
   });
-  methods.register('companion.memory.add', async (params) => {
+  });
+  registerGatewayMemoryMethods(methods, (methods) => {
+    methods.register('companion.memory.add', async (params) => {
     requireOwnerMode(projectDir);
     const policyHash = parseText(params.policyHash) || undefined;
     const fact = parseText(params.fact);
@@ -6074,11 +6370,36 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           .map((item) => parseMemoryDomain(item))
           .filter((item): item is 'work' | 'relationship' => Boolean(item))
       : undefined;
+    const semanticLayers = Array.isArray(params.semanticLayers)
+      ? params.semanticLayers
+          .map((item) => parseText(item).trim())
+          .filter(
+            (item): item is 'episodic' | 'semantic' | 'preference' | 'tool_trace' =>
+              item === 'episodic' ||
+              item === 'semantic' ||
+              item === 'preference' ||
+              item === 'tool_trace',
+          )
+      : undefined;
+    const learningStages = Array.isArray(params.learningStages)
+      ? params.learningStages
+          .map((item) => parseText(item).trim())
+          .filter(
+            (item): item is 'ephemeral' | 'candidate' | 'persistent' =>
+              item === 'ephemeral' || item === 'candidate' || item === 'persistent',
+          )
+      : undefined;
     const vectorHits = searchCompanionMemoryVectors(projectDir, query, limit, {
       threshold,
       recencyHalfLifeDays,
       domain,
       domains,
+      semanticWeight:
+        typeof params.semanticWeight === 'number' ? Number(params.semanticWeight) : undefined,
+      lexicalWeight:
+        typeof params.lexicalWeight === 'number' ? Number(params.lexicalWeight) : undefined,
+      semanticLayers,
+      learningStages,
     });
     const includeGraph = typeof params.includeGraph === 'boolean' ? params.includeGraph : false;
     if (!includeGraph) return vectorHits;
@@ -6115,6 +6436,50 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requireOwnerMode(projectDir);
     return getCompanionMemorySqliteStats(projectDir);
   });
+  methods.register('miya.memory.embedding.providers.list', async () => {
+    requireOwnerMode(projectDir);
+    return {
+      providers: listEmbeddingProviders(),
+      active: readEmbeddingProviderConfig(projectDir),
+    };
+  });
+  methods.register('miya.memory.embedding.provider.get', async () => {
+    requireOwnerMode(projectDir);
+    return {
+      config: readEmbeddingProviderConfig(projectDir),
+    };
+  });
+  methods.register('miya.memory.embedding.provider.set', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const kindRaw = parseText(params.kind);
+    const kind =
+      kindRaw === 'local-hash' || kindRaw === 'local-ngram' || kindRaw === 'remote-http'
+        ? kindRaw
+        : undefined;
+    const fallbackRaw = parseText(params.fallbackKind);
+    const fallbackKind =
+      fallbackRaw === 'local-hash' || fallbackRaw === 'local-ngram'
+        ? fallbackRaw
+        : undefined;
+    const next = writeEmbeddingProviderConfig(projectDir, {
+      kind,
+      dims: typeof params.dims === 'number' ? Number(params.dims) : undefined,
+      timeoutMs: typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : undefined,
+      model: parseText(params.model) || undefined,
+      url: parseText(params.url) || undefined,
+      fallbackKind,
+      headers:
+        params.headers && typeof params.headers === 'object' && !Array.isArray(params.headers)
+          ? (params.headers as Record<string, string>)
+          : undefined,
+    });
+    return {
+      config: next,
+    };
+  });
   methods.register('miya.memory.graph.stats', async () => {
     requireOwnerMode(projectDir);
     return getCompanionMemoryGraphStats(projectDir);
@@ -6142,6 +6507,19 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ? Math.min(50, Number(params.limit))
         : 12;
     return listCompanionMemoryGraphNeighbors(projectDir, entity, limit);
+  });
+  methods.register('miya.memory.recall.benchmark.run', async (params) => {
+    requireOwnerMode(projectDir);
+    const datasetPath = parseText(params.datasetPath) || undefined;
+    const kValues = Array.isArray(params.kValues)
+      ? params.kValues
+          .map((item) => Number(item))
+          .filter((item) => Number.isFinite(item))
+      : undefined;
+    return runMemoryRecallBenchmark({
+      datasetPath,
+      kValues,
+    });
   });
   methods.register('miya.memory.log.append', async (params) => {
     requireOwnerMode(projectDir);
@@ -6227,7 +6605,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       jobs: listReflectWorkerJobs(projectDir, limit),
     };
   });
-  methods.register('companion.asset.add', async (params) => {
+  });
+  registerGatewayCompanionMethods(methods, (methods) => {
+    methods.register('companion.asset.add', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
     const type = parseText(params.type);
     const pathOrUrl = parseText(params.pathOrUrl);
@@ -6250,7 +6630,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const wizard = resetCompanionWizard(projectDir);
     return { profile, wizard };
   });
-  methods.register('companion.intent.handle', async (params) => {
+    methods.register('companion.intent.handle', async (params) => {
     const text = parseText(params.text);
     if (!text) throw new Error('invalid_intent_text');
     const channel = parseChannel(params.channel) ?? 'wechat';
@@ -6323,7 +6703,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         path: voice.media.localPath,
       };
     }
-    return { intent: 'unknown', message: 'no_multimodal_intent_matched' };
+      return { intent: 'unknown', message: 'no_multimodal_intent_matched' };
+    });
   });
   methods.register('daemon.vram.budget', async (params) => {
     const scheduler = getResourceScheduler(projectDir);

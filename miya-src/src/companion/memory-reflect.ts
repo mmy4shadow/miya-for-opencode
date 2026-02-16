@@ -24,6 +24,7 @@ interface ReflectTriplet {
   subject: 'User' | 'Miya';
   predicate: string;
   object: string;
+  semanticLayer: 'episodic' | 'semantic' | 'preference' | 'tool_trace';
   confidence: number;
   tier: 'L1' | 'L2' | 'L3';
   sourceLogID: string;
@@ -148,6 +149,7 @@ function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
     object: string,
     confidence: number,
     tier: 'L1' | 'L2' | 'L3',
+    semanticLayer: 'episodic' | 'semantic' | 'preference' | 'tool_trace',
   ) => {
     const value = normalizeText(object);
     if (!value) return;
@@ -156,6 +158,7 @@ function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
       subject,
       predicate,
       object: value,
+      semanticLayer,
       confidence,
       tier,
       sourceLogID: log.id,
@@ -163,34 +166,39 @@ function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
   };
 
   const likes = text.match(/我(?:特别)?喜欢([^，。！？!?.]+)/);
-  if (likes?.[1]) add('UserPreference', 'User', 'likes', likes[1], 0.86, 'L2');
+  if (likes?.[1]) add('UserPreference', 'User', 'likes', likes[1], 0.86, 'L2', 'preference');
 
   const dislikes = text.match(/我(?:很|真的)?不喜欢([^，。！？!?.]+)/);
-  if (dislikes?.[1]) add('UserPreference', 'User', 'dislikes', dislikes[1], 0.86, 'L2');
+  if (dislikes?.[1]) add('UserPreference', 'User', 'dislikes', dislikes[1], 0.86, 'L2', 'preference');
 
   const prefers = text.match(/(?:以后|之后|从现在开始)?(?:只要|只喝|只用|优先)\s*([^，。！？!?.]+)/);
-  if (prefers?.[1]) add('UserPreference', 'User', 'prefers', prefers[1], 0.9, 'L2');
+  if (prefers?.[1]) add('UserPreference', 'User', 'prefers', prefers[1], 0.9, 'L2', 'preference');
 
   const avoids = text.match(/(?:不要|别|避免)\s*([^，。！？!?.]+)/);
-  if (avoids?.[1]) add('UserPreference', 'User', 'avoids', avoids[1], 0.88, 'L2');
+  if (avoids?.[1]) add('UserPreference', 'User', 'avoids', avoids[1], 0.88, 'L2', 'preference');
 
   const needs = text.match(/我(?:需要|想要|要)([^，。！？!?.]+)/);
-  if (needs?.[1]) add('Fact', 'User', 'requires', needs[1], 0.7, 'L2');
+  if (needs?.[1]) add('Fact', 'User', 'requires', needs[1], 0.7, 'L2', 'episodic');
 
   const blocks = text.match(/(?:卡在|被|遇到)([^，。！？!?.]+)(?:问题|错误|异常|报错)/);
-  if (blocks?.[1]) add('Insight', 'User', 'is_blocking', `${blocks[1]}问题`, 0.75, 'L2');
+  if (blocks?.[1]) add('Insight', 'User', 'is_blocking', `${blocks[1]}问题`, 0.75, 'L2', 'semantic');
 
   const anxiety = text.match(/(?:焦虑|着急|担心|压力很大|怕来不及)([^，。！？!?.]*)/);
-  if (anxiety) add('Insight', 'User', 'emotion_signal', `进度压力 ${anxiety[0]}`.trim(), 0.72, 'L3');
+  if (anxiety) add('Insight', 'User', 'emotion_signal', `进度压力 ${anxiety[0]}`.trim(), 0.72, 'L3', 'semantic');
 
   const project = text.match(/(?:项目|仓库|repo|分支)\s*[:：]?\s*([^，。！？!?.]+)/i);
-  if (project?.[1]) add('Fact', 'User', 'project', project[1], 0.68, 'L2');
+  if (project?.[1]) add('Fact', 'User', 'project', project[1], 0.68, 'L2', 'semantic');
 
   const apiRef = text.match(/(?:API|文档|doc|docs?)\s*[:：]?\s*([^，。！？!?.]+)/i);
-  if (apiRef?.[1]) add('Fact', 'User', 'api_reference', apiRef[1], 0.64, 'L3');
+  if (apiRef?.[1]) add('Fact', 'User', 'api_reference', apiRef[1], 0.64, 'L3', 'semantic');
+
+  const toolTrace = text.match(/(?:执行|运行|run|bash|shell|命令|traceback|stack\\s*trace|stderr|stdout)([^，。！？!?.]{0,120})/i);
+  if (toolTrace) {
+    add('Fact', log.sender === 'assistant' ? 'Miya' : 'User', 'tool_trace', toolTrace[0], 0.78, 'L2', 'tool_trace');
+  }
 
   if (triplets.length === 0 && text.length <= 120) {
-    add('Fact', log.sender === 'assistant' ? 'Miya' : 'User', 'stated', text, 0.55, 'L3');
+    add('Fact', log.sender === 'assistant' ? 'Miya' : 'User', 'stated', text, 0.55, 'L3', 'episodic');
   }
 
   return triplets;
@@ -318,6 +326,8 @@ export function reflectCompanionMemory(
       sourceMessageID: triplet.sourceLogID,
       sourceType: 'reflect',
       memoryKind: triplet.kind,
+      semanticLayer: triplet.semanticLayer,
+      learningStage: 'candidate',
     }),
   );
   if (input?.mergeConflicts !== false) {

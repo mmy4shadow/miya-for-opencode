@@ -8,7 +8,10 @@ import {
 } from './state';
 import type {
   AutoflowCommandResult,
+  AutoflowFixability,
+  AutoflowFailureSummary,
   AutoflowPhase,
+  AutoflowPipelineSnapshot,
   AutoflowRunInput,
   AutoflowRunResult,
   AutoflowSessionState,
@@ -94,6 +97,48 @@ function verificationFailureReason(result: AutoflowCommandResult): string {
   return text.slice(0, 220) || `verification_exit=${result.exitCode}`;
 }
 
+function phaseToStage(phase: AutoflowPhase): AutoflowPipelineSnapshot['stage'] {
+  if (phase === 'planning') return 'plan';
+  if (phase === 'execution') return 'exec';
+  if (phase === 'verification') return 'verify';
+  if (phase === 'fixing') return 'fix';
+  return 'terminal';
+}
+
+function inferFixability(reason: string): AutoflowFixability {
+  const text = String(reason ?? '').toLowerCase();
+  if (!text) return 'unknown';
+  if (/invalid_|schema|syntax|parse|bad_request/.test(text)) return 'rewrite';
+  if (/missing_evidence|approval|permission|forbidden|denied/.test(text)) return 'need_evidence';
+  if (/timeout|temporar|network|rate_limit|overload/.test(text)) return 'retry_later';
+  if (/budget|scope|too_long/.test(text)) return 'reduce_scope';
+  if (/kill_switch|policy_|impossible|unsupported/.test(text)) return 'impossible';
+  return 'unknown';
+}
+
+function buildFailureSummary(state: AutoflowSessionState, reason: string): AutoflowFailureSummary {
+  return {
+    phase: state.phase,
+    stage: phaseToStage(state.phase),
+    reason,
+    fixability: inferFixability(reason),
+    budget: {
+      maxFixRounds: state.maxFixRounds,
+      usedFixRounds: state.fixRound,
+      remainingFixRounds: Math.max(0, state.maxFixRounds - state.fixRound),
+      fixCommandsTotal: state.fixCommands.length,
+    },
+  };
+}
+
+function buildPipelineSnapshot(state: AutoflowSessionState): AutoflowPipelineSnapshot {
+  return {
+    graph: 'plan->exec->verify->fix',
+    phase: state.phase,
+    stage: phaseToStage(state.phase),
+  };
+}
+
 export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunResult> {
   const timeoutMs =
     typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs)
@@ -134,7 +179,9 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
       success: false,
       phase: state.phase,
       summary: 'autoflow_stopped',
+      pipeline: buildPipelineSnapshot(state),
       state,
+      failure: buildFailureSummary(state, 'autoflow_stopped'),
     };
   }
 
@@ -151,7 +198,12 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
         success: state.phase === 'completed',
         phase: state.phase,
         summary: `autoflow_${state.phase}`,
+        pipeline: buildPipelineSnapshot(state),
         state,
+        failure:
+          state.phase === 'failed'
+            ? buildFailureSummary(state, state.lastError ?? 'autoflow_failed')
+            : undefined,
       };
     }
   }
@@ -169,7 +221,9 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
           success: false,
           phase: state.phase,
           summary: 'planning_requires_tasks',
+          pipeline: buildPipelineSnapshot(state),
           state,
+          failure: buildFailureSummary(state, 'planning_requires_tasks'),
         };
       }
       state.phase = 'execution';
@@ -299,9 +353,14 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
     success,
     phase: state.phase,
     summary: success ? 'autoflow_completed' : state.lastError ?? `autoflow_${state.phase}`,
+    pipeline: buildPipelineSnapshot(state),
     state,
     dagResult,
     verification,
     fixResult,
+    failure:
+      success || state.phase === 'stopped'
+        ? undefined
+        : buildFailureSummary(state, state.lastError ?? `autoflow_${state.phase}`),
   };
 }

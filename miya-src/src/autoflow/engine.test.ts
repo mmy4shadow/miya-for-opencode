@@ -72,6 +72,8 @@ describe('autoflow engine', () => {
     expect(result.success).toBe(false);
     expect(result.phase).toBe('planning');
     expect(result.summary).toBe('planning_requires_tasks');
+    expect(result.pipeline.stage).toBe('plan');
+    expect(result.failure?.fixability).toBe('unknown');
     expect(result.state.history.some((item) => item.event === 'planning_waiting')).toBe(true);
   });
 
@@ -116,6 +118,7 @@ describe('autoflow engine', () => {
     expect(result.success).toBe(true);
     expect(result.phase).toBe('completed');
     expect(result.summary).toBe('autoflow_completed');
+    expect(result.pipeline.stage).toBe('terminal');
     expect(result.state.lastError).toBeUndefined();
   });
 
@@ -229,5 +232,7 @@ describe('autoflow engine', () => {
     expect(result.phase).toBe('failed');
     expect(result.summary).toContain('verification_repeated_failure');
     expect(result.state.fixRound).toBe(2);
+    expect(result.failure?.budget.usedFixRounds).toBe(2);
+    expect(result.failure?.stage).toBe('terminal');
   });
 });
