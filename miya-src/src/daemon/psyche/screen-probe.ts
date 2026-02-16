@@ -4,7 +4,7 @@ import { runScreenProbeVlm } from './probe-worker/vlm';
 
 export interface ScreenProbeResult {
   status: 'ok' | 'black' | 'error' | 'timeout';
-  method?: 'wgc_hwnd' | 'print_window';
+  method?: 'dxgi_duplication' | 'wgc_hwnd' | 'print_window';
   captureLimitations: string[];
   sceneTags: string[];
   confidence: number;

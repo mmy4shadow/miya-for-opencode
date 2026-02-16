@@ -31,6 +31,18 @@ interface GatewaySnapshot {
     cpuPercent?: number;
     activeJobID?: string;
     activeJobProgress?: number;
+    psycheSignalHub?: {
+      running?: boolean;
+      sequence?: number;
+      sampledAt?: string;
+      ageMs?: number;
+      stale?: boolean;
+      consecutiveFailures?: number;
+      lastError?: string;
+      sampleIntervalMs?: number;
+      burstIntervalMs?: number;
+      staleAfterMs?: number;
+    };
   };
   policyHash?: string;
   sessions?: {
@@ -128,6 +140,12 @@ function guardianReasonLabel(reason?: string): string {
   if (reason === 'resonance_disabled') return '共鸣层已关闭，自动触达进入静默等待';
   if (reason === 'psyche_consult_unavailable') return '守门员离线，已自动降级为静默模式';
   return reason;
+}
+
+function formatHubAge(ageMs?: number): string {
+  if (!Number.isFinite(ageMs)) return '-';
+  const sec = Math.max(0, Math.floor(Number(ageMs) / 1000));
+  return `${sec}s`;
 }
 
 async function invokeGateway(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -244,6 +262,7 @@ export default function App() {
 
   const killSwitchMode = snapshot.nexus?.killSwitchMode ?? 'off';
   const trust = snapshot.nexus?.trust;
+  const signalHub = snapshot.daemon?.psycheSignalHub;
 
   const quickStats = useMemo(
     () => [
@@ -343,6 +362,33 @@ export default function App() {
               <p className="mt-1 text-xs text-slate-300">{item.desc}</p>
             </article>
           ))}
+        </section>
+
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+            <h2 className="text-sm font-semibold">Psyche Signal Hub</h2>
+            {signalHub ? (
+              <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                <div className="rounded border border-white/10 bg-black/20 p-2">
+                  <p>运行状态：{signalHub.running ? 'running' : 'stopped'}</p>
+                  <p>序号：{signalHub.sequence ?? '-'}</p>
+                  <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
+                  <p>过期：{signalHub.stale ? 'yes' : 'no'}</p>
+                </div>
+                <div className="rounded border border-white/10 bg-black/20 p-2">
+                  <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
+                  <p>采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms</p>
+                  <p>突发间隔：{signalHub.burstIntervalMs ?? '-'}ms</p>
+                  <p>过期阈值：{signalHub.staleAfterMs ?? '-'}ms</p>
+                </div>
+                {signalHub.lastError ? (
+                  <p className="md:col-span-2 text-rose-300">lastError: {signalHub.lastError}</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-amber-300">未收到 daemon signal hub 指标。</p>
+            )}
+          </article>
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">

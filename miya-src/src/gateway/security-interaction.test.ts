@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
+import * as net from 'node:net';
 import * as path from 'node:path';
 import { ensureGatewayRunning, stopGateway } from './index';
 import { createGatewayAcceptanceProjectDir } from './test-helpers';
@@ -7,6 +8,49 @@ import { createGatewayAcceptanceProjectDir } from './test-helpers';
 interface GatewayWsClient {
   request(method: string, params?: Record<string, unknown>): Promise<unknown>;
   close(): void;
+}
+
+function pendingQueueFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'gateway-pending-outbound-queue.json');
+}
+
+async function allocateFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', (error) => reject(error));
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close();
+        reject(new Error('gateway_test_port_allocation_failed'));
+        return;
+      }
+      const port = address.port;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
+async function assignFreshGatewayPort(projectDir: string): Promise<void> {
+  const configPath = path.join(projectDir, '.opencode', 'miya', 'config.json');
+  const raw = fs.existsSync(configPath)
+    ? (JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>)
+    : {};
+  const gateway =
+    raw.gateway && typeof raw.gateway === 'object' && !Array.isArray(raw.gateway)
+      ? (raw.gateway as Record<string, unknown>)
+      : {};
+  gateway.bindHost = '127.0.0.1';
+  gateway.port = await allocateFreePort();
+  raw.gateway = gateway;
+  fs.writeFileSync(configPath, `${JSON.stringify(raw, null, 2)}\n`, 'utf-8');
 }
 
 async function connectGateway(
@@ -571,6 +615,11 @@ describe('gateway security interaction acceptance', () => {
       expect(result.message).toBe('outbound_blocked:psyche_deferred');
       expect(Number(result.retryAfterSec ?? 0)).toBeGreaterThan(0);
       expect(elapsedMs).toBeLessThan(4_500);
+      const snapshot = (await client.request('gateway.status.get')) as {
+        nexus?: { guardianSafeHoldReason?: string; pendingQueue?: { size?: number } };
+      };
+      expect(snapshot.nexus?.guardianSafeHoldReason).toBe('psyche_consult_unavailable');
+      expect(Number(snapshot.nexus?.pendingQueue?.size ?? 0)).toBeGreaterThanOrEqual(1);
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -582,6 +631,149 @@ describe('gateway security interaction acceptance', () => {
       else process.env.MIYA_PSYCHE_CONSULT_DELAY_MS = prevConsultDelay;
     }
   });
+
+  test('degrades to safe hold quickly when daemon psyche consult is unreachable', async () => {
+    const prevPsycheSwitch = process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+    const prevConsultTimeout = process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+    const prevLifecycleMode = process.env.MIYA_DAEMON_LIFECYCLE_MODE;
+    const prevServiceToken = process.env.MIYA_DAEMON_SERVICE_TOKEN;
+    const prevDaemonToken = process.env.MIYA_DAEMON_TOKEN;
+    process.env.MIYA_PSYCHE_CONSULT_ENABLE = '1';
+    process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = '700';
+    process.env.MIYA_DAEMON_LIFECYCLE_MODE = 'service';
+    delete process.env.MIYA_DAEMON_SERVICE_TOKEN;
+    delete process.env.MIYA_DAEMON_TOKEN;
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      await client.request('security.identity.init', {
+        password: 'pw-owner-unreachable',
+        passphrase: 'phrase-owner-unreachable',
+      });
+      const policy = (await client.request('policy.get')) as { hash: string };
+      const startedAt = Date.now();
+      const result = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在无法连接 daemon 时也保持静默重试',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+        },
+      })) as {
+        sent: boolean;
+        message: string;
+        retryAfterSec?: number;
+      };
+      const elapsedMs = Date.now() - startedAt;
+      expect(result.sent).toBe(false);
+      expect(result.message).toBe('outbound_blocked:psyche_deferred');
+      expect(Number(result.retryAfterSec ?? 0)).toBeGreaterThan(0);
+      expect(elapsedMs).toBeLessThan(4_500);
+      const snapshot = (await client.request('gateway.status.get')) as {
+        nexus?: { guardianSafeHoldReason?: string; pendingQueue?: { size?: number } };
+      };
+      expect(snapshot.nexus?.guardianSafeHoldReason).toBe('psyche_consult_unavailable');
+      expect(Number(snapshot.nexus?.pendingQueue?.size ?? 0)).toBeGreaterThanOrEqual(1);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+      if (prevPsycheSwitch === undefined) delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+      else process.env.MIYA_PSYCHE_CONSULT_ENABLE = prevPsycheSwitch;
+      if (prevConsultTimeout === undefined) delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+      else process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = prevConsultTimeout;
+      if (prevLifecycleMode === undefined) delete process.env.MIYA_DAEMON_LIFECYCLE_MODE;
+      else process.env.MIYA_DAEMON_LIFECYCLE_MODE = prevLifecycleMode;
+      if (prevServiceToken === undefined) delete process.env.MIYA_DAEMON_SERVICE_TOKEN;
+      else process.env.MIYA_DAEMON_SERVICE_TOKEN = prevServiceToken;
+      if (prevDaemonToken === undefined) delete process.env.MIYA_DAEMON_TOKEN;
+      else process.env.MIYA_DAEMON_TOKEN = prevDaemonToken;
+    }
+  });
+
+  test('re-evaluates persisted pending queue items after restart under safe hold', async () => {
+    const prevPsycheSwitch = process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+    const prevConsultTimeout = process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+    const prevConsultDelay = process.env.MIYA_PSYCHE_CONSULT_DELAY_MS;
+    process.env.MIYA_PSYCHE_CONSULT_ENABLE = '1';
+    process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = '600';
+    process.env.MIYA_PSYCHE_CONSULT_DELAY_MS = '5000';
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const firstState = ensureGatewayRunning(projectDir);
+    let client = await connectGateway(firstState.url, firstState.authToken);
+    try {
+      await client.request('security.identity.init', {
+        password: 'pw-owner-queue',
+        passphrase: 'phrase-owner-queue',
+      });
+      const policy = (await client.request('policy.get')) as { hash: string };
+      const first = (await client.request('channels.message.send', {
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '请在恢复后继续重评估 pending queue',
+        sessionID: 'main',
+        policyHash: policy.hash,
+        outboundCheck: {
+          archAdvisorApproved: true,
+          intent: 'initiate',
+          factorRecipientIsMe: true,
+          userInitiated: false,
+        },
+      })) as {
+        sent: boolean;
+        message: string;
+      };
+      expect(first.sent).toBe(false);
+      expect(first.message).toBe('outbound_blocked:psyche_deferred');
+
+      client.close();
+      stopGateway(projectDir);
+
+      const queuePath = pendingQueueFile(projectDir);
+      const queueBefore = JSON.parse(fs.readFileSync(queuePath, 'utf-8')) as {
+        items?: Array<Record<string, unknown>>;
+      };
+      expect(Array.isArray(queueBefore.items)).toBe(true);
+      expect((queueBefore.items ?? []).length).toBeGreaterThan(0);
+      const firstItem = (queueBefore.items ?? [])[0] ?? {};
+      (firstItem as Record<string, unknown>).nextRunAt = new Date(Date.now() - 2_000).toISOString();
+      (firstItem as Record<string, unknown>).attempts = 0;
+      fs.writeFileSync(queuePath, `${JSON.stringify(queueBefore, null, 2)}\n`, 'utf-8');
+
+      await assignFreshGatewayPort(projectDir);
+      const secondState = ensureGatewayRunning(projectDir);
+      client = await connectGateway(secondState.url, secondState.authToken);
+      await new Promise((resolve) => setTimeout(resolve, 7_500));
+
+      const queueAfter = JSON.parse(fs.readFileSync(queuePath, 'utf-8')) as {
+        items?: Array<Record<string, unknown>>;
+      };
+      expect(Array.isArray(queueAfter.items)).toBe(true);
+      expect((queueAfter.items ?? []).length).toBeGreaterThan(0);
+      const afterAttempts = Number((queueAfter.items ?? [])[0]?.attempts ?? 0);
+      expect(afterAttempts).toBeGreaterThanOrEqual(1);
+
+      const snapshot = (await client.request('gateway.status.get')) as {
+        nexus?: { guardianSafeHoldReason?: string; pendingQueue?: { size?: number } };
+      };
+      expect(snapshot.nexus?.guardianSafeHoldReason).toBe('psyche_consult_unavailable');
+      expect(Number(snapshot.nexus?.pendingQueue?.size ?? 0)).toBeGreaterThanOrEqual(1);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+      if (prevPsycheSwitch === undefined) delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+      else process.env.MIYA_PSYCHE_CONSULT_ENABLE = prevPsycheSwitch;
+      if (prevConsultTimeout === undefined) delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+      else process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = prevConsultTimeout;
+      if (prevConsultDelay === undefined) delete process.env.MIYA_PSYCHE_CONSULT_DELAY_MS;
+      else process.env.MIYA_PSYCHE_CONSULT_DELAY_MS = prevConsultDelay;
+    }
+  }, 45_000);
 
   test('enforces fixability retry budget to prevent infinite auto-retry loops', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();

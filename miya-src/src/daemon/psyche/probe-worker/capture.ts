@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import type { ProbeCaptureMethod, ProbeCaptureResult } from './types';
 
-interface PrintWindowRaw {
+interface CaptureHelperRaw {
   ok?: boolean;
   imageBase64?: string;
   blackFrame?: boolean;
@@ -10,16 +10,20 @@ interface PrintWindowRaw {
 }
 
 function parseMethodList(): ProbeCaptureMethod[] {
-  const raw = String(process.env.MIYA_CAPTURE_PROBE_METHODS ?? 'wgc_hwnd,print_window')
+  const raw = String(process.env.MIYA_CAPTURE_PROBE_METHODS ?? 'dxgi_duplication,wgc_hwnd,print_window')
     .trim()
     .toLowerCase();
   const parsed = raw
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
-    .map((item) => (item === 'wgc_hwnd' || item === 'print_window' ? item : null))
+    .map((item) =>
+      item === 'dxgi' || item === 'dxgi_duplication' || item === 'wgc_hwnd' || item === 'print_window'
+        ? (item === 'dxgi' ? 'dxgi_duplication' : item)
+        : null,
+    )
     .filter((item): item is ProbeCaptureMethod => Boolean(item));
-  if (parsed.length === 0) return ['wgc_hwnd', 'print_window'];
+  if (parsed.length === 0) return ['dxgi_duplication', 'wgc_hwnd', 'print_window'];
   return [...new Set(parsed)];
 }
 
@@ -31,18 +35,26 @@ function parseJson<T>(text: string): T | null {
   }
 }
 
-function runWgcHelper(timeoutMs: number): ProbeCaptureResult {
-  const command = String(process.env.MIYA_WGC_CAPTURE_HELPER_CMD ?? '').trim();
+function runCaptureHelper(input: {
+  method: ProbeCaptureMethod;
+  command: string;
+  missingCode: string;
+  execFailedCode: string;
+  nonZeroCode: string;
+  invalidJsonCode: string;
+  timeoutMs: number;
+}): ProbeCaptureResult {
+  const command = String(input.command ?? '').trim();
   if (!command) {
     return {
       ok: false,
-      method: 'wgc_hwnd',
-      limitations: ['wgc_helper_missing'],
-      error: 'wgc_helper_missing',
+      method: input.method,
+      limitations: [input.missingCode],
+      error: input.missingCode,
     };
   }
   const result = spawnSync(command, [], {
-    timeout: Math.max(500, timeoutMs),
+    timeout: Math.max(500, input.timeoutMs),
     encoding: 'utf-8',
     shell: true,
     windowsHide: true,
@@ -51,26 +63,26 @@ function runWgcHelper(timeoutMs: number): ProbeCaptureResult {
   if (result.error) {
     return {
       ok: false,
-      method: 'wgc_hwnd',
-      limitations: ['wgc_helper_exec_failed'],
-      error: result.error.message || 'wgc_helper_exec_failed',
+      method: input.method,
+      limitations: [input.execFailedCode],
+      error: result.error.message || input.execFailedCode,
     };
   }
   if (result.status !== 0) {
     return {
       ok: false,
-      method: 'wgc_hwnd',
-      limitations: ['wgc_helper_nonzero_exit'],
+      method: input.method,
+      limitations: [input.nonZeroCode],
       error: String(result.stderr || `exit_${result.status}`).trim(),
     };
   }
-  const parsed = parseJson<PrintWindowRaw>(String(result.stdout ?? '').trim());
+  const parsed = parseJson<CaptureHelperRaw>(String(result.stdout ?? '').trim());
   if (!parsed) {
     return {
       ok: false,
-      method: 'wgc_hwnd',
-      limitations: ['wgc_helper_invalid_json'],
-      error: 'wgc_helper_invalid_json',
+      method: input.method,
+      limitations: [input.invalidJsonCode],
+      error: input.invalidJsonCode,
     };
   }
   const limitations = Array.isArray(parsed.limitations)
@@ -78,12 +90,44 @@ function runWgcHelper(timeoutMs: number): ProbeCaptureResult {
     : [];
   return {
     ok: parsed.ok === true && typeof parsed.imageBase64 === 'string' && parsed.imageBase64.length > 0,
-    method: 'wgc_hwnd',
+    method: input.method,
     imageBase64: typeof parsed.imageBase64 === 'string' ? parsed.imageBase64 : undefined,
     blackFrame: parsed.blackFrame === true,
     limitations,
     error: typeof parsed.error === 'string' ? parsed.error : undefined,
   };
+}
+
+function runDxgiHelper(timeoutMs: number): ProbeCaptureResult {
+  if (process.platform !== 'win32') {
+    return {
+      ok: false,
+      method: 'dxgi_duplication',
+      limitations: ['platform_not_windows'],
+      error: 'platform_not_windows',
+    };
+  }
+  return runCaptureHelper({
+    method: 'dxgi_duplication',
+    command: String(process.env.MIYA_DXGI_CAPTURE_HELPER_CMD ?? ''),
+    missingCode: 'dxgi_helper_missing',
+    execFailedCode: 'dxgi_helper_exec_failed',
+    nonZeroCode: 'dxgi_helper_nonzero_exit',
+    invalidJsonCode: 'dxgi_helper_invalid_json',
+    timeoutMs,
+  });
+}
+
+function runWgcHelper(timeoutMs: number): ProbeCaptureResult {
+  return runCaptureHelper({
+    method: 'wgc_hwnd',
+    command: String(process.env.MIYA_WGC_CAPTURE_HELPER_CMD ?? ''),
+    missingCode: 'wgc_helper_missing',
+    execFailedCode: 'wgc_helper_exec_failed',
+    nonZeroCode: 'wgc_helper_nonzero_exit',
+    invalidJsonCode: 'wgc_helper_invalid_json',
+    timeoutMs,
+  });
 }
 
 function runPrintWindowCapture(timeoutMs: number): ProbeCaptureResult {
@@ -186,7 +230,7 @@ public static class MiyaPrintWindowProbe {
       error: String(run.signal),
     };
   }
-  const parsed = parseJson<PrintWindowRaw>(String(run.stdout ?? '').trim());
+  const parsed = parseJson<CaptureHelperRaw>(String(run.stdout ?? '').trim());
   if (!parsed) {
     return {
       ok: false,
@@ -212,7 +256,12 @@ export function captureFrameForScreenProbe(timeoutMs = 2_000): ProbeCaptureResul
   const methods = parseMethodList();
   const limitations: string[] = [];
   for (const method of methods) {
-    const result = method === 'wgc_hwnd' ? runWgcHelper(timeoutMs) : runPrintWindowCapture(timeoutMs);
+    const result =
+      method === 'dxgi_duplication'
+        ? runDxgiHelper(timeoutMs)
+        : method === 'wgc_hwnd'
+          ? runWgcHelper(timeoutMs)
+          : runPrintWindowCapture(timeoutMs);
     limitations.push(...result.limitations);
     if (result.ok) {
       return {
