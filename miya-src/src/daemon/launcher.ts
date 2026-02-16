@@ -36,6 +36,18 @@ export interface DaemonConnectionSnapshot {
   pendingRequests: number;
   rejectedRequests: number;
   lastRejectReason?: string;
+  psycheSignalHub?: {
+    running: boolean;
+    sequence: number;
+    sampledAt?: string;
+    ageMs: number;
+    stale: boolean;
+    consecutiveFailures: number;
+    lastError?: string;
+    sampleIntervalMs: number;
+    burstIntervalMs: number;
+    staleAfterMs: number;
+  };
   startedAt: string;
 }
 
@@ -120,6 +132,43 @@ function syncBackpressureSnapshot(runtime: LauncherRuntime): void {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function parsePsycheSignalHubSnapshot(raw: unknown): DaemonConnectionSnapshot['psycheSignalHub'] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const row = raw as Record<string, unknown>;
+  const running = row.running === true;
+  const sequence = Number(row.sequence);
+  const ageMs = Number(row.ageMs);
+  const stale = row.stale === true;
+  const consecutiveFailures = Number(row.consecutiveFailures);
+  const sampleIntervalMs = Number(row.sampleIntervalMs);
+  const burstIntervalMs = Number(row.burstIntervalMs);
+  const staleAfterMs = Number(row.staleAfterMs);
+  if (
+    !Number.isFinite(sequence) ||
+    !Number.isFinite(ageMs) ||
+    !Number.isFinite(consecutiveFailures) ||
+    !Number.isFinite(sampleIntervalMs) ||
+    !Number.isFinite(burstIntervalMs) ||
+    !Number.isFinite(staleAfterMs)
+  ) {
+    return undefined;
+  }
+  return {
+    running,
+    sequence: Math.max(0, Math.floor(sequence)),
+    sampledAt: typeof row.sampledAt === 'string' ? row.sampledAt : undefined,
+    ageMs: Math.max(0, Math.floor(ageMs)),
+    stale,
+    consecutiveFailures: Math.max(0, Math.floor(consecutiveFailures)),
+    lastError: typeof row.lastError === 'string' && row.lastError.trim().length > 0
+      ? row.lastError.trim()
+      : undefined,
+    sampleIntervalMs: Math.max(0, Math.floor(sampleIntervalMs)),
+    burstIntervalMs: Math.max(0, Math.floor(burstIntervalMs)),
+    staleAfterMs: Math.max(0, Math.floor(staleAfterMs)),
+  };
 }
 
 function daemonDir(projectDir: string): string {
@@ -469,6 +518,9 @@ function startStatusPoll(runtime: LauncherRuntime): void {
         typeof data.vramTotalMB === 'number' ? data.vramTotalMB : runtime.snapshot.vramTotalMB;
       runtime.snapshot.lastSeenAt =
         typeof data.lastSeenAt === 'string' ? data.lastSeenAt : runtime.snapshot.lastSeenAt;
+      runtime.snapshot.psycheSignalHub =
+        parsePsycheSignalHubSnapshot((data as Record<string, unknown>).psycheSignalHub) ??
+        runtime.snapshot.psycheSignalHub;
     } catch {
       runtime.snapshot.connected = false;
       runtime.snapshot.statusText = 'Miya Daemon Reconnecting';

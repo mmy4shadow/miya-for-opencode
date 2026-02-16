@@ -3124,6 +3124,42 @@ function collectDoctorIssues(
     });
   }
 
+  const signalHub = base.daemon.psycheSignalHub;
+  if (base.daemon.connected && !signalHub) {
+    issues.push({
+      code: 'psyche_signal_hub_status_missing',
+      severity: 'warn',
+      message: 'Daemon connected but psyche signal hub status is missing.',
+      fix: 'Check daemon host status payload and launcher status poll parsing.',
+    });
+  }
+  if (signalHub) {
+    if (!signalHub.running) {
+      issues.push({
+        code: 'psyche_signal_hub_not_running',
+        severity: 'warn',
+        message: 'Psyche native signal hub is not running.',
+        fix: 'Ensure daemon service start() is called and signal hub bootstrap succeeds.',
+      });
+    }
+    if (signalHub.stale) {
+      issues.push({
+        code: 'psyche_signal_hub_stale',
+        severity: 'warn',
+        message: `Psyche signal hub snapshot is stale (${signalHub.ageMs}ms).`,
+        fix: 'Inspect sensor collectors and sampling interval; verify no timer starvation.',
+      });
+    }
+    if (signalHub.consecutiveFailures >= 3) {
+      issues.push({
+        code: 'psyche_signal_hub_collect_failures',
+        severity: 'error',
+        message: `Psyche signal hub has ${signalHub.consecutiveFailures} consecutive collect failures.`,
+        fix: 'Check windows sensor probes and daemon logs; fallback should remain safe hold.',
+      });
+    }
+  }
+
   const channelStore = readChannelStore(projectDir);
   for (const channel of Object.values(channelStore.channels)) {
     if (channel.enabled && channel.name !== 'webchat' && channel.allowlist.length === 0) {

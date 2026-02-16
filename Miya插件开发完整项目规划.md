@@ -2134,6 +2134,7 @@ miya-src/src/daemon/psyche/
   - `miya-src/src/daemon/host.ts` / `miya-src/src/daemon/client.ts` / `miya-src/src/gateway/index.ts` 保持单一 WS 控制平面透传（未新增旁路通道）。  
   - 已新增 daemon 常驻 `PsycheNativeSignalHub`：`miya-src/src/daemon/psyche/signal-hub.ts` 负责定时采样 + 变化突发采样 + stale 按需刷新，`consult` 读取缓存快照而非每次重采。  
   - `miya-src/src/gateway/index.ts` 已新增 consult 断路器超时：daemon consult 超时会走 Safe Hold（非用户触发），避免主流程被长阻塞。  
+  - 已新增守门员可观测链路：`daemon.psyche.signals.get` 调试接口 + launcher 快照透传 `daemon.psycheSignalHub` + `doctor` 对 stale/failure 报警。  
 
 - 已落地（P1 闭环关键项）：  
   - `miya-src/src/daemon/psyche/logger.ts` / `consult.ts` 已补充 delayed reward 相关口径（含 `userInitiatedWithinSec`），并对 defer/hold 决策可评分。  

@@ -298,6 +298,44 @@ describe('gateway security interaction acceptance', () => {
     }
   });
 
+  test('exposes daemon psyche signal hub status for diagnostics', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      const direct = (await client.request('daemon.psyche.signals.get')) as {
+        ok?: boolean;
+        error?: string;
+        status?: {
+          running?: boolean;
+          sequence?: number;
+          ageMs?: number;
+          stale?: boolean;
+        };
+      };
+      expect(typeof direct.ok).toBe('boolean');
+      if (direct.ok) {
+        expect(typeof direct.status?.running).toBe('boolean');
+        expect(typeof direct.status?.sequence).toBe('number');
+        expect(typeof direct.status?.ageMs).toBe('number');
+        expect(typeof direct.status?.stale).toBe('boolean');
+      } else {
+        expect(typeof direct.error).toBe('string');
+      }
+
+      const snapshot = (await client.request('gateway.status.get')) as {
+        daemon?: { psycheSignalHub?: { running?: boolean; sequence?: number } };
+      };
+      if (snapshot.daemon?.psycheSignalHub) {
+        expect(typeof snapshot.daemon.psycheSignalHub.running).toBe('boolean');
+        expect(typeof snapshot.daemon.psycheSignalHub.sequence).toBe('number');
+      }
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  }, 20_000);
+
   test('applies learning gate layers and enforces persistent approval policy', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);

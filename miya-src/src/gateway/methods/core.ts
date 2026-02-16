@@ -132,6 +132,23 @@ export function registerGatewayCoreMethods(
     ...getLauncherBackpressureStats(deps.projectDir),
     updatedAt: deps.now(),
   }));
+  methods.register('daemon.psyche.signals.get', async () => {
+    const daemon = getMiyaClient(deps.projectDir);
+    try {
+      const status = await daemon.psycheSignalsGet();
+      return {
+        ok: true,
+        status,
+        updatedAt: deps.now(),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        updatedAt: deps.now(),
+      };
+    }
+  });
   methods.register('gateway.pressure.run', async (params) => {
     const concurrencyRaw =
       typeof params.concurrency === 'number' ? Number(params.concurrency) : 10;
