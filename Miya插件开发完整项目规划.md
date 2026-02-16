@@ -492,9 +492,9 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 
 ### **0.4 总状态矩阵（Single Source of Truth，全局入口）**
 
-- **快照日期**：2026-02-15  
-- **判定规则**：后文任意“已完成/进行中/待实现”若与本矩阵冲突，**以本矩阵为准**。  
-- **状态枚举**：`已完成` / `进行中` / `待实现` / `持续监控`。  
+- **快照日期**：2026-02-16  
+- **判定规则**：后文任意“已完成/进行中/未完成”若与本矩阵冲突，**以本矩阵为准**。  
+- **状态枚举**：`已完成` / `进行中` / `未完成` / `持续监控`。  
 
 | 能力域 | 当前状态 | 边界说明（冻结口径） | 主要证据路径 |
 |---|---|---|---|
@@ -511,9 +511,9 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 | 模式可观测闭环（mode metrics） | 已完成（2026-02-15） | 输出模式切换频率/误判回滚率/自主任务完成率/用户负反馈率 | `miya-src/src/gateway/mode-observability.ts`, `miya-src/src/gateway/index.ts` |
 | Ralph Loop 执行闭环 | 已完成 | 已支持 stderr 回注与重试上限；继续做稳定性优化 | `miya-src/src/ralph/*`, `miya-src/src/tools/ralph.*` |
 | Psyche V3 守门员（Sentinel + consult + bandit） | 进行中 | `consult` 前置守门，不新增第二控制平面 | `miya-src/src/daemon/psyche/`（规划）, `miya-src/src/policy/decision-fusion.ts` |
-| Gateway V5（动态信任阈值 + Fixability + V5证据包） | 进行中 | 不放宽安全边界，仅优化审批体验与协商闭环 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/gateway/control-ui.ts` |
+| Gateway V5（动态信任阈值 + Fixability + V5证据包） | 进行中 | 动态阈值与协商预算已落地；证据包富媒体预览与体验收敛继续推进 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/gateway/control-ui.ts`, `miya-src/src/policy/decision-fusion.ts`, `miya-src/src/gateway/negotiation-budget.ts` |
 | Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 进行中 | 低置信度自动升档；失败仅回退 `UNKNOWN` | `miya-src/src/multimodal/vision.ts` |
-| 学习闸门分层（Ephemeral/Candidate/Persistent） | 进行中 | 学习不得默认打断，仅长期写入强审批 | `miya-src/src/companion/*`, `miya-src/src/gateway/control-ui.ts` |
+| 学习闸门分层（Ephemeral/Candidate/Persistent） | 已完成 | 已支持分层闸门与审批模式联动（ephemeral=静默，candidate=toast/silent，persistent=可强审批） | `miya-src/src/gateway/index.ts`, `miya-src/src/companion/memory-vector.ts`, `miya-src/src/gateway/security-interaction.test.ts` |
 | Inbound-only 通道治理（非主线） | 持续监控 | 可入站只读；严格禁止新增外发通道 | `miya-src/src/channel/`, `miya-src/src/gateway/index.ts` |
 | 质量与对抗回归（OCR/DPI/InputMutex/Context） | 持续监控 | 每次改动必须复跑对抗用例并审计 | `miya-src/src/channels/service.adversarial.test.ts`, `miya-src/src/agents/context-sanitization.test.ts` |
 
@@ -521,7 +521,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 1. 任一里程碑状态变更，必须先更新本矩阵再更新后文章节。  
 2. 新增能力域必须先在本矩阵登记状态与边界，再进入实现。  
 3. 禁止在后文出现“仅叙述不标状态”的任务条目。  
-4. 每次代码更改完成后、上传前，必须更新规划中“进行中/待实现”条目，且不得改动其他无关内容。  
+4. 每次代码更改完成后、上传前，必须更新规划中“进行中/未完成”条目，且不得改动其他无关内容。  
 
 ---
 
@@ -885,7 +885,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 
 ### **3.5 参考项目速览（原文整理）**
 
-> 状态口径说明（冻结）：本节“已实现/部分实现/待实现”必须与第 0.4、`5.*`、`6.*` 的里程碑与基线矩阵一致；若冲突，以第 5/6 章矩阵为准并由 Doc Linter 报警。
+> 状态口径说明（冻结）：本节“已完成/进行中/未完成”必须与第 0.4、`5.*`、`6.*` 的里程碑与基线矩阵一致；若冲突，以第 5/6 章矩阵为准并由 Doc Linter 报警。
 
 <details>
 <summary>修订前原文快照（审计追溯）</summary>
@@ -905,8 +905,8 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - **Canvas可视化**：提供Web控制台和技能管理界面
 **Miya融合目标**：
 - Gateway Web控制台（已实现）
-- 节点管理系统（待实现），不需要多通道集成
-- 权限映射机制（部分实现）
+- 节点管理系统（进行中：主路径已完成，不做多通道扩展）
+- 权限映射机制（进行中：已有风险分级与策略映射，持续补全边界）
 #### 2. Oh-my-claudecode (https://github.com/Yeachan-Heo/oh-my-claudecode.git)
 **核心特性**：
 - **Ralph Loop**：自修正闭环，写代码→运行测试→读取报错→修改代码，直到成功
@@ -916,8 +916,8 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - **多AI编排**：Claude协调Gemini和Codex进行专门任务
 **Miya融合目标**：
 - Self-Approval联锁（已实现）
-- Ralph Loop自修正（部分实现）
-- 验证分层（部分实现）
+- Ralph Loop自修正（进行中：闭环已可用，持续补稳定性）
+- 验证分层（已完成）
 - 循环修复机制（已实现，正从“固定轮数守卫”迁移到“进展驱动 + 上限约束”）
 #### 3. Clawra 与OpenClaw AI Girlfriend by Clawra(https://github.com/SumeLabs/clawra.git，https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git)
 **核心特性**：
@@ -929,8 +929,8 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - **情绪识别**：识别用户情绪状态并调整回复风格
 - **视觉生成**：利用本地FLUX.2 [klein] 4B模型生成图像
 **Miya融合目标**：
-- 人格系统框架（已实现基础：`companion profile + wizard + SOUL 挂载`）
-- 人格定制（已实现基础：`companion.profile.update` + 向导人格采集）
+- 人格系统框架（进行中：`companion profile + wizard + SOUL 挂载` 主链路已落地）
+- 人格定制（进行中：`companion.profile.update` + 向导人格采集已落地，持续做体验收敛）
 - 记忆系统（已实现主链路：`pending/active/superseded + reflect + sqlite 同步`）
 - 情感响应（进行中：已接入短语/音频填充，自适应短语池持续增强）
 - 多模态交互（已实现主链路：图像/语音/视觉）
@@ -945,7 +945,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 **Miya融合目标**：
 - 六代理协同（已实现）
 - 并行执行（进行中：已实现 Ultrawork DAG + Autoflow 持久状态机首版）
-- 智能路由（部分实现）
+- 智能路由（已实现，持续优化）
 - 上下文隔离（已实现）
 #### 5. MemOS (https://github.com/MemTensor/MemOS.git)
 **核心特性**：
@@ -953,9 +953,9 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - **记忆生命周期治理**：写入、衰减、召回、清理的标准化流程
 - **可解释记忆证据链**：记忆命中原因、来源证据与更新轨迹
 **Miya融合目标**：
-- Miya-MemOS 架构路线（已纳入 4.5.x，部分实现）
-- 记忆读写审计与来源证据绑定（部分实现）
-- 记忆漂移检测与回收策略（待实现）
+- Miya-MemOS 架构路线（已纳入 4.5.x，进行中）
+- 记忆读写审计与来源证据绑定（已完成，含跨域审批证据）
+- 记忆漂移检测与回收策略（未完成）
 #### 6. Nanobot (https://github.com/HKUDS/nanobot.git)
 **核心特性**：
 - **极简架构**：仅4000行Python代码，挑战企业级框架臃肿
@@ -963,7 +963,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 - **轻量路由**：自动路由和手动路由双模式
 - **快速响应**：比庞大单体Agent更敏捷
 **Miya融合目标**：
-- 代码精简原则（持续优化）
+- 代码精简原则（进行中）
 - MCP集成（已实现）
 - 快速响应（已实现）
 
@@ -1964,7 +1964,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 - CI 规则：Doc Linter 或 contract check 任一失败即禁止 merge/release。
 
 
-## **5. 现有源码架构分析（真实基线，2026-02-14）**
+## **5. 现有源码架构分析（真实基线，2026-02-16）**
 
 ### **5.1 核心模块与源码路径**
 
@@ -2000,9 +2000,9 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 
 ---
 
-## **6. 实施看板（按真实状态重排：已完成 + 待办）**
+## **6. 实施看板（按真实状态重排：已完成 + 进行中/未完成）**
 
-### **6.1 P0/P1/P2 看板（截至 2026-02-14）**
+### **6.1 P0/P1/P2 看板（截至 2026-02-16）**
 
 | 任务 | 状态 | 说明 | 绑定源码路径 |
 |------|------|------|--------------|
@@ -2016,7 +2016,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 | P0-6 严格进程隔离封口（插件仅 RPC） | 已完成（2026-02-14） | 已收口为 launcher/host/client 主链路 + 新增静态防回归测试，禁止非 daemon 模块直接引用 `daemon/service` 或 `MiyaDaemonService`（测试：`bun test src/daemon/isolation-guard.test.ts src/daemon/service.test.ts`） | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/isolation-guard.test.ts`, `miya-src/src/daemon/service.test.ts` |
 | P0-7 通信背压压测与拒绝语义稳定性 | 已完成（2026-02-14） | 已固化“10 指令并发”压测验收用例；并修复 Gateway 事件帧 `undefined` 字段导致的协议异常 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
 | P1-3 Provider 层覆盖注入 | 已完成（2026-02-14） | 已完成 activeAgent provider 覆盖 + provider override 审计日志落盘/查询，支持端到端验收 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/provider-override-audit.ts`, `miya-src/src/config/provider-override-audit.test.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts` |
-| P2 稳定性与体验优化（通道扩展/性能/可观测） | 已完成（2026-02-14） | 已完成通道扩展收口、控制台稳态与安全交互验收增强，后续仅增量优化 | `miya-src/src/channel/`, `miya-src/src/gateway/control-ui.ts`, `miya-src/src/gateway/security-interaction.test.ts`, `miya-src/src/resource-scheduler/` |
+| P2 稳定性与体验优化（通道扩展/性能/可观测） | 进行中 | 控制台稳态与安全交互主链路已完成；通道扩展、性能与 MCP-UI 采样能力继续收敛 | `miya-src/src/channel/`, `miya-src/src/gateway/control-ui.ts`, `miya-src/src/gateway/security-interaction.test.ts`, `miya-src/src/resource-scheduler/` |
 
 ### **6.2 质量基线复核项（持续监控）**
 
@@ -2190,34 +2190,34 @@ miya-src/src/daemon/psyche/
 
 ## **7. 功能优先级矩阵**
 
-| 功能模块 | 优先级 | 预计工作量 | 依赖关系 | 源码基础 |
-|----------|--------|------------|----------|----------|
-| 节点管理系统增强（治理/可视化） | P1 | 1-2周 | Gateway | 主路径已完成，补治理与策略联锁 |
-| Ralph Loop 持续优化（稳定性/可观测） | P1 | 1-2周 | Task Manager + 验证分层 | 主闭环已完成，聚焦指标化与回归稳定 |
-| QQ/微信桌面外发主链路（含证据包） | P0 | 2-3周 | desktop_control + outbound_send + Arch Advisor | 有Gateway/风控基础 |
-| Autopilot模式增强 | P1 | 1周 | Task Manager | 有编排基础，需补可观测与回退策略 |
-| 自主工作流状态机（Autoflow：执行→验证→修复闭环） | P0 | 1周 | Ultrawork DAG + verification/fix command | 首版已实现（`miya-src/src/autoflow/*`, `miya-src/src/tools/autoflow.ts`） |
-| 持久执行接管 stop 事件（Persistent Autoflow Hook） | P1 | 1周 | `session.status` 事件流 + Autoflow 状态机 | 首版已实现（`miya-src/src/hooks/persistent-autoflow/index.ts`, `miya-src/src/autoflow/persistent.ts`） |
-| 运行时模型路由 + EcoMode + Token/Cost 计量 | P2 | 1-2周 | Router runtime + Gateway routeSessionMessage | 首版已实现（`miya-src/src/router/runtime.ts`, `miya-src/src/tools/router.ts`, `miya-src/src/gateway/index.ts`） |
-| 统一模式核（Mode Kernel）+ mixed 路由 | P0 | 已完成（2026-02-15） | Gateway routeSessionMessage + sanitizer + psyche 信号 | 已实现（`miya-src/src/gateway/mode-kernel.ts`, `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/sanitizer.ts`） |
-| Cortex Arbiter（双脑并行评估，单轨执行） | P0 | 已完成（2026-02-15） | Left/Right plan 合并仲裁 + 策略闸门 | 已实现（`miya-src/src/gateway/cortex-arbiter.ts`, `miya-src/src/gateway/index.ts`） |
-| 模式可观测闭环（mode metrics） | P1 | 已完成（2026-02-15） | Gateway 统计快照 + 负反馈检测 | 已实现（`miya-src/src/gateway/mode-observability.ts`, `miya-src/src/gateway/index.ts`） |
-| 学习闭环产品化（Ralph/Reflect -> 技能草案） | P3 | 1-2周 | Ralph Loop + memory-reflect + learning store | 首版已实现（`miya-src/src/learning/skill-drafts.ts`, `miya-src/src/tools/learning.ts`） |
-| 控制面可观测（阶段/并行/重试/token/cost/学习命中） | P4 | 1周 | Gateway snapshot + Console 面板 | 首版已实现（`miya-src/src/gateway/index.ts`） |
-| Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | 已具备 daemon/psyche 子系统与策略引擎基础，持续完善联锁 |
-| 动态信任阈值（三档提示） | P0-P1 | 1-2周 | 审批事件统计 + Policy Engine | 有审批与10次窗口降权基础 |
-| Fixability 协商协议（防重试风暴） | P0 | 1周 | Gateway 协议帧 + Agent 重试器 | 有协议与拒绝语义基础 |
-| Evidence Pack V5（富媒体 + Simulation） | P1 | 2周 | 审计存储 + 前端预览组件 | 有证据链与Gateway UI基础 |
-| Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | P1 | 2周 | 多模态视觉链路 + Windows 采集能力 | 有 vision/fallback 基础 |
-| Traffic Light 调度器 -> Hydraulics 进阶 | P0-P2 | 2-4周 | 资源调度器 + 训练抢占机制 | 有全局 VRAM 信号量基础 |
-| 学习闸门分层（Ephemeral/Candidate/Persistent） | P1 | 1-2周 | 记忆写入流程 + Gateway 提示系统 | 有 pending 记忆机制基础 |
-| SOUL.md人格 | P1 | 1周 | 无 | 无 |
-| Ultrawork并行编排 | P2 | 2周 | 开源范式验证后 | 复用oh-my-opencode已验证模式 |
-| 智能路由 | P1 | 1周 | Agent分类 | 有代理分类 |
-| Inbound-only 通道治理（非外发扩展） | P1 | 1-2周 | 节点管理 | 已有入站解析基础，需强化只读边界与审计 |
-| 多模态交互增强（与共鸣层联动） | P1 | 1-2周 | 本地模型/训练链路 + Psyche | 主链路可用，补体验与一致性策略 |
-| MCP原生增强 | P2 | 1周 | MCP集成 | 有MCP基础 |
-| 极简架构优化 | P3 | 持续 | 无 | 代码结构清晰 |
+| 功能模块 | 状态 | 优先级 | 预计工作量 | 依赖关系 | 源码基础 |
+|----------|------|--------|------------|----------|----------|
+| 节点管理系统增强（治理/可视化） | 进行中 | P1 | 1-2周 | Gateway | 主路径已完成，治理联锁持续增强（`miya-src/src/nodes/*`, `miya-src/src/tools/nodes.ts`） |
+| Ralph Loop 持续优化（稳定性/可观测） | 进行中 | P1 | 1-2周 | Task Manager + 验证分层 | 主闭环已完成，持续做指标化和回归稳定（`miya-src/src/ralph/*`, `miya-src/src/tools/ralph.ts`） |
+| QQ/微信桌面外发主链路（含证据包） | 已完成 | P0 | 2-3周 | desktop_control + outbound_send + Arch Advisor | 主链路、证据包、对抗用例已落地（`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`） |
+| Autopilot模式增强 | 进行中 | P1 | 1周 | Task Manager | Autopilot 执行/统计已落地，继续补回退体验（`miya-src/src/autopilot/*`, `miya-src/src/tools/autopilot.ts`） |
+| 自主工作流状态机（Autoflow：执行→验证→修复闭环） | 进行中 | P0 | 1周 | Ultrawork DAG + verification/fix command | 首版已实现（`miya-src/src/autoflow/*`, `miya-src/src/tools/autoflow.ts`） |
+| 持久执行接管 stop 事件（Persistent Autoflow Hook） | 进行中 | P1 | 1周 | `session.status` 事件流 + Autoflow 状态机 | 首版已实现（`miya-src/src/hooks/persistent-autoflow/index.ts`, `miya-src/src/autoflow/persistent.ts`） |
+| 运行时模型路由 + EcoMode + Token/Cost 计量 | 进行中 | P2 | 1-2周 | Router runtime + Gateway routeSessionMessage | 首版已实现（`miya-src/src/router/runtime.ts`, `miya-src/src/tools/router.ts`, `miya-src/src/gateway/index.ts`） |
+| 统一模式核（Mode Kernel）+ mixed 路由 | 已完成 | P0 | 已完成（2026-02-15） | Gateway routeSessionMessage + sanitizer + psyche 信号 | 已实现（`miya-src/src/gateway/mode-kernel.ts`, `miya-src/src/gateway/index.ts`, `miya-src/src/gateway/sanitizer.ts`） |
+| Cortex Arbiter（双脑并行评估，单轨执行） | 已完成 | P0 | 已完成（2026-02-15） | Left/Right plan 合并仲裁 + 策略闸门 | 已实现（`miya-src/src/gateway/cortex-arbiter.ts`, `miya-src/src/gateway/index.ts`） |
+| 模式可观测闭环（mode metrics） | 已完成 | P1 | 已完成（2026-02-15） | Gateway 统计快照 + 负反馈检测 | 已实现（`miya-src/src/gateway/mode-observability.ts`, `miya-src/src/gateway/index.ts`） |
+| 学习闭环产品化（Ralph/Reflect -> 技能草案） | 进行中 | P3 | 1-2周 | Ralph Loop + memory-reflect + learning store | 技能草案链路已落地，持续做策略收敛（`miya-src/src/learning/skill-drafts.ts`, `miya-src/src/tools/learning.ts`） |
+| 控制面可观测（阶段/并行/重试/token/cost/学习命中） | 进行中 | P4 | 1周 | Gateway snapshot + Console 面板 | 指标链路已落地，UI 体验继续收敛（`miya-src/src/gateway/index.ts`, `miya-src/src/gateway/control-ui.ts`） |
+| Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | 进行中 | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | Sentinel/consult/bandit 已落地，共鸣层/慢脑训练继续推进（`miya-src/src/daemon/psyche/*`） |
+| 动态信任阈值（三档提示） | 已完成 | P0-P1 | 1-2周 | 审批事件统计 + Policy Engine | 三档提示阈值与快照联动已落地（`miya-src/src/policy/decision-fusion.ts`, `miya-src/src/gateway/index.ts`） |
+| Fixability 协商协议（防重试风暴） | 已完成 | P0 | 1周 | Gateway 协议帧 + Agent 重试器 | `fixability+budget` 与预算熔断已落地（`miya-src/src/gateway/negotiation-budget.ts`, `miya-src/src/gateway/index.ts`） |
+| Evidence Pack V5（富媒体 + Simulation） | 进行中 | P1 | 2周 | 审计存储 + 前端预览组件 | simulation/风险提示已落地，富媒体预览继续完善（`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/gateway/control-ui.ts`） |
+| Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 进行中 | P1 | 2周 | 多模态视觉链路 + Windows 采集能力 | 能力树判定与低置信升档已落地，真实采集链继续增强（`miya-src/src/multimodal/vision.ts`） |
+| Traffic Light 调度器 -> Hydraulics 进阶 | 进行中 | P0-P2 | 2-4周 | 资源调度器 + 训练抢占机制 | 已有显存预算与调度基础（`miya-src/src/resource-scheduler/`, `miya-src/src/gateway/index.ts`） |
+| 学习闸门分层（Ephemeral/Candidate/Persistent） | 已完成 | P1 | 1-2周 | 记忆写入流程 + Gateway 提示系统 | 分层闸门与审批模式已落地（`miya-src/src/gateway/index.ts`, `miya-src/src/companion/memory-vector.ts`） |
+| SOUL.md人格 | 已完成 | P1 | 1周 | Agent prompt 注入链路 | SOUL 读取/写入/注入已落地（`miya-src/src/soul/*`, `miya-src/src/tools/soul.ts`, `miya-src/src/agents/index.ts`） |
+| Ultrawork并行编排 | 已完成 | P2 | 2周 | 任务分解与并行调度 | 并行调度与合并器已落地（`miya-src/src/ultrawork/scheduler.ts`, `miya-src/src/ultrawork/merger.ts`） |
+| 智能路由 | 已完成 | P1 | 1周 | Agent 分类 + 语义信号 | 分类器/运行时/学习器已落地（`miya-src/src/router/classifier.ts`, `miya-src/src/router/runtime.ts`, `miya-src/src/router/learner.ts`） |
+| Inbound-only 通道治理（非外发扩展） | 进行中 | P1 | 1-2周 | 节点管理 | 入站解析与治理摘要已落地，继续强化只读边界与审计（`miya-src/src/channels/service.ts`, `miya-src/src/gateway/index.ts`） |
+| 多模态交互增强（与共鸣层联动） | 进行中 | P1 | 1-2周 | 本地模型/训练链路 + Psyche | 主链路可用，联动体验持续收敛（`miya-src/src/multimodal/*`, `miya-src/src/daemon/psyche/*`） |
+| MCP原生增强 | 已完成 | P2 | 1周 | MCP集成 | 原生能力元数据与工具接入已落地（`miya-src/src/mcp/index.ts`, `miya-src/src/tools/mcp.ts`） |
+| 极简架构优化 | 进行中 | P3 | 持续 | 模块解耦与复杂度治理 | 结构持续优化中（`miya-src/src/`） |
 
 ---
 
@@ -2291,12 +2291,12 @@ miya-src/src/daemon/psyche/
 - 对抗 4（人格隔离）：已通过 Context Sanitation 联测验证执行链保持 Zero-Persona。
 - 对抗 5（Ralph Loop）：验证失败时必须自动捕获 stderr 并进入下一轮修复，直到通过或达到 `max_retries`。
 
-### **M6：Gateway V5 体验收敛（新增，规划中）**
-- 目标 1：动态信任阈值上线并替换“固定阻断”策略，完成 Silent/Toast/Modal 三档联动。
-- 目标 2：协商协议接入 `fixability+budget`，并完成不可修复场景零重试验收。
-- 目标 3：Evidence Pack V5 支持关键富媒体预览与桌控 Simulation 预演。
-- 目标 4：Capture Capability Tree 上线并把 `confidence/limitations` 纳入决策升档。
-- 目标 5：P0/P1 显存调度落地 Traffic Light 策略，保持训练可抢占、可重排队。
+### **M6：Gateway V5 体验收敛（新增，进行中）**
+- 目标 1（已完成）：动态信任阈值已上线并替换“固定阻断”策略，已支持 Silent/Toast/Modal 三档联动。
+- 目标 2（已完成）：协商协议已接入 `fixability+budget`，不可修复场景强制零自动重试。
+- 目标 3（进行中）：Evidence Pack V5 富媒体预览与桌控 Simulation 体验继续收敛。
+- 目标 4（进行中）：Capture Capability Tree 已接入 `confidence/limitations` 升档，继续增强真实采集能力。
+- 目标 5（进行中）：P0/P1 显存调度持续推进 Traffic Light 策略，保持训练可抢占、可重排队。
 - 量化验收 KPI（冻结）：
   - 审批阻断率：较 M5 基线下降 >= 30%（高风险动作除外）。
   - 高风险误放行率：`0`（以审计回放与复盘为准）。
@@ -2413,19 +2413,19 @@ Miya插件已经具备了坚实的架构基础：
 - ✅ 记忆分域检索（`work_memory` / `relationship_memory`）与跨域写入审批证据
 - ✅ 模式可观测指标（mode 切换频率、误判回滚率、自主任务完成率、用户负反馈率）
 
-**已落实（原“进行中/持续增强”对标项，参考开源项目）**：
-- ✅ 节点管理系统（OpenClaw，对标项已落实：节点权限映射/风险分级/治理摘要已接入控制面，`miya-src/src/nodes/index.ts`、`miya-src/src/tools/nodes.ts`、`miya-src/src/gateway/index.ts`）
-- ✅ Autopilot模式增强（Oh-my-claudecode，对标项已落实：瞬时失败重试 + 运行统计/收敛观测，`miya-src/src/autopilot/executor.ts`、`miya-src/src/autopilot/stats.ts`、`miya-src/src/tools/autopilot.ts`）
-- ✅ 自主工作流持久执行（Oh-my-claudecode，对标项首版已实现：Autoflow 状态机 + Persistent Hook，支持非用户中止自动续跑）
-- ✅ 成本优化（运行时模型路由 + EcoMode + token/cost 计量，支持失败升级 low->medium->high）
-- ✅ 从经验中学习（Ralph 失败修复轨迹 + memory-reflect 产物自动沉淀为技能草案，支持推荐/半自动采用）
-- ✅ 控制面可观测（Gateway/Console 已新增阶段进度、重试原因、token/cost、学习命中率）
-- ✅ SOUL.md人格系统（Clawra，对标项已落实：SOUL 动态挂载（work/chat/mixed + minimal/full）接入 agent prompt 注入，`miya-src/src/soul/loader.ts`、`miya-src/src/agents/index.ts`）
-- ✅ 共鸣层（Resonance Gate）与 Psyche 慢脑训练（Clawra + 2_modified_v3，对标项已落实：训练摘要与风险信号聚合接入网关，`miya-src/src/daemon/psyche/training-summary.ts`、`miya-src/src/gateway/index.ts`）
-- ✅ Ultrawork并行编排（Oh-my-opencode，对标项已落实：关键路径优先调度 + 并行/重试指标，`miya-src/src/ultrawork/scheduler.ts`、`miya-src/src/ultrawork/merger.ts`）
-- ✅ 智能路由增强（Oh-my-opencode，对标项已落实：语义信号评分 + 歧义识别 + 证据输出，`miya-src/src/router/classifier.ts`、`miya-src/src/router/runtime.ts`）
-- ✅ Inbound-only 通道治理增强（仅入站只读铁律已落实：治理摘要 + 违规尝试统计 + 控制面暴露，`miya-src/src/channels/service.ts`、`miya-src/src/gateway/index.ts`）
-- ✅ MCP原生增强（Nanobot，对标项已落实：原生能力元数据 + 生态摘要 + 控制面清单增强，`miya-src/src/mcp/index.ts`、`miya-src/src/tools/mcp.ts`、`miya-src/src/gateway/index.ts`）
+**对标项状态（按源码核验）**：
+- 进行中：节点管理系统（OpenClaw，对标项主链路已落地，治理/可视化持续增强；`miya-src/src/nodes/index.ts`、`miya-src/src/tools/nodes.ts`、`miya-src/src/gateway/index.ts`）
+- 进行中：Autopilot模式增强（Oh-my-claudecode，执行/统计已落地，收敛策略持续优化；`miya-src/src/autopilot/executor.ts`、`miya-src/src/autopilot/stats.ts`、`miya-src/src/tools/autopilot.ts`）
+- 进行中：自主工作流持久执行（Oh-my-claudecode，Autoflow + Persistent Hook 首版已实现）
+- 进行中：成本优化（运行时模型路由 + EcoMode + token/cost 计量已落地，持续优化策略）
+- 进行中：从经验中学习（Ralph 轨迹 + memory-reflect 技能草案已落地，持续做采用策略）
+- 进行中：控制面可观测（Gateway/Console 指标已落地，持续做体验收敛）
+- 已完成：SOUL.md人格系统（Clawra，SOUL 动态挂载接入 agent prompt 注入；`miya-src/src/soul/loader.ts`、`miya-src/src/agents/index.ts`）
+- 进行中：共鸣层（Resonance Gate）与 Psyche 慢脑训练（Sentinel/consult/bandit 已落地，慢脑训练持续推进；`miya-src/src/daemon/psyche/training-summary.ts`、`miya-src/src/gateway/index.ts`）
+- 已完成：Ultrawork并行编排（Oh-my-opencode，关键路径调度 + 并行/重试指标；`miya-src/src/ultrawork/scheduler.ts`、`miya-src/src/ultrawork/merger.ts`）
+- 已完成：智能路由增强（Oh-my-opencode，语义评分 + 歧义识别 + 证据输出；`miya-src/src/router/classifier.ts`、`miya-src/src/router/runtime.ts`）
+- 进行中：Inbound-only 通道治理增强（仅入站只读主链路已落地，违规审计持续增强；`miya-src/src/channels/service.ts`、`miya-src/src/gateway/index.ts`）
+- 已完成：MCP原生增强（Nanobot，对标能力元数据 + 生态摘要 + 控制面清单已落地；`miya-src/src/mcp/index.ts`、`miya-src/src/tools/mcp.ts`、`miya-src/src/gateway/index.ts`）
 
 通过这些功能的融合，Miya将成为一个真正意义上的"全自动控制平面"，实现"你只给目标，它自动完成"的愿景，成为OpenCode 生态中第一个真正的“伴侣级”生产力工具
 
