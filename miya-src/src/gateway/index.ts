@@ -3667,29 +3667,6 @@ async function routeSessionMessage(
           modeHint: arbiter.mode,
         }).payload;
 
-  const modeMemoryDomains =
-    arbiter.mode === 'work'
-      ? (['work'] as const)
-      : arbiter.mode === 'chat'
-        ? (['relationship'] as const)
-        : (['work', 'relationship'] as const);
-  const memoryBlocks: string[] = [];
-  for (const domain of modeMemoryDomains) {
-    const hits = searchCompanionMemoryVectors(projectDir, payload.payload, 2, {
-      threshold: 0.18,
-      domain,
-    });
-    if (hits.length === 0) continue;
-    memoryBlocks.push(
-      `[MIYA_${domain.toUpperCase()}_MEMORY reference_only=1]\n${hits
-        .map(
-          (item) =>
-            `- ${item.text} (score=${item.rankScore.toFixed(3)}, confidence=${item.confidence.toFixed(3)}, source=${item.sourceMessageID ?? item.source})`,
-        )
-        .join('\n')}`,
-    );
-  }
-  const memoryContext = memoryBlocks.join('\n\n');
   const personaWorld = resolveSessionPersonaWorld(projectDir, input.sessionID);
   const personaWorldPrompt = buildPersonaWorldPrompt(projectDir, input.sessionID);
 
@@ -3699,31 +3676,20 @@ async function routeSessionMessage(
         limit: 2,
       })
     : { snippet: '', matchedDraftIDs: [] as string[] };
-  const turnMeta = [
+  const routeMeta = [
     `[MIYA_TURN turn_id=${turnID}]`,
-    `[MIYA_MODE_KERNEL] mode=${modeKernel.mode} confidence=${modeKernel.confidence} why=${modeKernel.why.join('|')}`,
-    lowConfidenceSafeFallback
-      ? `[MIYA_MODE_SAFETY_FALLBACK] mode=work source_mode=${modeKernelRaw.mode} confidence=${modeKernelRaw.confidence}`
-      : '',
     `[MIYA_CORTEX_ARBITER] mode=${arbiter.mode} execute_work=${arbiter.executeWork ? '1' : '0'} priority=${arbiter.priorityTrail.join('>')}`,
     `[MIYA_EXECUTION_TRACK] ${arbiter.executionTrack}`,
-    arbiter.responseHints.length > 0
-      ? `[MIYA_RESPONSE_HINTS]\n${arbiter.responseHints.map((item) => `- ${item}`).join('\n')}`
-      : '',
-    arbiter.mode === 'mixed'
-      ? '[MIYA_MIXED_POLICY] 同一轮同时完成工作执行与情感回应，禁止拆分上下文。'
-      : '',
   ]
     .filter((item) => item.length > 0)
     .join('\n');
 
   const enrichedText = [
-    turnMeta,
+    routeMeta,
     personaWorldPrompt,
     personaWorld.risk === 'high'
       ? '[MIYA_PERSONA_WORLD_SAFETY] 当前会话风险较高，所有外发/执行动作必须先显式确认。'
       : '',
-    memoryContext,
     learning.snippet,
     effectiveSafeText,
   ]

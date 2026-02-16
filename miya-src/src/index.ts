@@ -40,10 +40,13 @@ import { assertRequiredHookHandlers } from './contracts/hook-contract';
 import {
   createContextGovernorHook,
   createLoopGuardHook,
+  createMemoryWeaverHook,
+  createModeKernelHook,
   createPersistentAutoflowHook,
   createPhaseReminderHook,
   createPostReadNudgeHook,
   createPostWriteSimplicityHook,
+  createPsycheToneHook,
   createSlashCommandBridgeHook,
 } from './hooks';
 import { createSafetyTools, handlePermissionAsk } from './safety';
@@ -410,11 +413,17 @@ const MiyaPlugin: Plugin = async (ctx) => {
   // Initialize post-read nudge hook
   const postReadNudgeHook = createPostReadNudgeHook();
   const postWriteSimplicityHook = createPostWriteSimplicityHook();
+  const modeKernelHook = createModeKernelHook();
+  const memoryWeaverHook = createMemoryWeaverHook(ctx.directory);
+  const psycheToneHook = createPsycheToneHook();
   const contextGovernorHook = createContextGovernorHook(config.contextGovernance);
   const chatTransformPipeline = [
     slashCommandBridgeHook,
     loopGuardHook,
     phaseReminderHook,
+    modeKernelHook,
+    memoryWeaverHook,
+    psycheToneHook,
     contextGovernorHook,
   ];
   const slimCompatEnabled = config.slimCompat?.enabled ?? true;
