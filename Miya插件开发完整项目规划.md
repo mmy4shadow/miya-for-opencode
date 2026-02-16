@@ -66,6 +66,8 @@
 - Windows 桌控 WinAPI-first（已实装）：`miya-src/src/channel/outbound/shared.ts` 焦点链升级为 `ShowWindow(SW_RESTORE) -> AttachThreadInput -> SetForegroundWindow -> BringWindowToTop`，并在发送前后执行 `hwnd` 指纹一致性校验，失败即 fail-fast；`channels/service.ts` 补充 `targetHwnd/foregroundBefore/foregroundAfter/uiaPath/fallbackReason` 结构化证据落盘。
 - Token 预算化（首版，已实装）：`miya-src/src/router/runtime.ts` 增加 `contextHardCapTokens` 硬上限、失败重试 `retry delta context`；`miya-src/src/gateway/index.ts` 接入重试差量上下文与 hard-cap 观测；`miya-src/src/autopilot/plan-reuse.ts` + `executor.ts` 增加 PlanBundle 任务签名复用。
 - 本轮验证（已执行）：`bun --cwd miya-src test --max-concurrency=1 src/autoflow/persistent.test.ts src/companion/wizard.test.ts src/utils/safe-interval.test.ts src/daemon/launcher.test.ts src/gateway/milestone-acceptance.test.ts` 通过。
+- 2026-02-16 续改回填（第二阶段，已实装）：`miya-src/src/daemon/launcher.ts` 已将 `ws.close/ws.error/health.fail/manual stop` 统一归并到 lifecycle reducer，`scheduleReconnect` 仅负责发状态事件与单调度，不再直连 spawn；修复 `spawnDaemon` 返回语义（`spawned/skipped/failed`）并在断链时强制清理 pending 请求，防止“取消后重拉起/弹窗风暴”回归。
+- 2026-02-16 续改验证（已执行）：`bun test miya-src/src/daemon/launcher.test.ts`、`bun test miya-src/src/gateway/security-interaction.test.ts miya-src/src/gateway/milestone-acceptance.test.ts`、`bun test miya-src/src/channel/outbound/shared.test.ts miya-src/src/autoflow/persistent.test.ts`、`bun test miya-src/src/router/runtime.test.ts miya-src/src/autopilot/executor.test.ts` 全部通过。
 
 ### 1. 基础架构方向性修正与闭环
 

@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getMiyaRuntimeDir } from '../workflow';
 import { readConfig } from '../settings';
+import { safeInterval } from '../utils/safe-interval';
 import {
   parseDaemonOutgoingFrame,
   DaemonHelloFrameSchema,
@@ -67,6 +68,7 @@ type LauncherDesiredState = 'running' | 'stopped';
 type LauncherLifecycleState = 'STOPPED' | 'STARTING' | 'CONNECTED' | 'DEGRADED' | 'BACKOFF' | 'STOPPING';
 
 interface LauncherPersistedState {
+  desiredState: LauncherDesiredState;
   runEpoch: number;
   retryHalted: boolean;
   retryHaltedUntilMs: number;
@@ -269,7 +271,12 @@ function toDaemonLock(raw: Record<string, unknown> | null): DaemonLockState | nu
 
 function readLauncherPersistedState(projectDir: string): LauncherPersistedState {
   const parsed = safeReadJson(daemonLauncherStoreFile(projectDir));
+  const desiredState =
+    parsed?.desiredState === 'stopped' || parsed?.desired_state === 'stopped'
+      ? 'stopped'
+      : 'running';
   return {
+    desiredState,
     runEpoch: Math.max(1, Math.floor(Number(parsed?.runEpoch ?? 1))),
     retryHalted: parsed?.retryHalted === true,
     retryHaltedUntilMs: Math.max(0, Math.floor(Number(parsed?.retryHaltedUntilMs ?? 0))),
@@ -287,6 +294,7 @@ function readLauncherPersistedState(projectDir: string): LauncherPersistedState 
 
 function writeLauncherPersistedState(runtime: LauncherRuntime): void {
   safeWriteJson(runtime.runtimeStoreFile, {
+    desiredState: runtime.desiredState,
     runEpoch: runtime.runEpoch,
     retryHalted: runtime.retryHalted,
     retryHaltedUntilMs: runtime.retryHaltedUntilMs,
@@ -429,19 +437,21 @@ function requestRunningState(runtime: LauncherRuntime, options?: { explicit?: bo
   return runtime.runEpoch;
 }
 
-function spawnDaemon(runtime: LauncherRuntime): boolean {
+type SpawnResult = 'spawned' | 'skipped' | 'failed';
+
+function spawnDaemon(runtime: LauncherRuntime): SpawnResult {
   const epoch = runtime.runEpoch;
   if (!shouldRunForEpoch(runtime, epoch)) {
-    return false;
+    return 'skipped';
   }
   if (runtime.lifecycleMode === 'service_experimental') {
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = 'Miya Daemon Service Mode (attach only)';
-    return false;
+    return 'skipped';
   }
   const now = Date.now();
   if (now - runtime.lastSpawnAttemptAtMs < 3_000) {
-    return false;
+    return 'skipped';
   }
   runtime.lastSpawnAttemptAtMs = now;
   cleanupExistingDaemon(runtime.projectDir);
@@ -450,14 +460,14 @@ function spawnDaemon(runtime: LauncherRuntime): boolean {
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = 'Miya Daemon Disabled (bun_not_found)';
     noteLaunchFailure(runtime, 'bun_not_found');
-    return false;
+    return 'failed';
   }
   const binaryBase = path.basename(bunBinary).toLowerCase();
   if (binaryBase.includes('powershell') || binaryBase === 'pwsh.exe') {
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = 'Miya Daemon Disabled (invalid_runtime_binary)';
     noteLaunchFailure(runtime, 'invalid_runtime_binary');
-    return false;
+    return 'failed';
   }
   const hostScript = resolveHostScriptPath();
   spawn(
@@ -479,7 +489,7 @@ function spawnDaemon(runtime: LauncherRuntime): boolean {
     },
   ).unref();
   setLifecycleState(runtime, 'STARTING', 'Miya Daemon Booting');
-  return true;
+  return 'spawned';
 }
 
 function readPidFile(projectDir: string): number | null {
@@ -602,23 +612,20 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState, epoch
 
   ws.onerror = () => {
     if (runtime.runEpoch !== epoch) return;
-    runtime.connected = false;
-    runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = 'Miya Daemon Reconnecting';
-    setLifecycleState(runtime, 'DEGRADED', runtime.snapshot.statusText);
+    dispatchLifecycleEvent(runtime, {
+      type: 'ws.error',
+      epoch,
+      reason: 'ws_error',
+    });
   };
 
   ws.onclose = () => {
     if (runtime.runEpoch !== epoch) return;
-    noteLaunchFailure(runtime, 'ws_closed');
-    runtime.connected = false;
-    runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = 'Miya Daemon Disconnected';
-    setLifecycleState(runtime, 'DEGRADED', runtime.snapshot.statusText);
-    emitLauncherEvent(runtime, 'daemon.disconnected');
-    stopHeartbeat(runtime);
-    stopStatusPoll(runtime);
-    scheduleReconnect(runtime, epoch);
+    dispatchLifecycleEvent(runtime, {
+      type: 'ws.closed',
+      epoch,
+      reason: 'ws_closed',
+    });
   };
 }
 
@@ -669,7 +676,7 @@ function daemonRequest(
 
 function startHeartbeat(runtime: LauncherRuntime): void {
   stopHeartbeat(runtime);
-  runtime.pingTimer = setInterval(() => {
+  runtime.pingTimer = safeInterval('launcher.ping', 10_000, () => {
     if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) return;
     const ping = DaemonPingFrameSchema.parse({
       type: 'ping',
@@ -682,7 +689,7 @@ function startHeartbeat(runtime: LauncherRuntime): void {
         runtime.ws.close();
       }
     }, 30_000);
-  }, 10_000);
+  });
 }
 
 function stopHeartbeat(runtime: LauncherRuntime): void {
@@ -694,7 +701,7 @@ function stopHeartbeat(runtime: LauncherRuntime): void {
 
 function startStatusPoll(runtime: LauncherRuntime, epoch: number): void {
   stopStatusPoll(runtime);
-  runtime.statusTimer = setInterval(async () => {
+  runtime.statusTimer = safeInterval('launcher.status.poll', 3_000, async () => {
     if (!shouldRunForEpoch(runtime, epoch)) return;
     try {
       const data = (await daemonRequest(runtime, 'daemon.status.get', {})) as
@@ -716,14 +723,17 @@ function startStatusPoll(runtime: LauncherRuntime, epoch: number): void {
       runtime.snapshot.psycheSignalHub =
         parsePsycheSignalHubSnapshot((data as Record<string, unknown>).psycheSignalHub) ??
         runtime.snapshot.psycheSignalHub;
-    } catch {
-      runtime.snapshot.connected = false;
-      runtime.snapshot.statusText = 'Miya Daemon Reconnecting';
-      if (runtime.lifecycleState !== 'STOPPED' && runtime.lifecycleState !== 'STOPPING') {
-        setLifecycleState(runtime, 'DEGRADED', runtime.snapshot.statusText);
-      }
+    } catch (error) {
+      dispatchLifecycleEvent(runtime, {
+        type: 'health.fail',
+        epoch,
+        reason:
+          error instanceof Error && error.message.trim().length > 0
+            ? `status_poll:${error.message.trim()}`
+            : 'status_poll_failed',
+      });
     }
-  }, 3_000);
+  });
 }
 
 function stopStatusPoll(runtime: LauncherRuntime): void {
@@ -731,17 +741,108 @@ function stopStatusPoll(runtime: LauncherRuntime): void {
   runtime.statusTimer = undefined;
 }
 
-function scheduleReconnect(runtime: LauncherRuntime, epoch: number): void {
+function rejectPendingRequests(runtime: LauncherRuntime, reason: string): void {
+  for (const [requestID, pending] of runtime.pending) {
+    runtime.pending.delete(requestID);
+    clearTimeout(pending.timeout);
+    pending.reject(new Error(reason));
+  }
+  syncBackpressureSnapshot(runtime);
+}
+
+type LauncherLifecycleEvent =
+  | { type: 'reconnect.requested'; epoch: number; reason?: string; waitMs?: number }
+  | { type: 'reconnect.timer'; epoch: number; reason?: string }
+  | { type: 'ws.closed'; epoch: number; reason?: string }
+  | { type: 'ws.error'; epoch: number; reason?: string }
+  | { type: 'health.fail'; epoch: number; reason?: string };
+
+function scheduleReconnect(runtime: LauncherRuntime, event: {
+  epoch: number;
+  reason?: string;
+  waitMs?: number;
+}): void {
+  const epoch = event.epoch;
   if (!shouldRunForEpoch(runtime, epoch)) return;
   if (runtime.reconnectTimer) return;
-  const wait = runtime.reconnectBackoffMs;
-  runtime.reconnectBackoffMs = Math.min(runtime.reconnectBackoffMs * 2, 30_000);
+  const wait = Math.max(
+    250,
+    Math.min(
+      30_000,
+      typeof event.waitMs === 'number' && Number.isFinite(event.waitMs)
+        ? Math.floor(event.waitMs)
+        : runtime.reconnectBackoffMs,
+    ),
+  );
+  runtime.reconnectBackoffMs = Math.min(Math.max(500, wait) * 2, 30_000);
   setLifecycleState(runtime, 'BACKOFF', `Miya Daemon Backoff (${wait}ms)`);
   runtime.reconnectTimer = setTimeout(() => {
     runtime.reconnectTimer = undefined;
-    if (!shouldRunForEpoch(runtime, epoch)) return;
-    ensureDaemonLaunched(runtime, epoch);
+    dispatchLifecycleEvent(runtime, {
+      type: 'reconnect.timer',
+      epoch,
+      reason: event.reason,
+    });
   }, wait);
+}
+
+function dispatchLifecycleEvent(runtime: LauncherRuntime, event: LauncherLifecycleEvent): void {
+  if (event.epoch !== runtime.runEpoch) return;
+  switch (event.type) {
+    case 'reconnect.requested': {
+      scheduleReconnect(runtime, {
+        epoch: event.epoch,
+        reason: event.reason,
+        waitMs: event.waitMs,
+      });
+      return;
+    }
+    case 'reconnect.timer': {
+      if (!shouldRunForEpoch(runtime, event.epoch)) return;
+      ensureDaemonLaunched(runtime, event.epoch);
+      return;
+    }
+    case 'ws.closed': {
+      if (!shouldRunForEpoch(runtime, event.epoch)) return;
+      noteLaunchFailure(runtime, event.reason ?? 'ws_closed');
+      runtime.connected = false;
+      runtime.snapshot.connected = false;
+      runtime.snapshot.statusText = 'Miya Daemon Disconnected';
+      setLifecycleState(runtime, 'DEGRADED', runtime.snapshot.statusText);
+      emitLauncherEvent(runtime, 'daemon.disconnected');
+      stopHeartbeat(runtime);
+      stopStatusPoll(runtime);
+      rejectPendingRequests(runtime, 'daemon_ws_closed');
+      runtime.ws = undefined;
+      dispatchLifecycleEvent(runtime, {
+        type: 'reconnect.requested',
+        epoch: event.epoch,
+        reason: event.reason ?? 'ws_closed',
+      });
+      return;
+    }
+    case 'ws.error':
+    case 'health.fail': {
+      if (!shouldRunForEpoch(runtime, event.epoch)) return;
+      runtime.connected = false;
+      runtime.snapshot.connected = false;
+      runtime.snapshot.statusText = 'Miya Daemon Reconnecting';
+      if (runtime.lifecycleState !== 'STOPPED' && runtime.lifecycleState !== 'STOPPING') {
+        setLifecycleState(runtime, 'DEGRADED', runtime.snapshot.statusText);
+      }
+      if (runtime.ws && runtime.ws.readyState <= WebSocket.OPEN) {
+        try {
+          runtime.ws.close();
+        } catch {}
+      }
+      dispatchLifecycleEvent(runtime, {
+        type: 'reconnect.requested',
+        epoch: event.epoch,
+        reason: event.reason ?? event.type,
+      });
+      return;
+    }
+  }
 }
 
 function ensureDaemonLaunched(runtime: LauncherRuntime, epoch = runtime.runEpoch): void {
@@ -778,21 +879,26 @@ function ensureDaemonLaunched(runtime: LauncherRuntime, epoch = runtime.runEpoch
       runtime.snapshot.connected = false;
       runtime.snapshot.statusText = 'Miya Daemon Service Mode (waiting for daemon lock)';
       setLifecycleState(runtime, 'BACKOFF', runtime.snapshot.statusText);
-      scheduleReconnect(runtime, epoch);
+      dispatchLifecycleEvent(runtime, {
+        type: 'reconnect.requested',
+        epoch,
+        reason: 'service_mode_wait_lock',
+      });
       return;
     }
     if (runtime.reconnectTimer) {
       return;
     }
-    const spawned = spawnDaemon(runtime);
-    if (!spawned) {
+    const spawnResult = spawnDaemon(runtime);
+    if (spawnResult === 'failed') {
       runtime.reconnectBackoffMs = Math.max(runtime.reconnectBackoffMs, 15_000);
       runtime.launchCooldownUntilMs = Date.now() + 15_000;
-      if (!runtime.retryHalted) {
-        noteLaunchFailure(runtime, 'spawn_skipped_or_failed');
-      }
     }
-    scheduleReconnect(runtime, epoch);
+    dispatchLifecycleEvent(runtime, {
+      type: 'reconnect.requested',
+      epoch,
+      reason: `spawn_${spawnResult}`,
+    });
     return;
   }
 
@@ -830,11 +936,19 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
   const existing = runtimes.get(projectDir);
   if (existing) {
     touchRuntime(existing);
-    const shouldWake =
-      existing.desiredState === 'running' ||
-      Date.now() >= existing.manualStopUntilMs;
-    const epoch = shouldWake ? requestRunningState(existing) : existing.runEpoch;
-    ensureDaemonLaunched(existing, epoch);
+    const shouldWake = existing.desiredState === 'running';
+    if (shouldWake) {
+      const epoch = requestRunningState(existing);
+      ensureDaemonLaunched(existing, epoch);
+    } else {
+      existing.connected = false;
+      existing.snapshot.connected = false;
+      if (Date.now() < existing.manualStopUntilMs) {
+        setLifecycleState(existing, 'STOPPED', 'Miya Daemon Manual Cooldown');
+      } else {
+        setLifecycleState(existing, 'STOPPED', 'Miya Daemon Stopped');
+      }
+    }
     syncBackpressureSnapshot(existing);
     return { ...existing.snapshot };
   }
@@ -866,13 +980,22 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     lifecycleMode === 'service_experimental'
       ? String(process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? '')
       : randomUUID();
+  const desiredState: LauncherDesiredState = persisted.desiredState;
+  const initialLifecycleState: LauncherLifecycleState =
+    desiredState === 'stopped'
+      ? 'STOPPED'
+      : persisted.retryHalted
+        ? 'BACKOFF'
+        : 'STARTING';
   const initialStatusText =
     lifecycleMode === 'service_experimental'
       ? daemonToken
         ? 'Miya Daemon Service Mode (attach only)'
         : 'Miya Daemon Service Mode (token missing)'
-      : Date.now() < persisted.manualStopUntilMs
-        ? 'Miya Daemon Manual Cooldown'
+      : desiredState === 'stopped'
+        ? Date.now() < persisted.manualStopUntilMs
+          ? 'Miya Daemon Manual Cooldown'
+          : 'Miya Daemon Stopped'
         : persisted.retryHalted
           ? 'Miya Daemon Retry Halted'
           : 'Miya Daemon Booting';
@@ -880,8 +1003,8 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     projectDir,
     lifecycleMode,
     daemonToken,
-    desiredState: 'running',
-    lifecycleState: 'STARTING',
+    desiredState,
+    lifecycleState: initialLifecycleState,
     runEpoch: Math.max(1, persisted.runEpoch),
     parentLockFile: path.join(daemonDir(projectDir), 'parent.lock.json'),
     daemonLockFile: path.join(daemonDir(projectDir), 'daemon.lock.json'),
@@ -910,8 +1033,8 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     snapshot: {
       connected: false,
       statusText: initialStatusText,
-      desiredState: 'running',
-      lifecycleState: Date.now() < persisted.manualStopUntilMs ? 'STOPPED' : 'STARTING',
+      desiredState,
+      lifecycleState: initialLifecycleState,
       runEpoch: Math.max(1, persisted.runEpoch),
       retryHalted: persisted.retryHalted,
       retryHaltedUntil:
@@ -926,21 +1049,15 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
       startedAt: nowIso(),
     },
   };
-  if (Date.now() < persisted.manualStopUntilMs) {
-    runtime.desiredState = 'stopped';
-    runtime.lifecycleState = 'STOPPED';
-  } else if (persisted.retryHalted) {
-    runtime.lifecycleState = 'BACKOFF';
-  }
   syncLifecycleSnapshot(runtime);
   syncBackpressureSnapshot(runtime);
   runtimes.set(projectDir, runtime);
   writeLauncherPersistedState(runtime);
 
   writeParentLock(runtime);
-  runtime.parentBeatTimer = setInterval(() => {
+  runtime.parentBeatTimer = safeInterval('launcher.parent.beat', 10_000, () => {
     writeParentLock(runtime);
-  }, 10_000);
+  });
   const epoch = runtime.desiredState === 'running' ? requestRunningState(runtime) : runtime.runEpoch;
   ensureDaemonLaunched(runtime, epoch);
   return { ...runtime.snapshot };
@@ -1001,6 +1118,7 @@ export function stopMiyaLauncher(projectDir: string): void {
     );
     safeWriteJson(daemonLauncherStoreFile(projectDir), {
       ...persisted,
+      desiredState: 'stopped',
       runEpoch: Math.max(1, persisted.runEpoch) + 1,
       manualStopUntilMs: Date.now() + manualStopCooldownMs,
       updatedAt: nowIso(),

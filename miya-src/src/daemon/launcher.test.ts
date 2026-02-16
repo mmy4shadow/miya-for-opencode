@@ -38,6 +38,49 @@ describe('daemon launcher snapshot', () => {
     stopMiyaLauncher(projectDir);
   });
 
+  test('writes desiredState=stopped into runtime store when stopping without runtime', () => {
+    const projectDir = tempProjectDir();
+    stopMiyaLauncher(projectDir);
+    const runtimeStorePath = path.join(
+      getMiyaRuntimeDir(projectDir),
+      'daemon',
+      'launcher.runtime.json',
+    );
+    const store = JSON.parse(fs.readFileSync(runtimeStorePath, 'utf-8')) as Record<string, unknown>;
+    expect(store.desiredState).toBe('stopped');
+  });
+
+  test('does not auto wake launcher when persisted desiredState is stopped and cooldown expired', () => {
+    const projectDir = tempProjectDir();
+    const daemonDir = path.join(getMiyaRuntimeDir(projectDir), 'daemon');
+    fs.mkdirSync(daemonDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(daemonDir, 'launcher.runtime.json'),
+      `${JSON.stringify(
+        {
+          desiredState: 'stopped',
+          runEpoch: 7,
+          retryHalted: false,
+          retryHaltedUntilMs: 0,
+          consecutiveLaunchFailures: 0,
+          manualStopUntilMs: Date.now() - 1_000,
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+
+    const first = ensureMiyaLauncher(projectDir);
+    const second = ensureMiyaLauncher(projectDir);
+    expect(first.desiredState).toBe('stopped');
+    expect(first.lifecycleState).toBe('STOPPED');
+    expect(second.desiredState).toBe('stopped');
+    expect(second.lifecycleState).toBe('STOPPED');
+    expect(second.runEpoch).toBe(first.runEpoch);
+    stopMiyaLauncher(projectDir);
+  });
+
   test('loads persisted retry halt state from launcher runtime store', () => {
     const projectDir = tempProjectDir();
     const daemonDir = path.join(getMiyaRuntimeDir(projectDir), 'daemon');
