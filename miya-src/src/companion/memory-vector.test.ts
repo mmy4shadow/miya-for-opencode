@@ -3,12 +3,14 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  auditCompanionMemoryDrift,
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
   listCompanionMemoryCorrections,
   listCompanionMemoryVectors,
   listPendingCompanionMemoryVectors,
   mergePendingMemoryConflicts,
+  recycleCompanionMemoryDrift,
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from './memory-vector';
@@ -17,9 +19,23 @@ import {
   writeEmbeddingProviderConfig,
 } from './memory-embedding';
 import { runMemoryRecallBenchmark } from './memory-recall-benchmark';
+import { getMiyaRuntimeDir } from '../workflow';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-memory-vector-test-'));
+}
+
+function patchMemoryStore(
+  projectDir: string,
+  patcher: (items: Array<Record<string, unknown>>) => void,
+): void {
+  const file = path.join(getMiyaRuntimeDir(projectDir), 'companion-memory-vectors.json');
+  const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+    version: number;
+    items: Array<Record<string, unknown>>;
+  };
+  patcher(raw.items);
+  fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, 'utf-8');
 }
 
 describe('companion memory vectors', () => {
@@ -261,5 +277,123 @@ describe('companion memory vectors', () => {
     expect(merged.merged).toBeGreaterThanOrEqual(1);
     const pending = listPendingCompanionMemoryVectors(projectDir);
     expect(pending.filter((item) => item.text.includes('不喜欢抹茶拿铁')).length).toBe(1);
+  });
+
+  test('audits and recycles stale low-signal active memories', () => {
+    const projectDir = tempProjectDir();
+    const created = upsertCompanionMemoryVector(projectDir, {
+      text: '临时偏好：周末喝热可可',
+      source: 'test',
+      activate: true,
+      confidence: 0.22,
+    });
+    const oldIso = new Date(Date.now() - 65 * 24 * 3600 * 1000).toISOString();
+    patchMemoryStore(projectDir, (items) => {
+      const target = items.find((item) => item.id === created.id);
+      if (!target) return;
+      target.updatedAt = oldIso;
+      target.lastAccessedAt = oldIso;
+      target.accessCount = 0;
+      target.score = 0.06;
+      target.confidence = 0.2;
+    });
+
+    const report = auditCompanionMemoryDrift(projectDir, {
+      staleDays: 30,
+      minScore: 0.1,
+      minConfidence: 0.4,
+      limit: 20,
+    });
+    const signal = report.items.find((item) => item.memoryID === created.id);
+    expect(signal?.reason === 'stale_low_access' || signal?.reason === 'confidence_collapse').toBe(
+      true,
+    );
+
+    const recycled = recycleCompanionMemoryDrift(projectDir, {
+      staleDays: 30,
+      minScore: 0.1,
+      minConfidence: 0.4,
+      maxActions: 10,
+    });
+    expect(recycled.applied).toBeGreaterThan(0);
+    const target = listCompanionMemoryVectors(projectDir).find((item) => item.id === created.id);
+    expect(target?.isArchived).toBe(true);
+  });
+
+  test('recycles conflicting parallel active memories by superseding weaker one', () => {
+    const projectDir = tempProjectDir();
+    const old = upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢抹茶拿铁',
+      source: 'test',
+      activate: true,
+      confidence: 0.9,
+    });
+    const pending = upsertCompanionMemoryVector(projectDir, {
+      text: '我不喜欢抹茶拿铁',
+      source: 'test',
+      activate: false,
+      confidence: 0.6,
+    });
+    const activated = confirmCompanionMemoryVector(projectDir, {
+      memoryID: pending.id,
+      confirm: true,
+      supersedeConflicts: false,
+    });
+    expect(activated?.status).toBe('active');
+
+    const report = auditCompanionMemoryDrift(projectDir, { limit: 20 });
+    const conflictSignal = report.items.find(
+      (item) =>
+        item.reason === 'conflict_parallel_active' && item.memoryID === (activated?.id ?? ''),
+    );
+    expect(conflictSignal).toBeDefined();
+
+    const recycled = recycleCompanionMemoryDrift(projectDir, {
+      maxActions: 10,
+      limit: 20,
+    });
+    expect(recycled.superseded.length).toBeGreaterThan(0);
+    const vectors = listCompanionMemoryVectors(projectDir);
+    const oldState = vectors.find((item) => item.id === old.id);
+    const newState = vectors.find((item) => item.id === activated?.id);
+    expect(
+      oldState?.status === 'active' || newState?.status === 'active',
+    ).toBe(true);
+    expect(
+      oldState?.status === 'superseded' || newState?.status === 'superseded',
+    ).toBe(true);
+  });
+
+  test('recycles timed-out cross-domain pending memory', () => {
+    const projectDir = tempProjectDir();
+    const created = upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢浓缩咖啡',
+      source: 'test',
+      domain: 'work',
+      activate: true,
+    });
+    expect(created.status).toBe('pending');
+    const oldIso = new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString();
+    patchMemoryStore(projectDir, (items) => {
+      const target = items.find((item) => item.id === created.id);
+      if (!target) return;
+      target.updatedAt = oldIso;
+      target.lastAccessedAt = oldIso;
+    });
+
+    const report = auditCompanionMemoryDrift(projectDir, {
+      crossDomainPendingDays: 7,
+      limit: 20,
+    });
+    const timeoutSignal = report.items.find((item) => item.memoryID === created.id);
+    expect(timeoutSignal?.reason).toBe('cross_domain_pending_timeout');
+
+    const recycled = recycleCompanionMemoryDrift(projectDir, {
+      crossDomainPendingDays: 7,
+      maxActions: 10,
+    });
+    expect(recycled.applied).toBeGreaterThan(0);
+    const after = listCompanionMemoryVectors(projectDir).find((item) => item.id === created.id);
+    expect(after?.status).toBe('superseded');
   });
 });

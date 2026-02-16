@@ -63,6 +63,76 @@ interface MemoryCorrectionStore {
   items: CompanionMemoryCorrection[];
 }
 
+export type CompanionMemoryDriftReason =
+  | 'stale_low_access'
+  | 'confidence_collapse'
+  | 'pending_timeout'
+  | 'cross_domain_pending_timeout'
+  | 'conflict_parallel_active';
+
+export type CompanionMemoryDriftSeverity = 'low' | 'medium' | 'high';
+export type CompanionMemoryDriftAction = 'archive' | 'supersede';
+
+export interface CompanionMemoryDriftSignal {
+  memoryID: string;
+  reason: CompanionMemoryDriftReason;
+  severity: CompanionMemoryDriftSeverity;
+  recommendedAction: CompanionMemoryDriftAction;
+  ageDays: number;
+  idleDays: number;
+  domain: MemoryDomain;
+  status: CompanionMemoryVector['status'];
+  score: number;
+  confidence: number;
+  detail: string;
+  relatedMemoryID?: string;
+}
+
+export interface CompanionMemoryDriftAuditOptions {
+  staleDays?: number;
+  lowAccessCount?: number;
+  minScore?: number;
+  minConfidence?: number;
+  pendingTimeoutDays?: number;
+  crossDomainPendingDays?: number;
+  limit?: number;
+}
+
+export interface CompanionMemoryDriftReport {
+  generatedAt: string;
+  scanned: number;
+  actionableCount: number;
+  thresholds: {
+    staleDays: number;
+    lowAccessCount: number;
+    minScore: number;
+    minConfidence: number;
+    pendingTimeoutDays: number;
+    crossDomainPendingDays: number;
+  };
+  byReason: Record<CompanionMemoryDriftReason, number>;
+  bySeverity: Record<CompanionMemoryDriftSeverity, number>;
+  items: CompanionMemoryDriftSignal[];
+}
+
+export interface CompanionMemoryDriftRecycleOptions extends CompanionMemoryDriftAuditOptions {
+  maxActions?: number;
+  dryRun?: boolean;
+}
+
+export interface CompanionMemoryDriftRecycleResult {
+  dryRun: boolean;
+  applied: number;
+  archivedIDs: string[];
+  superseded: Array<{
+    memoryID: string;
+    supersededBy: string;
+    reason: CompanionMemoryDriftReason;
+  }>;
+  remainingActionable: number;
+  report: CompanionMemoryDriftReport;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -319,6 +389,64 @@ function writeStore(projectDir: string, store: MemoryVectorStore): MemoryVectorS
   return store;
 }
 
+function toDays(deltaMs: number): number {
+  return Math.max(0, deltaMs / (24 * 3600 * 1000));
+}
+
+function safeDateMs(input: string): number {
+  const value = Date.parse(input);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function memoryAgeDays(item: CompanionMemoryVector, nowMs: number): number {
+  return toDays(nowMs - safeDateMs(item.updatedAt));
+}
+
+function memoryIdleDays(item: CompanionMemoryVector, nowMs: number): number {
+  return toDays(nowMs - safeDateMs(item.lastAccessedAt || item.updatedAt));
+}
+
+function normalizeDriftThresholds(options?: CompanionMemoryDriftAuditOptions): CompanionMemoryDriftReport['thresholds'] {
+  return {
+    staleDays:
+      typeof options?.staleDays === 'number' && options.staleDays > 0
+        ? Math.min(365, options.staleDays)
+        : 45,
+    lowAccessCount:
+      typeof options?.lowAccessCount === 'number' && options.lowAccessCount >= 0
+        ? Math.min(20, Math.floor(options.lowAccessCount))
+        : 1,
+    minScore:
+      typeof options?.minScore === 'number' && Number.isFinite(options.minScore)
+        ? Math.max(0.01, Math.min(0.9, options.minScore))
+        : 0.12,
+    minConfidence:
+      typeof options?.minConfidence === 'number' && Number.isFinite(options.minConfidence)
+        ? Math.max(0.05, Math.min(0.95, options.minConfidence))
+        : 0.45,
+    pendingTimeoutDays:
+      typeof options?.pendingTimeoutDays === 'number' && options.pendingTimeoutDays > 0
+        ? Math.min(180, options.pendingTimeoutDays)
+        : 21,
+    crossDomainPendingDays:
+      typeof options?.crossDomainPendingDays === 'number' && options.crossDomainPendingDays > 0
+        ? Math.min(90, options.crossDomainPendingDays)
+        : 7,
+  };
+}
+
+function signalPriority(signal: CompanionMemoryDriftSignal): number {
+  const severityWeight =
+    signal.severity === 'high' ? 3 : signal.severity === 'medium' ? 2 : 1;
+  return severityWeight * 10_000 + Math.round(signal.ageDays * 10);
+}
+
+function conflictStrength(item: CompanionMemoryVector, nowMs: number): number {
+  const agePenalty = Math.exp(-(Math.log(2) / 30) * memoryIdleDays(item, nowMs));
+  const accessWeight = Math.min(1, item.accessCount / 8);
+  return item.confidence * 0.55 + item.score * 0.25 + agePenalty * 0.15 + accessWeight * 0.05;
+}
+
 export function decayCompanionMemoryVectors(
   projectDir: string,
   halfLifeDays = 30,
@@ -343,6 +471,252 @@ export function decayCompanionMemoryVectors(
   }
   writeStore(projectDir, store);
   return { updated, items: store.items };
+}
+
+export function auditCompanionMemoryDrift(
+  projectDir: string,
+  options?: CompanionMemoryDriftAuditOptions,
+): CompanionMemoryDriftReport {
+  const store = readStore(projectDir);
+  const nowMs = Date.now();
+  const thresholds = normalizeDriftThresholds(options);
+  const limit =
+    typeof options?.limit === 'number' && options.limit > 0
+      ? Math.min(1000, Math.floor(options.limit))
+      : 200;
+
+  const pushSignal = (
+    list: CompanionMemoryDriftSignal[],
+    signal: CompanionMemoryDriftSignal,
+  ): void => {
+    list.push(signal);
+  };
+
+  const items: CompanionMemoryDriftSignal[] = [];
+  for (const item of store.items) {
+    if (item.status === 'superseded') continue;
+    const ageDays = memoryAgeDays(item, nowMs);
+    const idleDays = memoryIdleDays(item, nowMs);
+
+    if (item.status === 'active' && !item.isArchived) {
+      const staleCandidate =
+        ageDays >= thresholds.staleDays &&
+        idleDays >= Math.max(1, thresholds.staleDays / 2) &&
+        item.accessCount <= thresholds.lowAccessCount &&
+        item.score <= Math.max(0.25, thresholds.minScore + 0.05);
+      if (staleCandidate) {
+        pushSignal(items, {
+          memoryID: item.id,
+          reason: 'stale_low_access',
+          severity: 'medium',
+          recommendedAction: 'archive',
+          ageDays: Number(ageDays.toFixed(2)),
+          idleDays: Number(idleDays.toFixed(2)),
+          domain: item.domain,
+          status: item.status,
+          score: item.score,
+          confidence: item.confidence,
+          detail: `stale>${thresholds.staleDays}d and low access<=${thresholds.lowAccessCount}`,
+        });
+      }
+      const confidenceCollapse =
+        item.confidence < thresholds.minConfidence &&
+        item.score < thresholds.minScore &&
+        ageDays >= Math.max(3, thresholds.pendingTimeoutDays / 2);
+      if (confidenceCollapse) {
+        pushSignal(items, {
+          memoryID: item.id,
+          reason: 'confidence_collapse',
+          severity: 'high',
+          recommendedAction: 'archive',
+          ageDays: Number(ageDays.toFixed(2)),
+          idleDays: Number(idleDays.toFixed(2)),
+          domain: item.domain,
+          status: item.status,
+          score: item.score,
+          confidence: item.confidence,
+          detail: `confidence<${thresholds.minConfidence} and score<${thresholds.minScore}`,
+        });
+      }
+    }
+
+    if (item.status === 'pending') {
+      const isCrossDomainPending = Boolean(item.crossDomainWrite?.requiresApproval);
+      const timeoutDays = isCrossDomainPending
+        ? thresholds.crossDomainPendingDays
+        : thresholds.pendingTimeoutDays;
+      if (ageDays >= timeoutDays) {
+        pushSignal(items, {
+          memoryID: item.id,
+          reason: isCrossDomainPending
+            ? 'cross_domain_pending_timeout'
+            : 'pending_timeout',
+          severity: isCrossDomainPending ? 'high' : 'low',
+          recommendedAction: 'supersede',
+          ageDays: Number(ageDays.toFixed(2)),
+          idleDays: Number(idleDays.toFixed(2)),
+          domain: item.domain,
+          status: item.status,
+          score: item.score,
+          confidence: item.confidence,
+          detail: isCrossDomainPending
+            ? `cross-domain pending timeout>${thresholds.crossDomainPendingDays}d`
+            : `pending timeout>${thresholds.pendingTimeoutDays}d`,
+        });
+      }
+    }
+  }
+
+  const conflictGroups = new Map<string, CompanionMemoryVector[]>();
+  for (const item of store.items) {
+    if (item.status !== 'active' || item.isArchived || !item.conflictKey) continue;
+    const polarity = extractConflictKey(item.text).polarity;
+    if (polarity === 'neutral') continue;
+    const key = `${item.domain}|${item.conflictKey}`;
+    const group = conflictGroups.get(key) ?? [];
+    group.push(item);
+    conflictGroups.set(key, group);
+  }
+  for (const [key, group] of conflictGroups.entries()) {
+    if (group.length < 2) continue;
+    const hasPositive = group.some((item) => extractConflictKey(item.text).polarity === 'positive');
+    const hasNegative = group.some((item) => extractConflictKey(item.text).polarity === 'negative');
+    if (!hasPositive || !hasNegative) continue;
+    const sorted = [...group].sort(
+      (a, b) => conflictStrength(b, nowMs) - conflictStrength(a, nowMs),
+    );
+    const winner = sorted[0];
+    if (!winner) continue;
+    for (const item of sorted.slice(1)) {
+      pushSignal(items, {
+        memoryID: item.id,
+        reason: 'conflict_parallel_active',
+        severity: 'high',
+        recommendedAction: 'supersede',
+        ageDays: Number(memoryAgeDays(item, nowMs).toFixed(2)),
+        idleDays: Number(memoryIdleDays(item, nowMs).toFixed(2)),
+        domain: item.domain,
+        status: item.status,
+        score: item.score,
+        confidence: item.confidence,
+        detail: `conflict group ${key} winner=${winner.id}`,
+        relatedMemoryID: winner.id,
+      });
+    }
+  }
+
+  const dedupe = new Map<string, CompanionMemoryDriftSignal>();
+  for (const item of items) {
+    const existing = dedupe.get(item.memoryID);
+    if (!existing || signalPriority(item) > signalPriority(existing)) {
+      dedupe.set(item.memoryID, item);
+    }
+  }
+  const ranked = [...dedupe.values()]
+    .sort((a, b) => signalPriority(b) - signalPriority(a))
+    .slice(0, limit);
+
+  const rankedByReason: Record<CompanionMemoryDriftReason, number> = {
+    stale_low_access: 0,
+    confidence_collapse: 0,
+    pending_timeout: 0,
+    cross_domain_pending_timeout: 0,
+    conflict_parallel_active: 0,
+  };
+  const rankedBySeverity: Record<CompanionMemoryDriftSeverity, number> = {
+    low: 0,
+    medium: 0,
+    high: 0,
+  };
+  for (const item of ranked) {
+    rankedByReason[item.reason] += 1;
+    rankedBySeverity[item.severity] += 1;
+  }
+
+  return {
+    generatedAt: nowIso(),
+    scanned: store.items.length,
+    actionableCount: ranked.length,
+    thresholds,
+    byReason: rankedByReason,
+    bySeverity: rankedBySeverity,
+    items: ranked,
+  };
+}
+
+export function recycleCompanionMemoryDrift(
+  projectDir: string,
+  options?: CompanionMemoryDriftRecycleOptions,
+): CompanionMemoryDriftRecycleResult {
+  const report = auditCompanionMemoryDrift(projectDir, {
+    ...options,
+    limit: typeof options?.limit === 'number' ? options.limit : 1000,
+  });
+  const dryRun = options?.dryRun === true;
+  const maxActions =
+    typeof options?.maxActions === 'number' && options.maxActions > 0
+      ? Math.min(500, Math.floor(options.maxActions))
+      : 80;
+  if (dryRun || report.items.length === 0) {
+    return {
+      dryRun,
+      applied: 0,
+      archivedIDs: [],
+      superseded: [],
+      remainingActionable: report.actionableCount,
+      report,
+    };
+  }
+
+  const store = readStore(projectDir);
+  const index = new Map(store.items.map((item) => [item.id, item]));
+  const now = nowIso();
+  const archivedIDs: string[] = [];
+  const superseded: Array<{ memoryID: string; supersededBy: string; reason: CompanionMemoryDriftReason }> = [];
+  let applied = 0;
+
+  for (const signal of report.items) {
+    if (applied >= maxActions) break;
+    const target = index.get(signal.memoryID);
+    if (!target || target.status === 'superseded') continue;
+    if (signal.recommendedAction === 'archive') {
+      if (target.status !== 'active' || target.isArchived) continue;
+      target.isArchived = true;
+      target.updatedAt = now;
+      archivedIDs.push(target.id);
+      applied += 1;
+      continue;
+    }
+    if (signal.recommendedAction === 'supersede') {
+      const supersededBy =
+        signal.relatedMemoryID && index.has(signal.relatedMemoryID)
+          ? signal.relatedMemoryID
+          : 'system:drift-recycler';
+      target.status = 'superseded';
+      target.learningStage = 'candidate';
+      target.supersededBy = supersededBy;
+      target.updatedAt = now;
+      superseded.push({
+        memoryID: target.id,
+        supersededBy,
+        reason: signal.reason,
+      });
+      applied += 1;
+    }
+  }
+
+  if (applied > 0) {
+    writeStore(projectDir, store);
+  }
+
+  return {
+    dryRun: false,
+    applied,
+    archivedIDs,
+    superseded,
+    remainingActionable: Math.max(0, report.actionableCount - applied),
+    report,
+  };
 }
 
 export function upsertCompanionMemoryVector(

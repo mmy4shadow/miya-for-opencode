@@ -145,6 +145,7 @@ import {
   upsertWorldPreset,
 } from '../companion/persona-world';
 import {
+  auditCompanionMemoryDrift,
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
   getCompanionMemoryVector,
@@ -152,6 +153,7 @@ import {
   listCompanionMemoryCorrections,
   listCompanionMemoryVectors,
   listPendingCompanionMemoryVectors,
+  recycleCompanionMemoryDrift,
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
@@ -1780,6 +1782,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'companion.memory.corrections.list',
   'companion.memory.search',
   'companion.memory.vector.list',
+  'companion.memory.drift.report',
   'miya.memory.sqlite.stats',
   'miya.memory.embedding.providers.list',
   'miya.memory.embedding.provider.get',
@@ -7313,6 +7316,80 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ? Number(params.halfLifeDays)
         : 30;
     return decayCompanionMemoryVectors(projectDir, halfLifeDays);
+  });
+  methods.register('companion.memory.drift.report', async (params) => {
+    requireOwnerMode(projectDir);
+    return auditCompanionMemoryDrift(projectDir, {
+      staleDays:
+        typeof params.staleDays === 'number' && params.staleDays > 0
+          ? Number(params.staleDays)
+          : undefined,
+      lowAccessCount:
+        typeof params.lowAccessCount === 'number' && params.lowAccessCount >= 0
+          ? Number(params.lowAccessCount)
+          : undefined,
+      minScore:
+        typeof params.minScore === 'number' && Number.isFinite(params.minScore)
+          ? Number(params.minScore)
+          : undefined,
+      minConfidence:
+        typeof params.minConfidence === 'number' && Number.isFinite(params.minConfidence)
+          ? Number(params.minConfidence)
+          : undefined,
+      pendingTimeoutDays:
+        typeof params.pendingTimeoutDays === 'number' && params.pendingTimeoutDays > 0
+          ? Number(params.pendingTimeoutDays)
+          : undefined,
+      crossDomainPendingDays:
+        typeof params.crossDomainPendingDays === 'number' && params.crossDomainPendingDays > 0
+          ? Number(params.crossDomainPendingDays)
+          : undefined,
+      limit:
+        typeof params.limit === 'number' && params.limit > 0
+          ? Number(params.limit)
+          : undefined,
+    });
+  });
+  methods.register('companion.memory.drift.recycle', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    return recycleCompanionMemoryDrift(projectDir, {
+      staleDays:
+        typeof params.staleDays === 'number' && params.staleDays > 0
+          ? Number(params.staleDays)
+          : undefined,
+      lowAccessCount:
+        typeof params.lowAccessCount === 'number' && params.lowAccessCount >= 0
+          ? Number(params.lowAccessCount)
+          : undefined,
+      minScore:
+        typeof params.minScore === 'number' && Number.isFinite(params.minScore)
+          ? Number(params.minScore)
+          : undefined,
+      minConfidence:
+        typeof params.minConfidence === 'number' && Number.isFinite(params.minConfidence)
+          ? Number(params.minConfidence)
+          : undefined,
+      pendingTimeoutDays:
+        typeof params.pendingTimeoutDays === 'number' && params.pendingTimeoutDays > 0
+          ? Number(params.pendingTimeoutDays)
+          : undefined,
+      crossDomainPendingDays:
+        typeof params.crossDomainPendingDays === 'number' && params.crossDomainPendingDays > 0
+          ? Number(params.crossDomainPendingDays)
+          : undefined,
+      limit:
+        typeof params.limit === 'number' && params.limit > 0
+          ? Number(params.limit)
+          : undefined,
+      maxActions:
+        typeof params.maxActions === 'number' && params.maxActions > 0
+          ? Number(params.maxActions)
+          : undefined,
+      dryRun: typeof params.dryRun === 'boolean' ? params.dryRun : undefined,
+    });
   });
   methods.register('companion.memory.vector.list', async (params) => {
     requireOwnerMode(projectDir);
