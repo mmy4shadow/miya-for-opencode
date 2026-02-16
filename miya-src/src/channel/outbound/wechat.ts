@@ -9,6 +9,11 @@ export async function sendWechatDesktopMessage(input: {
   sent: boolean;
   message: string;
   automationPath?: 'uia' | 'sendkeys' | 'mixed';
+  uiaPath?: 'valuepattern' | 'clipboard_sendkeys' | 'none';
+  targetHwnd?: string;
+  foregroundBefore?: string;
+  foregroundAfter?: string;
+  fallbackReason?: string;
   simulationStatus?: 'captured' | 'not_available';
   simulationRiskHints?: string[];
   visualPrecheck?: string;

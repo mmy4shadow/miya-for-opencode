@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
 import { recordStrategyObservation, resolveStrategyVariant } from '../strategy';
 import { analyzeRouteSemantics, classifyIntent, type RouteIntent } from './classifier';
@@ -21,6 +22,8 @@ export interface RouterModeConfig {
   forcedStage?: RouteStage;
   stageTokenMultiplier: Record<RouteStage, number>;
   stageCostUsdPer1k: Record<RouteStage, number>;
+  contextHardCapTokens: number;
+  retryDeltaMaxLines: number;
   retryBudget: {
     autoRetry: number;
     humanEdit: number;
@@ -91,6 +94,8 @@ interface RouterSessionState {
   humanEditUsed: number;
   lastFixability: RouteFixability;
   lastFailureReason?: string;
+  lastContextHash?: string;
+  lastContextText?: string;
   updatedAt: string;
 }
 
@@ -110,6 +115,8 @@ const DEFAULT_MODE: RouterModeConfig = {
     medium: 0.0018,
     high: 0.0032,
   },
+  contextHardCapTokens: 1500,
+  retryDeltaMaxLines: 14,
   retryBudget: {
     autoRetry: 2,
     humanEdit: 1,
@@ -158,6 +165,8 @@ function parseMode(raw: unknown): RouterModeConfig {
     input.retryBudget && typeof input.retryBudget === 'object'
       ? (input.retryBudget as Record<string, unknown>)
       : {};
+  const contextHardCapTokens = Number(input.contextHardCapTokens ?? DEFAULT_MODE.contextHardCapTokens);
+  const retryDeltaMaxLines = Number(input.retryDeltaMaxLines ?? DEFAULT_MODE.retryDeltaMaxLines);
   return {
     ecoMode: input.ecoMode !== false,
     forcedStage,
@@ -175,6 +184,16 @@ function parseMode(raw: unknown): RouterModeConfig {
       medium: clamp(Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium), 0.0001, 0.2),
       high: clamp(Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high), 0.0001, 0.3),
     },
+    contextHardCapTokens: clamp(
+      Number.isFinite(contextHardCapTokens) ? contextHardCapTokens : DEFAULT_MODE.contextHardCapTokens,
+      300,
+      8000,
+    ),
+    retryDeltaMaxLines: clamp(
+      Number.isFinite(retryDeltaMaxLines) ? retryDeltaMaxLines : DEFAULT_MODE.retryDeltaMaxLines,
+      4,
+      64,
+    ),
     retryBudget: {
       autoRetry: clamp(
         Number(retryBudgetInput.autoRetry ?? DEFAULT_MODE.retryBudget.autoRetry),
@@ -259,6 +278,14 @@ function readSessionStore(projectDir: string): RouterSessionStore {
               typeof state?.lastFailureReason === 'string'
                 ? state.lastFailureReason.slice(0, 200)
                 : undefined,
+            lastContextHash:
+              typeof state?.lastContextHash === 'string'
+                ? state.lastContextHash.slice(0, 128)
+                : undefined,
+            lastContextText:
+              typeof state?.lastContextText === 'string'
+                ? state.lastContextText.slice(0, 6000)
+                : undefined,
             updatedAt: String(state?.updatedAt ?? nowIso()),
           } satisfies RouterSessionState,
         ]),
@@ -285,6 +312,8 @@ function getSessionState(projectDir: string, sessionID: string): RouterSessionSt
       humanEditUsed: 0,
       lastFixability: 'unknown',
       lastFailureReason: undefined,
+      lastContextHash: undefined,
+      lastContextText: undefined,
       updatedAt: nowIso(),
     }
   );
@@ -404,6 +433,10 @@ function inferRiskScore(input: {
   return input.stage === 'high' ? 0.7 : input.stage === 'medium' ? 0.6 : 0.55;
 }
 
+function hashText(text: string): string {
+  return createHash('sha256').update(String(text ?? '')).digest('hex');
+}
+
 function compressTextByStage(text: string, stage: RouteStage): { text: string; compressed: boolean } {
   const normalized = String(text ?? '').trim();
   if (!normalized) return { text: '', compressed: false };
@@ -433,6 +466,73 @@ function compressTextByStage(text: string, stage: RouteStage): { text: string; c
     text: `${merged}\n\n[MIYA_ROUTER_COMPRESSION stage=low reason=eco_mode]`,
     compressed: true,
   };
+}
+
+function buildRetryDeltaContext(input: {
+  text: string;
+  previousText?: string;
+  previousHash?: string;
+  failureReason?: string;
+  maxLines: number;
+}): { text: string; applied: boolean } {
+  const current = String(input.text ?? '').trim();
+  const previous = String(input.previousText ?? '').trim();
+  if (!current || !previous) return { text: current, applied: false };
+  const previousLines = new Set(
+    previous
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
+  let deltaLines = current
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !previousLines.has(line))
+    .slice(0, Math.max(4, input.maxLines));
+  if (deltaLines.length === 0) {
+    deltaLines = current
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(-Math.max(4, input.maxLines));
+  }
+  if (deltaLines.length === 0) return { text: current, applied: false };
+  const baselineHash = (input.previousHash?.trim() || hashText(previous)).slice(0, 16);
+  const reason = (input.failureReason ?? '').trim() || 'retry';
+  const retryText = [
+    '[MIYA_RETRY_DELTA]',
+    `baseline_hash=${baselineHash}`,
+    `reason=${reason.slice(0, 120)}`,
+    ...deltaLines.map((line) => `+ ${line}`),
+    '[MIYA_RETRY_DELTA_END]',
+  ].join('\n');
+  return { text: retryText, applied: true };
+}
+
+function applyContextHardCap(input: {
+  text: string;
+  capTokens: number;
+}): { text: string; hardCapped: boolean } {
+  const text = String(input.text ?? '').trim();
+  const capTokens = Math.max(300, Math.floor(input.capTokens));
+  const maxChars = Math.max(900, Math.floor(capTokens * 3.6));
+  if (text.length <= maxChars) return { text, hardCapped: false };
+  const reserve = 180;
+  const headBudget = Math.max(300, Math.floor((maxChars - reserve) * 0.62));
+  const tailBudget = Math.max(220, maxChars - reserve - headBudget);
+  const head = text.slice(0, headBudget);
+  const tail = text.slice(-tailBudget);
+  const droppedChars = Math.max(0, text.length - head.length - tail.length);
+  const ref = hashText(text).slice(0, 16);
+  const cappedText = [
+    head,
+    '',
+    `[MIYA_CONTEXT_HARD_CAP ref=${ref} cap_tokens=${capTokens} dropped_chars=${droppedChars}]`,
+    '',
+    tail,
+  ].join('\n');
+  return { text: cappedText, hardCapped: true };
 }
 
 function estimateInputTokens(text: string): number {
@@ -539,9 +639,18 @@ export function buildRouteExecutionPlan(input: {
 export function prepareRoutePayload(projectDir: string, input: {
   text: string;
   stage: RouteStage;
+  retry?: {
+    attempt?: number;
+    previousContextText?: string;
+    previousContextHash?: string;
+    failureReason?: string;
+  };
 }): {
   text: string;
   compressed: boolean;
+  hardCapped: boolean;
+  retryDeltaApplied: boolean;
+  contextHash: string;
   inputTokens: number;
   outputTokensEstimate: number;
   totalTokensEstimate: number;
@@ -549,8 +658,22 @@ export function prepareRoutePayload(projectDir: string, input: {
   costUsdEstimate: number;
 } {
   const mode = readRouterModeConfig(projectDir);
-  const compressed = compressTextByStage(input.text, input.stage);
-  const inputTokens = estimateInputTokens(compressed.text);
+  const retryAttempt = Math.max(0, Math.floor(Number(input.retry?.attempt ?? 0)));
+  const retryDelta = retryAttempt > 0
+    ? buildRetryDeltaContext({
+        text: input.text,
+        previousText: input.retry?.previousContextText,
+        previousHash: input.retry?.previousContextHash,
+        failureReason: input.retry?.failureReason,
+        maxLines: mode.retryDeltaMaxLines,
+      })
+    : { text: input.text, applied: false };
+  const compressed = compressTextByStage(retryDelta.text, input.stage);
+  const hardCap = applyContextHardCap({
+    text: compressed.text,
+    capTokens: mode.contextHardCapTokens,
+  });
+  const inputTokens = estimateInputTokens(hardCap.text);
   const outputTokensEstimate = estimateOutputTokens(inputTokens, input.stage);
   const totalTokensEstimate = Math.ceil(
     (inputTokens + outputTokensEstimate) * mode.stageTokenMultiplier[input.stage],
@@ -563,8 +686,11 @@ export function prepareRoutePayload(projectDir: string, input: {
     ((totalTokensEstimate / 1000) * mode.stageCostUsdPer1k[input.stage]).toFixed(6),
   );
   return {
-    text: compressed.text,
+    text: hardCap.text,
     compressed: compressed.compressed,
+    hardCapped: hardCap.hardCapped,
+    retryDeltaApplied: retryDelta.applied,
+    contextHash: hashText(hardCap.text),
     inputTokens,
     outputTokensEstimate,
     totalTokensEstimate,
@@ -588,6 +714,8 @@ export function recordRouteExecutionOutcome(input: {
   costUsdEstimate: number;
   failureReason?: string;
   attemptType?: 'auto' | 'human';
+  contextHash?: string;
+  contextText?: string;
 }): RouterCostRecord {
   const row: RouterCostRecord = {
     at: nowIso(),
@@ -615,6 +743,8 @@ export function recordRouteExecutionOutcome(input: {
     humanEditUsed: 0,
     lastFixability: 'unknown' as RouteFixability,
     lastFailureReason: undefined,
+    lastContextHash: undefined,
+    lastContextText: undefined,
     updatedAt: nowIso(),
   };
   const inferredFixability = input.success
@@ -641,6 +771,8 @@ export function recordRouteExecutionOutcome(input: {
     lastFailureReason: input.success
       ? undefined
       : String(input.failureReason ?? '').slice(0, 200),
+    lastContextHash: typeof input.contextHash === 'string' ? input.contextHash.slice(0, 128) : undefined,
+    lastContextText: typeof input.contextText === 'string' ? input.contextText.slice(0, 6000) : undefined,
     updatedAt: nowIso(),
   };
   store.sessions[input.sessionID] = next;

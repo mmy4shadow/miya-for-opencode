@@ -99,6 +99,11 @@ export interface ChannelOutboundAudit {
   visualPrecheck?: string;
   visualPostcheck?: string;
   automationPath?: 'uia' | 'sendkeys' | 'mixed';
+  uiaPath?: 'valuepattern' | 'clipboard_sendkeys' | 'none';
+  targetHwnd?: string;
+  foregroundBefore?: string;
+  foregroundAfter?: string;
+  fallbackReason?: string;
   simulationStatus?: 'captured' | 'not_available';
   simulationRiskHints?: string[];
   receiptStatus?: 'confirmed' | 'uncertain';
@@ -130,6 +135,11 @@ export interface ChannelOutboundAudit {
     diagnostics: {
       windowFingerprint?: string;
       failureStep?: string;
+      targetHwnd?: string;
+      foregroundBefore?: string;
+      foregroundAfter?: string;
+      uiaPath?: 'valuepattern' | 'clipboard_sendkeys' | 'none';
+      fallbackReason?: string;
       ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
       ocrPreview?: string;
     };
@@ -305,6 +315,11 @@ function buildEvidenceBundle(
     diagnostics: {
       windowFingerprint: row.windowFingerprint,
       failureStep: row.failureStep,
+      targetHwnd: row.targetHwnd,
+      foregroundBefore: row.foregroundBefore,
+      foregroundAfter: row.foregroundAfter,
+      uiaPath: row.uiaPath,
+      fallbackReason: row.fallbackReason,
       ocrSource: row.ocrSource,
       ocrPreview: row.ocrPreview,
     },
@@ -1344,6 +1359,11 @@ export class ChannelRuntime {
             evidenceConfidence: visionCheck.capture.confidence,
             evidenceLimitations: visionCheck.capture.limitations,
             automationPath: result.automationPath,
+            uiaPath: result.uiaPath,
+            targetHwnd: result.targetHwnd,
+            foregroundBefore: result.foregroundBefore,
+            foregroundAfter: result.foregroundAfter,
+            fallbackReason: result.fallbackReason,
             simulationStatus: result.simulationStatus,
             simulationRiskHints: result.simulationRiskHints,
             visualPrecheck: result.visualPrecheck,
@@ -1427,6 +1447,11 @@ export class ChannelRuntime {
           evidenceConfidence: visionCheck.capture.confidence,
           evidenceLimitations: visionCheck.capture.limitations,
           automationPath: result.automationPath,
+          uiaPath: result.uiaPath,
+          targetHwnd: result.targetHwnd,
+          foregroundBefore: result.foregroundBefore,
+          foregroundAfter: result.foregroundAfter,
+          fallbackReason: result.fallbackReason,
           simulationStatus: result.simulationStatus,
           simulationRiskHints: result.simulationRiskHints,
           visualPrecheck: result.visualPrecheck,

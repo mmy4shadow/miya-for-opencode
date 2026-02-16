@@ -10,6 +10,11 @@ import {
   markPlanBundleRunning,
   markPlanBundleVerification,
 } from './plan-bundle';
+import {
+  buildPlanBundleTaskSignature,
+  loadReusablePlanTemplate,
+  saveReusablePlanTemplate,
+} from './plan-reuse';
 import { recordAutopilotRunDigest } from './stats';
 import type {
   AutopilotCommandResult,
@@ -107,7 +112,26 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
     riskTier: input.riskTier ?? 'STANDARD',
     mode: input.mode ?? 'work',
   };
-  const basePlan = createAutopilotPlan(input.goal);
+  const signature =
+    input.projectDir
+      ? buildPlanBundleTaskSignature({
+          goal: input.goal,
+          commands: input.commands,
+          verificationCommand: input.verificationCommand,
+          workingDirectory: input.workingDirectory,
+          mode: normalizedInput.mode,
+          riskTier: normalizedInput.riskTier,
+        })
+      : undefined;
+  const reused =
+    input.projectDir && signature
+      ? loadReusablePlanTemplate({
+          projectDir: input.projectDir,
+          signature,
+          goal: input.goal,
+        })
+      : null;
+  const basePlan = reused?.plan ?? createAutopilotPlan(input.goal);
   const plan = attachCommandSteps(
     basePlan,
     input.commands,
@@ -118,6 +142,31 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
     plan,
     runInput: normalizedInput,
   });
+  if (signature && input.projectDir) {
+    saveReusablePlanTemplate({
+      projectDir: input.projectDir,
+      signature,
+      plan: basePlan,
+      commandCount: input.commands.length,
+      verificationEnabled: Boolean(input.verificationCommand?.trim()),
+      bundleId: bundle.bundleId,
+    });
+  }
+  if (reused && signature) {
+    appendPlanBundleAudit(bundle, {
+      stage: 'plan',
+      action: 'plan_template_reused',
+      inputSummary: {
+        signature: signature.slice(0, 16),
+        templateId: reused.templateId,
+        hits: reused.hits,
+      },
+      approvalBasis: 'plan_reuse_cache_hit',
+      result: {
+        reused: true,
+      },
+    });
+  }
   if (bundle.approval.required && !bundle.approval.approved) {
     const summary = 'Execution blocked: approval required before run.';
     markPlanBundleFinalized(bundle, {

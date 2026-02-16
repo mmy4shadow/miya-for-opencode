@@ -18,6 +18,11 @@ export {
   readPlanBundleBinding,
   updatePlanBundleBindingStatus,
 } from './plan-bundle-binding';
+export {
+  buildPlanBundleTaskSignature,
+  loadReusablePlanTemplate,
+  saveReusablePlanTemplate,
+} from './plan-reuse';
 export type {
   AutopilotApprovalInput,
   AutopilotCommandResult,

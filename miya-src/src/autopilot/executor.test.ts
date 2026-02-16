@@ -93,4 +93,25 @@ describe('autopilot executor', () => {
     expect(stats.totalRetries).toBe(1);
     expect(stats.successRuns).toBe(1);
   });
+
+  test('reuses cached plan template by task signature and keeps fresh command vars', () => {
+    const projectDir = tempProjectDir();
+    const first = runAutopilot({
+      projectDir,
+      goal: 'compile target file',
+      commands: ['Write-Output "compile src/a.ts"'],
+      timeoutMs: 5000,
+    });
+    expect(first.success).toBe(true);
+
+    const second = runAutopilot({
+      projectDir,
+      goal: 'compile target file',
+      commands: ['Write-Output "compile src/b.ts"'],
+      timeoutMs: 5000,
+    });
+    expect(second.success).toBe(true);
+    expect(second.execution[0]?.command.includes('src/b.ts')).toBe(true);
+    expect(second.auditLedger.some((row) => row.action === 'plan_template_reused')).toBe(true);
+  });
 });

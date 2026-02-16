@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildRouteExecutionPlan,
+  getRouterSessionState,
   getRouteCostSummary,
   prepareRoutePayload,
   readRouterModeConfig,
@@ -141,5 +142,58 @@ describe('router runtime planning', () => {
     const summary = getRouteCostSummary(projectDir, 30);
     expect(summary.totalRecords).toBe(1);
     expect(summary.savingsPercentEstimate).toBeGreaterThan(0);
+  });
+
+  test('applies context hard cap under configured token budget', () => {
+    const projectDir = tempProjectDir();
+    writeRouterModeConfig(projectDir, {
+      contextHardCapTokens: 320,
+    });
+    const text = `${'A'.repeat(14000)}\n${'B'.repeat(7000)}`;
+    const payload = prepareRoutePayload(projectDir, {
+      text,
+      stage: 'medium',
+    });
+    expect(payload.hardCapped).toBe(true);
+    expect(payload.inputTokens).toBeLessThanOrEqual(380);
+    expect(payload.text.includes('MIYA_CONTEXT_HARD_CAP')).toBe(true);
+  });
+
+  test('uses retry delta context instead of full payload after failed attempt', () => {
+    const projectDir = tempProjectDir();
+    const firstPayload = prepareRoutePayload(projectDir, {
+      text: 'step1\nstep2\nstep3',
+      stage: 'medium',
+    });
+    recordRouteExecutionOutcome({
+      projectDir,
+      sessionID: 'retry-session',
+      intent: 'code_fix',
+      complexity: 'medium',
+      stage: 'medium',
+      agent: '5-code-fixer',
+      success: false,
+      inputTokens: firstPayload.inputTokens,
+      outputTokensEstimate: firstPayload.outputTokensEstimate,
+      totalTokensEstimate: firstPayload.totalTokensEstimate,
+      baselineHighTokensEstimate: firstPayload.baselineHighTokensEstimate,
+      costUsdEstimate: firstPayload.costUsdEstimate,
+      failureReason: 'request_timeout',
+      contextHash: firstPayload.contextHash,
+      contextText: firstPayload.text,
+    });
+    const state = getRouterSessionState(projectDir, 'retry-session');
+    const retryPayload = prepareRoutePayload(projectDir, {
+      text: 'step1\nstep2\nstep3\nstep4_new',
+      stage: 'medium',
+      retry: {
+        attempt: state.autoRetryUsed,
+        previousContextText: state.lastContextText,
+        previousContextHash: state.lastContextHash,
+        failureReason: state.lastFailureReason,
+      },
+    });
+    expect(retryPayload.retryDeltaApplied).toBe(true);
+    expect(retryPayload.text.includes('MIYA_RETRY_DELTA')).toBe(true);
   });
 });

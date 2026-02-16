@@ -62,6 +62,9 @@
 - 取消语义票据化（第一阶段，已实装）：`miya-src/src/autoflow/persistent.ts` 增加 `autoflow.stop.requested/acked` 事件处理与本地 stop intent 票据；`miya-src/src/tools/autoflow.ts` 的 `mode=stop` 改为先发 `requested` 再 `acked`，去除基于 reason 正则猜测用户取消。
 - 后台定时任务异常收口（第一阶段，已实装）：新增 `miya-src/src/utils/safe-interval.ts`，`miya-src/src/gateway/index.ts` 的 wizard/memory/pending/owner 周期任务统一切换为安全包装，默认异常计数 + 冷却，避免 unhandled rejection 外溢。
 - Wizard 会话目录并发容错（已实装）：`miya-src/src/companion/wizard.ts` 对 sessions 目录竞争删除场景做可恢复处理，避免 `readdirSync` 抛错击穿后台 worker。
+- `security-interaction` 超时链路“单调度点 + 强制清理”（第二阶段，已实装）：`miya-src/src/gateway/index.ts` 将 pending outbound 从 `setInterval` 改为单一 `setTimeout` 调度器，新增 `pendingQueueGeneration` 失效代际校验与 stop 清理，消除停机后残留回调与重入风暴。
+- Windows 桌控 WinAPI-first（已实装）：`miya-src/src/channel/outbound/shared.ts` 焦点链升级为 `ShowWindow(SW_RESTORE) -> AttachThreadInput -> SetForegroundWindow -> BringWindowToTop`，并在发送前后执行 `hwnd` 指纹一致性校验，失败即 fail-fast；`channels/service.ts` 补充 `targetHwnd/foregroundBefore/foregroundAfter/uiaPath/fallbackReason` 结构化证据落盘。
+- Token 预算化（首版，已实装）：`miya-src/src/router/runtime.ts` 增加 `contextHardCapTokens` 硬上限、失败重试 `retry delta context`；`miya-src/src/gateway/index.ts` 接入重试差量上下文与 hard-cap 观测；`miya-src/src/autopilot/plan-reuse.ts` + `executor.ts` 增加 PlanBundle 任务签名复用。
 - 本轮验证（已执行）：`bun --cwd miya-src test --max-concurrency=1 src/autoflow/persistent.test.ts src/companion/wizard.test.ts src/utils/safe-interval.test.ts src/daemon/launcher.test.ts src/gateway/milestone-acceptance.test.ts` 通过。
 
 ### 1. 基础架构方向性修正与闭环

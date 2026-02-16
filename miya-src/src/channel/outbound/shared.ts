@@ -6,6 +6,11 @@ export interface DesktopOutboundResult {
   sent: boolean;
   message: string;
   automationPath?: 'uia' | 'sendkeys' | 'mixed';
+  uiaPath?: 'valuepattern' | 'clipboard_sendkeys' | 'none';
+  targetHwnd?: string;
+  foregroundBefore?: string;
+  foregroundAfter?: string;
+  fallbackReason?: string;
   simulationStatus?: 'captured' | 'not_available';
   simulationRiskHints?: string[];
   visualPrecheck?: string;
@@ -111,13 +116,23 @@ try { Add-Type -AssemblyName UIAutomationClient | Out-Null } catch {}
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class MiyaInputProbe {
   [StructLayout(LayoutKind.Sequential)]
   public struct POINT { public int X; public int Y; }
-  [DllImport("user32.dll")]
-  public static extern bool GetCursorPos(out POINT point);
-  [DllImport("user32.dll")]
-  public static extern short GetAsyncKeyState(int vKey);
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT point);
+  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+}
+public static class MiyaWinApi {
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 }
 "@
 
@@ -139,14 +154,42 @@ $preShot = ""
 $postShot = ""
 $windowFingerprint = ""
 $automationPath = "sendkeys"
+$uiaPath = "none"
 $simulation = "not_available"
+$targetHwndText = ""
+$foregroundBeforeText = ""
+$foregroundAfterText = ""
+$fallbackReasons = New-Object System.Collections.Generic.List[string]
 $riskHints = New-Object System.Collections.Generic.List[string]
+
+function Safe-Token {
+  param([string]$Value)
+  if (-not $Value) { return "" }
+  return $Value.Replace('|', '/').Replace([char]13, ' ').Replace([char]10, ' ').Trim()
+}
+
+function Get-Sha256Hex {
+  param([string]$Value)
+  if (-not $Value) { return "" }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+    $hash = $sha.ComputeHash($bytes)
+    return ([BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+  } finally {
+    $sha.Dispose()
+  }
+}
+
+function Format-Hwnd {
+  param([IntPtr]$Hwnd)
+  if ($Hwnd -eq [IntPtr]::Zero) { return "0x0" }
+  return ('0x{0:X}' -f [UInt64]$Hwnd.ToInt64())
+}
 
 function Save-Screenshot {
   param([string]$TargetPath)
   try {
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
     $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
@@ -206,12 +249,155 @@ function Assert-NoUserInterference {
   }
 }
 
+function Get-WindowTitle {
+  param([IntPtr]$Hwnd)
+  if ($Hwnd -eq [IntPtr]::Zero) { return "" }
+  $sb = New-Object System.Text.StringBuilder 1024
+  [void][MiyaWinApi]::GetWindowText($Hwnd, $sb, $sb.Capacity)
+  return Safe-Token($sb.ToString())
+}
+
+function Get-WindowClass {
+  param([IntPtr]$Hwnd)
+  if ($Hwnd -eq [IntPtr]::Zero) { return "" }
+  $sb = New-Object System.Text.StringBuilder 512
+  [void][MiyaWinApi]::GetClassName($Hwnd, $sb, $sb.Capacity)
+  return Safe-Token($sb.ToString())
+}
+
+function Get-WindowProcessId {
+  param([IntPtr]$Hwnd)
+  $pid = [uint32]0
+  [void][MiyaWinApi]::GetWindowThreadProcessId($Hwnd, [ref]$pid)
+  return [int]$pid
+}
+
+function Build-WindowFingerprint {
+  param([IntPtr]$Hwnd)
+  if ($Hwnd -eq [IntPtr]::Zero) { return "" }
+  $pid = Get-WindowProcessId -Hwnd $Hwnd
+  $titleHash = (Get-Sha256Hex (Get-WindowTitle -Hwnd $Hwnd))
+  if ($titleHash.Length -gt 12) { $titleHash = $titleHash.Substring(0, 12) }
+  $classHash = (Get-Sha256Hex (Get-WindowClass -Hwnd $Hwnd))
+  if ($classHash.Length -gt 12) { $classHash = $classHash.Substring(0, 12) }
+  return ("pid=" + $pid + ";hwnd=" + (Format-Hwnd -Hwnd $Hwnd) + ";class=" + $classHash + ";title=" + $titleHash)
+}
+
+function Resolve-TargetWindow {
+  param([string]$AppName, [string]$Destination)
+  $windows = @(Get-Process -Name $AppName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -and $_.MainWindowHandle -ne 0 })
+  if ($windows.Count -eq 0) {
+    Start-Process -FilePath $AppName | Out-Null
+    Start-Sleep -Milliseconds 1200
+    $windows = @(Get-Process -Name $AppName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -and $_.MainWindowHandle -ne 0 })
+  }
+  if ($windows.Count -eq 0) { return $null }
+  $selected = $null
+  if ($Destination) {
+    $selected = $windows | Where-Object { $_.MainWindowTitle -like ("*" + $Destination + "*") } | Select-Object -First 1
+  }
+  if (-not $selected) {
+    $selected = $windows | Select-Object -First 1
+  }
+  if (-not $selected) { return $null }
+  $hwnd = [IntPtr]$selected.MainWindowHandle
+  return @{
+    processId = [int]$selected.Id
+    hwnd = $hwnd
+    title = Safe-Token([string]$selected.MainWindowTitle)
+    fingerprint = Build-WindowFingerprint -Hwnd $hwnd
+  }
+}
+
+function Focus-WindowWinApi {
+  param([IntPtr]$TargetHwnd, [string]$Destination, [string]$AppName)
+  $before = [MiyaWinApi]::GetForegroundWindow()
+  $targetPid = [uint32]0
+  $targetThread = [MiyaWinApi]::GetWindowThreadProcessId($TargetHwnd, [ref]$targetPid)
+  $selfThread = [MiyaWinApi]::GetCurrentThreadId()
+  $fgPid = [uint32]0
+  $fgThread = if ($before -ne [IntPtr]::Zero) { [MiyaWinApi]::GetWindowThreadProcessId($before, [ref]$fgPid) } else { [uint32]0 }
+  $attachedSelf = $false
+  $attachedForeground = $false
+  [void][MiyaWinApi]::ShowWindow($TargetHwnd, 9)
+  try {
+    if ($targetThread -ne 0 -and $targetThread -ne $selfThread) {
+      $attachedSelf = [MiyaWinApi]::AttachThreadInput($selfThread, $targetThread, $true)
+    }
+    if ($targetThread -ne 0 -and $fgThread -ne 0 -and $fgThread -ne $targetThread) {
+      $attachedForeground = [MiyaWinApi]::AttachThreadInput($fgThread, $targetThread, $true)
+    }
+    [void][MiyaWinApi]::SetForegroundWindow($TargetHwnd)
+    [void][MiyaWinApi]::BringWindowToTop($TargetHwnd)
+    Start-Sleep -Milliseconds 120
+  } finally {
+    if ($attachedForeground) {
+      [void][MiyaWinApi]::AttachThreadInput($fgThread, $targetThread, $false)
+    }
+    if ($attachedSelf) {
+      [void][MiyaWinApi]::AttachThreadInput($selfThread, $targetThread, $false)
+    }
+  }
+  $fallbackReason = ""
+  $after = [MiyaWinApi]::GetForegroundWindow()
+  if ($after -ne $TargetHwnd) {
+    $fallbackReason = "winapi_foreground_mismatch"
+    $activated = $false
+    if ($Destination) {
+      $activated = $shell.AppActivate($Destination)
+    }
+    if (-not $activated) {
+      $activated = $shell.AppActivate($AppName)
+      if (-not $activated) {
+        $fallbackReason = "winapi_and_appactivate_failed"
+      } else {
+        $fallbackReason = "winapi_fallback_appactivate_app"
+      }
+    } else {
+      $fallbackReason = "winapi_fallback_appactivate_destination"
+    }
+    Start-Sleep -Milliseconds 120
+    $after = [MiyaWinApi]::GetForegroundWindow()
+  }
+  return @{
+    ok = ($after -eq $TargetHwnd)
+    before = $before
+    after = $after
+    fallbackReason = $fallbackReason
+  }
+}
+
+function Assert-TargetStable {
+  param(
+    [string]$AppName,
+    [string]$Destination,
+    [IntPtr]$ExpectedHwnd,
+    [string]$ExpectedFingerprint,
+    [string]$Phase
+  )
+  $resolved = Resolve-TargetWindow -AppName $AppName -Destination $Destination
+  if (-not $resolved) {
+    throw ("window_not_found:" + $Phase)
+  }
+  if ($resolved.hwnd -ne $ExpectedHwnd) {
+    throw ("hwnd_changed:" + $Phase)
+  }
+  if ($ExpectedFingerprint -and $resolved.fingerprint -ne $ExpectedFingerprint) {
+    throw ("hwnd_fingerprint_mismatch:" + $Phase)
+  }
+  return $resolved
+}
+
 function Try-SendTextViaUia {
   param(
     [string]$Value,
-    [int]$ExpectedProcessId
+    [int]$ExpectedProcessId,
+    [IntPtr]$ExpectedHwnd
   )
   try {
+    if ($ExpectedHwnd -ne [IntPtr]::Zero -and [MiyaWinApi]::GetForegroundWindow() -ne $ExpectedHwnd) {
+      return $false
+    }
     $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
     if (-not $focused) { return $false }
     if ($ExpectedProcessId -gt 0 -and $focused.Current.ProcessId -ne $ExpectedProcessId) {
@@ -233,128 +419,118 @@ try {
   if (-not (Test-Path -LiteralPath $evidenceDir)) {
     New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
   }
-
   $step = "bootstrap.process"
   $lockPoint = Wait-UserInputIdle
-$proc = Get-Process -Name $appName -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $proc) {
-  Start-Process -FilePath $appName | Out-Null
-  Start-Sleep -Milliseconds 1200
-}
 
-$step = "precheck.activate_window"
-$activated = $shell.AppActivate($destination)
-if (-not $activated) {
-  $activated = $shell.AppActivate($appName)
-}
-if (-not $activated) {
-  throw "window_not_found:$destination"
-}
-$precheck = "window_activated"
-Assert-NoUserInterference -LockPoint $lockPoint
-
-$step = "precheck.capture"
-$preShot = Join-Path $evidenceDir ($traceId + "_pre.png")
-Save-Screenshot -TargetPath $preShot
-
-$activeByDestination = $shell.AppActivate($destination)
-if (-not $activeByDestination) {
-  $activeByDestination = $false
-}
-$windowProc = Get-Process -Name $appName -ErrorAction SilentlyContinue | Select-Object -First 1
-$windowTitle = ""
-if ($windowProc -and $windowProc.MainWindowTitle) {
-  $windowTitle = $windowProc.MainWindowTitle
-}
-$windowFingerprint = ($appName + ":" + [string]($windowProc.Id) + ":" + $windowTitle.Replace('|', '/'))
-if ($windowTitle -like ("*" + $destination + "*")) {
-  $recipientCheck = "matched"
-} elseif ($activeByDestination) {
-  $recipientCheck = "matched"
-} else {
-  $recipientCheck = "uncertain"
-}
-if ($env:MIYA_DESKTOP_UIA_FIRST -eq '0') {
-  $riskHints.Add("uia_disabled_by_config")
-} else {
-  try {
-    $null = [System.Windows.Automation.AutomationElement]::FocusedElement
-    $simulation = "captured"
-  } catch {
-    $simulation = "not_available"
-    $riskHints.Add("uia_runtime_unavailable")
+  $target = Resolve-TargetWindow -AppName $appName -Destination $destination
+  if (-not $target) {
+    throw ("window_not_found:" + $destination)
   }
-}
+  $targetHwnd = $target.hwnd
+  $targetHwndText = Format-Hwnd -Hwnd $targetHwnd
+  $windowFingerprint = $target.fingerprint
 
-if ($mediaPath) {
-  Assert-NoUserInterference -LockPoint $lockPoint
-  $step = "send.media_prepare"
-  if (-not (Test-Path -LiteralPath $mediaPath)) {
-    throw "media_not_found:$mediaPath"
+  $step = "precheck.focus_winapi"
+  $focus = Focus-WindowWinApi -TargetHwnd $targetHwnd -Destination $destination -AppName $appName
+  $foregroundBeforeText = Format-Hwnd -Hwnd $focus.before
+  $foregroundAfterText = Format-Hwnd -Hwnd $focus.after
+  if ($focus.fallbackReason) { $fallbackReasons.Add($focus.fallbackReason) }
+  if (-not $focus.ok) {
+    throw "window_focus_verify_failed"
   }
-  $list = New-Object System.Collections.Specialized.StringCollection
-  $list.Add($mediaPath) | Out-Null
-  $data = New-Object System.Windows.Forms.DataObject
-  $data.SetFileDropList($list)
-  [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
-  Start-Sleep -Milliseconds 220
-  [System.Windows.Forms.SendKeys]::SendWait('^v')
-  $step = "send.media_commit"
-  Start-Sleep -Milliseconds 220
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  Start-Sleep -Milliseconds 240
-  if ($automationPath -eq "uia") { $automationPath = "mixed" } else { $automationPath = "sendkeys" }
-  if ($env:MIYA_DESKTOP_UIA_FIRST -ne '0') { $riskHints.Add("media_sendkeys_path") }
-}
-
-if ($payload) {
+  $precheck = "window_activated"
   Assert-NoUserInterference -LockPoint $lockPoint
-  $sentViaUia = $false
-  if ($env:MIYA_DESKTOP_UIA_FIRST -ne '0' -and $windowProc) {
-    $step = "send.text_prepare.uia"
-    $sentViaUia = Try-SendTextViaUia -Value $payload -ExpectedProcessId $windowProc.Id
-    if ($sentViaUia) {
-      if ($automationPath -eq "sendkeys") {
-        $automationPath = "uia"
-      } else {
-        $automationPath = "mixed"
-      }
-      $step = "send.text_commit.uia"
-    } else {
-      $riskHints.Add("uia_fallback_sendkeys")
+  $target = Assert-TargetStable -AppName $appName -Destination $destination -ExpectedHwnd $targetHwnd -ExpectedFingerprint $windowFingerprint -Phase "before_send"
+  if ($target.title -like ("*" + $destination + "*")) {
+    $recipientCheck = "matched"
+  }
+
+  $step = "precheck.capture"
+  $preShot = Join-Path $evidenceDir ($traceId + "_pre.png")
+  Save-Screenshot -TargetPath $preShot
+
+  if ($env:MIYA_DESKTOP_UIA_FIRST -eq '0') {
+    $riskHints.Add("uia_disabled_by_config")
+  } else {
+    try {
+      $null = [System.Windows.Automation.AutomationElement]::FocusedElement
+      $simulation = "captured"
+    } catch {
+      $simulation = "not_available"
+      $riskHints.Add("uia_runtime_unavailable")
     }
   }
-  if (-not $sentViaUia) {
-    $step = "send.text_prepare"
-    Set-Clipboard -Value $payload
-    Start-Sleep -Milliseconds 180
+
+  if ($mediaPath) {
+    Assert-NoUserInterference -LockPoint $lockPoint
+    [void](Assert-TargetStable -AppName $appName -Destination $destination -ExpectedHwnd $targetHwnd -ExpectedFingerprint $windowFingerprint -Phase "media_prepare")
+    $step = "send.media_prepare"
+    if (-not (Test-Path -LiteralPath $mediaPath)) {
+      throw ("media_not_found:" + $mediaPath)
+    }
+    $list = New-Object System.Collections.Specialized.StringCollection
+    $list.Add($mediaPath) | Out-Null
+    $data = New-Object System.Windows.Forms.DataObject
+    $data.SetFileDropList($list)
+    [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
+    Start-Sleep -Milliseconds 220
     [System.Windows.Forms.SendKeys]::SendWait('^v')
-    $step = "send.text_commit"
-    Start-Sleep -Milliseconds 120
+    $step = "send.media_commit"
+    Start-Sleep -Milliseconds 220
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    if ($automationPath -eq "uia") {
-      $automationPath = "mixed"
-    } else {
-      $automationPath = "sendkeys"
+    Start-Sleep -Milliseconds 220
+    if ($automationPath -eq "uia") { $automationPath = "mixed" } else { $automationPath = "sendkeys" }
+    if ($env:MIYA_DESKTOP_UIA_FIRST -ne '0') { $riskHints.Add("media_sendkeys_path") }
+  }
+
+  if ($payload) {
+    Assert-NoUserInterference -LockPoint $lockPoint
+    [void](Assert-TargetStable -AppName $appName -Destination $destination -ExpectedHwnd $targetHwnd -ExpectedFingerprint $windowFingerprint -Phase "text_prepare")
+    $sentViaUia = $false
+    if ($env:MIYA_DESKTOP_UIA_FIRST -ne '0') {
+      $step = "send.text_prepare.uia"
+      $sentViaUia = Try-SendTextViaUia -Value $payload -ExpectedProcessId $target.processId -ExpectedHwnd $targetHwnd
+      if ($sentViaUia) {
+        if ($automationPath -eq "sendkeys") { $automationPath = "uia" } else { $automationPath = "mixed" }
+        $uiaPath = "valuepattern"
+        $step = "send.text_commit.uia"
+      } else {
+        $fallbackReasons.Add("uia_valuepattern_unavailable")
+      }
+    }
+    if (-not $sentViaUia) {
+      $step = "send.text_prepare.clipboard"
+      Set-Clipboard -Value $payload
+      Start-Sleep -Milliseconds 180
+      [System.Windows.Forms.SendKeys]::SendWait('^v')
+      $step = "send.text_commit.clipboard"
+      Start-Sleep -Milliseconds 120
+      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+      if ($automationPath -eq "uia") { $automationPath = "mixed" } else { $automationPath = "sendkeys" }
+      $uiaPath = "clipboard_sendkeys"
     }
   }
-}
 
-$step = "postcheck.activate"
-if (-not $shell.AppActivate($appName)) {
-  throw "postcheck_window_not_active:$appName"
-}
-$postcheck = "window_active_after_send"
-$receipt = "confirmed"
-$step = "postcheck.capture"
-$postShot = Join-Path $evidenceDir ($traceId + "_post.png")
-Save-Screenshot -TargetPath $postShot
+  $step = "postcheck.verify_window"
+  $foregroundNow = [MiyaWinApi]::GetForegroundWindow()
+  if ($foregroundNow -ne $targetHwnd) {
+    throw "foreground_drift_after_send"
+  }
+  $targetAfter = Assert-TargetStable -AppName $appName -Destination $destination -ExpectedHwnd $targetHwnd -ExpectedFingerprint $windowFingerprint -Phase "after_send"
+  $windowFingerprint = $targetAfter.fingerprint
+  $postcheck = "window_active_after_send"
+  $receipt = "confirmed"
+  $step = "postcheck.capture"
+  $postShot = Join-Path $evidenceDir ($traceId + "_post.png")
+  Save-Screenshot -TargetPath $postShot
 
-Write-Output ("desktop_send_ok|step=" + $step + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + $windowFingerprint.Replace('|', '/') + "|pre_shot=" + $preShot.Replace('|', '/') + "|post_shot=" + $postShot.Replace('|', '/') + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|risk=" + (($riskHints -join ',').Replace('|', '/')))
-exit 0
+  $fallbackReason = if ($fallbackReasons.Count -gt 0) { ($fallbackReasons -join ',') } else { "none" }
+  Write-Output ("desktop_send_ok|step=" + $step + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + Safe-Token($windowFingerprint) + "|target_hwnd=" + $targetHwndText + "|foreground_before=" + $foregroundBeforeText + "|foreground_after=" + $foregroundAfterText + "|uia_path=" + $uiaPath + "|fallback_reason=" + Safe-Token($fallbackReason) + "|pre_shot=" + Safe-Token($preShot) + "|post_shot=" + Safe-Token($postShot) + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|risk=" + Safe-Token(($riskHints -join ',')))
+  exit 0
 } catch {
-  $err = $_.Exception.Message.Replace('|', '/')
-  Write-Output ("desktop_send_fail|step=" + $step + "|error=" + $err + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + $windowFingerprint.Replace('|', '/') + "|pre_shot=" + $preShot.Replace('|', '/') + "|post_shot=" + $postShot.Replace('|', '/') + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|risk=" + (($riskHints -join ',').Replace('|', '/')))
+  $err = Safe-Token($_.Exception.Message)
+  $fallbackReason = if ($fallbackReasons.Count -gt 0) { ($fallbackReasons -join ',') } else { "none" }
+  Write-Output ("desktop_send_fail|step=" + $step + "|error=" + $err + "|pre=" + $precheck + "|post=" + $postcheck + "|receipt=" + $receipt + "|recipient=" + $recipientCheck + "|window_fp=" + Safe-Token($windowFingerprint) + "|target_hwnd=" + Safe-Token($targetHwndText) + "|foreground_before=" + Safe-Token($foregroundBeforeText) + "|foreground_after=" + Safe-Token($foregroundAfterText) + "|uia_path=" + Safe-Token($uiaPath) + "|fallback_reason=" + Safe-Token($fallbackReason) + "|pre_shot=" + Safe-Token($preShot) + "|post_shot=" + Safe-Token($postShot) + "|payload=" + $payloadHash + "|automation=" + $automationPath + "|simulation=" + $simulation + "|risk=" + Safe-Token(($riskHints -join ',')))
   exit 2
 }
 `.trim();
@@ -393,6 +569,15 @@ exit 0
   const receipt = safeValueFromSignal(signal, 'receipt') === 'confirmed' ? 'confirmed' : 'uncertain';
   const failureStep = safeValueFromSignal(signal, 'step') ?? 'send.unknown';
   const windowFingerprint = safeValueFromSignal(signal, 'window_fp');
+  const targetHwnd = safeValueFromSignal(signal, 'target_hwnd');
+  const foregroundBefore = safeValueFromSignal(signal, 'foreground_before');
+  const foregroundAfter = safeValueFromSignal(signal, 'foreground_after');
+  const uiaPathRaw = safeValueFromSignal(signal, 'uia_path');
+  const uiaPath =
+    uiaPathRaw === 'valuepattern' || uiaPathRaw === 'clipboard_sendkeys' || uiaPathRaw === 'none'
+      ? uiaPathRaw
+      : undefined;
+  const fallbackReason = safeValueFromSignal(signal, 'fallback_reason');
   const recipientTextCheckRaw = safeValueFromSignal(signal, 'recipient');
   const recipientTextCheck =
     recipientTextCheckRaw === 'matched' || recipientTextCheckRaw === 'mismatch'
@@ -412,11 +597,19 @@ exit 0
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+  if (fallbackReason && fallbackReason !== 'none') {
+    simulationRiskHints.push(`focus_fallback:${fallbackReason}`);
+  }
   if (exitCode === 0 && stdout.includes('desktop_send_ok') && !timedOut) {
     return {
       sent: true,
       message: `${input.channel}_desktop_sent`,
       automationPath,
+      uiaPath,
+      targetHwnd,
+      foregroundBefore,
+      foregroundAfter,
+      fallbackReason,
       simulationStatus,
       simulationRiskHints,
       visualPrecheck: precheck,
@@ -442,6 +635,11 @@ exit 0
     sent: false,
     message: `${input.channel}_desktop_send_failed:${detail}`,
     automationPath,
+    uiaPath,
+    targetHwnd,
+    foregroundBefore,
+    foregroundAfter,
+    fallbackReason,
     simulationStatus,
     simulationRiskHints,
     visualPrecheck: precheck,

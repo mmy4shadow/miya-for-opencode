@@ -210,6 +210,7 @@ import {
 import {
   analyzeRouteComplexity,
   buildRouteExecutionPlan,
+  getRouterSessionState,
   getRouteCostSummary,
   listRouteCostRecords,
   prepareRoutePayload,
@@ -363,7 +364,9 @@ interface GatewayRuntime {
   wizardTickTimer?: ReturnType<typeof setInterval>;
   ownerBeatTimer?: ReturnType<typeof setInterval>;
   memoryReflectTimer?: ReturnType<typeof setInterval>;
-  pendingQueueTimer?: ReturnType<typeof setInterval>;
+  pendingQueueKickTimer?: ReturnType<typeof setTimeout>;
+  pendingQueueGeneration: number;
+  pendingQueueRescheduleNeeded: boolean;
   wizardRunnerBusy?: boolean;
   pendingQueueBusy?: boolean;
   pendingOutboundQueue: PendingOutboundItem[];
@@ -1508,10 +1511,9 @@ export function stopGateway(projectDir: string): {
     clearInterval(runtime.memoryReflectTimer);
     runtime.memoryReflectTimer = undefined;
   }
-  if (runtime.pendingQueueTimer) {
-    clearInterval(runtime.pendingQueueTimer);
-    runtime.pendingQueueTimer = undefined;
-  }
+  runtime.pendingQueueGeneration += 1;
+  runtime.pendingQueueRescheduleNeeded = false;
+  clearPendingOutboundScheduler(runtime);
   writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
   if (runtime.daemonLauncherUnsubscribe) {
     runtime.daemonLauncherUnsubscribe();
@@ -2517,6 +2519,45 @@ function writePendingOutboundQueue(projectDir: string, items: PendingOutboundIte
   });
 }
 
+function clearPendingOutboundScheduler(runtime: GatewayRuntime): void {
+  if (!runtime.pendingQueueKickTimer) return;
+  clearTimeout(runtime.pendingQueueKickTimer);
+  runtime.pendingQueueKickTimer = undefined;
+}
+
+function schedulePendingOutboundQueue(
+  projectDir: string,
+  runtime: GatewayRuntime,
+  options?: { immediate?: boolean },
+): void {
+  clearPendingOutboundScheduler(runtime);
+  if (runtime.pendingQueueBusy) {
+    runtime.pendingQueueRescheduleNeeded = true;
+    return;
+  }
+  if (runtime.pendingOutboundQueue.length === 0) return;
+  runtime.pendingOutboundQueue.sort((a, b) => Date.parse(a.nextRunAt) - Date.parse(b.nextRunAt));
+  const next = runtime.pendingOutboundQueue[0];
+  const runAt = next ? Date.parse(next.nextRunAt) : Number.NaN;
+  const delay =
+    options?.immediate === true
+      ? 0
+      : Number.isFinite(runAt)
+        ? Math.max(0, Math.min(30_000, runAt - Date.now()))
+        : 0;
+  const generation = runtime.pendingQueueGeneration;
+  runtime.pendingQueueKickTimer = setTimeout(() => {
+    runtime.pendingQueueKickTimer = undefined;
+    const active = runtimes.get(projectDir);
+    if (!active || active !== runtime) return;
+    if (active.pendingQueueGeneration !== generation) return;
+    void processPendingOutboundQueue(projectDir, active).catch((error) => {
+      periodicTaskError(projectDir, error);
+      schedulePendingOutboundQueue(projectDir, active, { immediate: false });
+    });
+  }, delay);
+}
+
 function enqueuePendingOutbound(input: {
   projectDir: string;
   runtime: GatewayRuntime;
@@ -2545,6 +2586,7 @@ function enqueuePendingOutbound(input: {
     existing.lastReason = input.reason;
     existing.request = input.request;
     writePendingOutboundQueue(input.projectDir, queue);
+    schedulePendingOutboundQueue(input.projectDir, input.runtime);
     return existing;
   }
   const item: PendingOutboundItem = {
@@ -2559,6 +2601,7 @@ function enqueuePendingOutbound(input: {
   queue.push(item);
   if (queue.length > 400) queue.splice(0, queue.length - 400);
   writePendingOutboundQueue(input.projectDir, queue);
+  schedulePendingOutboundQueue(input.projectDir, input.runtime);
   return item;
 }
 
@@ -2575,12 +2618,15 @@ function removePendingOutboundByNegotiationID(
   if (next.length === runtime.pendingOutboundQueue.length) return;
   runtime.pendingOutboundQueue = next;
   writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
+  schedulePendingOutboundQueue(projectDir, runtime);
 }
 
 async function processPendingOutboundQueue(projectDir: string, runtime: GatewayRuntime): Promise<void> {
   if (runtime.pendingQueueBusy) return;
+  const generation = runtime.pendingQueueGeneration;
   runtime.pendingQueueBusy = true;
   try {
+    if (!runtimes.has(projectDir)) return;
     if (runtime.pendingOutboundQueue.length === 0) return;
     const nowMs = Date.now();
     runtime.pendingOutboundQueue.sort((a, b) => Date.parse(a.nextRunAt) - Date.parse(b.nextRunAt));
@@ -2603,11 +2649,13 @@ async function processPendingOutboundQueue(projectDir: string, runtime: GatewayR
         },
       });
     } catch (error) {
+      if (runtime.pendingQueueGeneration !== generation || !runtimes.has(projectDir)) return;
       item.lastReason = error instanceof Error ? error.message : String(error);
       item.nextRunAt = new Date(Date.now() + Math.min(900, 30 * Math.max(1, item.attempts)) * 1000).toISOString();
       writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
       return;
     }
+    if (runtime.pendingQueueGeneration !== generation || !runtimes.has(projectDir)) return;
     const sent = Boolean(send.sent);
     if (sent) {
       runtime.pendingOutboundQueue = runtime.pendingOutboundQueue.filter((row) => row.id !== item.id);
@@ -2633,6 +2681,14 @@ async function processPendingOutboundQueue(projectDir: string, runtime: GatewayR
     writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
   } finally {
     runtime.pendingQueueBusy = false;
+    if (runtime.pendingQueueGeneration !== generation || !runtimes.has(projectDir)) {
+      runtime.pendingQueueRescheduleNeeded = false;
+      clearPendingOutboundScheduler(runtime);
+      return;
+    }
+    const immediate = runtime.pendingQueueRescheduleNeeded;
+    runtime.pendingQueueRescheduleNeeded = false;
+    schedulePendingOutboundQueue(projectDir, runtime, { immediate });
   }
 }
 
@@ -4073,9 +4129,16 @@ async function routeSessionMessage(
 
   const finalStage = !arbiter.executeWork ? 'low' : arbiter.mode === 'chat' ? 'low' : plan.stage;
   const finalAgent = !arbiter.executeWork || arbiter.mode === 'chat' ? '1-task-manager' : plan.agent;
+  const routerSession = getRouterSessionState(projectDir, input.sessionID);
   const payloadPlan = prepareRoutePayload(projectDir, {
     text: enrichedText,
     stage: finalStage,
+    retry: {
+      attempt: routerSession.autoRetryUsed,
+      previousContextText: routerSession.lastContextText,
+      previousContextHash: routerSession.lastContextHash,
+      failureReason: routerSession.lastFailureReason,
+    },
   });
 
   const finalizeTurn = (result: {
@@ -4137,6 +4200,8 @@ async function routeSessionMessage(
         lowConfidenceSafeFallback,
         personaWorldPromptInjected,
         learningInjected: Boolean(learning.snippet && learning.snippet.trim()),
+        retryDeltaApplied: payloadPlan.retryDeltaApplied,
+        hardCapApplied: payloadPlan.hardCapped,
       },
     });
     recordModeObservability(projectDir, {
@@ -4213,6 +4278,8 @@ async function routeSessionMessage(
       baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
       costUsdEstimate: payloadPlan.costUsdEstimate,
       attemptType: 'auto',
+      contextHash: payloadPlan.contextHash,
+      contextText: payloadPlan.text,
     });
     if (learning.matchedDraftIDs.length > 0) {
       for (const draftID of learning.matchedDraftIDs) {
@@ -4237,6 +4304,8 @@ async function routeSessionMessage(
       costUsdEstimate: payloadPlan.costUsdEstimate,
       failureReason: error instanceof Error ? error.message : String(error),
       attemptType: 'auto',
+      contextHash: payloadPlan.contextHash,
+      contextText: payloadPlan.text,
     });
     if (learning.matchedDraftIDs.length > 0) {
       for (const draftID of learning.matchedDraftIDs) {
@@ -8425,7 +8494,9 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     wizardTickTimer: undefined,
     ownerBeatTimer: undefined,
     memoryReflectTimer: undefined,
-    pendingQueueTimer: undefined,
+    pendingQueueKickTimer: undefined,
+    pendingQueueGeneration: 0,
+    pendingQueueRescheduleNeeded: false,
     wizardRunnerBusy: false,
     pendingQueueBusy: false,
     pendingOutboundQueue: readPendingOutboundQueue(projectDir),
@@ -8498,18 +8569,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       onError: (error) => periodicTaskError(projectDir, error),
     },
   );
-  runtime.pendingQueueTimer = safeInterval(
-    'gateway.pending.outbound',
-    5_000,
-    async () => {
-      await processPendingOutboundQueue(projectDir, runtime);
-    },
-    {
-      maxConsecutiveErrors: 3,
-      cooldownMs: 15_000,
-      onError: (error) => periodicTaskError(projectDir, error),
-    },
-  );
+  schedulePendingOutboundQueue(projectDir, runtime);
   runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === 'job.progress') {

@@ -41,6 +41,8 @@ export interface TurnEvidencePack {
     lowConfidenceSafeFallback?: boolean;
     personaWorldPromptInjected?: boolean;
     learningInjected?: boolean;
+    retryDeltaApplied?: boolean;
+    hardCapApplied?: boolean;
   };
 }
 
