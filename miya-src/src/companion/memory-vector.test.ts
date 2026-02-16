@@ -8,6 +8,7 @@ import {
   listCompanionMemoryCorrections,
   listCompanionMemoryVectors,
   listPendingCompanionMemoryVectors,
+  mergePendingMemoryConflicts,
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from './memory-vector';
@@ -166,5 +167,33 @@ describe('companion memory vectors', () => {
     expect(activated?.crossDomainWrite?.requiresApproval).toBe(false);
     const vectors = listCompanionMemoryVectors(projectDir, 'work');
     expect(vectors.some((item) => item.id === created.id)).toBe(true);
+  });
+
+  test('merges duplicate pending conflicts within budget', () => {
+    const projectDir = tempProjectDir();
+    upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢抹茶拿铁',
+      source: 'test',
+      activate: true,
+      confidence: 0.9,
+    });
+    const a = upsertCompanionMemoryVector(projectDir, {
+      text: '我不喜欢抹茶拿铁',
+      source: 'test',
+      activate: false,
+      confidence: 0.7,
+    });
+    const b = upsertCompanionMemoryVector(projectDir, {
+      text: '我不喜欢抹茶拿铁',
+      source: 'test',
+      activate: false,
+      confidence: 0.6,
+    });
+    expect(a.status).toBe('pending');
+    expect(b.status).toBe('pending');
+    const merged = mergePendingMemoryConflicts(projectDir, { maxSupersede: 5 });
+    expect(merged.merged).toBeGreaterThanOrEqual(1);
+    const pending = listPendingCompanionMemoryVectors(projectDir);
+    expect(pending.filter((item) => item.text.includes('不喜欢抹茶拿铁')).length).toBe(1);
   });
 });

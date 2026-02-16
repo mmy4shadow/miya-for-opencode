@@ -8,6 +8,7 @@ import {
   listEcosystemBridge,
   pullSourcePack,
   rollbackSourcePack,
+  verifySourcePackGovernance,
 } from './sync';
 
 function git(args: string[], cwd: string): string {
@@ -79,6 +80,8 @@ describe('ecosystem bridge sync', () => {
       const latestRemoteRevision = pushRemoteUpdate(fixture.seedDir);
       const pulled = pullSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
       expect(pulled.latestRevision).toBe(latestRemoteRevision);
+      expect(pulled.governance?.lock.revision).toBe(latestRemoteRevision);
+      expect(pulled.governance?.smoke.ok).toBe(true);
 
       const diff = diffSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
       expect(diff.behind).toBeGreaterThanOrEqual(1);
@@ -87,6 +90,7 @@ describe('ecosystem bridge sync', () => {
       const applied = applySourcePack(fixture.projectDir, sourcePack.sourcePackID, {}, options);
       expect(applied.appliedRevision).toBe(latestRemoteRevision);
       expect(applied.detachedHead).toBe(true);
+      expect(applied.governance?.signature.digest.length).toBeGreaterThan(20);
 
       const stable = diffSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
       expect(stable.behind).toBe(0);
@@ -94,6 +98,15 @@ describe('ecosystem bridge sync', () => {
       const rolledBack = rollbackSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
       expect(rolledBack.rolledBackTo).toBe(initialRevision);
       expect(rolledBack.detachedHead).toBe(true);
+      expect(rolledBack.governance?.lock.revision).toBe(initialRevision);
+      const verified = verifySourcePackGovernance(
+        fixture.projectDir,
+        sourcePack.sourcePackID,
+        options,
+      );
+      expect(verified.lockValid).toBe(true);
+      expect(verified.signatureValid).toBe(true);
+      expect(verified.smokeValid).toBe(true);
 
       const finalState = listEcosystemBridge(fixture.projectDir, options);
       expect(finalState.importPlans.length).toBe(1);

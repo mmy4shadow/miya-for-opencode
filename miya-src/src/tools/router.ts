@@ -4,10 +4,12 @@ import {
   buildRouteExecutionPlan,
   classifyIntent,
   getRouteCostSummary,
+  readRouteLearningWeights,
   getRouterSessionState,
   listRouteCostRecords,
   readRouterModeConfig,
   summarizeRouteHistory,
+  writeRouteLearningWeights,
   writeRouterModeConfig,
 } from '../router';
 
@@ -79,6 +81,11 @@ export function createRouterTools(
       intent: z.string(),
       suggested_agent: z.string(),
       accepted: z.boolean(),
+      success: z.boolean().optional(),
+      cost_usd: z.number().optional(),
+      risk_score: z.number().optional(),
+      stage: z.enum(['low', 'medium', 'high']).optional(),
+      failure_reason: z.string().optional(),
     },
     async execute(args) {
       const intent = classifyIntent(String(args.intent));
@@ -87,12 +94,21 @@ export function createRouterTools(
         intent,
         suggestedAgent: String(args.suggested_agent),
         accepted: Boolean(args.accepted),
+        success: typeof args.success === 'boolean' ? Boolean(args.success) : undefined,
+        costUsdEstimate: typeof args.cost_usd === 'number' ? Number(args.cost_usd) : undefined,
+        riskScore: typeof args.risk_score === 'number' ? Number(args.risk_score) : undefined,
+        stage: typeof args.stage === 'string' ? args.stage : undefined,
+        failureReason:
+          typeof args.failure_reason === 'string' ? String(args.failure_reason) : undefined,
       });
       return [
         `saved=true`,
         `at=${record.at}`,
         `intent=${record.intent}`,
         `accepted=${record.accepted}`,
+        `success=${record.success ?? '(unknown)'}`,
+        `cost_usd=${record.costUsdEstimate ?? '(n/a)'}`,
+        `risk_score=${record.riskScore ?? '(n/a)'}`,
       ].join('\n');
     },
   });
@@ -103,6 +119,7 @@ export function createRouterTools(
     async execute() {
       const summary = summarizeRouteHistory(projectDir);
       const cost = getRouteCostSummary(projectDir, 500);
+      const weights = readRouteLearningWeights(projectDir);
       return [
         summary,
         `cost_records=${cost.totalRecords}`,
@@ -114,6 +131,10 @@ export function createRouterTools(
         `stage_low_records=${cost.byStage.low.records}`,
         `stage_medium_records=${cost.byStage.medium.records}`,
         `stage_high_records=${cost.byStage.high.records}`,
+        `learning_weight_accept=${weights.accept}`,
+        `learning_weight_success=${weights.success}`,
+        `learning_weight_cost=${weights.cost}`,
+        `learning_weight_risk=${weights.risk}`,
       ].join('\n');
     },
   });
@@ -125,6 +146,10 @@ export function createRouterTools(
       eco_mode: z.boolean().optional(),
       forced_stage: z.enum(['low', 'medium', 'high']).optional(),
       clear_forced_stage: z.boolean().optional(),
+      learning_accept_weight: z.number().optional(),
+      learning_success_weight: z.number().optional(),
+      learning_cost_weight: z.number().optional(),
+      learning_risk_weight: z.number().optional(),
     },
     async execute(args) {
       if (args.mode === 'set') {
@@ -137,6 +162,24 @@ export function createRouterTools(
                 ? args.forced_stage
                 : undefined,
         });
+        const weights = writeRouteLearningWeights(projectDir, {
+          accept:
+            typeof args.learning_accept_weight === 'number'
+              ? Number(args.learning_accept_weight)
+              : undefined,
+          success:
+            typeof args.learning_success_weight === 'number'
+              ? Number(args.learning_success_weight)
+              : undefined,
+          cost:
+            typeof args.learning_cost_weight === 'number'
+              ? Number(args.learning_cost_weight)
+              : undefined,
+          risk:
+            typeof args.learning_risk_weight === 'number'
+              ? Number(args.learning_risk_weight)
+              : undefined,
+        });
         return [
           'saved=true',
           `eco_mode=${next.ecoMode}`,
@@ -144,10 +187,15 @@ export function createRouterTools(
           `token_multiplier_low=${next.stageTokenMultiplier.low}`,
           `token_multiplier_medium=${next.stageTokenMultiplier.medium}`,
           `token_multiplier_high=${next.stageTokenMultiplier.high}`,
+          `learning_weight_accept=${weights.accept}`,
+          `learning_weight_success=${weights.success}`,
+          `learning_weight_cost=${weights.cost}`,
+          `learning_weight_risk=${weights.risk}`,
         ].join('\n');
       }
 
       const current = readRouterModeConfig(projectDir);
+      const weights = readRouteLearningWeights(projectDir);
       return [
         `eco_mode=${current.ecoMode}`,
         `forced_stage=${current.forcedStage ?? '(none)'}`,
@@ -157,6 +205,10 @@ export function createRouterTools(
         `cost_per_1k_low=${current.stageCostUsdPer1k.low}`,
         `cost_per_1k_medium=${current.stageCostUsdPer1k.medium}`,
         `cost_per_1k_high=${current.stageCostUsdPer1k.high}`,
+        `learning_weight_accept=${weights.accept}`,
+        `learning_weight_success=${weights.success}`,
+        `learning_weight_cost=${weights.cost}`,
+        `learning_weight_risk=${weights.risk}`,
       ].join('\n');
     },
   });

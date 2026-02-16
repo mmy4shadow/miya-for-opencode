@@ -7,7 +7,9 @@ export { resolveAgentWithFeedback, resolveFallbackAgent } from './fallback';
 export {
   addRouteFeedback,
   rankAgentsByFeedback,
+  readRouteLearningWeights,
   summarizeRouteHistory,
+  writeRouteLearningWeights,
 } from './learner';
 export {
   analyzeRouteComplexity,

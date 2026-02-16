@@ -482,6 +482,48 @@ export function listCompanionMemoryCorrections(
   return readCorrectionStore(projectDir).items;
 }
 
+export function mergePendingMemoryConflicts(
+  projectDir: string,
+  input?: { maxSupersede?: number },
+): { merged: number; winners: string[] } {
+  const store = readStore(projectDir);
+  const maxSupersede = Math.max(1, Math.min(200, Math.floor(input?.maxSupersede ?? 40)));
+  const now = nowIso();
+  const groups = new Map<string, CompanionMemoryVector[]>();
+  for (const item of store.items) {
+    if (item.status !== 'pending') continue;
+    const conflict = extractConflictKey(item.text);
+    if (!item.conflictKey || conflict.polarity === 'neutral') continue;
+    const key = `${item.domain}|${item.conflictKey}|${conflict.polarity}`;
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
+  }
+
+  let merged = 0;
+  const winners: string[] = [];
+  for (const [, group] of groups.entries()) {
+    if (group.length <= 1) continue;
+    const sorted = [...group].sort((a, b) => {
+      if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+      return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+    });
+    const winner = sorted[0];
+    if (!winner) continue;
+    winners.push(winner.id);
+    for (const item of sorted.slice(1)) {
+      if (merged >= maxSupersede) break;
+      item.status = 'superseded';
+      item.supersededBy = winner.id;
+      item.updatedAt = now;
+      merged += 1;
+    }
+    if (merged >= maxSupersede) break;
+  }
+  if (merged > 0) writeStore(projectDir, store);
+  return { merged, winners };
+}
+
 export function confirmCompanionMemoryVector(
   projectDir: string,
   input: {

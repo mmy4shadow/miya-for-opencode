@@ -1,5 +1,13 @@
 import { getSessionState, setSessionState } from '../workflow';
 import { attachCommandSteps, createAutopilotPlan } from './planner';
+import {
+  createPlanBundleV1,
+  markPlanBundleExecution,
+  markPlanBundleFinalized,
+  markPlanBundleRollback,
+  markPlanBundleRunning,
+  markPlanBundleVerification,
+} from './plan-bundle';
 import type {
   AutopilotCommandResult,
   AutopilotRunInput,
@@ -64,6 +72,27 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
     input.commands,
     input.verificationCommand,
   );
+  const bundle = createPlanBundleV1({
+    goal: input.goal,
+    plan,
+    runInput: input,
+  });
+  if (bundle.approval.required && !bundle.approval.approved) {
+    const summary = 'Execution blocked: approval required before run.';
+    markPlanBundleFinalized(bundle, {
+      success: false,
+      summary,
+    });
+    return {
+      success: false,
+      summary,
+      planBundle: bundle,
+      plan,
+      execution: [],
+      auditLedger: bundle.audit,
+    };
+  }
+  markPlanBundleRunning(bundle);
   const execution: AutopilotCommandResult[] = [];
 
   for (const command of input.commands) {
@@ -71,12 +100,35 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
     if (!cmd) continue;
     const result = runCommand(cmd, input.timeoutMs, input.workingDirectory);
     execution.push(result);
+    markPlanBundleExecution(bundle, result);
     if (!result.ok) {
+      const rollbackCommand = input.rollbackCommand?.trim();
+      let rollbackResult: AutopilotCommandResult | undefined;
+      if (rollbackCommand) {
+        rollbackResult = runCommand(rollbackCommand, input.timeoutMs, input.workingDirectory);
+      }
+      markPlanBundleRollback(
+        bundle,
+        rollbackResult,
+        `execution_failed:${cmd}:exit=${result.exitCode}`,
+      );
+      const summary = rollbackResult
+        ? rollbackResult.ok
+          ? `Execution failed and rollback completed: ${cmd} (exit=${result.exitCode}).`
+          : `Execution failed and rollback failed: ${cmd} (exit=${result.exitCode}).`
+        : `Execution failed: ${cmd} (exit=${result.exitCode}).`;
+      markPlanBundleFinalized(bundle, {
+        success: false,
+        summary,
+      });
       return {
         success: false,
-        summary: `Execution failed: ${cmd} (exit=${result.exitCode}).`,
+        summary,
+        planBundle: bundle,
         plan,
         execution,
+        rollback: rollbackResult,
+        auditLedger: bundle.audit,
       };
     }
   }
@@ -87,21 +139,60 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
       input.timeoutMs,
       input.workingDirectory,
     );
+    markPlanBundleVerification(bundle, verification);
+    if (!verification.ok && input.rollbackCommand?.trim()) {
+      const rollback = runCommand(
+        input.rollbackCommand.trim(),
+        input.timeoutMs,
+        input.workingDirectory,
+      );
+      markPlanBundleRollback(bundle, rollback, `verification_failed:exit=${verification.exitCode}`);
+      const summary = rollback.ok
+        ? `Verification failed (exit=${verification.exitCode}); rollback completed.`
+        : `Verification failed (exit=${verification.exitCode}); rollback failed.`;
+      markPlanBundleFinalized(bundle, {
+        success: false,
+        summary,
+      });
+      return {
+        success: false,
+        summary,
+        planBundle: bundle,
+        plan,
+        execution,
+        verification,
+        rollback,
+        auditLedger: bundle.audit,
+      };
+    }
+    const summary = verification.ok
+      ? 'Execution and verification completed successfully.'
+      : `Verification failed (exit=${verification.exitCode}).`;
+    markPlanBundleFinalized(bundle, {
+      success: verification.ok,
+      summary,
+    });
     return {
       success: verification.ok,
-      summary: verification.ok
-        ? 'Execution and verification completed successfully.'
-        : `Verification failed (exit=${verification.exitCode}).`,
+      summary,
+      planBundle: bundle,
       plan,
       execution,
       verification,
+      auditLedger: bundle.audit,
     };
   }
 
+  markPlanBundleFinalized(bundle, {
+    success: true,
+    summary: 'Execution completed without explicit verification command.',
+  });
   return {
     success: true,
     summary: 'Execution completed without explicit verification command.',
+    planBundle: bundle,
     plan,
     execution,
+    auditLedger: bundle.audit,
   };
 }

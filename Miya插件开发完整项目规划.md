@@ -18,6 +18,18 @@
 
 本补丁为本规划的“解释优先层”。若后续章节存在历史口径冲突，以本补丁为准，原文保留仅用于追溯演进背景。
 
+## 2026-02-16 实装状态同步（对齐源码）
+
+- `P0` PlanBundle v1 事务对象：已落地（`miya-src/src/autopilot/plan-bundle.ts`、`miya-src/src/autopilot/executor.ts`、`miya-src/src/gateway/protocol.ts`）。
+- `P0` 网关按域拆分：已启动并接入运行（`miya-src/src/gateway/methods/core.ts` + `miya-src/src/gateway/kernel/action-ledger.ts`，`gateway/index.ts` 改为组合式注册）。
+- `P0` 路由双层升级（规则+学习）：已落地（`miya-src/src/router/learner.ts`、`miya-src/src/router/runtime.ts`、`miya-src/src/tools/router.ts`），学习权重支持成功率/成本/风险。
+- `P0` 执行审计账本化：已落地（`miya-src/src/gateway/kernel/action-ledger.ts`，在 `invokeGatewayMethod` 全量落盘不可变事件，含输入摘要/审批依据/结果哈希/replay token）。
+- `P1` 记忆“向量+事实图谱”：已落地（`miya-src/src/companion/memory-graph.ts` + 网关图谱检索方法）。
+- `P1` 后台睡眠反思 worker：已落地（`miya-src/src/companion/memory-reflect-worker.ts`），支持异步队列、写入预算、冲突合并。
+- `P1` 技能供应链治理：已落地（`miya-src/src/skills/governance.ts` + `miya-src/src/skills/sync.ts`），支持版本锁、签名校验、兼容矩阵、smoke 验证。
+- `P1` Persona/WorldInfo 层：已落地（`miya-src/src/companion/persona-world.ts`），并接入会话绑定与安全提示链路。
+- `P2` 策略实验框架：已落地（`miya-src/src/strategy/experiments.ts`），支持 A/B 分流与离线回放汇总，已接入路由/记忆写入/审批阈值观测。
+
 ### 1. 基础架构方向性修正与闭环
 
 1. **核心定位升级（强制）**  
@@ -2427,3 +2439,4 @@ Miya插件已经具备了坚实的架构基础：
 6.https://github.com/MemTensor/MemOS.git
 我的源码地址：https://github.com/mmy4shadow/miya-for-opencode.git
 
+对比miya和https://github.com/opensouls/opensouls.git，https://github.com/letta-ai/letta.git，https://github.com/OpenHands/OpenHands.git，https://github.com/Open-LLM-VTuber/Open-LLM-VTuber.git，https://github.com/mem0ai/mem0.git，https://github.com/SillyTavern/SillyTavern.git，https://github.com/openclaw/openclaw.git，https://github.com/Yeachan-Heo/oh-my-claudecode.git，https://github.com/SumeLabs/clawra.git，https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git，https://github.com/code-yeongyu/oh-my-opencode.git，https://github.com/MemTensor/MemOS.git。仔细阅读规划和源码，先理解设计意图，在现有基础上miya还能怎么优化，给出优化方案

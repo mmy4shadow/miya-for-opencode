@@ -3,7 +3,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import { createSkillDraftsFromReflect } from '../learning';
-import { upsertCompanionMemoryVector, type CompanionMemoryVector } from './memory-vector';
+import {
+  mergePendingMemoryConflicts,
+  upsertCompanionMemoryVector,
+  type CompanionMemoryVector,
+} from './memory-vector';
 
 export interface MemoryShortTermLog {
   id: string;
@@ -245,6 +249,8 @@ export function reflectCompanionMemory(
     force?: boolean;
     minLogs?: number;
     maxLogs?: number;
+    maxWrites?: number;
+    mergeConflicts?: boolean;
     idempotencyKey?: string;
     cooldownMinutes?: number;
   },
@@ -295,10 +301,14 @@ export function reflectCompanionMemory(
   const maxLogs = Math.max(1, input?.maxLogs ?? 50);
   const picked = pending.slice(0, maxLogs);
   const triplets = picked.flatMap((row) => extractTriplets(row));
+  const maxWritesCandidate =
+    typeof input?.maxWrites === 'number' ? input.maxWrites : triplets.length;
+  const maxWrites = Math.max(1, maxWritesCandidate);
+  const writableTriplets = triplets.slice(0, maxWrites);
   const generatedFacts = triplets.filter((item) => item.kind === 'Fact').length;
   const generatedInsights = triplets.filter((item) => item.kind === 'Insight').length;
   const generatedPreferences = triplets.filter((item) => item.kind === 'UserPreference').length;
-  const createdMemories = triplets.map((triplet) =>
+  const createdMemories = writableTriplets.map((triplet) =>
     upsertCompanionMemoryVector(projectDir, {
       text: tripletText(triplet),
       source: 'reflect',
@@ -310,6 +320,11 @@ export function reflectCompanionMemory(
       memoryKind: triplet.kind,
     }),
   );
+  if (input?.mergeConflicts !== false) {
+    mergePendingMemoryConflicts(projectDir, {
+      maxSupersede: Math.max(1, Math.min(80, Math.floor(maxWrites / 2) || 1)),
+    });
+  }
 
   const processedAt = nowIso();
   const pickedIdSet = new Set(picked.map((row) => row.id));

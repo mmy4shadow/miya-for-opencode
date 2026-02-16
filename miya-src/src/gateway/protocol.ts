@@ -14,6 +14,73 @@ const JsonValue: z.ZodType<unknown> = z.lazy(() =>
 
 const JsonObject = z.record(z.string(), JsonValue);
 
+export const PlanBundleAuditEventSchema = z.object({
+  id: z.string().min(1),
+  at: z.string().min(1),
+  stage: z.enum(['plan', 'approval', 'execution', 'rollback', 'audit', 'finalize']),
+  action: z.string().min(1),
+  inputSummary: z.string().min(1),
+  inputHash: z.string().min(16),
+  approvalBasis: z.string().min(1),
+  resultHash: z.string().min(16),
+  replayToken: z.string().min(16),
+});
+
+export const PlanBundleApprovalSchema = z.object({
+  required: z.boolean(),
+  approved: z.boolean(),
+  approver: z.string().optional(),
+  reason: z.string().optional(),
+  policyHash: z.string().optional(),
+  requestedAt: z.string().optional(),
+  approvedAt: z.string().optional(),
+});
+
+export const PlanBundleRollbackSchema = z.object({
+  command: z.string().optional(),
+  attempted: z.boolean(),
+  ok: z.boolean().optional(),
+  exitCode: z.number().int().optional(),
+  result: JsonObject.optional(),
+  reason: z.string().optional(),
+});
+
+export const PlanBundleSchema = z.object({
+  id: z.string().min(1),
+  version: z.literal('1.0'),
+  goal: z.string().min(1),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  status: z.enum([
+    'draft',
+    'pending_approval',
+    'approved',
+    'running',
+    'completed',
+    'failed',
+    'rolled_back',
+  ]),
+  plan: z.object({
+    goal: z.string().min(1),
+    createdAt: z.string().min(1),
+    steps: z.array(
+      z.object({
+        id: z.string().min(1),
+        title: z.string().min(1),
+        kind: z.enum(['analysis', 'execution', 'verification']),
+        command: z.string().optional(),
+        done: z.boolean(),
+        note: z.string().optional(),
+      }),
+    ),
+  }),
+  approval: PlanBundleApprovalSchema,
+  execution: z.array(JsonObject),
+  verification: JsonObject.optional(),
+  rollback: PlanBundleRollbackSchema,
+  audit: z.array(PlanBundleAuditEventSchema),
+});
+
 export const HelloFrameSchema = z.object({
   type: z.literal('hello'),
   role: z.enum(['ui', 'admin', 'node', 'channel', 'unknown']).default('unknown'),
@@ -79,6 +146,10 @@ export type ResponseFrame = z.infer<typeof ResponseFrameSchema>;
 export type EventFrame = z.infer<typeof EventFrameSchema>;
 export type PingFrame = z.infer<typeof PingFrameSchema>;
 export type PongFrame = z.infer<typeof PongFrameSchema>;
+export type PlanBundleAuditEventFrame = z.infer<typeof PlanBundleAuditEventSchema>;
+export type PlanBundleApprovalFrame = z.infer<typeof PlanBundleApprovalSchema>;
+export type PlanBundleRollbackFrame = z.infer<typeof PlanBundleRollbackSchema>;
+export type PlanBundleFrame = z.infer<typeof PlanBundleSchema>;
 
 export const GatewayIncomingFrameSchema = z.union([HelloFrameSchema, RequestFrameSchema, PingFrameSchema]);
 export const GatewayOutgoingFrameSchema = z.union([ResponseFrameSchema, EventFrameSchema, PongFrameSchema]);

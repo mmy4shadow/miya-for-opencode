@@ -68,7 +68,6 @@ import {
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
 import {
-  getLauncherBackpressureStats,
   getLauncherDaemonSnapshot,
   getMiyaClient,
   subscribeLauncherEvents,
@@ -116,6 +115,15 @@ import {
   syncCompanionProfileMemoryFacts,
 } from '../companion/store';
 import {
+  bindSessionPersonaWorld,
+  buildPersonaWorldPrompt,
+  listPersonaPresets,
+  listWorldPresets,
+  resolveSessionPersonaWorld,
+  upsertPersonaPreset,
+  upsertWorldPreset,
+} from '../companion/persona-world';
+import {
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
   getCompanionMemoryVector,
@@ -128,12 +136,20 @@ import {
 } from '../companion/memory-vector';
 import { getCompanionMemorySqliteStats } from '../companion/memory-sqlite';
 import {
+  getCompanionMemoryGraphStats,
+  listCompanionMemoryGraphNeighbors,
+  searchCompanionMemoryGraph,
+} from '../companion/memory-graph';
+import {
   appendShortTermMemoryLog,
   getMemoryReflectStatus,
-  maybeAutoReflectCompanionMemory,
-  maybeReflectOnSessionEnd,
-  reflectCompanionMemory,
 } from '../companion/memory-reflect';
+import {
+  enqueueReflectWorkerJob,
+  listReflectWorkerJobs,
+  runReflectWorkerTick,
+  scheduleAutoReflectJob,
+} from '../companion/memory-reflect-worker';
 import {
   cancelCompanionWizardTraining,
   getCompanionProfileCurrentDir,
@@ -178,6 +194,7 @@ import {
   listEcosystemBridge,
   pullSourcePack,
   rollbackSourcePack,
+  verifySourcePackGovernance,
 } from '../skills/sync';
 import { buildMcpServiceManifest, createBuiltinMcps } from '../mcp';
 import { log } from '../utils/logger';
@@ -188,6 +205,7 @@ import {
   listSkillDrafts,
   setSkillDraftStatus,
 } from '../learning';
+import { recordStrategyObservation, replayStrategyOffline, readStrategyExperimentConfig, resolveStrategyVariant, writeStrategyExperimentConfig } from '../strategy';
 import {
   readAutoflowPersistentConfig,
   getAutoflowPersistentRuntimeSnapshot,
@@ -214,6 +232,11 @@ import {
   recordModeObservability,
 } from './mode-observability';
 import { appendTurnEvidencePack } from './turn-evidence';
+import {
+  appendToolActionLedgerEvent,
+  listToolActionLedgerEvents,
+} from './kernel/action-ledger';
+import { registerGatewayCoreMethods } from './methods/core';
 import {
   GATEWAY_PROTOCOL_VERSION,
   LEGACY_GATEWAY_PROTOCOL_VERSION,
@@ -1077,9 +1100,18 @@ export function stopGateway(projectDir: string): {
   const runtime = runtimes.get(projectDir);
   if (!runtime) return { stopped: false };
 
-  maybeReflectOnSessionEnd(projectDir, {
-    minPendingLogs: 50,
+  enqueueReflectWorkerJob(projectDir, {
+    reason: 'session_end',
+    force: true,
+    minLogs: 50,
     maxLogs: 200,
+    maxWrites: 60,
+    cooldownMinutes: 0,
+  });
+  runReflectWorkerTick(projectDir, {
+    maxJobs: 2,
+    writeBudget: 60,
+    mergeBudget: 60,
   });
 
   const previous = toGatewayState(projectDir, runtime);
@@ -1301,10 +1333,13 @@ function shouldGuardMethod(method: string): boolean {
 const UI_ALLOWED_METHODS = new Set<string>([
   'gateway.status.get',
   'gateway.backpressure.stats',
+  'audit.ledger.list',
   'daemon.backpressure.stats',
   'doctor.run',
   'config.center.get',
   'provider.override.audit.list',
+  'strategy.experiments.get',
+  'strategy.experiments.replay',
   'sessions.list',
   'sessions.get',
   'cron.list',
@@ -1331,6 +1366,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'skills.status',
   'miya.sync.list',
   'miya.sync.diff',
+  'miya.sync.verify',
   'mcp.capabilities.list',
   'openclaw.status.get',
   'openclaw.skills.list',
@@ -1344,6 +1380,9 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'canvas.list',
   'canvas.get',
   'companion.status',
+  'companion.persona.presets.list',
+  'companion.world.presets.list',
+  'companion.session.persona_world.get',
   'companion.wizard.status',
   'companion.memory.list',
   'companion.memory.pending.list',
@@ -1351,6 +1390,10 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'companion.memory.search',
   'companion.memory.vector.list',
   'miya.memory.sqlite.stats',
+  'miya.memory.graph.stats',
+  'miya.memory.graph.search',
+  'miya.memory.graph.neighbors',
+  'miya.memory.reflect.queue.list',
   'daemon.vram.budget',
   'autoflow.status.get',
   'routing.stats.get',
@@ -1424,7 +1467,52 @@ async function invokeGatewayMethod(
       }
     }
   }
-  return runtime.methods.invoke(method, params, context);
+  try {
+    const result = await runtime.methods.invoke(method, params, context);
+    appendToolActionLedgerEvent(projectDir, {
+      method,
+      clientID: context.clientID,
+      role: context.role,
+      params,
+      status: 'completed',
+      result,
+    });
+    recordStrategyObservation(projectDir, {
+      experiment: 'approval_threshold',
+      variant: resolveStrategyVariant(projectDir, 'approval_threshold', context.clientID),
+      subjectID: context.clientID,
+      success: true,
+      riskScore: 0.12,
+      metadata: {
+        method,
+        role: context.role,
+      },
+    });
+    return result;
+  } catch (error) {
+    appendToolActionLedgerEvent(projectDir, {
+      method,
+      clientID: context.clientID,
+      role: context.role,
+      params,
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    const message = error instanceof Error ? error.message : String(error);
+    recordStrategyObservation(projectDir, {
+      experiment: 'approval_threshold',
+      variant: resolveStrategyVariant(projectDir, 'approval_threshold', context.clientID),
+      subjectID: context.clientID,
+      success: false,
+      riskScore: /approval_required|forbidden|policy_|kill_switch/i.test(message) ? 0.9 : 0.6,
+      metadata: {
+        method,
+        role: context.role,
+        error: message,
+      },
+    });
+    throw error;
+  }
 }
 
 interface GatewayDependencyRecommendation {
@@ -2990,6 +3078,8 @@ async function routeSessionMessage(
     );
   }
   const memoryContext = memoryBlocks.join('\n\n');
+  const personaWorld = resolveSessionPersonaWorld(projectDir, input.sessionID);
+  const personaWorldPrompt = buildPersonaWorldPrompt(projectDir, input.sessionID);
 
   const learning = arbiter.executeWork
     ? buildLearningInjection(projectDir, effectiveSafeText, {
@@ -3014,6 +3104,10 @@ async function routeSessionMessage(
 
   const enrichedText = [
     turnMeta,
+    personaWorldPrompt,
+    personaWorld.risk === 'high'
+      ? '[MIYA_PERSONA_WORLD_SAFETY] 当前会话风险较高，所有外发/执行动作必须先显式确认。'
+      : '',
     memoryContext,
     learning.snippet,
     effectiveSafeText,
@@ -3913,162 +4007,20 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return result.result;
   };
 
-  methods.register('gateway.status.get', async () => buildSnapshot(projectDir, runtime));
-  methods.register('autoflow.status.get', async (params) => {
-    const limit = typeof params.limit === 'number' ? Number(params.limit) : 30;
-    const sessions = listAutoflowSessions(projectDir, Math.max(1, Math.min(200, limit)));
-    const persistentConfig = readAutoflowPersistentConfig(projectDir);
-    const persistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, Math.max(1, Math.min(200, limit)));
-    return {
-      active: sessions.filter((item) =>
-        item.phase === 'planning' ||
-        item.phase === 'execution' ||
-        item.phase === 'verification' ||
-        item.phase === 'fixing',
-      ).length,
-      sessions,
-      persistent: {
-        ...persistentConfig,
-        sessions: persistentSessions,
-      },
-    };
-  });
-  methods.register('routing.stats.get', async (params) => {
-    const limit = typeof params.limit === 'number' ? Number(params.limit) : 200;
-    const mode = readRouterModeConfig(projectDir);
-    return {
-      mode,
-      cost: getRouteCostSummary(projectDir, Math.max(1, Math.min(1000, limit))),
-      recent: listRouteCostRecords(projectDir, Math.max(1, Math.min(100, limit))),
-      modeObservability: readModeObservability(projectDir),
-    };
-  });
-  methods.register('learning.drafts.stats', async () => ({
-    stats: getLearningStats(projectDir),
-  }));
-  methods.register('learning.drafts.list', async (params) => {
-    const limit = typeof params.limit === 'number' ? Number(params.limit) : 30;
-    const statusRaw = parseText(params.status);
-    const status =
-      statusRaw === 'draft' ||
-      statusRaw === 'recommended' ||
-      statusRaw === 'accepted' ||
-      statusRaw === 'rejected'
-        ? statusRaw
-        : undefined;
-    return {
-      drafts: listSkillDrafts(projectDir, {
-        limit: Math.max(1, Math.min(200, limit)),
-        status,
-      }),
-    };
-  });
-  methods.register('learning.drafts.recommend', async (params) => {
-    const query = parseText(params.query);
-    if (!query) throw new Error('query_required');
-    const threshold =
-      typeof params.threshold === 'number' ? Number(params.threshold) : undefined;
-    const limit = typeof params.limit === 'number' ? Number(params.limit) : undefined;
-    return buildLearningInjection(projectDir, query, {
-      threshold,
-      limit,
-    });
-  });
-  methods.register('gateway.shutdown', async () => {
-    const state = syncGatewayState(projectDir, runtime);
-    setTimeout(() => {
-      stopGateway(projectDir);
-    }, 20);
-    return { ok: true, state };
-  });
-  methods.register('doctor.run', async () => buildSnapshot(projectDir, runtime).doctor);
-  methods.register('gateway.backpressure.stats', async () => ({
-    ...runtime.methods.stats(),
-    updatedAt: nowIso(),
-  }));
-  methods.register('daemon.backpressure.stats', async () => ({
-    ...getLauncherBackpressureStats(projectDir),
-    updatedAt: nowIso(),
-  }));
-  methods.register('gateway.pressure.run', async (params) => {
-    const concurrencyRaw =
-      typeof params.concurrency === 'number' ? Number(params.concurrency) : 10;
-    const roundsRaw = typeof params.rounds === 'number' ? Number(params.rounds) : 1;
-    const timeoutMs = typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : 20_000;
-    const concurrency = Math.max(1, Math.min(100, Math.floor(concurrencyRaw)));
-    const rounds = Math.max(1, Math.min(20, Math.floor(roundsRaw)));
-    const daemon = getMiyaClient(projectDir);
-    const startedAtMs = Date.now();
-    let success = 0;
-    let failed = 0;
-    const errors: string[] = [];
-    for (let round = 0; round < rounds; round += 1) {
-      const tasks = Array.from({ length: concurrency }, async (_, index) => {
-        try {
-          await daemon.runIsolatedProcess({
-            kind: 'generic',
-            command: process.platform === 'win32' ? 'cmd' : 'sh',
-            args:
-              process.platform === 'win32'
-                ? ['/c', 'echo', `miya-pressure-${round}-${index}`]
-                : ['-lc', `echo miya-pressure-${round}-${index}`],
-            timeoutMs: Math.max(1_000, timeoutMs),
-          });
-          success += 1;
-        } catch (error) {
-          failed += 1;
-          errors.push(error instanceof Error ? error.message : String(error));
-        }
-      });
-      await Promise.all(tasks);
-    }
-    return {
-      success,
-      failed,
-      elapsedMs: Date.now() - startedAtMs,
-      gateway: runtime.methods.stats(),
-      daemon: getLauncherBackpressureStats(projectDir),
-      errors: errors.slice(0, 20),
-    };
-  });
-  methods.register('gateway.startup.probe.run', async (params) => {
-    const roundsRaw = typeof params.rounds === 'number' ? Number(params.rounds) : 20;
-    const rounds = Math.max(1, Math.min(100, Math.floor(roundsRaw)));
-    const waitMsRaw = typeof params.waitMs === 'number' ? Number(params.waitMs) : 250;
-    const waitMs = Math.max(50, Math.min(5_000, Math.floor(waitMsRaw)));
-    const state = ensureGatewayRunning(projectDir);
-    let healthy = 0;
-    let daemonReady = 0;
-    const samples: Array<{
-      index: number;
-      gatewayAlive: boolean;
-      daemonConnected: boolean;
-      daemonStatus: string;
-    }> = [];
-    for (let index = 0; index < rounds; index += 1) {
-      const gatewayAlive = await probeGatewayAlive(state.url, 1_200);
-      const daemonSnapshot = getLauncherDaemonSnapshot(projectDir);
-      const daemonConnected = Boolean(daemonSnapshot.connected);
-      if (gatewayAlive) healthy += 1;
-      if (daemonConnected) daemonReady += 1;
-      samples.push({
-        index: index + 1,
-        gatewayAlive,
-        daemonConnected,
-        daemonStatus: daemonSnapshot.statusText,
-      });
-      if (index < rounds - 1) {
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
-      }
-    }
-    return {
-      rounds,
-      gatewayHealthy: healthy,
-      daemonConnected: daemonReady,
-      gatewaySuccessRate: Number(((healthy / rounds) * 100).toFixed(2)),
-      daemonSuccessRate: Number(((daemonReady / rounds) * 100).toFixed(2)),
-      samples,
-    };
+  registerGatewayCoreMethods(methods, {
+    projectDir,
+    runtime,
+    now: nowIso,
+    buildSnapshot: () => buildSnapshot(projectDir, runtime),
+    buildGatewayState: () => syncGatewayState(projectDir, runtime),
+    scheduleGatewayStop: () => {
+      setTimeout(() => {
+        stopGateway(projectDir);
+      }, 20);
+    },
+    ensureGatewayRunning: () => ensureGatewayRunning(projectDir),
+    probeGatewayAlive: (url, timeoutMs) => probeGatewayAlive(url, timeoutMs),
+    listActionLedger: (limit) => listToolActionLedgerEvents(projectDir, limit),
   });
   methods.register('config.center.get', async () => readConfig(projectDir));
   methods.register('provider.override.audit.list', async (params) => {
@@ -4089,6 +4041,36 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       updatedConfig: applied.updatedConfig,
       changedKeys: applied.applied.map((item) => item.key),
     };
+  });
+  methods.register('strategy.experiments.get', async () =>
+    readStrategyExperimentConfig(projectDir),
+  );
+  methods.register('strategy.experiments.set', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const parseRule = (key: string) => {
+      const raw = params[key];
+      if (!raw || typeof raw !== 'object') return undefined;
+      const obj = raw as Record<string, unknown>;
+      return {
+        enabled: obj.enabled === true,
+        rolloutPercent:
+          typeof obj.rolloutPercent === 'number' ? Number(obj.rolloutPercent) : 0,
+      };
+    };
+    return writeStrategyExperimentConfig(projectDir, {
+      routing: parseRule('routing'),
+      memory_write: parseRule('memory_write'),
+      approval_threshold: parseRule('approval_threshold'),
+    });
+  });
+  methods.register('strategy.experiments.replay', async (params) => {
+    const limit =
+      typeof params.limit === 'number' && params.limit > 0
+        ? Math.min(20_000, Number(params.limit))
+        : 5000;
+    return replayStrategyOffline(projectDir, { limit });
   });
 
   methods.register('sessions.list', async () => listSessions(projectDir));
@@ -5237,6 +5219,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
     return rollbackSourcePack(projectDir, sourcePackID);
   });
+  methods.register('miya.sync.verify', async (params) => {
+    const sourcePackID = parseText(params.sourcePackID);
+    if (!sourcePackID) throw new Error('invalid_source_pack_id');
+    return verifySourcePackGovernance(projectDir, sourcePackID);
+  });
   methods.register('mcp.capabilities.list', async (params) => {
     const disabled = Array.isArray(params.disabledMcps)
       ? params.disabledMcps.map(String)
@@ -5628,6 +5615,82 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
 
   methods.register('companion.status', async () => readCompanionProfile(projectDir));
+  methods.register('companion.persona.presets.list', async () => {
+    requireOwnerMode(projectDir);
+    return listPersonaPresets(projectDir);
+  });
+  methods.register('companion.world.presets.list', async () => {
+    requireOwnerMode(projectDir);
+    return listWorldPresets(projectDir);
+  });
+  methods.register('companion.persona.preset.upsert', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const name = parseText(params.name);
+    const persona = parseText(params.persona);
+    const style = parseText(params.style);
+    const relationship = parseText(params.relationship);
+    if (!name || !persona || !style || !relationship) {
+      throw new Error('invalid_persona_preset_payload');
+    }
+    const riskRaw = parseText(params.risk);
+    const risk = riskRaw === 'high' || riskRaw === 'medium' || riskRaw === 'low' ? riskRaw : 'low';
+    return upsertPersonaPreset(projectDir, {
+      id: parseText(params.id) || undefined,
+      name,
+      persona,
+      style,
+      relationship,
+      risk,
+    });
+  });
+  methods.register('companion.world.preset.upsert', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const name = parseText(params.name);
+    const summary = parseText(params.summary);
+    if (!name || !summary) throw new Error('invalid_world_preset_payload');
+    const riskRaw = parseText(params.risk);
+    const risk = riskRaw === 'high' || riskRaw === 'medium' || riskRaw === 'low' ? riskRaw : 'low';
+    return upsertWorldPreset(projectDir, {
+      id: parseText(params.id) || undefined,
+      name,
+      summary,
+      rules: Array.isArray(params.rules) ? params.rules.map(String) : [],
+      tags: Array.isArray(params.tags) ? params.tags.map(String) : [],
+      risk,
+    });
+  });
+  methods.register('companion.session.persona_world.bind', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const sessionID = parseText(params.sessionID) || 'main';
+    const binding = bindSessionPersonaWorld(projectDir, {
+      sessionID,
+      personaPresetID: parseText(params.personaPresetID) || undefined,
+      worldPresetID: parseText(params.worldPresetID) || undefined,
+    });
+    const resolved = resolveSessionPersonaWorld(projectDir, sessionID);
+    return {
+      binding,
+      resolved,
+      safetyHint:
+        resolved.risk === 'high'
+          ? 'high_risk_persona_world_requires_explicit_approval_for_outbound_execution'
+          : 'normal',
+    };
+  });
+  methods.register('companion.session.persona_world.get', async (params) => {
+    requireOwnerMode(projectDir);
+    const sessionID = parseText(params.sessionID) || 'main';
+    return resolveSessionPersonaWorld(projectDir, sessionID);
+  });
   methods.register('companion.wizard.start', async (params) => {
     const sessionId = parseText(params.sessionID) || 'wizard:companion';
     const session = upsertSession(projectDir, {
@@ -5960,12 +6023,27 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           .map((item) => parseMemoryDomain(item))
           .filter((item): item is 'work' | 'relationship' => Boolean(item))
       : undefined;
-    return searchCompanionMemoryVectors(projectDir, query, limit, {
+    const vectorHits = searchCompanionMemoryVectors(projectDir, query, limit, {
       threshold,
       recencyHalfLifeDays,
       domain,
       domains,
     });
+    const includeGraph = typeof params.includeGraph === 'boolean' ? params.includeGraph : false;
+    if (!includeGraph) return vectorHits;
+    const graphLimit =
+      typeof params.graphLimit === 'number' && params.graphLimit > 0
+        ? Math.min(30, Number(params.graphLimit))
+        : Math.max(3, Math.min(12, limit));
+    return {
+      vectorHits,
+      graphHits: searchCompanionMemoryGraph(projectDir, query, graphLimit, {
+        minConfidence:
+          typeof params.minGraphConfidence === 'number'
+            ? Number(params.minGraphConfidence)
+            : 0,
+      }),
+    };
   });
   methods.register('companion.memory.decay', async (params) => {
     requireOwnerMode(projectDir);
@@ -5985,6 +6063,34 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('miya.memory.sqlite.stats', async () => {
     requireOwnerMode(projectDir);
     return getCompanionMemorySqliteStats(projectDir);
+  });
+  methods.register('miya.memory.graph.stats', async () => {
+    requireOwnerMode(projectDir);
+    return getCompanionMemoryGraphStats(projectDir);
+  });
+  methods.register('miya.memory.graph.search', async (params) => {
+    requireOwnerMode(projectDir);
+    const query = parseText(params.query);
+    if (!query) throw new Error('invalid_memory_query');
+    const limit =
+      typeof params.limit === 'number' && params.limit > 0
+        ? Math.min(30, Number(params.limit))
+        : 8;
+    const minConfidence =
+      typeof params.minConfidence === 'number' ? Number(params.minConfidence) : undefined;
+    return searchCompanionMemoryGraph(projectDir, query, limit, {
+      minConfidence,
+    });
+  });
+  methods.register('miya.memory.graph.neighbors', async (params) => {
+    requireOwnerMode(projectDir);
+    const entity = parseText(params.entity);
+    if (!entity) throw new Error('invalid_memory_entity');
+    const limit =
+      typeof params.limit === 'number' && params.limit > 0
+        ? Math.min(50, Number(params.limit))
+        : 12;
+    return listCompanionMemoryGraphNeighbors(projectDir, entity, limit);
   });
   methods.register('miya.memory.log.append', async (params) => {
     requireOwnerMode(projectDir);
@@ -6028,23 +6134,46 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       typeof params.cooldownMinutes === 'number' && params.cooldownMinutes >= 0
         ? Number(params.cooldownMinutes)
         : 0;
-    const idempotencyKey = parseText(params.idempotencyKey) || undefined;
-    const result = reflectCompanionMemory(projectDir, {
+    const maxWrites =
+      typeof params.maxWrites === 'number' && params.maxWrites > 0
+        ? Number(params.maxWrites)
+        : 40;
+    const queued = enqueueReflectWorkerJob(projectDir, {
+      reason: 'manual',
       force,
       minLogs,
       maxLogs,
+      maxWrites,
       cooldownMinutes,
-      idempotencyKey,
     });
+    const tick = runReflectWorkerTick(projectDir, {
+      maxJobs: 1,
+      writeBudget: maxWrites,
+      mergeBudget: Math.max(1, Math.floor(maxWrites / 2)),
+    });
+    const latestJob = listReflectWorkerJobs(projectDir, 5).find((job) => job.id === queued.id);
     const profile = syncCompanionProfileMemoryFacts(projectDir);
     return {
-      ...result,
+      queuedJob: latestJob ?? queued,
+      workerTick: tick,
+      status: getMemoryReflectStatus(projectDir),
       learningGate: {
         stage: 'candidate',
         approvalMode: runtime.nexus.learningGate.candidateMode,
         interruptsUser: false,
       },
       profile,
+    };
+  });
+  methods.register('miya.memory.reflect.queue.list', async (params) => {
+    requireOwnerMode(projectDir);
+    const limit =
+      typeof params.limit === 'number' && params.limit > 0
+        ? Math.min(200, Number(params.limit))
+        : 30;
+    return {
+      status: getMemoryReflectStatus(projectDir),
+      jobs: listReflectWorkerJobs(projectDir, limit),
     };
   });
   methods.register('companion.asset.add', async (params) => {
@@ -6854,16 +6983,20 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     touchOwnerLock(projectDir);
   }, 5_000);
   runtime.memoryReflectTimer = setInterval(() => {
-    // MemoryWorker: consolidate short-term logs after idle periods.
-    const reflected = maybeAutoReflectCompanionMemory(projectDir, {
+    // MemoryWorker v2: queue idle jobs, then process with write/conflict budgets.
+    scheduleAutoReflectJob(projectDir, {
       idleMinutes: 5,
       minPendingLogs: 1,
       cooldownMinutes: 3,
       maxLogs: 120,
+      maxWrites: 40,
     });
-    if (reflected) {
-      syncCompanionProfileMemoryFacts(projectDir);
-    }
+    const tick = runReflectWorkerTick(projectDir, {
+      maxJobs: 1,
+      writeBudget: 40,
+      mergeBudget: 40,
+    });
+    if (tick.completed > 0) syncCompanionProfileMemoryFacts(projectDir);
   }, 20_000);
   runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
     appendDaemonProgressAudit(projectDir, event);

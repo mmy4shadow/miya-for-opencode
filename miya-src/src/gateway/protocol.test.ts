@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   GATEWAY_PROTOCOL_VERSION,
   LEGACY_GATEWAY_PROTOCOL_VERSION,
+  PlanBundleSchema,
   SUPPORTED_GATEWAY_PROTOCOL_VERSIONS,
   GatewayMethodRegistry,
   parseIncomingFrame,
@@ -269,5 +270,58 @@ describe('gateway protocol', () => {
         revision: 3,
       },
     });
+  });
+
+  test('validates plan bundle v1 payload', () => {
+    const bundle = PlanBundleSchema.parse({
+      id: 'pb_1',
+      version: '1.0',
+      goal: 'run tests',
+      createdAt: '2026-02-16T00:00:00.000Z',
+      updatedAt: '2026-02-16T00:00:00.000Z',
+      status: 'completed',
+      plan: {
+        goal: 'run tests',
+        createdAt: '2026-02-16T00:00:00.000Z',
+        steps: [
+          {
+            id: 'exec_1',
+            title: 'Execute command #1',
+            kind: 'execution',
+            command: 'bun test',
+            done: true,
+          },
+        ],
+      },
+      approval: {
+        required: false,
+        approved: true,
+      },
+      execution: [
+        {
+          command: 'bun test',
+          ok: true,
+          exitCode: 0,
+        },
+      ],
+      rollback: {
+        attempted: false,
+      },
+      audit: [
+        {
+          id: 'pbe_1',
+          at: '2026-02-16T00:00:00.000Z',
+          stage: 'execution',
+          action: 'command_executed',
+          inputSummary: 'bun test',
+          inputHash: 'abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc',
+          approvalBasis: 'not_required',
+          resultHash: 'defdefdefdefdefdefdefdefdefdefdefdefdefdefdefdefdefdef',
+          replayToken: 'fedcfedcfedcfedcfedcfedcfedcfedcfedcfedcfedcfedcfedc',
+        },
+      ],
+    });
+    expect(bundle.version).toBe('1.0');
+    expect(bundle.audit.length).toBe(1);
   });
 });

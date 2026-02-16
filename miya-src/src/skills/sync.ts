@@ -3,6 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
+import {
+  getSourcePackGovernance,
+  refreshSourcePackGovernance,
+  type SourcePackGovernanceRecord,
+  verifySourcePackGovernance as verifyGovernanceRecord,
+} from './governance';
 
 export interface SourcePack {
   sourcePackID: string;
@@ -17,6 +23,7 @@ export interface SourcePack {
   trustLevel: 'allowlisted' | 'untrusted' | 'unknown';
   importPlan?: ImportPlan;
   pinnedRelease?: PinnedRelease;
+  governance?: SourcePackGovernanceRecord;
 }
 
 export interface ImportPlan {
@@ -66,6 +73,7 @@ export interface SourcePackPullResult {
   latestRevision: string;
   compareRef: string;
   pulledAt: string;
+  governance?: SourcePackGovernanceRecord;
 }
 
 export interface SourcePackApplyResult {
@@ -74,6 +82,7 @@ export interface SourcePackApplyResult {
   appliedRevision: string;
   previousRevision?: string;
   detachedHead: boolean;
+  governance?: SourcePackGovernanceRecord;
 }
 
 export interface SourcePackRollbackResult {
@@ -82,6 +91,7 @@ export interface SourcePackRollbackResult {
   rolledBackTo: string;
   previousRevision: string;
   detachedHead: boolean;
+  governance?: SourcePackGovernanceRecord;
 }
 
 interface BridgeSourcePackState {
@@ -328,6 +338,7 @@ function discoverSourcePacks(
     const sourceState = state.sourcePacks[sourcePackID];
     const importPlan = state.importPlans[sourcePackID];
     const pinnedRelease = state.pinnedReleases[sourcePackID];
+    const governance = getSourcePackGovernance(projectDir, sourcePackID);
     packs.push({
       sourcePackID,
       name: path.basename(localDir),
@@ -341,6 +352,7 @@ function discoverSourcePacks(
       trustLevel: trustLevelForRepo(repo),
       importPlan,
       pinnedRelease,
+      governance,
     });
   }
 
@@ -473,6 +485,11 @@ export function pullSourcePack(
     lastError: undefined,
   });
   writeState(projectDir, resolved.state, options);
+  const governance = refreshSourcePackGovernance(projectDir, {
+    sourcePackID,
+    localDir: resolved.sourcePack.localDir,
+    revision: latestRevision,
+  });
 
   return {
     sourcePackID,
@@ -480,6 +497,7 @@ export function pullSourcePack(
     latestRevision,
     compareRef,
     pulledAt: nowIso(options),
+    governance,
   };
 }
 
@@ -574,6 +592,11 @@ export function applySourcePack(
     appliedAt: nowIso(options),
   };
   writeState(projectDir, resolved.state, options);
+  const governance = refreshSourcePackGovernance(projectDir, {
+    sourcePackID,
+    localDir: resolved.sourcePack.localDir,
+    revision: targetRevision,
+  });
 
   return {
     sourcePackID,
@@ -582,6 +605,7 @@ export function applySourcePack(
     previousRevision:
       previousRevision !== targetRevision ? previousRevision : undefined,
     detachedHead: true,
+    governance,
   };
 }
 
@@ -619,6 +643,11 @@ export function rollbackSourcePack(
     appliedAt: nowIso(options),
   };
   writeState(projectDir, resolved.state, options);
+  const governance = refreshSourcePackGovernance(projectDir, {
+    sourcePackID,
+    localDir: resolved.sourcePack.localDir,
+    revision: rollbackRevision,
+  });
 
   return {
     sourcePackID,
@@ -626,5 +655,39 @@ export function rollbackSourcePack(
     rolledBackTo: rollbackRevision,
     previousRevision,
     detachedHead: true,
+    governance,
+  };
+}
+
+export function verifySourcePackGovernance(
+  projectDir: string,
+  sourcePackID: string,
+  options?: EcosystemBridgeOptions,
+): {
+  sourcePackID: string;
+  localDir: string;
+  revision: string;
+  signatureValid: boolean;
+  lockValid: boolean;
+  compatibilityValid: boolean;
+  smokeValid: boolean;
+  governance?: SourcePackGovernanceRecord;
+} {
+  const { sourcePack } = requireSourcePack(projectDir, sourcePackID, options);
+  const revision = sourcePack.pinnedRelease?.revision ?? sourcePack.headRevision;
+  const report = verifyGovernanceRecord(projectDir, {
+    sourcePackID,
+    localDir: sourcePack.localDir,
+    revision,
+  });
+  return {
+    sourcePackID,
+    localDir: sourcePack.localDir,
+    revision,
+    signatureValid: report.signatureValid,
+    lockValid: report.lockValid,
+    compatibilityValid: report.compatibilityValid,
+    smokeValid: report.smokeValid,
+    governance: report.record,
   };
 }

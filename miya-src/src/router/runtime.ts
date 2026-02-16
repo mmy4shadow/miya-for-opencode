@@ -1,9 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
+import { recordStrategyObservation, resolveStrategyVariant } from '../strategy';
 import { classifyIntent, type RouteIntent } from './classifier';
 import { resolveAgentWithFeedback, resolveFallbackAgent } from './fallback';
-import { rankAgentsByFeedback } from './learner';
+import { addRouteFeedback, rankAgentsByFeedback } from './learner';
 
 export type RouteComplexity = 'low' | 'medium' | 'high';
 export type RouteStage = 'low' | 'medium' | 'high';
@@ -385,6 +386,21 @@ function inferFixabilityFromReason(reason?: string): RouteFixability {
   return 'unknown';
 }
 
+function inferRiskScore(input: {
+  success: boolean;
+  failureReason?: string;
+  stage: RouteStage;
+}): number {
+  if (input.success) {
+    return input.stage === 'high' ? 0.22 : input.stage === 'medium' ? 0.16 : 0.1;
+  }
+  const reason = String(input.failureReason ?? '').toLowerCase();
+  if (/permission|forbidden|policy_|kill_switch|security/.test(reason)) return 0.95;
+  if (/timeout|overload|network|rate_limit/.test(reason)) return 0.75;
+  if (/invalid_|schema|parse|bad_request/.test(reason)) return 0.62;
+  return input.stage === 'high' ? 0.7 : input.stage === 'medium' ? 0.6 : 0.55;
+}
+
 function compressTextByStage(text: string, stage: RouteStage): { text: string; compressed: boolean } {
   const normalized = String(text ?? '').trim();
   if (!normalized) return { text: '', compressed: false };
@@ -618,6 +634,39 @@ export function recordRouteExecutionOutcome(input: {
   };
   store.sessions[input.sessionID] = next;
   writeSessionStore(input.projectDir, store);
+  addRouteFeedback(input.projectDir, {
+    text: `${input.intent}|${input.agent}|${input.stage}`,
+    intent: input.intent,
+    suggestedAgent: input.agent,
+    accepted: input.success,
+    success: input.success,
+    costUsdEstimate: input.costUsdEstimate,
+    riskScore: inferRiskScore({
+      success: input.success,
+      failureReason: input.failureReason,
+      stage: input.stage,
+    }),
+    failureReason: input.failureReason,
+    stage: input.stage,
+  });
+  const variant = resolveStrategyVariant(input.projectDir, 'routing', input.sessionID);
+  recordStrategyObservation(input.projectDir, {
+    experiment: 'routing',
+    variant,
+    subjectID: input.sessionID,
+    success: input.success,
+    costUsd: input.costUsdEstimate,
+    riskScore: inferRiskScore({
+      success: input.success,
+      failureReason: input.failureReason,
+      stage: input.stage,
+    }),
+    metadata: {
+      intent: input.intent,
+      stage: input.stage,
+      agent: input.agent,
+    },
+  });
   return row;
 }
 

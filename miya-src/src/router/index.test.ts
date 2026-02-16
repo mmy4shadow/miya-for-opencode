@@ -6,9 +6,11 @@ import {
   addRouteFeedback,
   classifyIntent,
   rankAgentsByFeedback,
+  readRouteLearningWeights,
   recommendedAgent,
   resolveAgentWithFeedback,
   resolveFallbackAgent,
+  writeRouteLearningWeights,
 } from './index';
 
 function tempProjectDir(): string {
@@ -48,5 +50,18 @@ describe('router feedback learning', () => {
     const selected = resolveAgentWithFeedback('code_fix', available, ranked);
     expect(fallback).toBe('5-code-fixer');
     expect(selected).toBe('2-code-search');
+  });
+
+  test('persists learning weights with normalization', () => {
+    const projectDir = tempProjectDir();
+    const next = writeRouteLearningWeights(projectDir, {
+      accept: 4,
+      success: 4,
+      cost: 1,
+      risk: 1,
+    });
+    const loaded = readRouteLearningWeights(projectDir);
+    expect(next.accept).toBe(loaded.accept);
+    expect(loaded.accept + loaded.success + loaded.cost + loaded.risk).toBeCloseTo(1, 4);
   });
 });
