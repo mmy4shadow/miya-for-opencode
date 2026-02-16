@@ -70,7 +70,13 @@ import {
   summarizeNodeGovernance,
   touchNodeHeartbeat,
 } from '../nodes';
-import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
+import {
+  listMediaItems,
+  getMediaItem,
+  ingestMedia,
+  patchMediaMetadata,
+  runMediaGc,
+} from '../media/store';
 import {
   getLauncherDaemonSnapshot,
   getMiyaClient,
@@ -96,6 +102,11 @@ import {
   verifyOwnerSyncToken,
 } from '../security/owner-sync';
 import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
+import { getAutostartStatus, setAutostartEnabled } from '../system/autostart';
+import {
+  buildGatewayCapabilitySchemas,
+  buildSkillCapabilitySchemas,
+} from '../capability/schema';
 import {
   appendVoiceHistory,
   clearVoiceHistory,
@@ -307,6 +318,13 @@ interface PsycheModeConfig {
   slowBrainShadowEnabled: boolean;
   slowBrainShadowRollout: number;
   shadowCohortSalt: string;
+  proactivePingEnabled: boolean;
+  proactivePingMinIntervalMinutes: number;
+  proactivePingMaxPerDay: number;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  quietHoursTimezoneOffsetMinutes: number;
 }
 
 interface LearningGateConfig {
@@ -724,6 +742,13 @@ const DEFAULT_PSYCHE_MODE: PsycheModeConfig = {
   slowBrainShadowEnabled: true,
   slowBrainShadowRollout: 15,
   shadowCohortSalt: 'miya-psyche-shadow-v1',
+  proactivePingEnabled: true,
+  proactivePingMinIntervalMinutes: 90,
+  proactivePingMaxPerDay: 12,
+  quietHoursEnabled: true,
+  quietHoursStart: '23:00',
+  quietHoursEnd: '08:00',
+  quietHoursTimezoneOffsetMinutes: -new Date().getTimezoneOffset(),
 };
 
 const DEFAULT_LEARNING_GATE: LearningGateConfig = {
@@ -749,6 +774,10 @@ function psycheShadowAuditFile(projectDir: string): string {
 
 function learningGateFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-learning-gate.json');
+}
+
+function proactivePingStateFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-proactive-ping-state.json');
 }
 
 function normalizeTrustMode(input?: Partial<TrustModeConfig>): TrustModeConfig {
@@ -778,11 +807,49 @@ function writeTrustModeConfig(projectDir: string, config: TrustModeConfig): Trus
   return normalized;
 }
 
+function normalizeQuietHourText(value: unknown, fallback: string): string {
+  const raw = String(value ?? '').trim();
+  const matched = /^(\d{1,2}):(\d{1,2})$/.exec(raw);
+  if (!matched) return fallback;
+  const hour = Number(matched[1]);
+  const minute = Number(matched[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return fallback;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return fallback;
+  return `${String(Math.floor(hour)).padStart(2, '0')}:${String(Math.floor(minute)).padStart(2, '0')}`;
+}
+
+function quietHourTextToMinutes(value: string): number {
+  const [hourRaw, minuteRaw] = value.split(':');
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+  return Math.max(0, Math.min(1439, Math.floor(hour) * 60 + Math.floor(minute)));
+}
+
 function normalizePsycheMode(input?: Partial<PsycheModeConfig>): PsycheModeConfig {
   const rolloutRaw = Number(input?.slowBrainShadowRollout ?? DEFAULT_PSYCHE_MODE.slowBrainShadowRollout);
   const rollout = Number.isFinite(rolloutRaw)
     ? Math.max(0, Math.min(100, Math.round(rolloutRaw)))
     : DEFAULT_PSYCHE_MODE.slowBrainShadowRollout;
+  const proactivePingMinIntervalRaw = Number(
+    input?.proactivePingMinIntervalMinutes ?? DEFAULT_PSYCHE_MODE.proactivePingMinIntervalMinutes,
+  );
+  const proactivePingMinIntervalMinutes = Number.isFinite(proactivePingMinIntervalRaw)
+    ? Math.max(1, Math.min(24 * 60, Math.round(proactivePingMinIntervalRaw)))
+    : DEFAULT_PSYCHE_MODE.proactivePingMinIntervalMinutes;
+  const proactivePingMaxPerDayRaw = Number(
+    input?.proactivePingMaxPerDay ?? DEFAULT_PSYCHE_MODE.proactivePingMaxPerDay,
+  );
+  const proactivePingMaxPerDay = Number.isFinite(proactivePingMaxPerDayRaw)
+    ? Math.max(1, Math.min(200, Math.round(proactivePingMaxPerDayRaw)))
+    : DEFAULT_PSYCHE_MODE.proactivePingMaxPerDay;
+  const timezoneOffsetRaw = Number(
+    input?.quietHoursTimezoneOffsetMinutes ??
+      DEFAULT_PSYCHE_MODE.quietHoursTimezoneOffsetMinutes,
+  );
+  const quietHoursTimezoneOffsetMinutes = Number.isFinite(timezoneOffsetRaw)
+    ? Math.max(-12 * 60, Math.min(14 * 60, Math.round(timezoneOffsetRaw)))
+    : DEFAULT_PSYCHE_MODE.quietHoursTimezoneOffsetMinutes;
   return {
     resonanceEnabled:
       typeof input?.resonanceEnabled === 'boolean'
@@ -809,6 +876,25 @@ function normalizePsycheMode(input?: Partial<PsycheModeConfig>): PsycheModeConfi
       typeof input?.shadowCohortSalt === 'string' && input.shadowCohortSalt.trim().length > 0
         ? input.shadowCohortSalt.trim().slice(0, 80)
         : DEFAULT_PSYCHE_MODE.shadowCohortSalt,
+    proactivePingEnabled:
+      typeof input?.proactivePingEnabled === 'boolean'
+        ? input.proactivePingEnabled
+        : DEFAULT_PSYCHE_MODE.proactivePingEnabled,
+    proactivePingMinIntervalMinutes,
+    proactivePingMaxPerDay,
+    quietHoursEnabled:
+      typeof input?.quietHoursEnabled === 'boolean'
+        ? input.quietHoursEnabled
+        : DEFAULT_PSYCHE_MODE.quietHoursEnabled,
+    quietHoursStart: normalizeQuietHourText(
+      input?.quietHoursStart,
+      DEFAULT_PSYCHE_MODE.quietHoursStart,
+    ),
+    quietHoursEnd: normalizeQuietHourText(
+      input?.quietHoursEnd,
+      DEFAULT_PSYCHE_MODE.quietHoursEnd,
+    ),
+    quietHoursTimezoneOffsetMinutes,
   };
 }
 
@@ -834,6 +920,23 @@ function readPsycheModeConfig(projectDir: string): PsycheModeConfig {
         : undefined,
     shadowCohortSalt:
       typeof raw.shadowCohortSalt === 'string' ? raw.shadowCohortSalt : undefined,
+    proactivePingEnabled:
+      typeof raw.proactivePingEnabled === 'boolean' ? raw.proactivePingEnabled : undefined,
+    proactivePingMinIntervalMinutes:
+      typeof raw.proactivePingMinIntervalMinutes === 'number'
+        ? raw.proactivePingMinIntervalMinutes
+        : undefined,
+    proactivePingMaxPerDay:
+      typeof raw.proactivePingMaxPerDay === 'number' ? raw.proactivePingMaxPerDay : undefined,
+    quietHoursEnabled:
+      typeof raw.quietHoursEnabled === 'boolean' ? raw.quietHoursEnabled : undefined,
+    quietHoursStart:
+      typeof raw.quietHoursStart === 'string' ? raw.quietHoursStart : undefined,
+    quietHoursEnd: typeof raw.quietHoursEnd === 'string' ? raw.quietHoursEnd : undefined,
+    quietHoursTimezoneOffsetMinutes:
+      typeof raw.quietHoursTimezoneOffsetMinutes === 'number'
+        ? raw.quietHoursTimezoneOffsetMinutes
+        : undefined,
   });
 }
 
@@ -1416,6 +1519,15 @@ function shouldSamplePsycheShadow(input: {
 
 function parseText(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function envFlagEnabled(name: string): boolean {
+  const raw = String(process.env[name] ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function useGatewayAsrTestMode(): boolean {
+  return envFlagEnabled('MIYA_MULTIMODAL_TEST_MODE') || envFlagEnabled('MIYA_ASR_TEST_MODE');
 }
 
 function parseChannel(value: unknown): ChannelName | null {
@@ -2097,6 +2209,7 @@ interface GuardedOutboundCheckInput {
   intent?: string;
   factorRecipientIsMe?: boolean;
   userInitiated?: boolean;
+  proactivePing?: boolean;
   negotiationID?: string;
   retryAttemptType?: 'auto' | 'human';
   pendingQueueDelivery?: boolean;
@@ -2184,6 +2297,148 @@ function consumeNegotiationBudget(input: {
     state: applied.state,
     reason: applied.reason,
   };
+}
+
+interface ProactivePingState {
+  dayKey: string;
+  sentToday: number;
+  sentByTarget: Record<string, string>;
+}
+
+function proactiveTargetKey(channel: ChannelName, destination: string): string {
+  return `${channel}:${destination.trim().toLowerCase()}`;
+}
+
+function localDayKey(now: Date, timezoneOffsetMinutes: number): string {
+  const shifted = new Date(now.getTime() + timezoneOffsetMinutes * 60_000);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function readProactivePingState(
+  projectDir: string,
+  mode: PsycheModeConfig,
+  now = new Date(),
+): ProactivePingState {
+  const raw = safeReadJsonObject(proactivePingStateFile(projectDir));
+  const dayKey = localDayKey(now, mode.quietHoursTimezoneOffsetMinutes);
+  const storedDay = typeof raw?.dayKey === 'string' ? raw.dayKey : '';
+  const sentTodayRaw = Number(raw?.sentToday ?? 0);
+  const sentToday = Number.isFinite(sentTodayRaw) ? Math.max(0, Math.floor(sentTodayRaw)) : 0;
+  const sentByTargetRaw =
+    raw?.sentByTarget && typeof raw.sentByTarget === 'object' && !Array.isArray(raw.sentByTarget)
+      ? (raw.sentByTarget as Record<string, unknown>)
+      : {};
+  const sentByTarget: Record<string, string> = {};
+  for (const [key, value] of Object.entries(sentByTargetRaw)) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    sentByTarget[key] = value;
+  }
+  if (storedDay !== dayKey) {
+    return {
+      dayKey,
+      sentToday: 0,
+      sentByTarget: {},
+    };
+  }
+  return {
+    dayKey,
+    sentToday,
+    sentByTarget,
+  };
+}
+
+function writeProactivePingState(projectDir: string, state: ProactivePingState): void {
+  writeJsonAtomic(proactivePingStateFile(projectDir), {
+    updatedAt: nowIso(),
+    dayKey: state.dayKey,
+    sentToday: state.sentToday,
+    sentByTarget: state.sentByTarget,
+  });
+}
+
+function isQuietHoursActive(mode: PsycheModeConfig, now = new Date()): boolean {
+  if (!mode.quietHoursEnabled) return false;
+  const start = quietHourTextToMinutes(mode.quietHoursStart);
+  const end = quietHourTextToMinutes(mode.quietHoursEnd);
+  const shifted = new Date(now.getTime() + mode.quietHoursTimezoneOffsetMinutes * 60_000);
+  const minuteNow = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  if (start === end) return true;
+  if (start < end) return minuteNow >= start && minuteNow < end;
+  return minuteNow >= start || minuteNow < end;
+}
+
+function nextQuietHoursReleaseSeconds(mode: PsycheModeConfig, now = new Date()): number {
+  if (!mode.quietHoursEnabled) return 0;
+  if (!isQuietHoursActive(mode, now)) return 0;
+  const end = quietHourTextToMinutes(mode.quietHoursEnd);
+  const shifted = new Date(now.getTime() + mode.quietHoursTimezoneOffsetMinutes * 60_000);
+  const minuteNow = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  let minutesUntil = 0;
+  if (minuteNow === end) {
+    minutesUntil = 0;
+  } else if (minuteNow < end) {
+    minutesUntil = end - minuteNow;
+  } else {
+    minutesUntil = (24 * 60 - minuteNow) + end;
+  }
+  return Math.max(60, minutesUntil * 60);
+}
+
+function checkProactivePingGate(input: {
+  projectDir: string;
+  mode: PsycheModeConfig;
+  channel: ChannelName;
+  destination: string;
+  now?: Date;
+}): { ok: true } | { ok: false; reason: string; retryAfterSec: number } {
+  const now = input.now ?? new Date();
+  if (!input.mode.proactivePingEnabled) {
+    return { ok: false, reason: 'proactive_ping_disabled', retryAfterSec: 300 };
+  }
+  if (isQuietHoursActive(input.mode, now)) {
+    return {
+      ok: false,
+      reason: 'quiet_hours',
+      retryAfterSec: nextQuietHoursReleaseSeconds(input.mode, now),
+    };
+  }
+  const state = readProactivePingState(input.projectDir, input.mode, now);
+  if (state.sentToday >= input.mode.proactivePingMaxPerDay) {
+    return { ok: false, reason: 'proactive_daily_quota_reached', retryAfterSec: 60 * 30 };
+  }
+  const targetKey = proactiveTargetKey(input.channel, input.destination);
+  const last = state.sentByTarget[targetKey];
+  if (last) {
+    const lastMs = Date.parse(last);
+    if (Number.isFinite(lastMs)) {
+      const minIntervalMs = input.mode.proactivePingMinIntervalMinutes * 60_000;
+      const remainingMs = minIntervalMs - (now.getTime() - lastMs);
+      if (remainingMs > 0) {
+        return {
+          ok: false,
+          reason: 'proactive_interval_limited',
+          retryAfterSec: Math.max(60, Math.ceil(remainingMs / 1000)),
+        };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+function markProactivePingSent(
+  projectDir: string,
+  mode: PsycheModeConfig,
+  channel: ChannelName,
+  destination: string,
+  at = new Date(),
+): void {
+  const state = readProactivePingState(projectDir, mode, at);
+  state.sentToday += 1;
+  state.sentByTarget[proactiveTargetKey(channel, destination)] = at.toISOString();
+  writeProactivePingState(projectDir, state);
 }
 
 function pendingOutboundQueueFile(projectDir: string): string {
@@ -2410,6 +2665,7 @@ async function sendChannelMessageGuarded(
   }
   const userInitiated = input.outboundCheck?.userInitiated !== false;
   const pendingQueueDelivery = input.outboundCheck?.pendingQueueDelivery === true;
+  const proactivePing = input.outboundCheck?.proactivePing === true;
   const queueDeferredOutbound = (inputQueue: {
     retryAfterSec: number;
     reason: string;
@@ -2434,6 +2690,64 @@ async function sendChannelMessageGuarded(
       retryAfterSec: inputQueue.retryAfterSec,
     });
   };
+  if (proactivePing && !userInitiated) {
+    const proactiveGate = checkProactivePingGate({
+      projectDir,
+      mode: runtime.nexus.psycheMode,
+      channel: input.channel,
+      destination: input.destination,
+    });
+    if (!proactiveGate.ok) {
+      appendNexusInsight(runtime, {
+        text:
+          proactiveGate.reason === 'quiet_hours'
+            ? 'proactive_ping 触发 quiet_hours 抑制，已进入延迟队列。'
+            : `proactive_ping 被抑制：${proactiveGate.reason}。`,
+      });
+      const negotiationID = resolveNegotiationID({
+        explicitID: input.outboundCheck?.negotiationID,
+        sessionID: input.sessionID,
+        channel: input.channel,
+        destination: input.destination,
+        payloadHash,
+      });
+      const budgetState = consumeNegotiationBudget({
+        runtime,
+        negotiationID,
+        fixability: 'retry_later',
+        budget: { autoRetry: 1, humanEdit: 1 },
+        attemptType: input.outboundCheck?.retryAttemptType,
+      });
+      if (!budgetState.ok) {
+        removePendingOutboundByNegotiationID(projectDir, runtime, negotiationID);
+        return {
+          sent: false,
+          message: `outbound_blocked:negotiation_budget_exhausted:${budgetState.reason ?? 'unknown'}`,
+          policyHash: resolvedPolicyHash,
+          retryAfterSec: proactiveGate.retryAfterSec,
+          fixability: 'retry_later',
+          budget: { autoRetry: 1, humanEdit: 1 },
+          approvalMode: 'modal_approval',
+          negotiationID,
+        };
+      }
+      queueDeferredOutbound({
+        retryAfterSec: proactiveGate.retryAfterSec,
+        reason: `outbound_blocked:${proactiveGate.reason}`,
+        negotiationID,
+      });
+      return {
+        sent: false,
+        message: `outbound_blocked:${proactiveGate.reason}`,
+        policyHash: resolvedPolicyHash,
+        retryAfterSec: proactiveGate.retryAfterSec,
+        fixability: 'retry_later',
+        budget: { autoRetry: 1, humanEdit: 1 },
+        approvalMode: proactiveGate.reason === 'quiet_hours' ? 'toast_gate' : 'modal_approval',
+        negotiationID,
+      };
+    }
+  }
   if (isHighRiskInstruction(input.text)) {
     const physicalConfirmed = localPhysicalConfirmed;
     const secretVerified = verifyOwnerSecrets(projectDir, {
@@ -2955,6 +3269,9 @@ async function sendChannelMessageGuarded(
     runtime.negotiationBudgets.delete(negotiationID);
     removePendingOutboundByNegotiationID(projectDir, runtime, negotiationID);
   }
+  if (proactivePing && Boolean((result as { sent?: boolean }).sent)) {
+    markProactivePingSent(projectDir, runtime.nexus.psycheMode, input.channel, input.destination);
+  }
   if (psycheConsultEnabled && psycheConsult) {
     try {
       const daemon = getMiyaClient(projectDir);
@@ -3313,6 +3630,27 @@ function withNodeGovernance(
     permissionMapping: mapNodePermissions(node),
     capabilityGroups: classifyNodeCapabilities(node.capabilities),
   };
+}
+
+function resolveEvidenceImageFile(
+  projectDir: string,
+  auditIDRaw: string,
+  slotRaw: string,
+): string | null {
+  const auditID = auditIDRaw.trim();
+  if (!auditID) return null;
+  const slot = slotRaw.trim().toLowerCase();
+  if (slot !== 'pre' && slot !== 'post') return null;
+  const row = listOutboundAudit(projectDir, 400).find((item) => item.id === auditID);
+  if (!row) return null;
+  const candidate =
+    slot === 'pre' ? row.preSendScreenshotPath : row.postSendScreenshotPath;
+  if (!candidate || typeof candidate !== 'string') return null;
+  const resolved = path.resolve(candidate);
+  const runtimeDir = path.resolve(getMiyaRuntimeDir(projectDir));
+  if (!resolved.startsWith(runtimeDir)) return null;
+  if (!fs.existsSync(resolved)) return null;
+  return resolved;
 }
 
 function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnapshot {
@@ -4632,6 +4970,54 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       changedKeys: applied.applied.map((item) => item.key),
     };
   });
+  methods.register('startup.autostart.get', async () => getAutostartStatus(projectDir));
+  methods.register('startup.autostart.set', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
+    if (typeof params.enabled !== 'boolean') {
+      throw new Error('invalid_autostart_enabled');
+    }
+    return setAutostartEnabled(projectDir, {
+      enabled: Boolean(params.enabled),
+      taskName: typeof params.taskName === 'string' ? params.taskName : undefined,
+      command: typeof params.command === 'string' ? params.command : undefined,
+    });
+  });
+  methods.register('capability.schema.list', async (params) => {
+    const scope = parseText(params.scope) || 'all';
+    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 500;
+    const limit = Math.max(1, Math.min(5000, Math.floor(limitRaw)));
+    const includeGateway = scope === 'all' || scope === 'gateway';
+    const includeSkills = scope === 'all' || scope === 'skills';
+    const gatewaySchemas = includeGateway
+      ? buildGatewayCapabilitySchemas(runtime.methods.list())
+      : [];
+    const skills = includeSkills
+      ? discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? [])
+      : [];
+    const skillSchemas = includeSkills ? buildSkillCapabilitySchemas(skills) : [];
+    const capabilities = [...gatewaySchemas, ...skillSchemas]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .slice(0, limit);
+    return {
+      generatedAt: nowIso(),
+      scope,
+      total: capabilities.length,
+      capabilities,
+    };
+  });
+  methods.register('capability.schema.get', async (params) => {
+    const id = parseText(params.id);
+    if (!id) throw new Error('capability_id_required');
+    const all = [
+      ...buildGatewayCapabilitySchemas(runtime.methods.list()),
+      ...buildSkillCapabilitySchemas(discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? [])),
+    ];
+    const hit = all.find((item) => item.id === id);
+    if (!hit) throw new Error(`capability_not_found:${id}`);
+    return hit;
+  });
   methods.register('strategy.experiments.get', async () =>
     readStrategyExperimentConfig(projectDir),
   );
@@ -4898,6 +5284,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       userInitiated:
         outboundCheckRaw && typeof outboundCheckRaw.userInitiated === 'boolean'
           ? Boolean(outboundCheckRaw.userInitiated)
+          : undefined,
+      proactivePing:
+        outboundCheckRaw && typeof outboundCheckRaw.proactivePing === 'boolean'
+          ? Boolean(outboundCheckRaw.proactivePing)
           : undefined,
       negotiationID:
         outboundCheckRaw && typeof outboundCheckRaw.negotiationID === 'string'
@@ -5536,10 +5926,34 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         typeof params.shadowCohortSalt === 'string'
           ? String(params.shadowCohortSalt)
           : undefined,
+      proactivePingEnabled:
+        typeof params.proactivePingEnabled === 'boolean'
+          ? Boolean(params.proactivePingEnabled)
+          : undefined,
+      proactivePingMinIntervalMinutes:
+        typeof params.proactivePingMinIntervalMinutes === 'number'
+          ? Number(params.proactivePingMinIntervalMinutes)
+          : undefined,
+      proactivePingMaxPerDay:
+        typeof params.proactivePingMaxPerDay === 'number'
+          ? Number(params.proactivePingMaxPerDay)
+          : undefined,
+      quietHoursEnabled:
+        typeof params.quietHoursEnabled === 'boolean'
+          ? Boolean(params.quietHoursEnabled)
+          : undefined,
+      quietHoursStart:
+        typeof params.quietHoursStart === 'string' ? String(params.quietHoursStart) : undefined,
+      quietHoursEnd:
+        typeof params.quietHoursEnd === 'string' ? String(params.quietHoursEnd) : undefined,
+      quietHoursTimezoneOffsetMinutes:
+        typeof params.quietHoursTimezoneOffsetMinutes === 'number'
+          ? Number(params.quietHoursTimezoneOffsetMinutes)
+          : undefined,
     });
     runtime.nexus.psycheMode = next;
     appendNexusInsight(runtime, {
-      text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}，信号覆盖=${next.signalOverrideEnabled ? '调试开启' : '关闭'}，slow_brain=${next.slowBrainEnabled ? '开启' : '关闭'}，shadow=${next.slowBrainShadowEnabled ? '开启' : '关闭'}(${next.slowBrainShadowRollout}%)`,
+      text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}，信号覆盖=${next.signalOverrideEnabled ? '调试开启' : '关闭'}，slow_brain=${next.slowBrainEnabled ? '开启' : '关闭'}，shadow=${next.slowBrainShadowEnabled ? '开启' : '关闭'}(${next.slowBrainShadowRollout}%)，proactive=${next.proactivePingEnabled ? '开启' : '关闭'}(间隔${next.proactivePingMinIntervalMinutes}m/日上限${next.proactivePingMaxPerDay})，quiet=${next.quietHoursEnabled ? `${next.quietHoursStart}-${next.quietHoursEnd}` : '关闭'}`,
     });
     publishGatewayEvent(runtime, 'psyche.mode.update', {
       at: nowIso(),
@@ -5577,6 +5991,54 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       mode: readPsycheModeConfig(projectDir),
       stats: readPsycheShadowAuditSummary(projectDir, limit),
     };
+  });
+  methods.register('psyche.proactive.state.get', async () => {
+    const mode = readPsycheModeConfig(projectDir);
+    runtime.nexus.psycheMode = mode;
+    const now = new Date();
+    return {
+      mode,
+      state: readProactivePingState(projectDir, mode, now),
+      quietHoursActive: isQuietHoursActive(mode, now),
+      quietHoursReleaseSec: nextQuietHoursReleaseSeconds(mode, now),
+    };
+  });
+  methods.register('psyche.proactive.ping', async (params) => {
+    const channel = parseChannel(params.channel);
+    const destination = parseText(params.destination);
+    const text = parseText(params.text);
+    const sessionID = parseText(params.sessionID) || 'main';
+    const policyHash = parseText(params.policyHash) || undefined;
+    if (!channel || !destination || !text) {
+      throw new Error('invalid_proactive_ping_args');
+    }
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'outbound_send');
+    const evidenceConfidence =
+      typeof params.evidenceConfidence === 'number' && Number.isFinite(params.evidenceConfidence)
+        ? Number(params.evidenceConfidence)
+        : undefined;
+    const negotiationID =
+      typeof params.negotiationID === 'string' && params.negotiationID.trim()
+        ? params.negotiationID.trim()
+        : undefined;
+    const result = await sendChannelMessageGuarded(projectDir, runtime, {
+      channel,
+      destination,
+      text,
+      sessionID,
+      policyHash,
+      outboundCheck: {
+        archAdvisorApproved: true,
+        intent: 'initiate',
+        factorRecipientIsMe: true,
+        userInitiated: false,
+        proactivePing: true,
+        evidenceConfidence,
+        negotiationID,
+      },
+    });
+    return result;
   });
   methods.register('learning.gate.get', async () => {
     const gate = readLearningGateConfig(projectDir);
@@ -6165,13 +6627,71 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       });
     }
     let text = parseText(params.text);
+    let asr:
+      | {
+          text: string;
+          language?: string;
+          confidence?: number;
+          model?: string;
+          tier: 'lora' | 'embedding' | 'reference';
+          degraded: boolean;
+          message: string;
+        }
+      | undefined;
+    let asrError: string | undefined;
     if (!text && mediaID) {
       const media = getMediaItem(projectDir, mediaID);
-      const transcript = media?.metadata?.transcript;
-      text =
-        typeof transcript === 'string' && transcript.trim()
-          ? transcript.trim()
-          : `[media:${mediaID}]`;
+      const transcript =
+        typeof media?.metadata?.transcript === 'string'
+          ? String(media?.metadata?.transcript)
+          : '';
+      if (transcript.trim()) {
+        text = transcript.trim();
+      } else {
+        const config = readConfig(projectDir);
+        const sttMode =
+          ((config.voice as Record<string, unknown> | undefined)?.input as
+            | Record<string, unknown>
+            | undefined)?.stt;
+        const sttEnabled = sttMode !== 'off';
+        if (sttEnabled && media?.localPath) {
+          if (useGatewayAsrTestMode()) {
+            asr = {
+              text: `[asr:${path.basename(media.localPath)}]`,
+              language: language || 'unknown',
+              confidence: 0.81,
+              model: 'test:whisper',
+              tier: 'reference',
+              degraded: true,
+              message: 'asr_test_mode',
+            };
+            text = asr.text.trim();
+          } else {
+            try {
+              asr = await getMiyaClient(projectDir).runAsrTranscribe({
+                inputPath: media.localPath,
+                language,
+              });
+              text = asr.text.trim();
+            } catch (error) {
+              asrError = error instanceof Error ? error.message : String(error);
+            }
+          }
+          if (text) {
+            patchMediaMetadata(projectDir, mediaID, {
+              transcript: text,
+              transcriptConfidence: asr?.confidence,
+              transcriptLanguage: asr?.language ?? language,
+              transcriptModel: asr?.model,
+              transcriptAt: nowIso(),
+              transcriptSource: 'miya_local_asr',
+            });
+          }
+        }
+      }
+      if (!text) {
+        text = `[media:${mediaID}]`;
+      }
     }
     if (!text) throw new Error('invalid_voice_input');
     if (mode === 'guest') {
@@ -6196,6 +6716,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         mode,
         voiceprint,
         reply: guestReply,
+        asr,
+        asrError,
         voice: readVoiceState(projectDir),
       };
     }
@@ -6217,6 +6739,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       routed,
       mode,
       voiceprint,
+      asr,
+      asrError,
       voice: readVoiceState(projectDir),
     };
   });
@@ -7368,6 +7892,34 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       if (url.pathname === '/api/status') {
         return Response.json(buildSnapshot(projectDir, runtime), {
           headers: { 'cache-control': 'no-store' },
+        });
+      }
+      if (url.pathname === '/api/evidence/image') {
+        const auditID = String(url.searchParams.get('auditID') ?? '').trim();
+        const slot = String(url.searchParams.get('slot') ?? '').trim().toLowerCase();
+        const file = resolveEvidenceImageFile(projectDir, auditID, slot);
+        if (!file) {
+          return new Response('Not Found', {
+            status: 404,
+            headers: { 'cache-control': 'no-store' },
+          });
+        }
+        const ext = path.extname(file).toLowerCase();
+        const contentType =
+          ext === '.png'
+            ? 'image/png'
+            : ext === '.jpg' || ext === '.jpeg'
+              ? 'image/jpeg'
+              : ext === '.webp'
+                ? 'image/webp'
+                : 'application/octet-stream';
+        return new Response(Bun.file(file), {
+          status: 200,
+          headers: {
+            'content-type': contentType,
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+          },
         });
       }
 

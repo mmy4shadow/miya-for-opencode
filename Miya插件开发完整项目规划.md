@@ -526,7 +526,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 | 模式可观测闭环（mode metrics） | 已完成（2026-02-15） | 输出模式切换频率/误判回滚率/自主任务完成率/用户负反馈率 | `miya-src/src/gateway/mode-observability.ts`, `miya-src/src/gateway/index.ts` |
 | Ralph Loop 执行闭环 | 已完成 | 已支持 stderr 回注与重试上限；继续做稳定性优化 | `miya-src/src/ralph/*`, `miya-src/src/tools/ralph.*` |
 | Psyche V3 守门员（Sentinel + consult + bandit） | 进行中 | `consult` 前置守门，不新增第二控制平面 | `miya-src/src/daemon/psyche/`（规划）, `miya-src/src/policy/decision-fusion.ts` |
-| Gateway V5（动态信任阈值 + Fixability + V5证据包） | 进行中 | 动态阈值与协商预算已落地；证据包富媒体预览与体验收敛继续推进 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/gateway/control-ui.ts`, `miya-src/src/policy/decision-fusion.ts`, `miya-src/src/gateway/negotiation-budget.ts` |
+| Gateway V5（动态信任阈值 + Fixability + V5证据包） | 进行中 | 动态阈值与协商预算已落地；证据包富媒体预览首版已落地，继续做体验收敛 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/gateway/control-ui.ts`, `miya-src/gateway-ui/src/App.tsx`, `miya-src/src/policy/decision-fusion.ts`, `miya-src/src/gateway/negotiation-budget.ts` |
 | Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 进行中 | 低置信度自动升档；失败仅回退 `UNKNOWN` | `miya-src/src/multimodal/vision.ts` |
 | 学习闸门分层（Ephemeral/Candidate/Persistent） | 已完成 | 已支持分层闸门与审批模式联动（ephemeral=静默，candidate=toast/silent，persistent=可强审批） | `miya-src/src/gateway/index.ts`, `miya-src/src/companion/memory-vector.ts`, `miya-src/src/gateway/security-interaction.test.ts` |
 | Inbound-only 通道治理（非主线） | 持续监控 | 可入站只读；严格禁止新增外发通道 | `miya-src/src/channel/`, `miya-src/src/gateway/index.ts` |
@@ -2232,7 +2232,7 @@ miya-src/src/daemon/psyche/
 | Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | 进行中 | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | Sentinel/consult/bandit 已落地，共鸣层/慢脑训练继续推进（`miya-src/src/daemon/psyche/*`） |
 | 动态信任阈值（三档提示） | 已完成 | P0-P1 | 1-2周 | 审批事件统计 + Policy Engine | 三档提示阈值与快照联动已落地（`miya-src/src/policy/decision-fusion.ts`, `miya-src/src/gateway/index.ts`） |
 | Fixability 协商协议（防重试风暴） | 已完成 | P0 | 1周 | Gateway 协议帧 + Agent 重试器 | `fixability+budget` 与预算熔断已落地（`miya-src/src/gateway/negotiation-budget.ts`, `miya-src/src/gateway/index.ts`） |
-| Evidence Pack V5（富媒体 + Simulation） | 进行中 | P1 | 2周 | 审计存储 + 前端预览组件 | simulation/风险提示已落地，富媒体预览继续完善（`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/gateway/control-ui.ts`） |
+| Evidence Pack V5（富媒体 + Simulation） | 已完成（首版） | P1 | 2周 | 审计存储 + 前端预览组件 | simulation/风险提示 + 富媒体预览已落地（`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/gateway/index.ts`, `miya-src/gateway-ui/src/App.tsx`） |
 | Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 进行中 | P1 | 2周 | 多模态视觉链路 + Windows 采集能力 | 能力树判定与低置信升档已落地，真实采集链继续增强（`miya-src/src/multimodal/vision.ts`） |
 | Traffic Light 调度器 -> Hydraulics 进阶 | 进行中 | P0-P2 | 2-4周 | 资源调度器 + 训练抢占机制 | 已有显存预算与调度基础（`miya-src/src/resource-scheduler/`, `miya-src/src/gateway/index.ts`） |
 | 学习闸门分层（Ephemeral/Candidate/Persistent） | 已完成 | P1 | 1-2周 | 记忆写入流程 + Gateway 提示系统 | 分层闸门与审批模式已落地（`miya-src/src/gateway/index.ts`, `miya-src/src/companion/memory-vector.ts`） |
@@ -2319,7 +2319,7 @@ miya-src/src/daemon/psyche/
 ### **M6：Gateway V5 体验收敛（新增，进行中）**
 - 目标 1（已完成）：动态信任阈值已上线并替换“固定阻断”策略，已支持 Silent/Toast/Modal 三档联动。
 - 目标 2（已完成）：协商协议已接入 `fixability+budget`，不可修复场景强制零自动重试。
-- 目标 3（进行中）：Evidence Pack V5 富媒体预览与桌控 Simulation 体验继续收敛。
+- 目标 3（已完成，2026-02-16）：Evidence Pack V5 富媒体预览与桌控 Simulation 首版闭环已落地（含控制台预览与证据图片 API）。
 - 目标 4（进行中）：Capture Capability Tree 已接入 `confidence/limitations` 升档，继续增强真实采集能力。
 - 目标 5（进行中）：P0/P1 显存调度持续推进 Traffic Light 策略，保持训练可抢占、可重排队。
 - 量化验收 KPI（冻结）：
@@ -2452,16 +2452,16 @@ Miya插件已经具备了坚实的架构基础：
 - 进行中：Inbound-only 通道治理增强（仅入站只读主链路已落地，违规审计持续增强；`miya-src/src/channels/service.ts`、`miya-src/src/gateway/index.ts`）
 - 已完成：MCP原生增强（Nanobot，对标能力元数据 + 生态摘要 + 控制面清单已落地；`miya-src/src/mcp/index.ts`、`miya-src/src/tools/mcp.ts`、`miya-src/src/gateway/index.ts`）
 
-**未完成项集中清单（2026-02-16 二次对照补充）**：
-- 进行中（既有）：Evidence Pack V5 富媒体审批预览。现状：证据与 simulation 已入审计并进快照（`miya-src/src/channels/service.ts`、`miya-src/src/gateway/index.ts`），但控制台未展示外发证据明细预览（`miya-src/gateway-ui/src/App.tsx`）。
+**状态回填清单（2026-02-16 三次对照补充）**：
+- 已完成（本轮）：Evidence Pack V5 富媒体审批预览。现状：控制台已展示 evidence pack 结构化信息与 pre/post 截图预览，并新增 `GET /api/evidence/image` 证据图片读取接口（`miya-src/gateway-ui/src/App.tsx`、`miya-src/src/gateway/index.ts`）。
 - 进行中（既有）：Capture Capability Tree 真实采集能力。现状：已完成 daemon 后台 `WGC helper + PrintWindow` 采集执行链与结构化降级（`miya-src/src/daemon/psyche/screen-probe.ts`, `miya-src/src/daemon/psyche/probe-worker/*`），`DXGI` 仍为下一阶段增强项。
 - 进行中（既有）：Psyche 共鸣层 + Slow Brain。现状：Sentinel/consult/bandit 与训练摘要已落地（`miya-src/src/daemon/psyche/*`），但周期重训与可回滚慢脑链路仍在规划态。
 - 进行中（既有）：Traffic Light -> Hydraulics。现状：已有显存预算与互斥调度基础（`miya-src/src/resource-scheduler/`、`miya-src/src/gateway/index.ts`），Hydraulics（hotset/warm pool/offload）未完整落地。
-- 未完成（新增）：本地 ASR 推理闭环。现状：`voice.input.ingest` 目前仅接收文本或媒体元数据转写（`miya-src/src/multimodal/voice.ts`、`miya-src/src/gateway/index.ts`），未发现 Whisper/ASR 实际推理执行链路。
-- 未完成（新增）：开机自启动 OpenCode/Gateway 的可配置开关。现状：已有启动探活与守护（`miya-src/src/gateway/index.ts`、`miya-src/src/gateway/methods/core.ts`），但未发现 `autostart/startup` 配置项与对应控制命令。
-- 未完成（新增）：`proactive_ping` 能力域与 `quiet_hours` 抑制链路。现状：规划已冻结能力约束，源码未检索到对应能力域与时段抑制实现。
-- 未完成（新增）：模块化 capability schema 最低字段标准化（`id/version/inputs/outputs/sideEffects/permissions/auditFields/fallbackPlan`）。现状：未检索到统一 schema 定义与全链路校验实现。
-- 未完成（新增）：CI/CD 门禁落地（测试 + Doc Linter 阻断 merge）。现状：`doc-lint` 脚本存在（`miya-src/tools/doc-lint.ts`），但仓库未发现 `.github/workflows` 自动门禁配置。
+- 已完成（本轮）：本地 ASR 推理闭环。现状：已打通 `voice.input.ingest -> daemon.asr.transcribe -> python/infer_asr.py`，支持结果回填 media metadata（`miya-src/src/gateway/index.ts`、`miya-src/src/daemon/service.ts`、`miya-src/src/daemon/client.ts`、`miya-src/src/daemon/host.ts`、`miya-src/python/infer_asr.py`、`miya-src/src/media/store.ts`）。
+- 已完成（本轮）：开机自启动 OpenCode/Gateway 的可配置开关。现状：已提供 `startup.autostart.get/set` 网关方法与 Windows 任务计划切换实现（`miya-src/src/system/autostart.ts`、`miya-src/src/gateway/index.ts`）。
+- 已完成（本轮）：`proactive_ping` 能力域与 `quiet_hours` 抑制链路。现状：已新增模式配置字段、静默时段判定、日配额/最小间隔治理及 `psyche.proactive.*` API（`miya-src/src/gateway/index.ts`）。
+- 已完成（本轮）：模块化 capability schema 最低字段标准化（`id/version/inputs/outputs/sideEffects/permissions/auditFields/fallbackPlan`）。现状：已新增统一 schema 构建与导出工具，覆盖 gateway/skill/tool（`miya-src/src/capability/schema.ts`、`miya-src/src/tools/capability.ts`、`miya-src/src/gateway/index.ts`、`miya-src/src/index.ts`）。
+- 已完成（本轮）：CI/CD 门禁落地（测试 + Doc Linter 阻断 merge）。现状：已新增 GitHub Actions `miya-ci.yml`，执行 `check:ci + test + test:regression`（`.github/workflows/miya-ci.yml`、`miya-src/tools/doc-lint.ts`）。
 
 通过这些功能的融合，Miya将成为一个真正意义上的"全自动控制平面"，实现"你只给目标，它自动完成"的愿景，成为OpenCode 生态中第一个真正的“伴侣级”生产力工具
 

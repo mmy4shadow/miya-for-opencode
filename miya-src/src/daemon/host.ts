@@ -697,6 +697,40 @@ const server = Bun.serve({
         return;
       }
 
+      if (frame.method === 'daemon.asr.transcribe') {
+        try {
+          const result = await daemonService.runAsrTranscribe({
+            inputPath: String(params.inputPath ?? ''),
+            language: typeof params.language === 'string' ? params.language : undefined,
+          });
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'asr_transcribe_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
       if (frame.method === 'daemon.training.flux') {
         try {
           const result = await daemonService.runFluxTraining({
@@ -812,6 +846,7 @@ const server = Bun.serve({
             'training.voice',
             'image.generate',
             'voice.tts',
+            'voice.asr',
             'vision.analyze',
             'shell.exec',
           ]);

@@ -16,6 +16,17 @@ interface TrustModeConfig {
 interface PsycheModeConfig {
   resonanceEnabled: boolean;
   captureProbeEnabled: boolean;
+  signalOverrideEnabled?: boolean;
+  slowBrainEnabled?: boolean;
+  slowBrainShadowEnabled?: boolean;
+  slowBrainShadowRollout?: number;
+  proactivePingEnabled?: boolean;
+  proactivePingMinIntervalMinutes?: number;
+  proactivePingMaxPerDay?: number;
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
+  quietHoursTimezoneOffsetMinutes?: number;
 }
 
 type KillSwitchMode = 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
@@ -86,6 +97,27 @@ interface GatewaySnapshot {
       updatedAt?: string;
     }>;
   };
+  channels?: {
+    recentOutbound?: Array<{
+      id?: string;
+      at?: string;
+      channel?: string;
+      destination?: string;
+      sent?: boolean;
+      message?: string;
+      receiptStatus?: string;
+      recipientTextCheck?: string;
+      sendStatusCheck?: string;
+      evidenceConfidence?: number;
+      evidenceLimitations?: string[];
+      simulationStatus?: string;
+      semanticSummary?: {
+        conclusion?: string;
+        keyAssertion?: string;
+        recovery?: string;
+      };
+    }>;
+  };
 }
 
 interface PolicyDomainRow {
@@ -146,6 +178,15 @@ function formatHubAge(ageMs?: number): string {
   if (!Number.isFinite(ageMs)) return '-';
   const sec = Math.max(0, Math.floor(Number(ageMs) / 1000));
   return `${sec}s`;
+}
+
+function evidenceImageUrl(auditID?: string, slot: 'pre' | 'post' = 'pre'): string {
+  if (!auditID) return '';
+  const params = new URLSearchParams({
+    auditID,
+    slot,
+  });
+  return `/api/evidence/image?${params.toString()}`;
 }
 
 async function invokeGateway(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -220,6 +261,12 @@ export default function App() {
   const [psycheModeForm, setPsycheModeForm] = useState<PsycheModeConfig>({
     resonanceEnabled: true,
     captureProbeEnabled: true,
+    proactivePingEnabled: true,
+    proactivePingMinIntervalMinutes: 90,
+    proactivePingMaxPerDay: 12,
+    quietHoursEnabled: true,
+    quietHoursStart: '23:00',
+    quietHoursEnd: '08:00',
   });
 
   const refresh = useCallback(async () => {
@@ -243,7 +290,7 @@ export default function App() {
       }
       const incomingPsycheMode = status.nexus?.psycheMode;
       if (incomingPsycheMode) {
-        setPsycheModeForm(incomingPsycheMode);
+        setPsycheModeForm((prev) => ({ ...prev, ...incomingPsycheMode }));
       }
       setErrorText('');
     } catch (error) {
@@ -505,6 +552,94 @@ export default function App() {
                   }
                 />
               </label>
+              <label className="flex items-center justify-between rounded border border-white/15 bg-black/20 px-3 py-2">
+                <span>proactive_ping（主动问候）</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(psycheModeForm.proactivePingEnabled)}
+                  onChange={(event) =>
+                    setPsycheModeForm((prev) => ({
+                      ...prev,
+                      proactivePingEnabled: event.target.checked,
+                    }))
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between rounded border border-white/15 bg-black/20 px-3 py-2">
+                <span>quiet_hours（静默时段）</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(psycheModeForm.quietHoursEnabled)}
+                  onChange={(event) =>
+                    setPsycheModeForm((prev) => ({
+                      ...prev,
+                      quietHoursEnabled: event.target.checked,
+                    }))
+                  }
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1 rounded border border-white/15 bg-black/20 px-3 py-2">
+                  <span>最小间隔（分钟）</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={psycheModeForm.proactivePingMinIntervalMinutes ?? 90}
+                    onChange={(event) =>
+                      setPsycheModeForm((prev) => ({
+                        ...prev,
+                        proactivePingMinIntervalMinutes: Number(event.target.value),
+                      }))
+                    }
+                    className="rounded border border-white/20 bg-black/30 px-2 py-1"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 rounded border border-white/15 bg-black/20 px-3 py-2">
+                  <span>每日上限</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={psycheModeForm.proactivePingMaxPerDay ?? 12}
+                    onChange={(event) =>
+                      setPsycheModeForm((prev) => ({
+                        ...prev,
+                        proactivePingMaxPerDay: Number(event.target.value),
+                      }))
+                    }
+                    className="rounded border border-white/20 bg-black/30 px-2 py-1"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 rounded border border-white/15 bg-black/20 px-3 py-2">
+                  <span>静默开始</span>
+                  <input
+                    type="time"
+                    value={psycheModeForm.quietHoursStart ?? '23:00'}
+                    onChange={(event) =>
+                      setPsycheModeForm((prev) => ({
+                        ...prev,
+                        quietHoursStart: event.target.value,
+                      }))
+                    }
+                    className="rounded border border-white/20 bg-black/30 px-2 py-1"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 rounded border border-white/15 bg-black/20 px-3 py-2">
+                  <span>静默结束</span>
+                  <input
+                    type="time"
+                    value={psycheModeForm.quietHoursEnd ?? '08:00'}
+                    onChange={(event) =>
+                      setPsycheModeForm((prev) => ({
+                        ...prev,
+                        quietHoursEnd: event.target.value,
+                      }))
+                    }
+                    className="rounded border border-white/20 bg-black/30 px-2 py-1"
+                  />
+                </label>
+              </div>
             </div>
             <p className="mt-2 text-[11px] text-slate-400">
               当前降级原因：{guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}
@@ -620,6 +755,58 @@ export default function App() {
                 <div key={`${item.at ?? 'ins'}-${index}`} className="rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs">
                   <p className="text-slate-100">{item.text ?? '无内容'}</p>
                   <p className="text-slate-400">{item.at ?? '暂无'} {item.auditID ? `| ${item.auditID}` : ''}</p>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="grid grid-cols-1 gap-4">
+          <article className="rounded-2xl border border-white/10 bg-miya-card/25 p-4">
+            <h2 className="text-sm font-semibold">Evidence Pack V5（外发证据预览）</h2>
+            <p className="mt-1 text-xs text-slate-300">用于审批前快速核验：目标、发送状态、截图、限制项。</p>
+            <div className="mt-3 max-h-[28rem] space-y-3 overflow-auto pr-1">
+              {(snapshot.channels?.recentOutbound ?? []).slice(0, 10).map((row, index) => (
+                <div key={`${row.id ?? 'audit'}-${index}`} className="rounded-lg border border-white/10 bg-black/15 p-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-medium">
+                      {row.channel ?? 'channel'}
+                      {' -> '}
+                      {row.destination ?? 'unknown'}
+                    </p>
+                    <span className={row.sent ? 'text-emerald-300' : 'text-rose-300'}>
+                      {row.sent ? '已发送' : '已阻断'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-slate-300">{row.message ?? '-'}</p>
+                  <p className="mt-1 text-slate-400">
+                    审计ID: {row.id ?? '-'} | 时间: {row.at ?? '-'} | 置信度: {typeof row.evidenceConfidence === 'number' ? row.evidenceConfidence.toFixed(2) : '-'}
+                  </p>
+                  <p className="mt-1 text-slate-400">
+                    recipient={row.recipientTextCheck ?? '-'} | send={row.sendStatusCheck ?? '-'} | receipt={row.receiptStatus ?? '-'} | simulation={row.simulationStatus ?? '-'}
+                  </p>
+                  {Array.isArray(row.evidenceLimitations) && row.evidenceLimitations.length > 0 ? (
+                    <p className="mt-1 text-amber-300">limitations: {row.evidenceLimitations.join(', ')}</p>
+                  ) : null}
+                  {row.semanticSummary?.conclusion ? (
+                    <p className="mt-1 text-slate-300">结论: {row.semanticSummary.conclusion}</p>
+                  ) : null}
+                  {row.id ? (
+                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <img
+                        src={evidenceImageUrl(row.id, 'pre')}
+                        alt="pre-send evidence"
+                        loading="lazy"
+                        className="max-h-44 w-full rounded border border-white/10 object-cover"
+                      />
+                      <img
+                        src={evidenceImageUrl(row.id, 'post')}
+                        alt="post-send evidence"
+                        loading="lazy"
+                        className="max-h-44 w-full rounded border border-white/10 object-cover"
+                      />
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>

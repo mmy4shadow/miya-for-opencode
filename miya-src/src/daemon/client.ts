@@ -56,6 +56,34 @@ export class MiyaClient {
     ) as Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }>;
   }
 
+  async runAsrTranscribe(input: {
+    inputPath: string;
+    language?: string;
+  }): Promise<{
+    text: string;
+    language?: string;
+    confidence?: number;
+    model?: string;
+    tier: 'lora' | 'embedding' | 'reference';
+    degraded: boolean;
+    message: string;
+  }> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.asr.transcribe',
+      input as unknown as Record<string, unknown>,
+      180_000,
+    ) as Promise<{
+      text: string;
+      language?: string;
+      confidence?: number;
+      model?: string;
+      tier: 'lora' | 'embedding' | 'reference';
+      degraded: boolean;
+      message: string;
+    }>;
+  }
+
   async runFluxTraining(input: {
     profileDir: string;
     photosDir: string;

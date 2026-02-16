@@ -1,4 +1,4 @@
-import type { Plugin } from '@opencode-ai/plugin';
+import type { Plugin, ToolDefinition } from '@opencode-ai/plugin';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -59,6 +59,7 @@ import {
   createAutoflowTools,
   createAutopilotTools,
   createBackgroundTools,
+  createCapabilityTools,
   createLearningTools,
   createMultimodalTools,
   createMcpTools,
@@ -402,6 +403,37 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const configTools = createConfigTools(ctx);
   const intakeTools = createIntakeTools(ctx);
   const gatewayTools = createGatewayTools(ctx);
+  let toolCatalog: Record<string, ToolDefinition> = {
+    ...backgroundTools,
+    ...automationTools,
+    ...workflowTools,
+    ...learningTools,
+    ...autopilotTools,
+    ...autoflowTools,
+    ...ralphTools,
+    ...nodeTools,
+    ...multimodalTools,
+    ...soulTools,
+    ...ultraworkTools,
+    ...routerTools,
+    ...mcpTools,
+    ...safetyTools,
+    ...configTools,
+    ...intakeTools,
+    ...gatewayTools,
+    lsp_goto_definition,
+    lsp_find_references,
+    lsp_diagnostics,
+    lsp_rename,
+    grep,
+    ast_grep_search,
+    ast_grep_replace,
+  };
+  const capabilityTools = createCapabilityTools(() => Object.keys(toolCatalog));
+  toolCatalog = {
+    ...toolCatalog,
+    ...capabilityTools,
+  };
   // Stability-first default: keep plugin-hosted remote MCPs disabled unless explicitly enabled
   // by setting disabled_mcps in config (remove entries you want to use).
   const defaultDisabledMcps: string[] = [];
@@ -637,32 +669,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
     agent: agents,
 
-    tool: {
-      ...backgroundTools,
-      ...automationTools,
-      ...workflowTools,
-      ...learningTools,
-      ...autopilotTools,
-      ...autoflowTools,
-      ...ralphTools,
-      ...nodeTools,
-      ...multimodalTools,
-      ...soulTools,
-      ...ultraworkTools,
-      ...routerTools,
-      ...mcpTools,
-      ...safetyTools,
-      ...configTools,
-      ...intakeTools,
-      ...gatewayTools,
-      lsp_goto_definition,
-      lsp_find_references,
-      lsp_diagnostics,
-      lsp_rename,
-      grep,
-      ast_grep_search,
-      ast_grep_replace,
-    },
+    tool: toolCatalog,
 
     mcp: mcps,
 

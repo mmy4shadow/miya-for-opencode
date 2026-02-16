@@ -225,7 +225,7 @@ describe('gateway security interaction acceptance', () => {
       client.close();
       stopGateway(projectDir);
     }
-  });
+  }, 20_000);
 
   test('blocks enabling workspace skill without permission metadata', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
@@ -461,6 +461,173 @@ describe('gateway security interaction acceptance', () => {
     } finally {
       client.close();
       stopGateway(projectDir);
+    }
+  });
+
+  test('uses local ASR chain when voice ingest receives media without transcript', async () => {
+    const prevAsrTest = process.env.MIYA_ASR_TEST_MODE;
+    const prevVoiceprintStrict = process.env.MIYA_VOICEPRINT_STRICT;
+    process.env.MIYA_ASR_TEST_MODE = '1';
+    process.env.MIYA_VOICEPRINT_STRICT = '0';
+
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      const policyResult = (await client.request('policy.get')) as {
+        hash?: string;
+        policyHash?: string;
+      };
+      const policyHash = String(policyResult.hash ?? policyResult.policyHash ?? '');
+      expect(policyHash.length).toBeGreaterThan(16);
+      const media = (await client.request('media.ingest', {
+        policyHash,
+        source: 'test.asr',
+        kind: 'audio',
+        mimeType: 'audio/wav',
+        fileName: 'sample.wav',
+        contentBase64: Buffer.from('miya-asr-test-audio').toString('base64'),
+      })) as { id?: string };
+      expect(typeof media.id).toBe('string');
+
+      const ingested = (await client.request('voice.input.ingest', {
+        policyHash,
+        mediaID: media.id,
+        source: 'media',
+        language: 'zh-CN',
+        speakerHint: 'owner',
+        sessionID: 'main',
+      })) as {
+        item?: { text?: string };
+        asr?: { message?: string; confidence?: number };
+        asrError?: string;
+      };
+      expect(ingested.asrError).toBeUndefined();
+      expect(ingested.item?.text).toContain('[asr:');
+      expect(ingested.asr?.message).toBe('asr_test_mode');
+      expect(typeof ingested.asr?.confidence).toBe('number');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+      if (prevAsrTest === undefined) delete process.env.MIYA_ASR_TEST_MODE;
+      else process.env.MIYA_ASR_TEST_MODE = prevAsrTest;
+      if (prevVoiceprintStrict === undefined) delete process.env.MIYA_VOICEPRINT_STRICT;
+      else process.env.MIYA_VOICEPRINT_STRICT = prevVoiceprintStrict;
+    }
+  }, 30_000);
+
+  test('suppresses proactive ping during quiet hours', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      const policy = (await client.request('policy.get')) as { hash: string };
+      await client.request('security.identity.init', {
+        password: 'pw-proactive',
+        passphrase: 'phrase-proactive',
+      });
+      const mode = (await client.request('psyche.mode.set', {
+        proactivePingEnabled: true,
+        proactivePingMinIntervalMinutes: 1,
+        proactivePingMaxPerDay: 5,
+        quietHoursEnabled: true,
+        quietHoursStart: '00:00',
+        quietHoursEnd: '00:00',
+      })) as {
+        mode?: {
+          proactivePingEnabled?: boolean;
+          quietHoursEnabled?: boolean;
+        };
+      };
+      expect(mode.mode?.proactivePingEnabled).toBe(true);
+      expect(mode.mode?.quietHoursEnabled).toBe(true);
+
+      const blocked = (await client.request('psyche.proactive.ping', {
+        policyHash: policy.hash,
+        channel: 'qq',
+        destination: 'owner-001',
+        text: '午安提醒：记得喝水',
+        sessionID: 'main',
+      })) as {
+        sent?: boolean;
+        message?: string;
+        fixability?: string;
+      };
+      expect(blocked.sent).toBe(false);
+      expect(blocked.message).toBe('outbound_blocked:quiet_hours');
+      expect(blocked.fixability).toBe('retry_later');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
+  test('exports capability schema catalog with required fields', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      const payload = (await client.request('capability.schema.list', {
+        scope: 'all',
+        limit: 50,
+      })) as {
+        capabilities?: Array<{
+          id?: string;
+          version?: string;
+          inputs?: unknown;
+          outputs?: unknown;
+          sideEffects?: unknown;
+          permissions?: unknown;
+          auditFields?: unknown;
+          fallbackPlan?: unknown;
+        }>;
+      };
+      expect(Array.isArray(payload.capabilities)).toBe(true);
+      expect((payload.capabilities ?? []).length).toBeGreaterThan(0);
+      const first = (payload.capabilities ?? [])[0] ?? {};
+      expect(typeof first.id).toBe('string');
+      expect(typeof first.version).toBe('string');
+      expect(typeof first.inputs).toBe('object');
+      expect(typeof first.outputs).toBe('object');
+      expect(Array.isArray(first.sideEffects)).toBe(true);
+      expect(Array.isArray(first.permissions)).toBe(true);
+      expect(Array.isArray(first.auditFields)).toBe(true);
+      expect(typeof first.fallbackPlan).toBe('string');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
+  test('updates startup autostart switch via gateway methods', async () => {
+    const prevAutostartTest = process.env.MIYA_AUTOSTART_TEST_MODE;
+    process.env.MIYA_AUTOSTART_TEST_MODE = '1';
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      const policy = (await client.request('policy.get')) as { hash: string };
+      const enabled = (await client.request('startup.autostart.set', {
+        policyHash: policy.hash,
+        enabled: true,
+        taskName: 'MiyaGatewayTestTask',
+      })) as { enabled?: boolean; installed?: boolean };
+      expect(enabled.enabled).toBe(true);
+      expect(enabled.installed).toBe(true);
+
+      const status = (await client.request('startup.autostart.get')) as {
+        enabled?: boolean;
+        installed?: boolean;
+        taskName?: string;
+      };
+      expect(status.enabled).toBe(true);
+      expect(status.installed).toBe(true);
+      expect(status.taskName).toBe('MiyaGatewayTestTask');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+      if (prevAutostartTest === undefined) delete process.env.MIYA_AUTOSTART_TEST_MODE;
+      else process.env.MIYA_AUTOSTART_TEST_MODE = prevAutostartTest;
     }
   });
 

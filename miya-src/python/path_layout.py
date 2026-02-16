@@ -42,3 +42,7 @@ def flux_klein_dir() -> Path:
 
 def sovits_dir() -> Path:
     return default_model_root() / "sheng yin" / "GPT-SoVITS-v2pro-20250604"
+
+
+def whisper_dir() -> Path:
+    return default_model_root() / "sheng yin" / "Whisper-Small"

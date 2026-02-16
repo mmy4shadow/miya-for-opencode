@@ -161,6 +161,26 @@ export function getMediaItem(projectDir: string, mediaID: string): MediaItem | n
   return store.items[mediaID] ?? null;
 }
 
+export function patchMediaMetadata(
+  projectDir: string,
+  mediaID: string,
+  patch: Record<string, unknown>,
+): MediaItem | null {
+  const store = readStore(projectDir);
+  const current = store.items[mediaID];
+  if (!current) return null;
+  const next: MediaItem = {
+    ...current,
+    metadata: {
+      ...(current.metadata ?? {}),
+      ...patch,
+    },
+  };
+  store.items[mediaID] = next;
+  writeStore(projectDir, store);
+  return next;
+}
+
 export function listMediaItems(projectDir: string, limit = 100): MediaItem[] {
   const store = readStore(projectDir);
   return Object.values(store.items)

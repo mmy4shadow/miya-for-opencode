@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { getResourceScheduler } from '../resource-scheduler';
 import type { ResourceTaskKind } from '../resource-scheduler';
 import {
+  getMiyaAsrModelDir,
   MIYA_MODEL_BRANCH,
   getMiyaFluxKleinModelDir,
   getMiyaFluxModelDir,
@@ -72,6 +73,9 @@ const EXPECTED_MODEL_VERSION = {
   sovits_v2pro: '20250604',
 } as const;
 
+const MULTIMODAL_TEST_MODE_ENV = 'MIYA_MULTIMODAL_TEST_MODE';
+const ASR_TEST_MODE_ENV = 'MIYA_ASR_TEST_MODE';
+
 type ModelLockKey = keyof typeof EXPECTED_MODEL_VERSION;
 
 interface ModelUpdatePlanItem {
@@ -90,6 +94,19 @@ function toSessionID(projectDir: string): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function useAsrTestMode(): boolean {
+  const fromMultimodal = String(process.env[MULTIMODAL_TEST_MODE_ENV] ?? '')
+    .trim()
+    .toLowerCase();
+  if (fromMultimodal === '1' || fromMultimodal === 'true' || fromMultimodal === 'yes') {
+    return true;
+  }
+  const fromAsr = String(process.env[ASR_TEST_MODE_ENV] ?? '')
+    .trim()
+    .toLowerCase();
+  return fromAsr === '1' || fromAsr === 'true' || fromAsr === 'yes';
 }
 
 interface TaskRuntimeContext {
@@ -832,6 +849,126 @@ export class MiyaDaemonService {
         ? `sovits_tts_failed:${proc.stderr || proc.stdout || proc.exitCode}`
         : 'sovits_tts_command_not_configured',
     );
+  }
+
+  async runAsrTranscribe(input: {
+    inputPath: string;
+    language?: string;
+  }): Promise<{
+    text: string;
+    language?: string;
+    confidence?: number;
+    model?: string;
+    tier: ModelTier;
+    degraded: boolean;
+    message: string;
+  }> {
+    const inputPath = path.resolve(String(input.inputPath ?? '').trim());
+    if (!inputPath) throw new Error('asr_input_required');
+    if (!fs.existsSync(inputPath)) throw new Error(`asr_input_missing:${inputPath}`);
+
+    if (useAsrTestMode()) {
+      return {
+        text: `[asr:${path.basename(inputPath)}]`,
+        language: input.language?.trim() || 'unknown',
+        confidence: 0.81,
+        model: 'test:whisper',
+        tier: 'reference',
+        degraded: true,
+        message: 'asr_test_mode',
+      };
+    }
+
+    const runtime = this.assertPythonRuntimeReady();
+    const tier = this.resolveTierByBudget({
+      kind: 'voice.asr',
+      modelID: 'local:whisper-small',
+      fullTaskVramMB: 512,
+      fullModelVramMB: 1536,
+      embeddingTaskVramMB: 256,
+      embeddingModelVramMB: 768,
+    });
+    const asrModelDir = getMiyaAsrModelDir(this.projectDir);
+    fs.mkdirSync(path.dirname(inputPath), { recursive: true });
+    const proc = await this.runModelCommand({
+      kind: 'voice.asr',
+      envKey: 'MIYA_ASR_CMD',
+      pythonPath: runtime.pythonPath,
+      scriptPath: path.join(this.projectDir, 'miya-src', 'python', 'infer_asr.py'),
+      scriptArgs: ['--input', inputPath],
+      resourceByTier: {
+        lora: { priority: 95, vramMB: 512, modelID: 'local:whisper-small', modelVramMB: 1536 },
+        embedding: { priority: 95, vramMB: 256, modelID: 'local:whisper-small', modelVramMB: 768 },
+        reference: { priority: 95, vramMB: 96, modelID: 'local:whisper-small', modelVramMB: 0 },
+      },
+      tier,
+      timeoutMs: 180_000,
+      env: {
+        MIYA_PARENT_STDIN_MONITOR: '1',
+        MIYA_ASR_INPUT_PATH: inputPath,
+        MIYA_ASR_LANGUAGE: input.language?.trim() || '',
+        MIYA_ASR_MODEL_DIR: asrModelDir,
+      },
+      metadata: { stage: 'daemon.asr.transcribe', tier },
+      progress: {
+        jobID: `asr-${Date.now()}`,
+        phase: 'voice.asr',
+        startProgress: 12,
+        endProgress: 95,
+      },
+    });
+
+    if (!proc.executed || proc.exitCode !== 0) {
+      throw new Error(
+        proc.executed
+          ? `asr_transcribe_failed:${proc.stderr || proc.stdout || proc.exitCode}`
+          : 'asr_transcribe_command_not_configured',
+      );
+    }
+
+    const lines = proc.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    let payload: Record<string, unknown> | null = null;
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      try {
+        const parsed = JSON.parse(lines[index] ?? '') as Record<string, unknown>;
+        if (typeof parsed === 'object' && parsed && 'ok' in parsed) {
+          payload = parsed;
+          break;
+        }
+      } catch {}
+    }
+    if (!payload || payload.ok !== true) {
+      const message =
+        typeof payload?.message === 'string'
+          ? payload.message
+          : proc.stderr || proc.stdout || 'asr_invalid_output';
+      throw new Error(`asr_transcribe_failed:${message}`);
+    }
+
+    const text = String(payload.text ?? '').trim();
+    if (!text) throw new Error('asr_transcribe_failed:empty_text');
+    const confidenceRaw = Number(payload.confidence ?? Number.NaN);
+    const confidence = Number.isFinite(confidenceRaw)
+      ? Math.max(0, Math.min(1, Number(confidenceRaw.toFixed(3))))
+      : undefined;
+    const language = typeof payload.language === 'string' ? payload.language : undefined;
+    const model = typeof payload.model === 'string' ? payload.model : undefined;
+    const message =
+      typeof payload.message === 'string' && payload.message.trim()
+        ? payload.message.trim()
+        : 'asr_ok';
+    return {
+      text,
+      language,
+      confidence,
+      model,
+      tier,
+      degraded: tier !== 'lora',
+      message,
+    };
   }
 
   async runFluxTraining(input: {

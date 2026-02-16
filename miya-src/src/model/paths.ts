@@ -16,6 +16,7 @@ export const MIYA_MODEL_NAME = {
   fluxKlein: 'FLUX.2 [klein] 4B（Apache-2.0）',
   eres2net: 'eres2net',
   sovits: 'GPT-SoVITS-v2pro-20250604',
+  whisper: 'Whisper-Small',
 } as const;
 
 function normalizeProjectDir(projectDir: string): string {
@@ -95,6 +96,10 @@ export function getMiyaQwen3VlModelDir(projectDir: string): string {
 
 export function getMiyaSovitsModelDir(projectDir: string): string {
   return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.voice, MIYA_MODEL_NAME.sovits);
+}
+
+export function getMiyaAsrModelDir(projectDir: string): string {
+  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.voice, MIYA_MODEL_NAME.whisper);
 }
 
 export function getMiyaVoiceprintModelDir(projectDir: string): string {

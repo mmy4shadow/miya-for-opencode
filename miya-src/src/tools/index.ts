@@ -10,6 +10,7 @@ export { createSoulTools } from './soul';
 export { createUltraworkTools } from './ultrawork';
 export { createRouterTools } from './router';
 export { createMcpTools } from './mcp';
+export { createCapabilityTools } from './capability';
 
 // Grep tool (ripgrep-based)
 export { grep } from './grep';
