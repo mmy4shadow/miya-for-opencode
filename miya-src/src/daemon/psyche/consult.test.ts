@@ -52,7 +52,7 @@ describe('psyche consult service', () => {
   });
 
   test('defers non-user initiated outbound when state is focus', () => {
-    const service = buildService(tempProjectDir(), { shadowModeDays: 0 });
+    const service = buildService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
     const result = service.consult({
       intent: 'outbound.send.wechat',
       urgency: 'low',
