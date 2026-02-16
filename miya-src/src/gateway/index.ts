@@ -82,7 +82,12 @@ import {
   getMiyaClient,
   subscribeLauncherEvents,
 } from '../daemon';
-import { readPsycheTrainingSummary } from '../daemon/psyche';
+import {
+  readPsycheTrainingSummary,
+  readSlowBrainState,
+  retrainSlowBrainPolicy,
+  rollbackSlowBrainPolicy,
+} from '../daemon/psyche';
 import {
   appendGuestConversation,
   initOwnerIdentity,
@@ -1739,6 +1744,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'psyche.mode.get',
   'psyche.shadow.stats',
   'psyche.training.summary',
+  'psyche.slowbrain.get',
   'learning.gate.get',
   'nodes.list',
   'nodes.status',
@@ -1783,6 +1789,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'miya.memory.recall.benchmark.run',
   'miya.memory.reflect.queue.list',
   'daemon.vram.budget',
+  'daemon.vram.hydraulics.get',
   'autoflow.status.get',
   'routing.stats.get',
   'learning.drafts.stats',
@@ -5896,6 +5903,25 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const limit = Math.max(20, Math.min(5000, Math.floor(limitRaw)));
     return readPsycheTrainingSummary(projectDir, limit);
   });
+  methods.register('psyche.slowbrain.get', async () => {
+    return readSlowBrainState(projectDir);
+  });
+  methods.register('psyche.slowbrain.retrain', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    return retrainSlowBrainPolicy(projectDir, {
+      force: params.force === true,
+      minOutcomes:
+        typeof params.minOutcomes === 'number' && Number.isFinite(params.minOutcomes)
+          ? Number(params.minOutcomes)
+          : undefined,
+    });
+  });
+  methods.register('psyche.slowbrain.rollback', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    return rollbackSlowBrainPolicy(projectDir, parseText(params.versionID) || undefined);
+  });
   methods.register('psyche.mode.set', async (params) => {
     const next = writePsycheModeConfig(projectDir, {
       resonanceEnabled:
@@ -7599,6 +7625,15 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         targetModelID: modelID,
         budget,
       }),
+    };
+  });
+  methods.register('daemon.vram.hydraulics.get', async () => {
+    const scheduler = getResourceScheduler(projectDir);
+    const snapshot = scheduler.snapshot();
+    return {
+      timestamp: snapshot.timestamp,
+      hydraulics: snapshot.hydraulics,
+      loadedModels: snapshot.loadedModels,
     };
   });
 

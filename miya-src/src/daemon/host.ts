@@ -383,6 +383,90 @@ const server = Bun.serve({
         return;
       }
 
+      if (frame.method === 'daemon.psyche.slowbrain.get') {
+        ws.send(
+          JSON.stringify(
+            DaemonResponseFrameSchema.parse({
+              type: 'response',
+              id: frame.id,
+              ok: true,
+              result: daemonService.getPsycheSlowBrainState(),
+            }),
+          ),
+        );
+        return;
+      }
+
+      if (frame.method === 'daemon.psyche.slowbrain.retrain') {
+        try {
+          const result = daemonService.retrainPsycheSlowBrain({
+            force: params.force === true,
+            minOutcomes:
+              typeof params.minOutcomes === 'number' && Number.isFinite(params.minOutcomes)
+                ? Number(params.minOutcomes)
+                : undefined,
+          });
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'daemon_psyche_slowbrain_retrain_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (frame.method === 'daemon.psyche.slowbrain.rollback') {
+        try {
+          const result = daemonService.rollbackPsycheSlowBrain(
+            typeof params.versionID === 'string' ? params.versionID : undefined,
+          );
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: true,
+                result,
+              }),
+            ),
+          );
+        } catch (error) {
+          ws.send(
+            JSON.stringify(
+              DaemonResponseFrameSchema.parse({
+                type: 'response',
+                id: frame.id,
+                ok: false,
+                error: {
+                  code: 'daemon_psyche_slowbrain_rollback_failed',
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              }),
+            ),
+          );
+        }
+        return;
+      }
+
       if (frame.method === 'daemon.psyche.outcome') {
         try {
           const explicitFeedbackRaw = String(params.explicitFeedback ?? 'none').trim().toLowerCase();

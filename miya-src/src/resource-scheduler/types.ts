@@ -44,7 +44,20 @@ export interface ResourceSchedulerSnapshot {
     vramMB: number;
     pins: number;
     lastUsedAt: string;
+    residency?: 'hot' | 'warm';
   }>;
+  hydraulics: {
+    hotsetLimitMB: number;
+    warmPoolLimitMB: number;
+    hotsetUsedMB: number;
+    warmPoolUsedMB: number;
+    offloadedModels: Array<{
+      modelID: string;
+      vramMB: number;
+      offloadedAt: string;
+      reason: string;
+    }>;
+  };
 }
 
 export interface VramBudgetModelInput {

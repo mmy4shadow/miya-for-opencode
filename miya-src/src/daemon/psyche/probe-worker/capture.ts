@@ -107,7 +107,7 @@ function runDxgiHelper(timeoutMs: number): ProbeCaptureResult {
       error: 'platform_not_windows',
     };
   }
-  return runCaptureHelper({
+  const helper = runCaptureHelper({
     method: 'dxgi_duplication',
     command: String(process.env.MIYA_DXGI_CAPTURE_HELPER_CMD ?? ''),
     missingCode: 'dxgi_helper_missing',
@@ -116,6 +116,104 @@ function runDxgiHelper(timeoutMs: number): ProbeCaptureResult {
     invalidJsonCode: 'dxgi_helper_invalid_json',
     timeoutMs,
   });
+  if (helper.ok) return helper;
+  const ffmpeg = runDxgiFfmpegFallback(timeoutMs);
+  if (!ffmpeg.ok) {
+    return {
+      ...helper,
+      limitations: [...new Set([...helper.limitations, ...ffmpeg.limitations])].slice(0, 24),
+      error: helper.error || ffmpeg.error,
+    };
+  }
+  return {
+    ...ffmpeg,
+    limitations: [
+      ...new Set([...helper.limitations, ...ffmpeg.limitations, 'dxgi_helper_fallback']),
+    ].slice(0, 24),
+  };
+}
+
+function runDxgiFfmpegFallback(timeoutMs: number): ProbeCaptureResult {
+  const command = String(process.env.MIYA_DXGI_CAPTURE_FFMPEG_CMD ?? 'ffmpeg').trim();
+  if (!command) {
+    return {
+      ok: false,
+      method: 'dxgi_duplication',
+      limitations: ['dxgi_ffmpeg_missing'],
+      error: 'dxgi_ffmpeg_missing',
+    };
+  }
+  const argsRaw = String(process.env.MIYA_DXGI_CAPTURE_FFMPEG_ARGS ?? '').trim();
+  const args =
+    argsRaw.length > 0
+      ? argsRaw.split(/\s+/).filter(Boolean)
+      : [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-f',
+          'ddagrab',
+          '-framerate',
+          '1',
+          '-frames:v',
+          '1',
+          '-i',
+          'desktop',
+          '-vf',
+          'scale=224:224',
+          '-f',
+          'image2pipe',
+          '-vcodec',
+          'png',
+          '-',
+        ];
+  const run = spawnSync(command, args, {
+    timeout: Math.max(500, timeoutMs),
+    encoding: 'buffer',
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (run.error) {
+    return {
+      ok: false,
+      method: 'dxgi_duplication',
+      limitations: ['dxgi_ffmpeg_exec_failed'],
+      error: run.error.message || 'dxgi_ffmpeg_exec_failed',
+    };
+  }
+  if (run.signal) {
+    return {
+      ok: false,
+      method: 'dxgi_duplication',
+      timedOut: true,
+      limitations: ['dxgi_ffmpeg_timeout'],
+      error: String(run.signal),
+    };
+  }
+  if (run.status !== 0) {
+    return {
+      ok: false,
+      method: 'dxgi_duplication',
+      limitations: ['dxgi_ffmpeg_nonzero_exit'],
+      error: Buffer.from(run.stderr ?? '').toString('utf-8').trim() || `exit_${run.status}`,
+    };
+  }
+  const imageBuffer = Buffer.isBuffer(run.stdout) ? run.stdout : Buffer.from(run.stdout ?? '');
+  if (!imageBuffer || imageBuffer.length === 0) {
+    return {
+      ok: false,
+      method: 'dxgi_duplication',
+      limitations: ['dxgi_ffmpeg_empty_frame'],
+      error: 'dxgi_ffmpeg_empty_frame',
+    };
+  }
+  return {
+    ok: true,
+    method: 'dxgi_duplication',
+    imageBase64: imageBuffer.toString('base64'),
+    blackFrame: false,
+    limitations: ['dxgi_ffmpeg_fallback'],
+  };
 }
 
 function runWgcHelper(timeoutMs: number): ProbeCaptureResult {

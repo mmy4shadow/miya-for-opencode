@@ -19,6 +19,13 @@ describe('vram budget', () => {
             lastUsedAt: new Date().toISOString(),
           },
         ],
+        hydraulics: {
+          hotsetLimitMB: 2048,
+          warmPoolLimitMB: 1024,
+          hotsetUsedMB: 1536,
+          warmPoolUsedMB: 0,
+          offloadedModels: [],
+        },
       },
       task: {
         taskID: 'image.generate',

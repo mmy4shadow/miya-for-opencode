@@ -240,6 +240,37 @@ export class MiyaClient {
   async psycheSignalsGet(): Promise<unknown> {
     return daemonInvoke(this.projectDir, 'daemon.psyche.signals.get', {}, 10_000);
   }
+
+  async psycheSlowBrainGet(): Promise<unknown> {
+    return daemonInvoke(this.projectDir, 'daemon.psyche.slowbrain.get', {}, 10_000);
+  }
+
+  async psycheSlowBrainRetrain(input?: {
+    force?: boolean;
+    minOutcomes?: number;
+  }): Promise<unknown> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.psyche.slowbrain.retrain',
+      {
+        force: input?.force === true,
+        minOutcomes:
+          typeof input?.minOutcomes === 'number' && Number.isFinite(input.minOutcomes)
+            ? input.minOutcomes
+            : undefined,
+      },
+      20_000,
+    );
+  }
+
+  async psycheSlowBrainRollback(versionID?: string): Promise<unknown> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.psyche.slowbrain.rollback',
+      { versionID: versionID?.trim() || undefined },
+      15_000,
+    );
+  }
 }
 
 const clients = new Map<string, MiyaClient>();

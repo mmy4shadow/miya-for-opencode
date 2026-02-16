@@ -525,9 +525,9 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 | 记忆分域（work/relationship）与跨域审批证据 | 已完成（2026-02-15） | 跨域写入必须审批与证据，沿用 pending->active 流程 | `miya-src/src/companion/memory-vector.ts`, `miya-src/src/companion/store.ts`, `miya-src/src/gateway/index.ts` |
 | 模式可观测闭环（mode metrics） | 已完成（2026-02-15） | 输出模式切换频率/误判回滚率/自主任务完成率/用户负反馈率 | `miya-src/src/gateway/mode-observability.ts`, `miya-src/src/gateway/index.ts` |
 | Ralph Loop 执行闭环 | 已完成 | 已支持 stderr 回注与重试上限；继续做稳定性优化 | `miya-src/src/ralph/*`, `miya-src/src/tools/ralph.*` |
-| Psyche V3 守门员（Sentinel + consult + bandit） | 进行中 | `consult` 前置守门，不新增第二控制平面 | `miya-src/src/daemon/psyche/`（规划）, `miya-src/src/policy/decision-fusion.ts` |
+| Psyche V3 守门员（Sentinel + consult + bandit） | 已完成（首版，2026-02-16） | `consult` 前置守门，已接入共鸣层与 Slow Brain 周期重训/回滚 | `miya-src/src/daemon/psyche/consult.ts`, `miya-src/src/daemon/psyche/slow-brain.ts`, `miya-src/src/daemon/service.ts`, `miya-src/src/gateway/index.ts` |
 | Gateway V5（动态信任阈值 + Fixability + V5证据包） | 进行中 | 动态阈值与协商预算已落地；证据包富媒体预览首版已落地，继续做体验收敛 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/gateway/control-ui.ts`, `miya-src/gateway-ui/src/App.tsx`, `miya-src/src/policy/decision-fusion.ts`, `miya-src/src/gateway/negotiation-budget.ts` |
-| Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 进行中 | 低置信度自动升档；失败仅回退 `UNKNOWN` | `miya-src/src/multimodal/vision.ts` |
+| Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 已完成（首版，2026-02-16） | 低置信度自动升档；`DXGI helper -> ffmpeg(ddagrab)` 回退链与结构化降级已落地 | `miya-src/src/daemon/psyche/probe-worker/capture.ts`, `miya-src/src/daemon/psyche/screen-probe.ts`, `miya-src/src/multimodal/vision.ts` |
 | 学习闸门分层（Ephemeral/Candidate/Persistent） | 已完成 | 已支持分层闸门与审批模式联动（ephemeral=静默，candidate=toast/silent，persistent=可强审批） | `miya-src/src/gateway/index.ts`, `miya-src/src/companion/memory-vector.ts`, `miya-src/src/gateway/security-interaction.test.ts` |
 | Inbound-only 通道治理（非主线） | 持续监控 | 可入站只读；严格禁止新增外发通道 | `miya-src/src/channel/`, `miya-src/src/gateway/index.ts` |
 | 质量与对抗回归（OCR/DPI/InputMutex/Context） | 持续监控 | 每次改动必须复跑对抗用例并审计 | `miya-src/src/channels/service.adversarial.test.ts`, `miya-src/src/agents/context-sanitization.test.ts` |
@@ -2153,10 +2153,10 @@ miya-src/src/daemon/psyche/
   - 已落地 defer 持久队列：`miya-src/src/gateway/index.ts` 新增 `pending_outbound_queue` 入队/重评估/预算熔断联动，打通 `psyche_deferred -> retryAfterSec -> 预算终止`。  
   - `miya-src/src/multimodal/vision.ts` 已切换为 local-first（`MIYA_VISION_LOCAL_CMD`）并保留 remote/tesseract fallback。  
 
-- 进行中：  
-  - Resonance Gate（语义焦点增强、风格注入、动量特征）尚未完整落地。  
-  - Slow Brain（周期全量重训 + 版本回滚）仍处于规划/预留接口阶段。  
-  - Capture Capability Tree 的 `DXGI` 原生采集链仍未落地（当前为 `WGC helper + PrintWindow` 可用态）。  
+- 已完成（本轮收敛）：  
+  - Resonance Gate（语义焦点增强、风格注入、动量特征）已在 `consult` 决策链落地，并参与 allow/defer 与 `nextCheckSec` 计算。  
+  - Slow Brain（周期重训 + 版本回滚）已落地，支持自动重训节流、手动重训与版本回滚。  
+  - Capture Capability Tree 的 `DXGI` 采集链已落地 `helper -> ffmpeg(ddagrab)` 回退路径，保留结构化 limitations。  
 
 ---
 
@@ -2229,12 +2229,12 @@ miya-src/src/daemon/psyche/
 | 模式可观测闭环（mode metrics） | 已完成 | P1 | 已完成（2026-02-15） | Gateway 统计快照 + 负反馈检测 | 已实现（`miya-src/src/gateway/mode-observability.ts`, `miya-src/src/gateway/index.ts`） |
 | 学习闭环产品化（Ralph/Reflect -> 技能草案） | 进行中 | P3 | 1-2周 | Ralph Loop + memory-reflect + learning store | 技能草案链路已落地，持续做策略收敛（`miya-src/src/learning/skill-drafts.ts`, `miya-src/src/tools/learning.ts`） |
 | 控制面可观测（阶段/并行/重试/token/cost/学习命中） | 进行中 | P4 | 1周 | Gateway snapshot + Console 面板 | 指标链路已落地，UI 体验继续收敛（`miya-src/src/gateway/index.ts`, `miya-src/src/gateway/control-ui.ts`） |
-| Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | 进行中 | P0-P2 | 3-5周 | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | Sentinel/consult/bandit 已落地，共鸣层/慢脑训练继续推进（`miya-src/src/daemon/psyche/*`） |
+| Psyche 守门员 + 共鸣层（Sentinel/consult/bandit） | 已完成（首版，2026-02-16） | P0-P2 | 已完成（首版） | daemon 隔离拓扑 + Gateway 配置 + 风控联锁 | Sentinel/consult/bandit + 共鸣层 + Slow Brain 周期重训/回滚已落地（`miya-src/src/daemon/psyche/*`, `miya-src/src/daemon/service.ts`, `miya-src/src/gateway/index.ts`） |
 | 动态信任阈值（三档提示） | 已完成 | P0-P1 | 1-2周 | 审批事件统计 + Policy Engine | 三档提示阈值与快照联动已落地（`miya-src/src/policy/decision-fusion.ts`, `miya-src/src/gateway/index.ts`） |
 | Fixability 协商协议（防重试风暴） | 已完成 | P0 | 1周 | Gateway 协议帧 + Agent 重试器 | `fixability+budget` 与预算熔断已落地（`miya-src/src/gateway/negotiation-budget.ts`, `miya-src/src/gateway/index.ts`） |
 | Evidence Pack V5（富媒体 + Simulation） | 已完成（首版） | P1 | 2周 | 审计存储 + 前端预览组件 | simulation/风险提示 + 富媒体预览已落地（`miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/gateway/index.ts`, `miya-src/gateway-ui/src/App.tsx`） |
-| Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 进行中 | P1 | 2周 | 多模态视觉链路 + Windows 采集能力 | 能力树判定与低置信升档已落地，真实采集链继续增强（`miya-src/src/multimodal/vision.ts`） |
-| Traffic Light 调度器 -> Hydraulics 进阶 | 进行中 | P0-P2 | 2-4周 | 资源调度器 + 训练抢占机制 | 已有显存预算与调度基础（`miya-src/src/resource-scheduler/`, `miya-src/src/gateway/index.ts`） |
+| Capture Capability Tree（WGC/PrintWindow/DXGI/UIA） | 已完成（首版，2026-02-16） | P1 | 已完成（首版） | 多模态视觉链路 + Windows 采集能力 | `WGC helper + PrintWindow + DXGI(helper->ffmpeg)` 已落地，失败路径结构化降级（`miya-src/src/daemon/psyche/probe-worker/capture.ts`, `miya-src/src/daemon/psyche/screen-probe.ts`, `miya-src/src/multimodal/vision.ts`） |
+| Traffic Light 调度器 -> Hydraulics 进阶 | 已完成（首版，2026-02-16） | P0-P2 | 已完成（首版） | 资源调度器 + 训练抢占机制 | 已落地 hotset/warm pool/offload、回载事件与 Hydraulics 快照接口（`miya-src/src/resource-scheduler/scheduler.ts`, `miya-src/src/resource-scheduler/types.ts`, `miya-src/src/gateway/index.ts`） |
 | 学习闸门分层（Ephemeral/Candidate/Persistent） | 已完成 | P1 | 1-2周 | 记忆写入流程 + Gateway 提示系统 | 分层闸门与审批模式已落地（`miya-src/src/gateway/index.ts`, `miya-src/src/companion/memory-vector.ts`） |
 | SOUL.md人格 | 已完成 | P1 | 1周 | Agent prompt 注入链路 | SOUL 读取/写入/注入已落地（`miya-src/src/soul/*`, `miya-src/src/tools/soul.ts`, `miya-src/src/agents/index.ts`） |
 | Ultrawork并行编排 | 已完成 | P2 | 2周 | 任务分解与并行调度 | 并行调度与合并器已落地（`miya-src/src/ultrawork/scheduler.ts`, `miya-src/src/ultrawork/merger.ts`） |
@@ -2316,12 +2316,12 @@ miya-src/src/daemon/psyche/
 - 对抗 4（人格隔离）：已通过 Context Sanitation 联测验证执行链保持 Zero-Persona。
 - 对抗 5（Ralph Loop）：验证失败时必须自动捕获 stderr 并进入下一轮修复，直到通过或达到 `max_retries`。
 
-### **M6：Gateway V5 体验收敛（新增，进行中）**
+### **M6：Gateway V5 体验收敛（新增，首版完成 2026-02-16）**
 - 目标 1（已完成）：动态信任阈值已上线并替换“固定阻断”策略，已支持 Silent/Toast/Modal 三档联动。
 - 目标 2（已完成）：协商协议已接入 `fixability+budget`，不可修复场景强制零自动重试。
 - 目标 3（已完成，2026-02-16）：Evidence Pack V5 富媒体预览与桌控 Simulation 首版闭环已落地（含控制台预览与证据图片 API）。
-- 目标 4（进行中）：Capture Capability Tree 已接入 `confidence/limitations` 升档，继续增强真实采集能力。
-- 目标 5（进行中）：P0/P1 显存调度持续推进 Traffic Light 策略，保持训练可抢占、可重排队。
+- 目标 4（已完成，2026-02-16）：Capture Capability Tree 已完成 `WGC helper + PrintWindow + DXGI(helper->ffmpeg)` 采集链，保留 `confidence/limitations` 升档与结构化降级。
+- 目标 5（已完成，2026-02-16）：P0/P1 显存调度已完成 Hydraulics 首版（hotset/warm pool/offload + 回载事件 + 快照观测），保持训练可抢占、可重排队。
 - 量化验收 KPI（冻结）：
   - 审批阻断率：较 M5 基线下降 >= 30%（高风险动作除外）。
   - 高风险误放行率：`0`（以审计回放与复盘为准）。
@@ -2446,17 +2446,17 @@ Miya插件已经具备了坚实的架构基础：
 - 进行中：从经验中学习（Ralph 轨迹 + memory-reflect 技能草案已落地，持续做采用策略）
 - 进行中：控制面可观测（Gateway/Console 指标已落地，持续做体验收敛）
 - 已完成：SOUL.md人格系统（Clawra，SOUL 动态挂载接入 agent prompt 注入；`miya-src/src/soul/loader.ts`、`miya-src/src/agents/index.ts`）
-- 进行中：共鸣层（Resonance Gate）与 Psyche 慢脑训练（Sentinel/consult/bandit 已落地，慢脑训练持续推进；`miya-src/src/daemon/psyche/training-summary.ts`、`miya-src/src/gateway/index.ts`）
+- 已完成（首版，2026-02-16）：共鸣层（Resonance Gate）与 Psyche 慢脑训练（已落地共鸣画像、慢脑周期重训与版本回滚；`miya-src/src/daemon/psyche/consult.ts`、`miya-src/src/daemon/psyche/slow-brain.ts`、`miya-src/src/daemon/service.ts`、`miya-src/src/gateway/index.ts`）
 - 已完成：Ultrawork并行编排（Oh-my-opencode，关键路径调度 + 并行/重试指标；`miya-src/src/ultrawork/scheduler.ts`、`miya-src/src/ultrawork/merger.ts`）
 - 已完成：智能路由增强（Oh-my-opencode，语义评分 + 歧义识别 + 证据输出；`miya-src/src/router/classifier.ts`、`miya-src/src/router/runtime.ts`）
 - 进行中：Inbound-only 通道治理增强（仅入站只读主链路已落地，违规审计持续增强；`miya-src/src/channels/service.ts`、`miya-src/src/gateway/index.ts`）
 - 已完成：MCP原生增强（Nanobot，对标能力元数据 + 生态摘要 + 控制面清单已落地；`miya-src/src/mcp/index.ts`、`miya-src/src/tools/mcp.ts`、`miya-src/src/gateway/index.ts`）
 
-**状态回填清单（2026-02-16 三次对照补充）**：
+**状态回填清单（2026-02-16 持续对照补充）**：
 - 已完成（本轮）：Evidence Pack V5 富媒体审批预览。现状：控制台已展示 evidence pack 结构化信息与 pre/post 截图预览，并新增 `GET /api/evidence/image` 证据图片读取接口（`miya-src/gateway-ui/src/App.tsx`、`miya-src/src/gateway/index.ts`）。
-- 进行中（既有）：Capture Capability Tree 真实采集能力。现状：已完成 daemon 后台 `WGC helper + PrintWindow` 采集执行链与结构化降级（`miya-src/src/daemon/psyche/screen-probe.ts`, `miya-src/src/daemon/psyche/probe-worker/*`），`DXGI` 仍为下一阶段增强项。
-- 进行中（既有）：Psyche 共鸣层 + Slow Brain。现状：Sentinel/consult/bandit 与训练摘要已落地（`miya-src/src/daemon/psyche/*`），但周期重训与可回滚慢脑链路仍在规划态。
-- 进行中（既有）：Traffic Light -> Hydraulics。现状：已有显存预算与互斥调度基础（`miya-src/src/resource-scheduler/`、`miya-src/src/gateway/index.ts`），Hydraulics（hotset/warm pool/offload）未完整落地。
+- 已完成（本轮）：Capture Capability Tree 真实采集能力。现状：已完成 daemon 后台 `WGC helper + PrintWindow + DXGI(helper->ffmpeg)` 采集执行链与结构化降级（`miya-src/src/daemon/psyche/screen-probe.ts`, `miya-src/src/daemon/psyche/probe-worker/capture.ts`, `miya-src/src/multimodal/vision.ts`）。
+- 已完成（本轮）：Psyche 共鸣层 + Slow Brain。现状：已完成共鸣画像参与决策、慢脑周期重训、自动节流重训与版本回滚链路（`miya-src/src/daemon/psyche/consult.ts`, `miya-src/src/daemon/psyche/slow-brain.ts`, `miya-src/src/daemon/service.ts`, `miya-src/src/gateway/index.ts`）。
+- 已完成（本轮）：Traffic Light -> Hydraulics。现状：已完成 hotset/warm pool/offload、模型回载事件与 Hydraulics 快照接口（`miya-src/src/resource-scheduler/scheduler.ts`, `miya-src/src/resource-scheduler/types.ts`, `miya-src/src/gateway/index.ts`）。
 - 已完成（本轮）：本地 ASR 推理闭环。现状：已打通 `voice.input.ingest -> daemon.asr.transcribe -> python/infer_asr.py`，支持结果回填 media metadata（`miya-src/src/gateway/index.ts`、`miya-src/src/daemon/service.ts`、`miya-src/src/daemon/client.ts`、`miya-src/src/daemon/host.ts`、`miya-src/python/infer_asr.py`、`miya-src/src/media/store.ts`）。
 - 已完成（本轮）：开机自启动 OpenCode/Gateway 的可配置开关。现状：已提供 `startup.autostart.get/set` 网关方法与 Windows 任务计划切换实现（`miya-src/src/system/autostart.ts`、`miya-src/src/gateway/index.ts`）。
 - 已完成（本轮）：`proactive_ping` 能力域与 `quiet_hours` 抑制链路。现状：已新增模式配置字段、静默时段判定、日配额/最小间隔治理及 `psyche.proactive.*` API（`miya-src/src/gateway/index.ts`）。

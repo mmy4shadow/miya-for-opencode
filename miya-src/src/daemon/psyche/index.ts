@@ -50,3 +50,14 @@ export {
   type TrustTier,
 } from './trust';
 export { readPsycheTrainingSummary, type PsycheTrainingSummary } from './training-summary';
+export {
+  readSlowBrainState,
+  getActiveSlowBrainPolicy,
+  retrainSlowBrainPolicy,
+  maybeAutoRetrainSlowBrain,
+  rollbackSlowBrainPolicy,
+  type SlowBrainPolicy,
+  type SlowBrainState,
+  type SlowBrainRetrainResult,
+  type SlowBrainRollbackResult,
+} from './slow-brain';

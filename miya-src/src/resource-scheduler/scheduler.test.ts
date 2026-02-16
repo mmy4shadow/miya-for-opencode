@@ -122,4 +122,56 @@ describe('resource scheduler', () => {
     expect(snapshot.loadedModels.some((item) => item.modelID === 'model-c')).toBe(true);
     expect(snapshot.loadedModels.length).toBeLessThanOrEqual(2);
   });
+
+  test('applies hydraulics tiers and offloads stale models', async () => {
+    const prevHotset = process.env.MIYA_RESOURCE_HOTSET_MB;
+    const prevWarmPool = process.env.MIYA_RESOURCE_WARMPOOL_MB;
+    process.env.MIYA_RESOURCE_HOTSET_MB = '1300';
+    process.env.MIYA_RESOURCE_WARMPOOL_MB = '1300';
+    try {
+      const scheduler = new ResourceScheduler(tempProjectDir(), {
+        totalVramMB: 4096,
+        safetyMarginMB: 0,
+        maxConcurrentTasks: 1,
+      });
+      await scheduler.withLease(
+        {
+          kind: 'image.generate',
+          vramMB: 100,
+          modelID: 'hydra-a',
+          modelVramMB: 1200,
+        },
+        () => undefined,
+      );
+      await scheduler.withLease(
+        {
+          kind: 'vision.analyze',
+          vramMB: 100,
+          modelID: 'hydra-b',
+          modelVramMB: 1200,
+        },
+        () => undefined,
+      );
+      await scheduler.withLease(
+        {
+          kind: 'voice.tts',
+          vramMB: 100,
+          modelID: 'hydra-c',
+          modelVramMB: 1200,
+        },
+        () => undefined,
+      );
+      const snapshot = scheduler.snapshot();
+      expect(snapshot.hydraulics.hotsetLimitMB).toBeGreaterThan(0);
+      expect(snapshot.hydraulics.offloadedModels.length).toBeGreaterThanOrEqual(1);
+      expect(
+        snapshot.loadedModels.every((item) => item.residency === 'hot' || item.residency === 'warm'),
+      ).toBe(true);
+    } finally {
+      if (prevHotset === undefined) delete process.env.MIYA_RESOURCE_HOTSET_MB;
+      else process.env.MIYA_RESOURCE_HOTSET_MB = prevHotset;
+      if (prevWarmPool === undefined) delete process.env.MIYA_RESOURCE_WARMPOOL_MB;
+      else process.env.MIYA_RESOURCE_WARMPOOL_MB = prevWarmPool;
+    }
+  });
 });

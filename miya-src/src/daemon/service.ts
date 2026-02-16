@@ -17,11 +17,17 @@ import { maybeAutoReflectCompanionMemory } from '../companion/memory-reflect';
 import {
   PsycheConsultService,
   PsycheNativeSignalHub,
+  readSlowBrainState,
+  retrainSlowBrainPolicy,
+  rollbackSlowBrainPolicy,
+  maybeAutoRetrainSlowBrain,
   type PsycheConsultRequest,
   type PsycheConsultResult,
   type PsycheOutcomeRequest,
   type PsycheOutcomeResult,
   type PsycheNativeSignalHubStatus,
+  type SlowBrainRetrainResult,
+  type SlowBrainRollbackResult,
 } from './psyche';
 import {
   ensurePythonRuntime,
@@ -336,18 +342,29 @@ export class MiyaDaemonService {
     this.writeRuntimeState('stopped');
   }
 
-  runMemoryWorkerTick(): { triggered: boolean; processedLogs?: number; generatedTriplets?: number } {
+  runMemoryWorkerTick(): {
+    triggered: boolean;
+    processedLogs?: number;
+    generatedTriplets?: number;
+    slowBrain?: SlowBrainRetrainResult;
+  } {
+    const slowBrain = maybeAutoRetrainSlowBrain(this.projectDir, {
+      minIntervalSec: 45 * 60,
+      minOutcomes: 30,
+      trainingWindow: 800,
+    });
     const reflected = maybeAutoReflectCompanionMemory(this.projectDir, {
       idleMinutes: 5,
       minPendingLogs: 1,
       cooldownMinutes: 3,
       maxLogs: 120,
     });
-    if (!reflected) return { triggered: false };
+    if (!reflected) return { triggered: false, slowBrain };
     return {
       triggered: true,
       processedLogs: reflected.processedLogs,
       generatedTriplets: reflected.generatedTriplets,
+      slowBrain,
     };
   }
 
@@ -361,6 +378,22 @@ export class MiyaDaemonService {
 
   getPsycheSignalHubStatus(): PsycheNativeSignalHubStatus {
     return this.signalHub.getStatus();
+  }
+
+  getPsycheSlowBrainState(): ReturnType<typeof readSlowBrainState> {
+    return readSlowBrainState(this.projectDir);
+  }
+
+  retrainPsycheSlowBrain(input?: { force?: boolean; minOutcomes?: number }): SlowBrainRetrainResult {
+    return retrainSlowBrainPolicy(this.projectDir, {
+      force: input?.force === true,
+      minOutcomes: input?.minOutcomes,
+      trainingWindow: 800,
+    });
+  }
+
+  rollbackPsycheSlowBrain(versionID?: string): SlowBrainRollbackResult {
+    return rollbackSlowBrainPolicy(this.projectDir, versionID);
   }
 
   getModelLockStatus(): Record<string, { expected: string; ok: boolean; reason?: string }> {

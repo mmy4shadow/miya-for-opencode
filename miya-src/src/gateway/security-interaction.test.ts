@@ -631,6 +631,48 @@ describe('gateway security interaction acceptance', () => {
     }
   });
 
+  test('manages slow brain lifecycle and exposes hydraulics snapshot', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      const policy = (await client.request('policy.get')) as { hash: string };
+      const before = (await client.request('psyche.slowbrain.get')) as {
+        versions?: unknown[];
+        status?: string;
+      };
+      expect(Array.isArray(before.versions)).toBe(true);
+
+      const retrain = (await client.request('psyche.slowbrain.retrain', {
+        policyHash: policy.hash,
+        force: true,
+        minOutcomes: 1,
+      })) as { reason?: string; ok?: boolean };
+      expect(typeof retrain.reason).toBe('string');
+      expect(typeof retrain.ok).toBe('boolean');
+
+      const rollback = (await client.request('psyche.slowbrain.rollback', {
+        policyHash: policy.hash,
+      })) as { reason?: string; ok?: boolean };
+      expect(typeof rollback.reason).toBe('string');
+      expect(typeof rollback.ok).toBe('boolean');
+
+      const hydraulics = (await client.request('daemon.vram.hydraulics.get')) as {
+        hydraulics?: {
+          hotsetLimitMB?: number;
+          warmPoolLimitMB?: number;
+          offloadedModels?: unknown[];
+        };
+      };
+      expect(typeof hydraulics.hydraulics?.hotsetLimitMB).toBe('number');
+      expect(typeof hydraulics.hydraulics?.warmPoolLimitMB).toBe('number');
+      expect(Array.isArray(hydraulics.hydraulics?.offloadedModels)).toBe(true);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  }, 20_000);
+
   test('speaker gate pauses outbound/desktop/memory_read in guest mode', async () => {
     const prevStrict = process.env.MIYA_VOICEPRINT_STRICT;
     process.env.MIYA_VOICEPRINT_STRICT = '0';

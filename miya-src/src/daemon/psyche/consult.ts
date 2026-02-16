@@ -19,6 +19,7 @@ import {
   updateTrustScore,
   type TrustTier,
 } from './trust';
+import { getActiveSlowBrainPolicy, type SlowBrainPolicy } from './slow-brain';
 
 export type PsycheUrgency = 'low' | 'medium' | 'high' | 'critical';
 export type PsycheDecision = 'allow' | 'defer' | 'deny';
@@ -81,6 +82,18 @@ export interface PsycheConsultResult {
     tier: TrustTier;
   };
   risk: PsycheRiskSummary;
+  resonance: {
+    score: number;
+    semanticFocus: number;
+    momentum: number;
+    styleTags: string[];
+  };
+  slowBrain: {
+    versionID: string;
+    consumeAllowThreshold: number;
+    awayAllowThreshold: number;
+    deferRetryBaseSec: number;
+  };
   insightText: string;
 }
 
@@ -157,6 +170,11 @@ const defaultRandomSource: RandomSource = {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Number(value.toFixed(4))));
 }
 
 function asUrgency(value: unknown): PsycheUrgency {
@@ -281,6 +299,16 @@ export class PsycheConsultService {
     const trustAction = getTrustScore(this.trustPath, { kind: 'action', value: input.trust?.action });
     const minTrust = Math.min(trustTarget, trustSource, trustAction);
     const trustTier = trustTierFromScore(minTrust);
+    const slowBrain = getActiveSlowBrainPolicy(this.projectDir);
+    const resonance = this.computeResonanceProfile({
+      intent,
+      urgency,
+      state,
+      riskReasons: sentinel.reasons,
+      fastBrainScore,
+      trustTier,
+      shouldProbeScreen: sentinel.shouldProbeScreen && !shouldProbeScreen,
+    });
 
     const decisionSeed = this.pickDecision({
       state,
@@ -290,6 +318,8 @@ export class PsycheConsultService {
       shouldProbeScreen: sentinel.shouldProbeScreen && !shouldProbeScreen,
       fastBrainScore,
       trustTier,
+      slowBrain,
+      resonance,
     });
 
     let decision = decisionSeed;
@@ -323,6 +353,8 @@ export class PsycheConsultService {
       typeof probeConfidence === 'number' ? `probe_confidence=${probeConfidence.toFixed(2)}` : '',
       probeSceneTags.length > 0 ? `probe_scene=${probeSceneTags.join('|')}` : '',
       `fast_brain_score=${fastBrainScore.toFixed(2)}`,
+      `resonance_score=${resonance.score.toFixed(2)}`,
+      `slow_brain=${slowBrain.versionID}`,
       budgetHint,
       explorationApplied ? 'epsilon_exploration' : '',
       shadowModeApplied ? 'shadow_mode_safe_hold' : '',
@@ -341,6 +373,7 @@ export class PsycheConsultService {
       state,
       shadowModeApplied,
       risk,
+      slowBrain,
     });
     const reason = this.buildReason({
       decision,
@@ -371,6 +404,8 @@ export class PsycheConsultService {
       fixability,
       shouldProbeScreen,
       risk,
+      resonance,
+      slowBrain,
     });
 
     const result: PsycheConsultResult = {
@@ -400,6 +435,13 @@ export class PsycheConsultService {
         tier: trustTier,
       },
       risk,
+      resonance,
+      slowBrain: {
+        versionID: slowBrain.versionID,
+        consumeAllowThreshold: slowBrain.parameters.consumeAllowThreshold,
+        awayAllowThreshold: slowBrain.parameters.awayAllowThreshold,
+        deferRetryBaseSec: slowBrain.parameters.deferRetryBaseSec,
+      },
       insightText,
     };
 
@@ -539,8 +581,24 @@ export class PsycheConsultService {
     shouldProbeScreen: boolean;
     fastBrainScore: number;
     trustTier: TrustTier;
+    slowBrain: SlowBrainPolicy;
+    resonance: {
+      score: number;
+      semanticFocus: number;
+      momentum: number;
+      styleTags: string[];
+    };
   }): PsycheDecision {
-    const { state, urgency, userInitiated, shouldProbeScreen, fastBrainScore, trustTier } = input;
+    const {
+      state,
+      urgency,
+      userInitiated,
+      shouldProbeScreen,
+      fastBrainScore,
+      trustTier,
+      slowBrain,
+      resonance,
+    } = input;
     if (userInitiated) {
       if (state === 'UNKNOWN' && urgency === 'low') return 'defer';
       if (trustTier === 'low' && urgency === 'low') return 'defer';
@@ -552,10 +610,16 @@ export class PsycheConsultService {
     if (urgency === 'critical') return 'allow';
     if (state === 'FOCUS' || state === 'PLAY' || state === 'UNKNOWN') return 'defer';
     if (state === 'CONSUME') {
-      if (urgency === 'high') return fastBrainScore >= 0.35 ? 'allow' : 'defer';
-      return fastBrainScore >= 0.6 ? 'allow' : 'defer';
+      const threshold =
+        urgency === 'high'
+          ? Math.max(0.3, slowBrain.parameters.consumeAllowThreshold - 0.12)
+          : slowBrain.parameters.consumeAllowThreshold;
+      if (resonance.score >= 0.78 && trustTier !== 'low') return 'allow';
+      return fastBrainScore >= threshold ? 'allow' : 'defer';
     }
-    return fastBrainScore >= 0.3 ? 'allow' : 'defer';
+    const awayThreshold = slowBrain.parameters.awayAllowThreshold;
+    if (resonance.score < 0.35 && urgency === 'low') return 'defer';
+    return fastBrainScore >= awayThreshold ? 'allow' : 'defer';
   }
 
   private resolveFixability(input: {
@@ -576,6 +640,66 @@ export class PsycheConsultService {
       return 'retry_later';
     }
     return 'rewrite';
+  }
+
+  private computeResonanceProfile(input: {
+    intent: string;
+    urgency: PsycheUrgency;
+    state: SentinelState;
+    riskReasons: string[];
+    fastBrainScore: number;
+    trustTier: TrustTier;
+    shouldProbeScreen: boolean;
+  }): {
+    score: number;
+    semanticFocus: number;
+    momentum: number;
+    styleTags: string[];
+  } {
+    const intent = input.intent.toLowerCase();
+    const semanticFocus = clamp(
+      (intent.includes('remind') || intent.includes('checkin') || intent.includes('schedule')
+        ? 0.78
+        : intent.includes('notify') || intent.includes('reply')
+          ? 0.62
+          : 0.45) +
+        (input.urgency === 'critical'
+          ? 0.25
+          : input.urgency === 'high'
+            ? 0.15
+            : input.urgency === 'medium'
+              ? 0.05
+              : 0),
+      0,
+      1,
+    );
+    const momentum = clamp(
+      input.fastBrainScore * 0.65 +
+        (input.state === 'AWAY' ? 0.2 : input.state === 'CONSUME' ? 0.08 : -0.08),
+      0,
+      1,
+    );
+    const riskPenalty = input.riskReasons.some((item) => item.includes('probe') || item.includes('capture'))
+      ? 0.14
+      : 0;
+    const trustBoost = input.trustTier === 'high' ? 0.08 : input.trustTier === 'low' ? -0.12 : 0;
+    const score = clamp(
+      semanticFocus * 0.45 + momentum * 0.45 + trustBoost - riskPenalty - (input.shouldProbeScreen ? 0.08 : 0),
+      0,
+      1,
+    );
+    const styleTags: string[] = [];
+    if (input.state === 'FOCUS') styleTags.push('low_interruption');
+    if (input.state === 'CONSUME') styleTags.push('ambient');
+    if (input.state === 'AWAY') styleTags.push('asynchronous');
+    if (score >= 0.72) styleTags.push('resonance_high');
+    else if (score <= 0.36) styleTags.push('resonance_low');
+    return {
+      score,
+      semanticFocus,
+      momentum,
+      styleTags,
+    };
   }
 
   private resolveApprovalMode(input: {
@@ -608,6 +732,13 @@ export class PsycheConsultService {
     fixability: PsycheFixability;
     shouldProbeScreen: boolean;
     risk: PsycheRiskSummary;
+    resonance: {
+      score: number;
+      semanticFocus: number;
+      momentum: number;
+      styleTags: string[];
+    };
+    slowBrain: SlowBrainPolicy;
   }): string {
     const parts = [
       `state=${input.state}`,
@@ -615,10 +746,15 @@ export class PsycheConsultService {
       `decision=${input.decision}`,
       `gate=${input.approvalMode}`,
       `fix=${input.fixability}`,
+      `resonance=${input.resonance.score.toFixed(2)}`,
+      `slow_brain=${input.slowBrain.versionID}`,
     ];
     if (input.shouldProbeScreen) parts.push('probe=required');
     if (input.risk.falseIdleUncertain) parts.push('risk=false_idle');
     if (input.risk.drmCaptureBlocked) parts.push('risk=drm_capture');
+    if (input.resonance.styleTags.length > 0) {
+      parts.push(`style=${input.resonance.styleTags.join('+')}`);
+    }
     return `Psyche: ${parts.join(' | ')}`;
   }
 
@@ -800,11 +936,12 @@ export class PsycheConsultService {
     state: SentinelState;
     shadowModeApplied: boolean;
     risk: PsycheRiskSummary;
+    slowBrain: SlowBrainPolicy;
   }): number {
     if (input.decision === 'allow') return 0;
     if (input.shadowModeApplied) return 120;
     if (input.urgency === 'critical') return input.risk.falseIdleUncertain ? 20 : 10;
-    let base = 90;
+    let base = input.slowBrain.parameters.deferRetryBaseSec;
     if (input.state === 'FOCUS' || input.state === 'PLAY') base = 300;
     else if (input.state === 'UNKNOWN') base = 180;
     else if (input.state === 'CONSUME') base = 120;

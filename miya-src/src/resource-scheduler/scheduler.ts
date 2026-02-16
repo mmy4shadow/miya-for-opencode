@@ -32,6 +32,14 @@ interface LoadedModel {
   vramMB: number;
   pins: number;
   lastUsedAtMs: number;
+  residency: 'hot' | 'warm';
+}
+
+interface OffloadedModel {
+  modelID: string;
+  vramMB: number;
+  offloadedAtMs: number;
+  reason: string;
 }
 
 function nowIso(): string {
@@ -49,9 +57,13 @@ export class ResourceScheduler {
   private readonly totalVramMB: number;
   private readonly safetyMarginMB: number;
   private readonly maxConcurrentTasks: number;
+  private readonly hotsetLimitMB: number;
+  private readonly warmPoolLimitMB: number;
+  private readonly maxOffloadedModels: number;
   private readonly queue: PendingRequest[] = [];
   private readonly active = new Map<string, ActiveLease>();
   private readonly loadedModels = new Map<string, LoadedModel>();
+  private readonly offloadedModels = new Map<string, OffloadedModel>();
   private readonly currentModelByKind = new Map<ResourceRequest['kind'], string>();
   private usedVramMB = 0;
   private draining = false;
@@ -69,6 +81,33 @@ export class ResourceScheduler {
     this.maxConcurrentTasks =
       options.maxConcurrentTasks ??
       toNumber(process.env.MIYA_RESOURCE_MAX_CONCURRENT, 2);
+    this.hotsetLimitMB = Math.max(
+      512,
+      Math.min(
+        this.totalVramMB,
+        toNumber(
+          process.env.MIYA_RESOURCE_HOTSET_MB,
+          Math.max(1024, Math.floor(this.totalVramMB * 0.55)),
+        ),
+      ),
+    );
+    const warmPoolCapacity = Math.max(0, this.totalVramMB - this.hotsetLimitMB);
+    this.warmPoolLimitMB =
+      warmPoolCapacity <= 0
+        ? 0
+        : warmPoolCapacity <= 256
+          ? warmPoolCapacity
+          : Math.max(
+              256,
+              Math.min(
+                warmPoolCapacity,
+                toNumber(
+                  process.env.MIYA_RESOURCE_WARMPOOL_MB,
+                  Math.max(512, Math.floor(this.totalVramMB * 0.25)),
+                ),
+              ),
+            );
+    this.maxOffloadedModels = Math.max(8, toNumber(process.env.MIYA_RESOURCE_OFFLOAD_MAX, 64));
     this.recordSnapshot();
   }
 
@@ -123,6 +162,13 @@ export class ResourceScheduler {
   }
 
   snapshot(): ResourceSchedulerSnapshot {
+    const loadedModels = [...this.loadedModels.values()].sort((a, b) => b.lastUsedAtMs - a.lastUsedAtMs);
+    const hotsetUsedMB = loadedModels
+      .filter((model) => model.residency === 'hot')
+      .reduce((sum, model) => sum + model.vramMB, 0);
+    const warmPoolUsedMB = loadedModels
+      .filter((model) => model.residency === 'warm')
+      .reduce((sum, model) => sum + model.vramMB, 0);
     return {
       timestamp: nowIso(),
       totalVramMB: this.totalVramMB,
@@ -130,14 +176,28 @@ export class ResourceScheduler {
       usedVramMB: this.usedVramMB,
       activeTasks: this.active.size,
       queueDepth: this.queue.length,
-      loadedModels: [...this.loadedModels.values()]
-        .sort((a, b) => b.lastUsedAtMs - a.lastUsedAtMs)
+      loadedModels: loadedModels
         .map((model) => ({
           modelID: model.modelID,
           vramMB: model.vramMB,
           pins: model.pins,
           lastUsedAt: new Date(model.lastUsedAtMs).toISOString(),
+          residency: model.residency,
         })),
+      hydraulics: {
+        hotsetLimitMB: this.hotsetLimitMB,
+        warmPoolLimitMB: this.warmPoolLimitMB,
+        hotsetUsedMB,
+        warmPoolUsedMB,
+        offloadedModels: [...this.offloadedModels.values()]
+          .sort((a, b) => b.offloadedAtMs - a.offloadedAtMs)
+          .map((item) => ({
+            modelID: item.modelID,
+            vramMB: item.vramMB,
+            offloadedAt: new Date(item.offloadedAtMs).toISOString(),
+            reason: item.reason,
+          })),
+      },
     };
   }
 
@@ -255,6 +315,7 @@ export class ResourceScheduler {
       this.unpinModel(lease.modelID);
       this.touchModel(lease.modelID);
     }
+    this.rebalanceHydraulics();
     appendSchedulerEvent(this.projectDir, {
       at: nowIso(),
       type: 'released',
@@ -270,15 +331,15 @@ export class ResourceScheduler {
   private canGrant(request: ResourceRequest): boolean {
     if (this.active.size >= this.maxConcurrentTasks) return false;
 
-    const neededVramMB = Math.max(0, Math.floor(request.vramMB ?? 0));
-    if (neededVramMB === 0) return true;
-
     const modelVramMB = request.modelID
       ? Math.max(
           0,
           Math.floor(request.modelVramMB ?? request.vramMB ?? 0),
         )
       : 0;
+    const neededVramMB = Math.max(0, Math.floor(request.vramMB ?? 0));
+    if (neededVramMB + modelVramMB <= 0) return true;
+    this.rebalanceHydraulics();
     this.evictModelsIfNeeded(neededVramMB + modelVramMB);
     return this.availableVramMB() >= neededVramMB + modelVramMB;
   }
@@ -337,7 +398,19 @@ export class ResourceScheduler {
     const existing = this.loadedModels.get(modelID);
     if (existing) {
       existing.lastUsedAtMs = Date.now();
+      if (existing.residency !== 'hot') existing.residency = 'hot';
       return;
+    }
+    const offloaded = this.offloadedModels.get(modelID);
+    if (offloaded) {
+      this.offloadedModels.delete(modelID);
+      appendSchedulerEvent(this.projectDir, {
+        at: nowIso(),
+        type: 'model_reloaded',
+        modelID,
+        vramMB: offloaded.vramMB,
+        reason: offloaded.reason,
+      });
     }
     this.evictModelsIfNeeded(vramMB);
     this.loadedModels.set(modelID, {
@@ -345,6 +418,7 @@ export class ResourceScheduler {
       vramMB,
       pins: 0,
       lastUsedAtMs: Date.now(),
+      residency: 'hot',
     });
     appendSchedulerEvent(this.projectDir, {
       at: nowIso(),
@@ -352,6 +426,7 @@ export class ResourceScheduler {
       modelID,
       vramMB,
     });
+    this.rebalanceHydraulics();
   }
 
   private evictModelsIfNeeded(requiredVramMB: number): void {
@@ -361,16 +436,33 @@ export class ResourceScheduler {
       .filter((item) => item.pins <= 0)
       .sort((a, b) => a.lastUsedAtMs - b.lastUsedAtMs);
     for (const candidate of candidates) {
-      this.loadedModels.delete(candidate.modelID);
-      appendSchedulerEvent(this.projectDir, {
-        at: nowIso(),
-        type: 'model_unloaded',
-        modelID: candidate.modelID,
-        vramMB: candidate.vramMB,
-        reason: 'lru_evict',
-      });
+      this.offloadModel(candidate, 'lru_evict');
       if (this.availableVramMB() >= requiredVramMB) break;
     }
+  }
+
+  private offloadModel(model: LoadedModel, reason: string): void {
+    this.loadedModels.delete(model.modelID);
+    this.offloadedModels.set(model.modelID, {
+      modelID: model.modelID,
+      vramMB: model.vramMB,
+      offloadedAtMs: Date.now(),
+      reason,
+    });
+    if (this.offloadedModels.size > this.maxOffloadedModels) {
+      const stale = [...this.offloadedModels.values()].sort((a, b) => a.offloadedAtMs - b.offloadedAtMs);
+      const trim = stale.slice(0, Math.max(0, this.offloadedModels.size - this.maxOffloadedModels));
+      for (const item of trim) {
+        this.offloadedModels.delete(item.modelID);
+      }
+    }
+    appendSchedulerEvent(this.projectDir, {
+      at: nowIso(),
+      type: 'model_unloaded',
+      modelID: model.modelID,
+      vramMB: model.vramMB,
+      reason,
+    });
   }
 
   private pinModel(modelID: string): void {
@@ -378,6 +470,7 @@ export class ResourceScheduler {
     if (!model) return;
     model.pins += 1;
     model.lastUsedAtMs = Date.now();
+    model.residency = 'hot';
   }
 
   private unpinModel(modelID: string): void {
@@ -391,6 +484,46 @@ export class ResourceScheduler {
     const model = this.loadedModels.get(modelID);
     if (!model) return;
     model.lastUsedAtMs = Date.now();
+  }
+
+  private rebalanceHydraulics(): void {
+    if (this.loadedModels.size === 0) return;
+    let hotUsed = 0;
+    let warmUsed = 0;
+    const candidates = [...this.loadedModels.values()].sort((a, b) => b.lastUsedAtMs - a.lastUsedAtMs);
+    const toOffload: LoadedModel[] = [];
+    for (const model of candidates) {
+      const previous = model.residency;
+      let next: 'hot' | 'warm' | 'offload';
+      if (model.pins > 0) {
+        next = 'hot';
+      } else if (hotUsed + model.vramMB <= this.hotsetLimitMB) {
+        next = 'hot';
+      } else if (warmUsed + model.vramMB <= this.warmPoolLimitMB) {
+        next = 'warm';
+      } else {
+        next = 'offload';
+      }
+      if (next === 'hot') {
+        hotUsed += model.vramMB;
+      } else if (next === 'warm') {
+        warmUsed += model.vramMB;
+      } else {
+        toOffload.push(model);
+      }
+      if (next !== 'offload' && previous !== next) {
+        model.residency = next;
+        appendSchedulerEvent(this.projectDir, {
+          at: nowIso(),
+          type: 'model_residency',
+          modelID: model.modelID,
+          residency: next,
+        });
+      }
+    }
+    for (const model of toOffload) {
+      this.offloadModel(model, 'hydraulics_offload');
+    }
   }
 
   private recordSnapshot(): void {
