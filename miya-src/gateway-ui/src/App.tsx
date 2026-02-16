@@ -419,6 +419,18 @@ export default function App() {
             ) : null}
           </header>
 
+          <nav className="flex flex-wrap gap-2 lg:hidden">
+            {['聊天', 'IM 通道', '技能', '模块', '状态'].map((item) => (
+              <button
+                key={`mobile-${item}`}
+                type="button"
+                className={`rounded-lg border px-3 py-1.5 text-sm ${item === '模块' ? 'border-sky-200 bg-sky-100 text-sky-700' : 'border-slate-300 bg-white text-slate-600'}`}
+              >
+                {item}
+              </button>
+            ))}
+          </nav>
+
           <section className={`${panelClass}`}>
             <h2 className="text-3xl font-semibold text-slate-800">模块管理</h2>
             <p className="mt-2 text-sm text-slate-500">管理控制面板与安全模块。先看状态，再操作，再写入时间线。</p>
@@ -719,8 +731,11 @@ export default function App() {
               在线节点 {snapshot.nodes?.connected ?? 0} / {snapshot.nodes?.total ?? 0}
             </p>
             <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
-              {(snapshot.nodes?.list ?? []).map((node) => (
-                <div key={node.id ?? Math.random().toString()} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+              {(snapshot.nodes?.list ?? []).map((node, index) => (
+                <div
+                  key={node.id ?? `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                >
                   <p className="font-medium">{node.label || node.id || '未命名节点'}</p>
                   <p className={node.connected ? 'text-emerald-700' : 'text-rose-700'}>
                     {node.connected ? '在线' : '离线'}
