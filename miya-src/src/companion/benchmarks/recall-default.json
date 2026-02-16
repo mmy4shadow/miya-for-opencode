@@ -1,5 +1,5 @@
 {
-  "name": "miya-memory-recall-v1",
+  "name": "miya-memory-recall-v2",
   "fixtures": [
     {
       "id": "pref_matcha",
@@ -8,28 +8,76 @@
       "semanticLayer": "preference"
     },
     {
-      "id": "work_ts",
+      "id": "pref_hot_americano",
+      "text": "User prefers hot americano in the morning",
+      "domain": "relationship",
+      "semanticLayer": "preference"
+    },
+    {
+      "id": "pref_quiet_mode",
+      "text": "User dislikes noisy notifications during focus sessions",
+      "domain": "relationship",
+      "semanticLayer": "preference"
+    },
+    {
+      "id": "work_ts_strict",
       "text": "Project requires TypeScript strict mode and lint pass",
       "domain": "work",
       "semanticLayer": "semantic"
     },
     {
-      "id": "trace_timeout",
+      "id": "work_verify_chain",
+      "text": "Delivery workflow must run plan then exec then verify then fix",
+      "domain": "work",
+      "semanticLayer": "semantic"
+    },
+    {
+      "id": "work_release_rule",
+      "text": "Release rule requires changelog and regression tests before merge",
+      "domain": "work",
+      "semanticLayer": "semantic"
+    },
+    {
+      "id": "trace_build_timeout",
       "text": "Tool trace: build command timed out on CI pipeline",
       "domain": "work",
       "semanticLayer": "tool_trace"
     },
     {
-      "id": "episodic_trip",
+      "id": "trace_missing_dep",
+      "text": "Tool trace: test run failed due to missing sqlite dependency",
+      "domain": "work",
+      "semanticLayer": "tool_trace"
+    },
+    {
+      "id": "trace_api_429",
+      "text": "Tool trace: remote embedding endpoint returned 429 rate limit",
+      "domain": "work",
+      "semanticLayer": "tool_trace"
+    },
+    {
+      "id": "episodic_weekend",
       "text": "User said yesterday that weekend plan is hiking",
       "domain": "relationship",
+      "semanticLayer": "episodic"
+    },
+    {
+      "id": "episodic_monday_meeting",
+      "text": "User mentioned monday sync meeting starts at 10am",
+      "domain": "relationship",
+      "semanticLayer": "episodic"
+    },
+    {
+      "id": "episodic_code_review",
+      "text": "User asked to keep code review comments concise and direct",
+      "domain": "work",
       "semanticLayer": "episodic"
     }
   ],
   "cases": [
     {
       "id": "q1",
-      "query": "What drink does user prefer?",
+      "query": "What drink does user like with low sugar?",
       "expected": ["pref_matcha"],
       "domain": "relationship",
       "semanticLayers": ["preference"],
@@ -37,27 +85,91 @@
     },
     {
       "id": "q2",
-      "query": "How to keep TypeScript quality gate green?",
-      "expected": ["work_ts"],
-      "domain": "work",
-      "semanticLayers": ["semantic"],
+      "query": "Which coffee does user prefer in the morning?",
+      "expected": ["pref_hot_americano"],
+      "domain": "relationship",
+      "semanticLayers": ["preference"],
       "k": 3
     },
     {
       "id": "q3",
-      "query": "Any trace about timeout in build?",
-      "expected": ["trace_timeout"],
-      "domain": "work",
-      "semanticLayers": ["tool_trace"],
+      "query": "How should notifications behave when user is focusing?",
+      "expected": ["pref_quiet_mode"],
+      "domain": "relationship",
+      "semanticLayers": ["preference"],
       "k": 3
     },
     {
       "id": "q4",
-      "query": "What did user mention about weekend?",
-      "expected": ["episodic_trip"],
+      "query": "How to keep TypeScript quality gate green?",
+      "expected": ["work_ts_strict"],
+      "domain": "work",
+      "semanticLayers": ["semantic"],
+      "k": 5
+    },
+    {
+      "id": "q5",
+      "query": "What is the required pipeline stage order?",
+      "expected": ["work_verify_chain"],
+      "domain": "work",
+      "semanticLayers": ["semantic"],
+      "k": 5
+    },
+    {
+      "id": "q6",
+      "query": "What is required before merge release?",
+      "expected": ["work_release_rule"],
+      "domain": "work",
+      "semanticLayers": ["semantic"],
+      "k": 5
+    },
+    {
+      "id": "q7",
+      "query": "Any trace about timeout in build?",
+      "expected": ["trace_build_timeout"],
+      "domain": "work",
+      "semanticLayers": ["tool_trace"],
+      "k": 5
+    },
+    {
+      "id": "q8",
+      "query": "Which trace mentions missing sqlite dependency?",
+      "expected": ["trace_missing_dep"],
+      "domain": "work",
+      "semanticLayers": ["tool_trace"],
+      "k": 5
+    },
+    {
+      "id": "q9",
+      "query": "Which trace has rate limit 429 from embedding endpoint?",
+      "expected": ["trace_api_429"],
+      "domain": "work",
+      "semanticLayers": ["tool_trace"],
+      "k": 5
+    },
+    {
+      "id": "q10",
+      "query": "What did user mention about weekend plan?",
+      "expected": ["episodic_weekend"],
       "domain": "relationship",
       "semanticLayers": ["episodic"],
-      "k": 3
+      "k": 5
+    },
+    {
+      "id": "q11",
+      "query": "When is monday sync meeting?",
+      "expected": ["episodic_monday_meeting"],
+      "domain": "relationship",
+      "semanticLayers": ["episodic"],
+      "k": 5
+    },
+    {
+      "id": "q12",
+      "query": "How should code review comments be written?",
+      "expected": ["episodic_code_review"],
+      "domain": "work",
+      "semanticLayers": ["episodic"],
+      "k": 5
     }
   ]
 }

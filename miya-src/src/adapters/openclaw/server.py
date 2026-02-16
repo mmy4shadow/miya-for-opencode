@@ -195,10 +195,9 @@ def _handle_session_send(params: Dict[str, Any]) -> Dict[str, Any]:
 def _handle_pairing_query(params: Dict[str, Any]) -> Dict[str, Any]:
     pair_id = str(params.get("pairID", "")).strip() or None
     try:
-        if pair_id:
-            data = _jsonrpc("nodes.pair.status", {"pairID": pair_id})
-        else:
-            data = _jsonrpc("nodes.pair.list", {})
+        data = _jsonrpc("nodes.pair.list", {})
+        if pair_id and isinstance(data, list):
+            data = [item for item in data if isinstance(item, dict) and str(item.get("id", "")).strip() == pair_id]
         return {"provider": "openclaw", "source": "jsonrpc", "pairing": data}
     except Exception:
         data = _rest_get(
@@ -210,29 +209,40 @@ def _handle_pairing_query(params: Dict[str, Any]) -> Dict[str, Any]:
 
 def _handle_skills_sync(params: Dict[str, Any]) -> Dict[str, Any]:
     action = str(params.get("action", "list")).strip().lower()
+    source_pack_id = (
+        str(params.get("sourcePackID", "")).strip()
+        or str(params.get("source", "")).strip()
+        or str(params.get("target", "")).strip()
+        or None
+    )
+    revision = str(params.get("revision", "")).strip() or None
+    session_id = str(params.get("sessionID", "")).strip() or None
+    policy_hash = str(params.get("policyHash", "")).strip() or None
     if action == "list":
         data = _jsonrpc("miya.sync.list", {})
         return {"provider": "openclaw", "source": "jsonrpc", "sync": data}
     if action == "diff":
-        payload = {
-            "source": str(params.get("source", "")).strip() or None,
-            "target": str(params.get("target", "")).strip() or None,
-        }
+        if not source_pack_id:
+            raise ValueError("sourcePackID_required_for_diff")
+        payload = {"sourcePackID": source_pack_id}
         data = _jsonrpc("miya.sync.diff", payload)
         return {"provider": "openclaw", "source": "jsonrpc", "sync": data}
     if action == "apply":
+        if not source_pack_id:
+            raise ValueError("sourcePackID_required_for_apply")
         payload = {
-            "source": str(params.get("source", "")).strip() or None,
-            "target": str(params.get("target", "")).strip() or None,
+            "sourcePackID": source_pack_id,
+            "revision": revision,
+            "sessionID": session_id,
+            "policyHash": policy_hash,
             "dryRun": bool(params.get("dryRun", False)),
         }
         data = _jsonrpc("miya.sync.apply", payload)
         return {"provider": "openclaw", "source": "jsonrpc", "sync": data}
     if action == "verify":
-        payload = {
-            "source": str(params.get("source", "")).strip() or None,
-            "target": str(params.get("target", "")).strip() or None,
-        }
+        if not source_pack_id:
+            raise ValueError("sourcePackID_required_for_verify")
+        payload = {"sourcePackID": source_pack_id}
         data = _jsonrpc("miya.sync.verify", payload)
         return {"provider": "openclaw", "source": "jsonrpc", "sync": data}
     raise ValueError(f"unsupported_sync_action:{action}")

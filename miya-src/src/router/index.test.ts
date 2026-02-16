@@ -27,7 +27,7 @@ describe('router feedback learning', () => {
 
   test('extracts semantic evidence for routing confidence', () => {
     const signal = analyzeRouteSemantics('请查找并修复这个 compile failing 问题，附上 docs 引用');
-    expect(['code_fix', 'code_search']).toContain(signal.intent);
+    expect(signal.intent).toBe('code_fix');
     expect(signal.confidence).toBeGreaterThan(0);
     expect(signal.evidence.length).toBeGreaterThan(0);
     expect(signal.evidence.some((item) => item.startsWith('light_model:'))).toBe(true);

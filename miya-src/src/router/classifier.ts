@@ -81,13 +81,25 @@ export function analyzeRouteSemantics(text: string): RouteSemanticSignal {
       (ruleScores[intent] ?? 0) + (model.probabilities[intent] ?? 0) * modelScale * modelWeight;
   }
   evidence.push(...model.evidence.map((item) => `light_model:${item}`));
+  if (/(报错|修复|failing|compile|panic|stack trace|bug|error|hotfix|patch)/i.test(lower)) {
+    combinedScores.code_fix += 0.2;
+    evidence.push('fix_critical_boost');
+  }
 
   const ranked = Object.entries(combinedScores)
     .filter(([intent]) => intent !== 'general')
     .sort((a, b) => b[1] - a[1]) as Array<[RouteIntent, number]>;
   const top = ranked[0];
   const second = ranked[1];
-  const intent: RouteIntent = !top || top[1] <= 0.25 ? 'general' : top[0];
+  let intent: RouteIntent = !top || top[1] <= 0.25 ? 'general' : top[0];
+  if (
+    intent === 'code_search' &&
+    /(报错|修复|failing|compile|panic|stack trace|bug|error|hotfix|patch)/i.test(lower) &&
+    combinedScores.code_fix >= combinedScores.code_search - 0.08
+  ) {
+    intent = 'code_fix';
+    evidence.push('fix_tiebreak_override');
+  }
   const confidence = !top
     ? 0
     : Number(Math.max(0, Math.min(1, top[1] / Math.max(1, top[1] + (second?.[1] ?? 0.2)))).toFixed(4));

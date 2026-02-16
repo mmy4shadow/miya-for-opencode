@@ -5499,8 +5499,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('openclaw.skills.sync', async (params) => {
     return callOpenClaw('skills.sync', {
       action: parseText(params.action) || 'list',
-      source: parseText(params.source) || undefined,
-      target: parseText(params.target) || undefined,
+      sourcePackID:
+        parseText(params.sourcePackID) || parseText(params.source) || parseText(params.target) || undefined,
+      revision: parseText(params.revision) || undefined,
+      sessionID: parseText(params.sessionID) || undefined,
+      policyHash: parseText(params.policyHash) || undefined,
       dryRun: typeof params.dryRun === 'boolean' ? Boolean(params.dryRun) : undefined,
     });
   });
