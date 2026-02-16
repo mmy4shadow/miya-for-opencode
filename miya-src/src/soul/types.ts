@@ -5,6 +5,8 @@ export interface SoulProfile {
   principles: string[];
   behaviorRules: string[];
   forbidden: string[];
+  workAddons: string[];
+  chatAddons: string[];
+  revision: string;
   rawMarkdown: string;
 }
-

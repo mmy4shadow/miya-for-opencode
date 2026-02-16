@@ -12,19 +12,28 @@ const z = tool.schema;
 export function createSoulTools(projectDir: string): Record<string, ToolDefinition> {
   const miya_soul_get = tool({
     description: 'Read current SOUL profile and persona layer.',
-    args: {},
-    async execute() {
+    args: {
+      mode: z.enum(['work', 'chat', 'mixed']).optional(),
+      depth: z.enum(['minimal', 'full']).optional(),
+    },
+    async execute(args) {
       const profile = loadSoulProfile(projectDir);
       return [
         `file=${soulFilePath(projectDir)}`,
         `name=${profile.name}`,
         `role=${profile.role}`,
         `tone=${profile.tone}`,
+        `revision=${profile.revision}`,
         `principles=${profile.principles.length}`,
         `behavior_rules=${profile.behaviorRules.length}`,
         `forbidden=${profile.forbidden.length}`,
+        `work_addons=${profile.workAddons.length}`,
+        `chat_addons=${profile.chatAddons.length}`,
         '',
-        soulPersonaLayer(projectDir),
+        soulPersonaLayer(projectDir, {
+          mode: args.mode,
+          depth: args.depth,
+        }),
       ].join('\n');
     },
   });
@@ -64,4 +73,3 @@ export function createSoulTools(projectDir: string): Record<string, ToolDefiniti
     miya_soul_reset,
   };
 }
-

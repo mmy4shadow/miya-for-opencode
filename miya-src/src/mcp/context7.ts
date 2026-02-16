@@ -14,5 +14,10 @@ export const context7: RemoteMcpConfig = {
   capabilities: {
     sampling: false,
     mcpUi: false,
+    serviceExpose: true,
+    native: true,
+    authMode: process.env.CONTEXT7_API_KEY ? 'header' : 'none',
+    ecosystem: 'core',
+    tags: ['docs', 'reference', 'libraries'],
   },
 };

@@ -6,24 +6,88 @@ export type RouteIntent =
   | 'ui_design'
   | 'general';
 
+interface IntentRule {
+  intent: RouteIntent;
+  pattern: RegExp;
+  weight: number;
+  evidence: string;
+}
+
+export interface RouteSemanticSignal {
+  intent: RouteIntent;
+  confidence: number;
+  evidence: string[];
+  scores: Record<RouteIntent, number>;
+  ambiguity: number;
+}
+
+const INTENT_RULES: IntentRule[] = [
+  { intent: 'code_fix', pattern: /(报错|修复|bug|错误|test fail|failing|compile|panic|stack trace|回归)/i, weight: 1.4, evidence: 'fix_error_signal' },
+  { intent: 'code_fix', pattern: /(rollback|hotfix|patch|修一下|修复一下)/i, weight: 0.8, evidence: 'fix_action_signal' },
+  { intent: 'code_search', pattern: /(查找|定位|where|find|grep|search|索引|引用在哪)/i, weight: 1.3, evidence: 'search_signal' },
+  { intent: 'docs_research', pattern: /(文档|api|docs|reference|手册|规范|citation|引用来源)/i, weight: 1.3, evidence: 'docs_signal' },
+  { intent: 'architecture', pattern: /(架构|设计方案|tradeoff|risk|风控|扩展性|可维护|migration|迁移)/i, weight: 1.2, evidence: 'architecture_signal' },
+  { intent: 'ui_design', pattern: /(ui|样式|页面|交互|设计|视觉|layout|css|动效|排版)/i, weight: 1.2, evidence: 'ui_signal' },
+];
+
+function seedScores(): Record<RouteIntent, number> {
+  return {
+    code_fix: 0,
+    code_search: 0,
+    docs_research: 0,
+    architecture: 0,
+    ui_design: 0,
+    general: 0.2,
+  };
+}
+
+export function analyzeRouteSemantics(text: string): RouteSemanticSignal {
+  const lower = String(text ?? '').toLowerCase();
+  const scores = seedScores();
+  const evidence: string[] = [];
+  for (const rule of INTENT_RULES) {
+    if (!rule.pattern.test(lower)) continue;
+    scores[rule.intent] += rule.weight;
+    evidence.push(rule.evidence);
+  }
+
+  if (/```[\s\S]*```/.test(lower)) {
+    scores.code_fix += 0.6;
+    scores.code_search += 0.4;
+    evidence.push('code_block_present');
+  }
+  if (/(截图|mockup|figma|视觉稿)/i.test(lower)) {
+    scores.ui_design += 0.7;
+    evidence.push('design_asset_signal');
+  }
+  if (/(并行|pipeline|workflow|编排|自动化)/i.test(lower)) {
+    scores.architecture += 0.5;
+    scores.code_fix += 0.3;
+    evidence.push('workflow_signal');
+  }
+
+  const ranked = Object.entries(scores)
+    .filter(([intent]) => intent !== 'general')
+    .sort((a, b) => b[1] - a[1]) as Array<[RouteIntent, number]>;
+  const top = ranked[0];
+  const second = ranked[1];
+  const intent: RouteIntent = !top || top[1] <= 0.25 ? 'general' : top[0];
+  const confidence = !top
+    ? 0
+    : Number(Math.max(0, Math.min(1, top[1] / Math.max(1, top[1] + (second?.[1] ?? 0.2)))).toFixed(4));
+  const ambiguity = second && top ? Number(Math.max(0, second[1] / Math.max(top[1], 0.0001)).toFixed(4)) : 0;
+
+  return {
+    intent,
+    confidence,
+    evidence: [...new Set(evidence)].slice(0, 8),
+    scores,
+    ambiguity,
+  };
+}
+
 export function classifyIntent(text: string): RouteIntent {
-  const lower = text.toLowerCase();
-  if (/(报错|修复|bug|错误|test fail|failing|compile)/i.test(lower)) {
-    return 'code_fix';
-  }
-  if (/(查找|定位|where|find|grep|search)/i.test(lower)) {
-    return 'code_search';
-  }
-  if (/(文档|api|docs|reference|手册)/i.test(lower)) {
-    return 'docs_research';
-  }
-  if (/(架构|设计方案|tradeoff|risk|风控)/i.test(lower)) {
-    return 'architecture';
-  }
-  if (/(ui|样式|页面|交互|设计|视觉)/i.test(lower)) {
-    return 'ui_design';
-  }
-  return 'general';
+  return analyzeRouteSemantics(text).intent;
 }
 
 export function recommendedAgent(intent: RouteIntent): string {
@@ -34,4 +98,3 @@ export function recommendedAgent(intent: RouteIntent): string {
   if (intent === 'ui_design') return '6-ui-designer';
   return '1-task-manager';
 }
-

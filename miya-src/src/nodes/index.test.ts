@@ -3,15 +3,18 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  classifyNodeCapabilities,
   createInvokeRequest,
   createNodePairRequest,
   issueNodeToken,
   listInvokeRequests,
   listNodePairs,
+  mapNodePermissions,
   markInvokeSent,
   registerNode,
   resolveInvokeResult,
   resolveNodePair,
+  summarizeNodeGovernance,
 } from './index';
 
 function tempProjectDir(): string {
@@ -101,5 +104,82 @@ describe('nodes store', () => {
     });
     expect(ok.connected).toBe(true);
     expect(ok.status).toBe('online');
+  });
+
+  test('maps node permissions into governance profile', () => {
+    const projectDir = tempProjectDir();
+    const node = registerNode(projectDir, {
+      nodeID: 'node-governance',
+      deviceID: 'device-governance',
+      type: 'desktop',
+      platform: 'win32',
+      capabilities: ['system.run', 'perm.screenRecording', 'perm.accessibility', 'perm.filesystem.full', 'perm.network'],
+      permissions: {
+        screenRecording: true,
+        accessibility: true,
+        filesystem: 'full',
+        network: true,
+      },
+    });
+    const profile = mapNodePermissions(node);
+    expect(profile.bash).toBe('ask');
+    expect(profile.edit).toBe('ask');
+    expect(profile.desktopControl).toBe('ask');
+    expect(profile.riskLevel).toBe('HIGH');
+  });
+
+  test('classifies capabilities and summarizes governance', () => {
+    const projectDir = tempProjectDir();
+    const secure = registerNode(projectDir, {
+      nodeID: 'node-secure-1',
+      deviceID: 'device-secure-1',
+      type: 'desktop',
+      platform: 'win32',
+      capabilities: ['system.info', 'system.run', 'perm.filesystem.full', 'perm.network', 'perm.screenRecording', 'perm.accessibility'],
+      permissions: {
+        screenRecording: true,
+        accessibility: true,
+        filesystem: 'full',
+        network: true,
+      },
+    });
+    const pair = createNodePairRequest(projectDir, {
+      nodeID: secure.nodeID,
+      deviceID: secure.deviceID,
+    });
+    resolveNodePair(projectDir, pair.id, 'approved');
+    registerNode(projectDir, {
+      nodeID: secure.nodeID,
+      deviceID: secure.deviceID,
+      type: 'desktop',
+      platform: 'win32',
+      capabilities: secure.capabilities,
+      permissions: secure.permissions,
+    });
+
+    const passive = registerNode(projectDir, {
+      nodeID: 'node-passive',
+      deviceID: 'device-passive',
+      type: 'cli',
+      platform: 'linux',
+      capabilities: ['system.info'],
+    });
+    const groups = classifyNodeCapabilities(passive.capabilities);
+    expect(groups.readOnly.includes('system.info')).toBe(true);
+
+    const summary = summarizeNodeGovernance(
+      [registerNode(projectDir, {
+        nodeID: secure.nodeID,
+        deviceID: secure.deviceID,
+        type: 'desktop',
+        platform: 'win32',
+        capabilities: secure.capabilities,
+        permissions: secure.permissions,
+      }), passive],
+      listNodePairs(projectDir, 'pending').length,
+    );
+    expect(summary.total).toBe(2);
+    expect(summary.permissionCoverage.bashAllow).toBe(1);
+    expect(summary.risk.high + summary.risk.medium + summary.risk.low).toBe(2);
   });
 });

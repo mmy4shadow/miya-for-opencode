@@ -11,5 +11,10 @@ export const grep_app: RemoteMcpConfig = {
   capabilities: {
     sampling: false,
     mcpUi: false,
+    serviceExpose: true,
+    native: true,
+    authMode: 'none',
+    ecosystem: 'community',
+    tags: ['code-search', 'github', 'grep'],
   },
 };

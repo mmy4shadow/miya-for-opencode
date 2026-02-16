@@ -5,7 +5,7 @@ import { sendQqDesktopMessage } from '../channel/outbound/qq';
 import { sendWechatDesktopMessage } from '../channel/outbound/wechat';
 import { analyzeDesktopOutboundEvidence } from '../multimodal/vision';
 import type { ChannelName } from './types';
-import { assertChannelCanSend } from './policy';
+import { assertChannelCanSend, canChannelSend } from './policy';
 import {
   ensurePairRequest,
   getContactTier,
@@ -353,6 +353,90 @@ export function listOutboundAudit(
   return rows
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
     .slice(0, Math.max(1, limit));
+}
+
+export interface ChannelGovernanceSummary {
+  generatedAt: string;
+  windowRows: number;
+  outboundSent: number;
+  outboundBlocked: number;
+  inboundOnlyViolationAttempts: number;
+  inboundOnlyInvariantMaintained: boolean;
+  highRiskBlocked: number;
+  topBlockedReasons: Array<{ reason: string; count: number }>;
+  channelBreakdown: Array<{
+    channel: ChannelName;
+    attempts: number;
+    sent: number;
+    blocked: number;
+    outboundAllowed: boolean;
+  }>;
+}
+
+function normalizeBlockedReason(row: ChannelOutboundAudit): string {
+  if (row.reason) return row.reason;
+  const msg = String(row.message ?? '').trim();
+  if (!msg) return 'unknown';
+  if (msg.includes(':')) return msg.split(':')[0];
+  return msg.slice(0, 64);
+}
+
+export function summarizeChannelGovernance(
+  projectDir: string,
+  limit = 400,
+): ChannelGovernanceSummary {
+  const rows = listOutboundAudit(projectDir, Math.max(20, Math.min(5000, limit)));
+  const stateMap = new Map(listChannelStates(projectDir).map((state) => [state.name, state]));
+  const blockedRows = rows.filter((row) => !row.sent);
+  const inboundOnlyViolationAttempts = rows.filter(
+    (row) => !canChannelSend(row.channel),
+  ).length;
+  const inboundOnlyInvariantMaintained = !rows.some(
+    (row) => row.sent && !canChannelSend(row.channel),
+  );
+
+  const blockedReasonCount = new Map<string, number>();
+  for (const row of blockedRows) {
+    const key = normalizeBlockedReason(row);
+    blockedReasonCount.set(key, (blockedReasonCount.get(key) ?? 0) + 1);
+  }
+
+  const channelBreakdown = [...new Set(rows.map((row) => row.channel))]
+    .map((channel) => {
+      const subset = rows.filter((row) => row.channel === channel);
+      return {
+        channel,
+        attempts: subset.length,
+        sent: subset.filter((row) => row.sent).length,
+        blocked: subset.filter((row) => !row.sent).length,
+        outboundAllowed: canChannelSend(channel),
+      };
+    })
+    .sort((a, b) => b.attempts - a.attempts);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    windowRows: rows.length,
+    outboundSent: rows.filter((row) => row.sent).length,
+    outboundBlocked: blockedRows.length,
+    inboundOnlyViolationAttempts,
+    inboundOnlyInvariantMaintained,
+    highRiskBlocked: blockedRows.filter((row) => row.riskLevel === 'HIGH').length,
+    topBlockedReasons: [...blockedReasonCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([reason, count]) => ({ reason, count })),
+    channelBreakdown:
+      channelBreakdown.length > 0
+        ? channelBreakdown
+        : [...stateMap.keys()].map((channel) => ({
+            channel,
+            attempts: 0,
+            sent: 0,
+            blocked: 0,
+            outboundAllowed: canChannelSend(channel),
+          })),
+  };
 }
 
 export class ChannelRuntime {

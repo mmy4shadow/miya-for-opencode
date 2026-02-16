@@ -1,6 +1,9 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import {
+  classifyNodeCapabilities,
   getNodeService,
+  mapNodePermissions,
+  summarizeNodeGovernance,
 } from '../node';
 
 const z = tool.schema;
@@ -96,6 +99,8 @@ export function createNodeTools(
       if (nodeID) {
         const node = nodeService.describe(nodeID);
         if (!node) return `node_not_found=${nodeID}`;
+        const mapped = mapNodePermissions(node);
+        const groups = classifyNodeCapabilities(node.capabilities);
         return [
           `node_id=${node.nodeID}`,
           `device_id=${node.deviceID}`,
@@ -103,6 +108,9 @@ export function createNodeTools(
           `status=${node.status}`,
           `connected=${node.connected}`,
           `paired=${node.paired}`,
+          `risk_level=${mapped.riskLevel}`,
+          `permission_mapping=${JSON.stringify(mapped)}`,
+          `capability_groups=${JSON.stringify(groups)}`,
           `permissions=${JSON.stringify(node.permissions)}`,
           `last_heartbeat=${node.lastHeartbeatAt}`,
           `last_seen=${node.lastSeenAt}`,
@@ -112,12 +120,20 @@ export function createNodeTools(
 
       const nodes = nodeService.list();
       const pending = nodeService.listPairRequests('pending').length;
+      const governance = summarizeNodeGovernance(nodes, pending);
       return [
         `nodes_total=${nodes.length}`,
         `nodes_connected=${nodes.filter((item) => item.connected).length}`,
         `nodes_online=${nodes.filter((item) => item.status === 'online').length}`,
         `nodes_paired=${nodes.filter((item) => item.paired).length}`,
         `nodes_pending_pairs=${pending}`,
+        `risk_low=${governance.risk.low}`,
+        `risk_medium=${governance.risk.medium}`,
+        `risk_high=${governance.risk.high}`,
+        `bash_allow=${governance.permissionCoverage.bashAllow}`,
+        `edit_allow=${governance.permissionCoverage.editAllow}`,
+        `external_directory_allow=${governance.permissionCoverage.externalDirectoryAllow}`,
+        `desktop_control_allow=${governance.permissionCoverage.desktopControlAllow}`,
       ].join('\n');
     },
   });
@@ -157,10 +173,21 @@ export function createNodeTools(
     },
   });
 
+  const miya_node_governance = tool({
+    description: 'Return node governance summary with permission/risk coverage.',
+    args: {},
+    async execute() {
+      const nodes = nodeService.list();
+      const pending = nodeService.listPairRequests('pending').length;
+      return JSON.stringify(summarizeNodeGovernance(nodes, pending), null, 2);
+    },
+  });
+
   return {
     miya_node_register,
     miya_node_status,
     miya_node_heartbeat,
     miya_node_issue_token,
+    miya_node_governance,
   };
 }

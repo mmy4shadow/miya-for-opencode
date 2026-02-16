@@ -92,17 +92,48 @@ export interface AutopilotApprovalInput {
 }
 
 export interface AutopilotRunInput {
+  projectDir?: string;
   goal: string;
   commands: string[];
   verificationCommand?: string;
   rollbackCommand?: string;
+  maxRetriesPerCommand?: number;
   approval?: AutopilotApprovalInput;
   timeoutMs: number;
   workingDirectory?: string;
 }
 
+export interface AutopilotRunDigest {
+  at: string;
+  success: boolean;
+  commandCount: number;
+  retryCount: number;
+  verificationAttempted: boolean;
+  verificationPassed: boolean;
+  rollbackAttempted: boolean;
+  rollbackSucceeded: boolean;
+  failureReason?: string;
+}
+
+export interface AutopilotStats {
+  totalRuns: number;
+  successRuns: number;
+  failedRuns: number;
+  rollbackRuns: number;
+  rollbackSuccessRuns: number;
+  verificationRuns: number;
+  verificationFailedRuns: number;
+  totalRetries: number;
+  streakSuccess: number;
+  streakFailure: number;
+  lastFailureReason?: string;
+  updatedAt: string;
+  recent: AutopilotRunDigest[];
+}
+
 export interface AutopilotRunResult {
   success: boolean;
+  retryCount: number;
   summary: string;
   planBundle: PlanBundleV1;
   plan: AutopilotPlan;

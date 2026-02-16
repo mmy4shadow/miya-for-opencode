@@ -1,8 +1,12 @@
 import * as fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import { DEFAULT_SOUL_MARKDOWN } from './templates';
 import type { SoulProfile } from './types';
+
+export type SoulLayerMode = 'work' | 'chat' | 'mixed';
+export type SoulLayerDepth = 'minimal' | 'full';
 
 function soulFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'SOUL.md');
@@ -38,6 +42,7 @@ export function loadSoulProfile(projectDir: string): SoulProfile {
   const file = ensureSoulFile(projectDir);
   const rawMarkdown = fs.readFileSync(file, 'utf-8');
   const identity = parseBulletSection(rawMarkdown, '身份');
+  const revision = createHash('sha256').update(rawMarkdown).digest('hex').slice(0, 12);
   return {
     name: parseIdentityValue(identity, '名称', 'Miya'),
     role: parseIdentityValue(identity, '角色', 'Assistant'),
@@ -45,6 +50,9 @@ export function loadSoulProfile(projectDir: string): SoulProfile {
     principles: parseBulletSection(rawMarkdown, '价值观'),
     behaviorRules: parseBulletSection(rawMarkdown, '行为准则'),
     forbidden: parseBulletSection(rawMarkdown, '禁止事项'),
+    workAddons: parseBulletSection(rawMarkdown, '工作模式附加'),
+    chatAddons: parseBulletSection(rawMarkdown, '对话模式附加'),
+    revision,
     rawMarkdown,
   };
 }
@@ -55,28 +63,50 @@ export function saveSoulMarkdown(projectDir: string, markdown: string): SoulProf
   return loadSoulProfile(projectDir);
 }
 
-export function soulPersonaLayer(projectDir: string): string {
+function compact(items: string[], maxItems: number): string[] {
+  return items.slice(0, Math.max(1, maxItems)).map((item) => item.trim()).filter(Boolean);
+}
+
+function renderList(items: string[], fallback: string): string {
+  return items.length > 0 ? items.map((item) => `- ${item}`).join('\n') : `- ${fallback}`;
+}
+
+export function soulPersonaLayer(
+  projectDir: string,
+  options?: {
+    mode?: SoulLayerMode;
+    depth?: SoulLayerDepth;
+  },
+): string {
   const soul = loadSoulProfile(projectDir);
-  const principles = soul.principles.length
-    ? soul.principles.map((item) => `- ${item}`).join('\n')
-    : '- 安全优先';
-  const rules = soul.behaviorRules.length
-    ? soul.behaviorRules.map((item) => `- ${item}`).join('\n')
-    : '- 在工作和对话之间自适应';
-  const forbidden = soul.forbidden.length
-    ? soul.forbidden.map((item) => `- ${item}`).join('\n')
-    : '- 不绕过安全';
+  const mode = options?.mode ?? 'mixed';
+  const depth = options?.depth ?? 'full';
+  const principlesBase = depth === 'minimal' ? compact(soul.principles, 2) : soul.principles;
+  const rulesBase = depth === 'minimal' ? compact(soul.behaviorRules, 2) : soul.behaviorRules;
+  const forbiddenBase = depth === 'minimal' ? compact(soul.forbidden, 3) : soul.forbidden;
+  const modeHints =
+    mode === 'work'
+      ? soul.workAddons
+      : mode === 'chat'
+        ? soul.chatAddons
+        : [...soul.workAddons, ...soul.chatAddons];
+  const modeHintLines = depth === 'minimal' ? compact(modeHints, 2) : modeHints;
   return [
     '<PersonaLayer>',
+    `mode: ${mode}`,
+    `depth: ${depth}`,
+    `revision: ${soul.revision}`,
     `name: ${soul.name}`,
     `role: ${soul.role}`,
     `tone: ${soul.tone}`,
     'principles:',
-    principles,
+    renderList(principlesBase, '安全优先'),
     'behavior_rules:',
-    rules,
+    renderList(rulesBase, '在工作和对话之间自适应'),
     'forbidden:',
-    forbidden,
+    renderList(forbiddenBase, '不绕过安全'),
+    'mode_addons:',
+    renderList(modeHintLines, mode === 'work' ? '优先清晰交付与证据' : '优先共情与边界'),
     '</PersonaLayer>',
   ].join('\n');
 }

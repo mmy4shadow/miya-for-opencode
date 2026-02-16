@@ -2,6 +2,7 @@ import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import {
   configureAutopilotSession,
   createAutopilotPlan,
+  readAutopilotStats,
   runAutopilot,
   summarizeAutopilotPlan,
   summarizeVerification,
@@ -25,10 +26,10 @@ export function createAutopilotTools(
       'Configure and inspect autopilot loop settings, with lightweight plan generation from goal text.',
     args: {
       mode: z
-        .enum(['start', 'stop', 'status', 'run'])
+        .enum(['start', 'stop', 'status', 'run', 'stats'])
         .default('start')
         .describe(
-          'start to enable autopilot, stop to disable, status to inspect, run to execute commands end-to-end',
+          'start to enable autopilot, stop to disable, status/stats to inspect, run to execute commands end-to-end',
         ),
       goal: z
         .string()
@@ -43,6 +44,10 @@ export function createAutopilotTools(
         .optional()
         .describe('Optional verification command for mode=run'),
       timeout_ms: z.number().optional().describe('Command timeout for mode=run'),
+      max_retries_per_command: z
+        .number()
+        .optional()
+        .describe('Retry budget for transient command failures in mode=run'),
       working_directory: z
         .string()
         .optional()
@@ -64,6 +69,7 @@ export function createAutopilotTools(
 
       if (mode === 'status') {
         const state = getSessionState(projectDir, sessionID);
+        const stats = readAutopilotStats(projectDir);
         return [
           `session=${sessionID}`,
           `loop_enabled=${state.loopEnabled}`,
@@ -71,7 +77,17 @@ export function createAutopilotTools(
           `max_cycles=${state.maxIterationsPerWindow}`,
           `strict_quality_gate=${state.strictQualityGate}`,
           `iteration_completed=${state.iterationCompleted}`,
+          `total_runs=${stats.totalRuns}`,
+          `success_runs=${stats.successRuns}`,
+          `failed_runs=${stats.failedRuns}`,
+          `retry_total=${stats.totalRetries}`,
+          `streak_success=${stats.streakSuccess}`,
+          `streak_failure=${stats.streakFailure}`,
         ].join('\n');
+      }
+
+      if (mode === 'stats') {
+        return JSON.stringify(readAutopilotStats(projectDir), null, 2);
       }
 
       if (mode === 'stop') {
@@ -90,12 +106,17 @@ export function createAutopilotTools(
       const goal = String(args.goal ?? '').trim();
       if (mode === 'run') {
         const execution = runAutopilot({
+          projectDir,
           goal: goal || 'autopilot run',
           commands: Array.isArray(args.commands) ? args.commands.map(String) : [],
           verificationCommand: args.verification_command
             ? String(args.verification_command)
             : undefined,
           timeoutMs: typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : 60000,
+          maxRetriesPerCommand:
+            typeof args.max_retries_per_command === 'number'
+              ? Number(args.max_retries_per_command)
+              : undefined,
           workingDirectory: args.working_directory
             ? String(args.working_directory)
             : undefined,
@@ -104,6 +125,7 @@ export function createAutopilotTools(
           `session=${sessionID}`,
           `autopilot_run_success=${execution.success}`,
           `execution_steps=${execution.execution.length}`,
+          `retry_count=${execution.retryCount}`,
           `summary=${execution.summary}`,
           summarizeAutopilotPlan(execution.plan),
           summarizeVerification(execution.verification),

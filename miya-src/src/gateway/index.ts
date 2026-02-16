@@ -12,6 +12,7 @@ import {
   type ChannelInboundMessage,
   ChannelRuntime,
   listOutboundAudit,
+  summarizeChannelGovernance,
   isChannelName,
   parseDiscordInbound,
   parseGoogleChatInbound,
@@ -51,11 +52,13 @@ import {
 import { evaluateOutboundDecisionFusion } from '../policy/decision-fusion';
 import { appendPolicyIncident, listPolicyIncidents } from '../policy/incident';
 import {
+  classifyNodeCapabilities,
   createInvokeRequest,
   createNodePairRequest,
   describeNode,
   issueNodeToken,
   listDevices,
+  mapNodePermissions,
   listInvokeRequests,
   listNodePairs,
   listNodes,
@@ -64,6 +67,7 @@ import {
   registerNode,
   resolveInvokeResult,
   resolveNodePair,
+  summarizeNodeGovernance,
   touchNodeHeartbeat,
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
@@ -72,6 +76,7 @@ import {
   getMiyaClient,
   subscribeLauncherEvents,
 } from '../daemon';
+import { readPsycheTrainingSummary } from '../daemon/psyche';
 import {
   appendGuestConversation,
   initOwnerIdentity,
@@ -196,7 +201,7 @@ import {
   rollbackSourcePack,
   verifySourcePackGovernance,
 } from '../skills/sync';
-import { buildMcpServiceManifest, createBuiltinMcps } from '../mcp';
+import { buildMcpServiceManifest } from '../mcp';
 import { log } from '../utils/logger';
 import { getMiyaRuntimeDir, getSessionState } from '../workflow';
 import {
@@ -211,6 +216,7 @@ import {
   getAutoflowPersistentRuntimeSnapshot,
   listAutoflowSessions,
 } from '../autoflow';
+import { readAutopilotStats } from '../autopilot';
 import { createControlUiRequestOptions, handleControlUiHttpRequest } from './control-ui';
 import {
   applyNegotiationBudget,
@@ -387,6 +393,7 @@ interface GatewaySnapshot {
     trust?: NexusTrustSnapshot;
     trustMode: TrustModeConfig;
     psycheMode: PsycheModeConfig;
+    psycheTraining: ReturnType<typeof readPsycheTrainingSummary>;
     learningGate: LearningGateConfig;
     guardianSafeHoldReason?: string;
   };
@@ -400,6 +407,7 @@ interface GatewaySnapshot {
     recentRuns: ReturnType<MiyaAutomationService['listHistory']>;
   };
   loop: ReturnType<typeof getSessionState>;
+  autopilot: ReturnType<typeof readAutopilotStats>;
   autoflow: {
     active: number;
     sessions: Array<{
@@ -477,12 +485,20 @@ interface GatewaySnapshot {
     states: ReturnType<ChannelRuntime['listChannels']>;
     pendingPairs: ReturnType<ChannelRuntime['listPairs']>;
     recentOutbound: ReturnType<typeof listOutboundAudit>;
+    governance: ReturnType<typeof summarizeChannelGovernance>;
   };
   nodes: {
     total: number;
     connected: number;
     pendingPairs: number;
+    governance: ReturnType<typeof summarizeNodeGovernance>;
     list: ReturnType<typeof listNodes>;
+    enriched: Array<
+      ReturnType<typeof listNodes>[number] & {
+        permissionMapping: ReturnType<typeof mapNodePermissions>;
+        capabilityGroups: ReturnType<typeof classifyNodeCapabilities>;
+      }
+    >;
     devices: ReturnType<typeof listDevices>;
     invokes: ReturnType<typeof listInvokeRequests>;
   };
@@ -1347,6 +1363,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'cron.approvals.list',
   'channels.list',
   'channels.status',
+  'channels.governance.get',
   'channels.pair.list',
   'channels.contact.tier.get',
   'channels.contact.tier.list',
@@ -1357,9 +1374,11 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'policy.domains.list',
   'policy.incidents.list',
   'psyche.mode.get',
+  'psyche.training.summary',
   'learning.gate.get',
   'nodes.list',
   'nodes.status',
+  'nodes.governance.summary',
   'nodes.describe',
   'nodes.pair.list',
   'devices.list',
@@ -2727,6 +2746,19 @@ function runGatewaySecurityAudit(
   };
 }
 
+function withNodeGovernance(
+  node: ReturnType<typeof listNodes>[number],
+): ReturnType<typeof listNodes>[number] & {
+  permissionMapping: ReturnType<typeof mapNodePermissions>;
+  capabilityGroups: ReturnType<typeof classifyNodeCapabilities>;
+} {
+  return {
+    ...node,
+    permissionMapping: mapNodePermissions(node),
+    capabilityGroups: classifyNodeCapabilities(node.capabilities),
+  };
+}
+
 function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnapshot {
   const deps = depsOf(projectDir);
   const kill = readKillSwitch(projectDir);
@@ -2737,7 +2769,9 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const channels = runtime.channelRuntime.listChannels();
   const pendingPairs = runtime.channelRuntime.listPairs('pending');
   const recentOutbound = listOutboundAudit(projectDir, 30);
+  const channelGovernance = summarizeChannelGovernance(projectDir, 500);
   const nodes = listNodes(projectDir);
+  const pendingNodePairs = listNodePairs(projectDir, 'pending').length;
   const devices = listDevices(projectDir);
   const invokes = listInvokeRequests(projectDir, 40);
   const enabledSkills = listEnabledSkills(projectDir);
@@ -2752,10 +2786,12 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const autoflowSessions = listAutoflowSessions(projectDir, 30);
   const autoflowPersistentConfig = readAutoflowPersistentConfig(projectDir);
   const autoflowPersistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, 30);
+  const autopilotStats = readAutopilotStats(projectDir);
   const routingMode = readRouterModeConfig(projectDir);
   const routingCost = getRouteCostSummary(projectDir, 500);
   const routingRecent = listRouteCostRecords(projectDir, 20);
   const modeObservability = readModeObservability(projectDir);
+  const psycheTraining = readPsycheTrainingSummary(projectDir, 300);
   const learningStats = getLearningStats(projectDir);
   const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
     id: item.id,
@@ -2793,6 +2829,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       trust: runtime.nexus.trust,
       trustMode: runtime.nexus.trustMode,
       psycheMode: runtime.nexus.psycheMode,
+      psycheTraining,
       learningGate: runtime.nexus.learningGate,
       guardianSafeHoldReason: runtime.nexus.guardianSafeHoldReason,
     },
@@ -2806,6 +2843,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       recentRuns,
     },
     loop: getSessionState(projectDir, 'main'),
+    autopilot: autopilotStats,
     autoflow: {
       active: autoflowSessions.filter((item) =>
         item.phase === 'planning' ||
@@ -2886,12 +2924,15 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       states: channels,
       pendingPairs,
       recentOutbound,
+      governance: channelGovernance,
     },
     nodes: {
       total: nodes.length,
       connected: nodes.filter((item) => item.connected).length,
-      pendingPairs: listNodePairs(projectDir, 'pending').length,
+      pendingPairs: pendingNodePairs,
+      governance: summarizeNodeGovernance(nodes, pendingNodePairs),
       list: nodes,
+      enriched: nodes.map((item) => withNodeGovernance(item)),
       devices,
       invokes,
     },
@@ -4224,7 +4265,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('channels.status', async () => ({
     channels: runtime.channelRuntime.listChannels(),
     pendingPairs: runtime.channelRuntime.listPairs('pending'),
+    governance: summarizeChannelGovernance(projectDir, 500),
   }));
+  methods.register('channels.governance.get', async (params) => {
+    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 500;
+    const limit = Math.max(20, Math.min(5000, Math.floor(limitRaw)));
+    return summarizeChannelGovernance(projectDir, limit);
+  });
   methods.register('channels.pair.list', async (params) => {
     if (params.status === 'pending' || params.status === 'approved' || params.status === 'rejected') {
       return runtime.channelRuntime.listPairs(params.status);
@@ -4897,6 +4944,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       consultEnabled: resolvePsycheConsultEnabled(projectDir, mode),
     };
   });
+  methods.register('psyche.training.summary', async (params) => {
+    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 400;
+    const limit = Math.max(20, Math.min(5000, Math.floor(limitRaw)));
+    return readPsycheTrainingSummary(projectDir, limit);
+  });
   methods.register('psyche.mode.set', async (params) => {
     const next = writePsycheModeConfig(projectDir, {
       resonanceEnabled:
@@ -5042,14 +5094,27 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!issued) throw new Error('node_not_found');
     return issued;
   });
-  methods.register('nodes.status', async () => ({
-    nodes: listNodes(projectDir),
-    pendingPairs: listNodePairs(projectDir, 'pending'),
-  }));
+  methods.register('nodes.status', async () => {
+    const nodes = listNodes(projectDir);
+    const pendingPairs = listNodePairs(projectDir, 'pending');
+    return {
+      nodes,
+      enrichedNodes: nodes.map((item) => withNodeGovernance(item)),
+      pendingPairs,
+      governance: summarizeNodeGovernance(nodes, pendingPairs.length),
+    };
+  });
+  methods.register('nodes.governance.summary', async () => {
+    const nodes = listNodes(projectDir);
+    const pendingPairs = listNodePairs(projectDir, 'pending').length;
+    return summarizeNodeGovernance(nodes, pendingPairs);
+  });
   methods.register('nodes.describe', async (params) => {
     const nodeID = parseText(params.nodeID);
     if (!nodeID) throw new Error('invalid_node_id');
-    return describeNode(projectDir, nodeID);
+    const node = describeNode(projectDir, nodeID);
+    if (!node) return null;
+    return withNodeGovernance(node);
   });
   methods.register('nodes.pair.list', async (params) => {
     if (
@@ -5228,21 +5293,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const disabled = Array.isArray(params.disabledMcps)
       ? params.disabledMcps.map(String)
       : [];
-    const mcps = createBuiltinMcps(disabled);
-    return {
-      mcps: Object.entries(mcps).map(([name, config]) => {
-        const caps = 'capabilities' in config ? config.capabilities : undefined;
-        return {
-          name,
-          type: config.type,
-          sampling: Boolean(caps?.sampling),
-          mcpUi: Boolean(caps?.mcpUi),
-          serviceExpose: Boolean(
-            (caps as { serviceExpose?: boolean } | undefined)?.serviceExpose,
-          ),
-        };
-      }),
-    };
+    return buildMcpServiceManifest(disabled);
   });
   methods.register('mcp.service.expose', async (params) => {
     const disabled = Array.isArray(params.disabledMcps)

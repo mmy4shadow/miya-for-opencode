@@ -36,3 +36,4 @@ export {
   type TrustEntityScore,
   type TrustTier,
 } from './trust';
+export { readPsycheTrainingSummary, type PsycheTrainingSummary } from './training-summary';

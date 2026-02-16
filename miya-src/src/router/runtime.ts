@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import { recordStrategyObservation, resolveStrategyVariant } from '../strategy';
-import { classifyIntent, type RouteIntent } from './classifier';
+import { analyzeRouteSemantics, classifyIntent, type RouteIntent } from './classifier';
 import { resolveAgentWithFeedback, resolveFallbackAgent } from './fallback';
 import { addRouteFeedback, rankAgentsByFeedback } from './learner';
 
@@ -37,6 +37,9 @@ export interface RouteExecutionPlan {
   intent: RouteIntent;
   complexity: RouteComplexity;
   complexityScore: number;
+  semanticConfidence: number;
+  semanticAmbiguity: number;
+  semanticEvidence: string[];
   stage: RouteStage;
   agent: string;
   preferredAgent: string;
@@ -450,7 +453,8 @@ export function buildRouteExecutionPlan(input: {
   availableAgents: string[];
   pinnedAgent?: string;
 }): RouteExecutionPlan {
-  const intent = classifyIntent(input.text);
+  const semantic = analyzeRouteSemantics(input.text);
+  const intent = semantic.intent || classifyIntent(input.text);
   const complexity = analyzeRouteComplexity(input.text);
   const mode = readRouterModeConfig(input.projectDir);
   const session = getSessionState(input.projectDir, input.sessionID);
@@ -466,6 +470,10 @@ export function buildRouteExecutionPlan(input: {
 
   let stage = stageFromComplexity(complexity.complexity);
   const reasons = [...complexity.reasons];
+  if (semantic.ambiguity >= 0.75) reasons.push('semantic_ambiguity_high');
+  if (semantic.evidence.length > 0) {
+    reasons.push(...semantic.evidence.slice(0, 3).map((item) => `semantic_${item}`));
+  }
   let executionMode: 'auto' | 'human_gate' = 'auto';
   const fixabilityHint = session.lastFixability;
   const autoBudget = mode.retryBudget.autoRetry;
@@ -506,6 +514,9 @@ export function buildRouteExecutionPlan(input: {
     intent,
     complexity: complexity.complexity,
     complexityScore: complexity.score,
+    semanticConfidence: semantic.confidence,
+    semanticAmbiguity: semantic.ambiguity,
+    semanticEvidence: semantic.evidence,
     stage,
     agent: selectedAgent,
     preferredAgent,

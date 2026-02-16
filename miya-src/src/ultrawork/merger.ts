@@ -25,6 +25,11 @@ export function formatUltraworkDagResult(result: UltraworkDagResult): string {
     `completed=${result.completed}`,
     `failed=${result.failed}`,
     `blocked=${result.blocked}`,
+    `critical_path=${result.metrics.criticalPathLength}`,
+    `max_parallel_observed=${result.metrics.maxParallelObserved}`,
+    `scheduler_ticks=${result.metrics.schedulerTicks}`,
+    `wait_ticks=${result.metrics.waitTicks}`,
+    `retries_scheduled=${result.metrics.retriesScheduled}`,
   ];
   const lines = result.nodes.map(
     (node) =>

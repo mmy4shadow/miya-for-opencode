@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildMcpServiceManifest, createBuiltinMcps } from './index';
+import { buildMcpServiceManifest, createBuiltinMcps, summarizeMcpEcosystem } from './index';
 
 describe('createBuiltinMcps', () => {
   test('returns all MCPs when no disabled list provided', () => {
@@ -100,5 +100,14 @@ describe('createBuiltinMcps', () => {
     expect(manifest.controlPlaneEndpoints).toContain('mcp.service.expose');
     expect(manifest.mcps.some((item) => item.name === 'context7')).toBe(false);
     expect(manifest.mcps.some((item) => item.name === 'websearch')).toBe(true);
+    expect(manifest.summary.total).toBe(manifest.mcps.length);
+    expect(manifest.mcps[0]?.native).toBe(true);
+    expect(Array.isArray(manifest.mcps[0]?.tags)).toBe(true);
+  });
+
+  test('summarizes ecosystem counters', () => {
+    const summary = summarizeMcpEcosystem();
+    expect(summary).toContain('mcp_total=');
+    expect(summary).toContain('mcp_core=');
   });
 });

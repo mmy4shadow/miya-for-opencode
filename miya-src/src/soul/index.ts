@@ -4,6 +4,7 @@ export {
   saveSoulMarkdown,
   soulFilePath,
   soulPersonaLayer,
+  type SoulLayerDepth,
+  type SoulLayerMode,
 } from './loader';
 export type { SoulProfile } from './types';
-

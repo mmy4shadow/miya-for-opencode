@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  analyzeRouteSemantics,
   addRouteFeedback,
   classifyIntent,
   rankAgentsByFeedback,
@@ -22,6 +23,13 @@ describe('router feedback learning', () => {
     const intent = classifyIntent('这个功能有 bug 需要修复');
     expect(intent).toBe('code_fix');
     expect(recommendedAgent(intent)).toBe('5-code-fixer');
+  });
+
+  test('extracts semantic evidence for routing confidence', () => {
+    const signal = analyzeRouteSemantics('请查找并修复这个 compile failing 问题，附上 docs 引用');
+    expect(signal.intent).toBe('code_fix');
+    expect(signal.confidence).toBeGreaterThan(0);
+    expect(signal.evidence.length).toBeGreaterThan(0);
   });
 
   test('uses feedback ranking to override fallback selection', () => {

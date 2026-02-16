@@ -33,6 +33,45 @@ export interface NodeRecord {
   updatedAt: string;
 }
 
+export type NodePermissionDecision = 'allow' | 'ask' | 'deny';
+
+export interface NodePermissionMapping {
+  bash: NodePermissionDecision;
+  edit: NodePermissionDecision;
+  externalDirectory: NodePermissionDecision;
+  desktopControl: NodePermissionDecision;
+  network: NodePermissionDecision;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  reasons: string[];
+}
+
+export interface NodeCapabilityGroups {
+  readOnly: string[];
+  execute: string[];
+  desktopAutomation: string[];
+  networking: string[];
+  other: string[];
+}
+
+export interface NodeGovernanceSummary {
+  total: number;
+  connected: number;
+  paired: number;
+  pendingPairs: number;
+  risk: {
+    low: number;
+    medium: number;
+    high: number;
+  };
+  permissionCoverage: {
+    bashAllow: number;
+    editAllow: number;
+    externalDirectoryAllow: number;
+    desktopControlAllow: number;
+    networkAllow: number;
+  };
+}
+
 export interface DeviceRecord {
   deviceID: string;
   label?: string;
@@ -107,6 +146,166 @@ function inferPermissionsFromCapabilities(
   return {
     ...inferred,
     ...(base ?? {}),
+  };
+}
+
+function hasCapability(node: NodeRecord, matcher: (value: string) => boolean): boolean {
+  return node.capabilities.some((capability) => matcher(capability));
+}
+
+function capabilityStartsWith(capability: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((prefix) => capability.startsWith(prefix));
+}
+
+export function classifyNodeCapabilities(capabilities: string[]): NodeCapabilityGroups {
+  const normalized = [...new Set(capabilities.map((item) => String(item).trim()).filter(Boolean))].sort();
+  const groups: NodeCapabilityGroups = {
+    readOnly: [],
+    execute: [],
+    desktopAutomation: [],
+    networking: [],
+    other: [],
+  };
+
+  for (const capability of normalized) {
+    if (
+      capability === 'system.info' ||
+      capability === 'system.which' ||
+      capabilityStartsWith(capability, ['query.', 'read.', 'inspect.'])
+    ) {
+      groups.readOnly.push(capability);
+      continue;
+    }
+    if (
+      capability === 'system.run' ||
+      capabilityStartsWith(capability, ['exec.', 'run.', 'write.', 'deploy.'])
+    ) {
+      groups.execute.push(capability);
+      continue;
+    }
+    if (
+      capabilityStartsWith(capability, ['perm.screenRecording', 'perm.accessibility', 'desktop.', 'uia.', 'canvas.'])
+    ) {
+      groups.desktopAutomation.push(capability);
+      continue;
+    }
+    if (capabilityStartsWith(capability, ['perm.network', 'network.', 'http.', 'ws.'])) {
+      groups.networking.push(capability);
+      continue;
+    }
+    groups.other.push(capability);
+  }
+
+  return groups;
+}
+
+export function mapNodePermissions(node: NodeRecord): NodePermissionMapping {
+  const reasons: string[] = [];
+  const canRun = hasCapability(node, (capability) => capability === 'system.run' || capabilityStartsWith(capability, ['exec.', 'run.']));
+  const canRead = hasCapability(node, (capability) => capability === 'system.info' || capability === 'system.which' || capabilityStartsWith(capability, ['read.', 'query.']));
+  const desktopSignals = node.permissions.screenRecording || node.permissions.accessibility;
+  const desktopStrong = node.permissions.screenRecording && node.permissions.accessibility;
+
+  const bash: NodePermissionDecision = !canRun
+    ? 'deny'
+    : node.paired && node.connected
+      ? 'allow'
+      : 'ask';
+  if (canRun) reasons.push('capability.system.run');
+  if (!node.paired) reasons.push('node_unpaired');
+  if (!node.connected) reasons.push('node_disconnected');
+
+  let edit: NodePermissionDecision = 'deny';
+  if (node.permissions.filesystem === 'full') edit = node.paired ? 'allow' : 'ask';
+  else if (node.permissions.filesystem === 'read' || canRead) edit = 'ask';
+  if (node.permissions.filesystem !== 'none') reasons.push(`filesystem=${node.permissions.filesystem}`);
+
+  const externalDirectory: NodePermissionDecision =
+    node.permissions.filesystem === 'full' && node.permissions.network && node.paired
+      ? 'allow'
+      : node.permissions.filesystem !== 'none' || node.permissions.network
+        ? 'ask'
+        : 'deny';
+  if (node.permissions.network) reasons.push('network=true');
+
+  const desktopControl: NodePermissionDecision =
+    node.type === 'desktop' && desktopStrong && node.paired
+      ? 'allow'
+      : node.type === 'desktop' && desktopSignals
+        ? 'ask'
+        : 'deny';
+  if (desktopSignals) reasons.push('desktop_automation_capable');
+
+  const network: NodePermissionDecision = node.permissions.network
+    ? node.paired
+      ? 'allow'
+      : 'ask'
+    : 'deny';
+
+  let riskScore = 0;
+  if (bash === 'allow') riskScore += 2;
+  else if (bash === 'ask') riskScore += 1;
+  if (edit === 'allow') riskScore += 2;
+  else if (edit === 'ask') riskScore += 1;
+  if (externalDirectory === 'allow') riskScore += 2;
+  else if (externalDirectory === 'ask') riskScore += 1;
+  if (desktopControl === 'allow') riskScore += 2;
+  else if (desktopControl === 'ask') riskScore += 1;
+  if (network === 'allow') riskScore += 1;
+  if (node.permissions.filesystem === 'full' && node.permissions.network) riskScore += 2;
+  if (!node.paired) riskScore += 1;
+  if (!node.connected) riskScore += 1;
+
+  const riskLevel: NodePermissionMapping['riskLevel'] =
+    riskScore >= 6 ? 'HIGH' : riskScore >= 3 ? 'MEDIUM' : 'LOW';
+
+  return {
+    bash,
+    edit,
+    externalDirectory,
+    desktopControl,
+    network,
+    riskLevel,
+    reasons,
+  };
+}
+
+export function summarizeNodeGovernance(
+  nodes: NodeRecord[],
+  pendingPairs = 0,
+): NodeGovernanceSummary {
+  const risk = {
+    low: 0,
+    medium: 0,
+    high: 0,
+  };
+  const permissionCoverage = {
+    bashAllow: 0,
+    editAllow: 0,
+    externalDirectoryAllow: 0,
+    desktopControlAllow: 0,
+    networkAllow: 0,
+  };
+
+  for (const node of nodes) {
+    const mapped = mapNodePermissions(node);
+    if (mapped.riskLevel === 'LOW') risk.low += 1;
+    else if (mapped.riskLevel === 'MEDIUM') risk.medium += 1;
+    else risk.high += 1;
+    if (mapped.bash === 'allow') permissionCoverage.bashAllow += 1;
+    if (mapped.edit === 'allow') permissionCoverage.editAllow += 1;
+    if (mapped.externalDirectory === 'allow') permissionCoverage.externalDirectoryAllow += 1;
+    if (mapped.desktopControl === 'allow') permissionCoverage.desktopControlAllow += 1;
+    if (mapped.network === 'allow') permissionCoverage.networkAllow += 1;
+  }
+
+  return {
+    total: nodes.length,
+    connected: nodes.filter((item) => item.connected).length,
+    paired: nodes.filter((item) => item.paired).length,
+    pendingPairs: Math.max(0, pendingPairs),
+    risk,
+    permissionCoverage,
   };
 }
 

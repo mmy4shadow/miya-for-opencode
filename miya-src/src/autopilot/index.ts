@@ -11,13 +11,16 @@ export {
   markPlanBundleVerification,
 } from './plan-bundle';
 export { summarizeAutopilotPlan, summarizeVerification } from './verifier';
+export { readAutopilotStats, recordAutopilotRunDigest } from './stats';
 export type {
   AutopilotApprovalInput,
   AutopilotCommandResult,
   AutopilotPlan,
   AutopilotPlanStep,
   AutopilotRunInput,
+  AutopilotRunDigest,
   AutopilotRunResult,
+  AutopilotStats,
   PlanBundleApproval,
   PlanBundleAuditEvent,
   PlanBundleRollback,

@@ -11,7 +11,7 @@ import {
   SUBAGENT_NAMES,
 } from '../config';
 import { getAgentMcpList } from '../config/agent-mcps';
-import { soulPersonaLayer } from '../soul';
+import { soulPersonaLayer, type SoulLayerDepth, type SoulLayerMode } from '../soul';
 
 import { createDesignerAgent } from './6-ui-designer';
 import { createExplorerAgent } from './2-code-search';
@@ -138,6 +138,23 @@ function shouldInjectSoulLayer(agentName: string, personaStyle: 'full' | 'minima
   return agentName === '1-task-manager' || agentName === '6-ui-designer';
 }
 
+function resolveSoulLayerConfig(input: {
+  agentName: string;
+  personaStyle: 'full' | 'minimal' | 'zero';
+}): { mode: SoulLayerMode; depth: SoulLayerDepth } {
+  const depth: SoulLayerDepth = input.personaStyle === 'full' ? 'full' : 'minimal';
+  if (input.agentName === '1-task-manager') {
+    return {
+      mode: 'work',
+      depth,
+    };
+  }
+  return {
+    mode: 'mixed',
+    depth,
+  };
+}
+
 // Ultimate fallback model - always available
 const ULTIMATE_FALLBACK_MODEL = 'openrouter/z-ai/glm-5';
 const CODE_SIMPLICITY_REVIEWER_NAME = '7-code-simplicity-reviewer';
@@ -211,7 +228,11 @@ export function createAgents(config?: PluginConfig, projectDir?: string): AgentD
       projectDir &&
       shouldInjectSoulLayer(agent.name, agent.personaStyle)
     ) {
-      agent.config.prompt = `${soulPersonaLayer(projectDir)}\n\n${String(agent.config.prompt ?? '')}`;
+      const soulLayer = resolveSoulLayerConfig({
+        agentName: agent.name,
+        personaStyle: agent.personaStyle,
+      });
+      agent.config.prompt = `${soulPersonaLayer(projectDir, soulLayer)}\n\n${String(agent.config.prompt ?? '')}`;
     }
     return agent;
   });
@@ -256,7 +277,11 @@ export function createAgents(config?: PluginConfig, projectDir?: string): AgentD
     projectDir &&
     shouldInjectSoulLayer(orchestrator.name, orchestrator.personaStyle)
   ) {
-    orchestrator.config.prompt = `${soulPersonaLayer(projectDir)}\n\n${String(orchestrator.config.prompt ?? '')}`;
+    const soulLayer = resolveSoulLayerConfig({
+      agentName: orchestrator.name,
+      personaStyle: orchestrator.personaStyle,
+    });
+    orchestrator.config.prompt = `${soulPersonaLayer(projectDir, soulLayer)}\n\n${String(orchestrator.config.prompt ?? '')}`;
   }
 
   return [orchestrator, ...allSubAgents];

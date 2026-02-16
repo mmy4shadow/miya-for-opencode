@@ -66,6 +66,8 @@ describe('ultrawork dag scheduler', () => {
     expect(result.failed).toBe(1);
     expect(result.blocked).toBe(1);
     expect(result.nodes.find((n) => n.nodeID === 'C')?.status).toBe('blocked_dependency');
+    expect(result.metrics.criticalPathLength).toBeGreaterThanOrEqual(2);
+    expect(result.metrics.schedulerTicks).toBeGreaterThan(0);
   });
 
   test('retries failed node within retry budget', async () => {
@@ -88,5 +90,6 @@ describe('ultrawork dag scheduler', () => {
     expect(result.completed).toBe(1);
     expect(result.failed).toBe(0);
     expect(result.nodes[0]?.retries).toBe(1);
+    expect(result.metrics.retriesScheduled).toBe(1);
   });
 });

@@ -14,5 +14,10 @@ export const websearch: RemoteMcpConfig = {
   capabilities: {
     sampling: false,
     mcpUi: false,
+    serviceExpose: true,
+    native: true,
+    authMode: process.env.EXA_API_KEY ? 'header' : 'none',
+    ecosystem: 'core',
+    tags: ['search', 'web', 'exa'],
   },
 };

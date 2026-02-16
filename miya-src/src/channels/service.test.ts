@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ChannelRuntime } from './service';
+import { ChannelRuntime, summarizeChannelGovernance } from './service';
 import { setContactTier, upsertChannelState } from './pairing-store';
 
 function tempProjectDir(): string {
@@ -323,5 +323,24 @@ describe('channel runtime send policy', () => {
     expect(second.message).toContain('outbound_degraded:desktop_runtime_exception:');
     expect(second.message).not.toContain('input_mutex_timeout');
     expect(elapsed).toBeLessThan(1000);
+  });
+
+  test('produces inbound-only governance summary', async () => {
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(projectDir, {
+      onInbound: () => {},
+      onPairRequested: () => {},
+    });
+
+    await runtime.sendMessage({
+      channel: 'telegram',
+      destination: 'abc',
+      text: 'hello',
+    });
+
+    const summary = summarizeChannelGovernance(projectDir, 100);
+    expect(summary.windowRows).toBeGreaterThan(0);
+    expect(summary.inboundOnlyViolationAttempts).toBeGreaterThan(0);
+    expect(summary.inboundOnlyInvariantMaintained).toBe(true);
   });
 });

@@ -1,6 +1,8 @@
 export {
+  analyzeRouteSemantics,
   classifyIntent,
   recommendedAgent,
+  type RouteSemanticSignal,
   type RouteIntent,
 } from './classifier';
 export { resolveAgentWithFeedback, resolveFallbackAgent } from './fallback';

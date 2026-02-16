@@ -1,9 +1,11 @@
 import {
+  classifyNodeCapabilities,
   createInvokeRequest,
   createNodePairRequest,
   describeNode,
   issueNodeToken,
   listDevices,
+  mapNodePermissions,
   listInvokeRequests,
   listNodePairs,
   listNodes,
@@ -12,15 +14,18 @@ import {
   registerNode,
   resolveInvokeResult,
   resolveNodePair,
+  summarizeNodeGovernance,
   touchNodeHeartbeat,
 } from '../nodes';
 
 export {
+  classifyNodeCapabilities,
   createInvokeRequest,
   createNodePairRequest,
   describeNode,
   issueNodeToken,
   listDevices,
+  mapNodePermissions,
   listInvokeRequests,
   listNodePairs,
   listNodes,
@@ -29,5 +34,6 @@ export {
   registerNode,
   resolveInvokeResult,
   resolveNodePair,
+  summarizeNodeGovernance,
   touchNodeHeartbeat,
 };

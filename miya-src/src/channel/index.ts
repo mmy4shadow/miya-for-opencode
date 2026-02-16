@@ -1,7 +1,9 @@
 export {
   ChannelRuntime,
   listOutboundAudit,
+  summarizeChannelGovernance,
   type ChannelInboundMessage,
+  type ChannelGovernanceSummary,
   type ChannelRuntimeCallbacks,
   type ChannelOutboundAudit,
 } from '../channels/service';

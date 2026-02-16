@@ -55,6 +55,13 @@ export interface UltraworkDagResult {
   failed: number;
   blocked: number;
   nodes: UltraworkDagNodeResult[];
+  metrics: {
+    maxParallelObserved: number;
+    schedulerTicks: number;
+    waitTicks: number;
+    retriesScheduled: number;
+    criticalPathLength: number;
+  };
 }
 
 function buildNodes(tasks: UltraworkTaskInput[]): UltraworkNode[] {
@@ -95,6 +102,47 @@ function hasCycle(nodes: UltraworkNode[]): boolean {
   return false;
 }
 
+function buildCriticalPathScore(nodes: UltraworkNode[]): {
+  priority: Map<string, number>;
+  criticalPathLength: number;
+} {
+  const dependents = new Map<string, string[]>();
+  for (const node of nodes) {
+    if (!dependents.has(node.nodeID)) dependents.set(node.nodeID, []);
+  }
+  for (const node of nodes) {
+    for (const dep of node.dependsOn) {
+      if (!dependents.has(dep)) continue;
+      dependents.get(dep)?.push(node.nodeID);
+    }
+  }
+  const memoDepth = new Map<string, number>();
+  const visiting = new Set<string>();
+  const depthFrom = (nodeID: string): number => {
+    if (memoDepth.has(nodeID)) return memoDepth.get(nodeID) as number;
+    if (visiting.has(nodeID)) return 1;
+    visiting.add(nodeID);
+    const children = dependents.get(nodeID) ?? [];
+    const depth =
+      children.length === 0
+        ? 1
+        : 1 + Math.max(...children.map((child) => depthFrom(child)));
+    visiting.delete(nodeID);
+    memoDepth.set(nodeID, depth);
+    return depth;
+  };
+  const priority = new Map<string, number>();
+  let criticalPathLength = 1;
+  for (const node of nodes) {
+    const depth = depthFrom(node.nodeID);
+    if (depth > criticalPathLength) criticalPathLength = depth;
+    const fanout = (dependents.get(node.nodeID) ?? []).length;
+    // Depth dominates; fanout breaks ties to release more dependents earlier.
+    priority.set(node.nodeID, depth * 100 + fanout);
+  }
+  return { priority, criticalPathLength };
+}
+
 export function launchUltraworkTasks(input: {
   manager: UltraworkManagerLike;
   parentSessionID: string;
@@ -125,7 +173,20 @@ export async function runUltraworkDag(input: {
 }): Promise<UltraworkDagResult> {
   const nodes = buildNodes(input.tasks);
   if (nodes.length === 0) {
-    return { total: 0, completed: 0, failed: 0, blocked: 0, nodes: [] };
+    return {
+      total: 0,
+      completed: 0,
+      failed: 0,
+      blocked: 0,
+      nodes: [],
+      metrics: {
+        maxParallelObserved: 0,
+        schedulerTicks: 0,
+        waitTicks: 0,
+        retriesScheduled: 0,
+        criticalPathLength: 0,
+      },
+    };
   }
   if (hasCycle(nodes)) {
     return {
@@ -140,14 +201,26 @@ export async function runUltraworkDag(input: {
         retries: 0,
         error: 'dag_cycle_detected',
       })),
+      metrics: {
+        maxParallelObserved: 0,
+        schedulerTicks: 1,
+        waitTicks: 0,
+        retriesScheduled: 0,
+        criticalPathLength: 0,
+      },
     };
   }
+  const critical = buildCriticalPathScore(nodes);
   const maxParallel = Math.max(1, Math.min(8, Math.floor(Number(input.maxParallel ?? 3))));
   const nodeMap = new Map(nodes.map((node) => [node.nodeID, node]));
   const pending = new Set(nodes.map((item) => item.nodeID));
   const running = new Set<string>();
   const results = new Map<string, UltraworkDagNodeResult>();
   const retries = new Map<string, number>();
+  let maxParallelObserved = 0;
+  let schedulerTicks = 0;
+  let waitTicks = 0;
+  let retriesScheduled = 0;
 
   const canRun = (node: UltraworkNode): boolean => {
     for (const dependency of node.dependsOn) {
@@ -171,6 +244,7 @@ export async function runUltraworkDag(input: {
     if ((status === 'failed' || status === 'timeout' || status === 'cancelled') && attempts < node.maxRetries) {
       retries.set(node.nodeID, attempts + 1);
       pending.add(node.nodeID);
+      retriesScheduled += 1;
       return;
     }
     results.set(node.nodeID, {
@@ -187,14 +261,18 @@ export async function runUltraworkDag(input: {
   };
 
   while (pending.size > 0 || running.size > 0) {
+    schedulerTicks += 1;
+    maxParallelObserved = Math.max(maxParallelObserved, running.size);
     const ready = [...pending]
       .map((nodeID) => nodeMap.get(nodeID))
       .filter((node): node is UltraworkNode => Boolean(node))
-      .filter((node) => canRun(node));
+      .filter((node) => canRun(node))
+      .sort((a, b) => (critical.priority.get(b.nodeID) ?? 0) - (critical.priority.get(a.nodeID) ?? 0));
     for (const node of ready) {
       if (running.size >= maxParallel) break;
       pending.delete(node.nodeID);
       running.add(node.nodeID);
+      maxParallelObserved = Math.max(maxParallelObserved, running.size);
       void runNode(node).finally(() => {
         running.delete(node.nodeID);
       });
@@ -233,6 +311,7 @@ export async function runUltraworkDag(input: {
       break;
     }
     if (running.size > 0) {
+      waitTicks += 1;
       await new Promise((resolve) => setTimeout(resolve, 60));
     }
   }
@@ -264,5 +343,12 @@ export async function runUltraworkDag(input: {
     failed,
     blocked,
     nodes: nodeResults,
+    metrics: {
+      maxParallelObserved,
+      schedulerTicks,
+      waitTicks,
+      retriesScheduled,
+      criticalPathLength: critical.criticalPathLength,
+    },
   };
 }
