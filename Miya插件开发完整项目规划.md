@@ -2348,7 +2348,7 @@ miya-src/src/daemon/psyche/
    - 路径：`miya-src/src/companion/wizard.test.ts`
 4. `P1-1`：视觉链路具备真实 OCR/VLM 推理入口，并与桌控发送校验打通  
    - 路径：`miya-src/src/multimodal/vision.ts`, `miya-src/src/channels/service.ts`
-5. `P1-2`：规划文档与代码基线一致，状态标记为已完成/部分完成/未完成并绑定源码路径  
+5. `P1-2`：规划文档与代码基线一致，状态标记为已完成/进行中/未完成并绑定源码路径  
    - 路径：`Miya插件开发完整项目规划.md`
 6. `P0-4`：连续 20 次启动无重复 toast，`miya_ui_open` 可达率 100%  
    - 路径：`miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts`
@@ -2426,6 +2426,17 @@ Miya插件已经具备了坚实的架构基础：
 - 已完成：智能路由增强（Oh-my-opencode，语义评分 + 歧义识别 + 证据输出；`miya-src/src/router/classifier.ts`、`miya-src/src/router/runtime.ts`）
 - 进行中：Inbound-only 通道治理增强（仅入站只读主链路已落地，违规审计持续增强；`miya-src/src/channels/service.ts`、`miya-src/src/gateway/index.ts`）
 - 已完成：MCP原生增强（Nanobot，对标能力元数据 + 生态摘要 + 控制面清单已落地；`miya-src/src/mcp/index.ts`、`miya-src/src/tools/mcp.ts`、`miya-src/src/gateway/index.ts`）
+
+**未完成项集中清单（2026-02-16 二次对照补充）**：
+- 进行中（既有）：Evidence Pack V5 富媒体审批预览。现状：证据与 simulation 已入审计并进快照（`miya-src/src/channels/service.ts`、`miya-src/src/gateway/index.ts`），但控制台未展示外发证据明细预览（`miya-src/gateway-ui/src/App.tsx`）。
+- 进行中（既有）：Capture Capability Tree 真实采集能力。现状：已完成能力树判定与低置信升档（`miya-src/src/multimodal/vision.ts`），但尚未看到 WGC/PrintWindow/DXGI 的完整本地采集执行链落地（仍以可用能力声明与截图存在性判定为主）。
+- 进行中（既有）：Psyche 共鸣层 + Slow Brain。现状：Sentinel/consult/bandit 与训练摘要已落地（`miya-src/src/daemon/psyche/*`），但周期重训与可回滚慢脑链路仍在规划态。
+- 进行中（既有）：Traffic Light -> Hydraulics。现状：已有显存预算与互斥调度基础（`miya-src/src/resource-scheduler/`、`miya-src/src/gateway/index.ts`），Hydraulics（hotset/warm pool/offload）未完整落地。
+- 未完成（新增）：本地 ASR 推理闭环。现状：`voice.input.ingest` 目前仅接收文本或媒体元数据转写（`miya-src/src/multimodal/voice.ts`、`miya-src/src/gateway/index.ts`），未发现 Whisper/ASR 实际推理执行链路。
+- 未完成（新增）：开机自启动 OpenCode/Gateway 的可配置开关。现状：已有启动探活与守护（`miya-src/src/gateway/index.ts`、`miya-src/src/gateway/methods/core.ts`），但未发现 `autostart/startup` 配置项与对应控制命令。
+- 未完成（新增）：`proactive_ping` 能力域与 `quiet_hours` 抑制链路。现状：规划已冻结能力约束，源码未检索到对应能力域与时段抑制实现。
+- 未完成（新增）：模块化 capability schema 最低字段标准化（`id/version/inputs/outputs/sideEffects/permissions/auditFields/fallbackPlan`）。现状：未检索到统一 schema 定义与全链路校验实现。
+- 未完成（新增）：CI/CD 门禁落地（测试 + Doc Linter 阻断 merge）。现状：`doc-lint` 脚本存在（`miya-src/tools/doc-lint.ts`），但仓库未发现 `.github/workflows` 自动门禁配置。
 
 通过这些功能的融合，Miya将成为一个真正意义上的"全自动控制平面"，实现"你只给目标，它自动完成"的愿景，成为OpenCode 生态中第一个真正的“伴侣级”生产力工具
 
