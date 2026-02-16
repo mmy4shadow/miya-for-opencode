@@ -13,7 +13,23 @@ function tempProjectDir(): string {
 describe('psyche training summary', () => {
   test('aggregates observation and outcome windows', () => {
     const projectDir = tempProjectDir();
-    const service = new PsycheConsultService(projectDir, { epsilon: 0, shadowModeDays: 0 });
+    const service = new PsycheConsultService(projectDir, {
+      epsilon: 0,
+      shadowModeDays: 0,
+      nativeSignalsProvider: () => ({
+        sampledAt: new Date(0).toISOString(),
+        signals: {},
+        captureLimitations: [],
+      }),
+      screenProbeProvider: () => ({
+        status: 'ok',
+        method: 'print_window',
+        captureLimitations: [],
+        sceneTags: [],
+        confidence: 0.6,
+        inferredSignals: {},
+      }),
+    });
     const consult = service.consult({
       intent: 'outbound.send.wechat',
       urgency: 'medium',

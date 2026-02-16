@@ -298,6 +298,7 @@ interface TrustModeConfig {
 interface PsycheModeConfig {
   resonanceEnabled: boolean;
   captureProbeEnabled: boolean;
+  signalOverrideEnabled: boolean;
   slowBrainEnabled: boolean;
   slowBrainShadowEnabled: boolean;
   slowBrainShadowRollout: number;
@@ -331,7 +332,10 @@ interface GatewayRuntime {
   wizardTickTimer?: ReturnType<typeof setInterval>;
   ownerBeatTimer?: ReturnType<typeof setInterval>;
   memoryReflectTimer?: ReturnType<typeof setInterval>;
+  pendingQueueTimer?: ReturnType<typeof setInterval>;
   wizardRunnerBusy?: boolean;
+  pendingQueueBusy?: boolean;
+  pendingOutboundQueue: PendingOutboundItem[];
   dependencyAssistHashes: Set<string>;
   daemonLauncherUnsubscribe?: () => void;
   negotiationBudgets: Map<string, NegotiationBudgetState>;
@@ -348,6 +352,16 @@ interface GatewayRuntime {
     learningGate: LearningGateConfig;
     guardianSafeHoldReason?: string;
   };
+}
+
+interface PendingOutboundItem {
+  id: string;
+  createdAt: string;
+  nextRunAt: string;
+  attempts: number;
+  lastReason: string;
+  payloadHash: string;
+  request: GuardedOutboundSendInput;
 }
 
 interface GatewayWsData {
@@ -411,6 +425,11 @@ interface GatewaySnapshot {
     psycheTraining: ReturnType<typeof readPsycheTrainingSummary>;
     learningGate: LearningGateConfig;
     guardianSafeHoldReason?: string;
+    pendingQueue: {
+      size: number;
+      nextRunAt?: string;
+      lastReason?: string;
+    };
   };
   safety: {
     recentSelfApproval: ReturnType<typeof listRecentSelfApprovalRecords>;
@@ -696,6 +715,7 @@ const DEFAULT_TRUST_MODE: TrustModeConfig = {
 const DEFAULT_PSYCHE_MODE: PsycheModeConfig = {
   resonanceEnabled: true,
   captureProbeEnabled: true,
+  signalOverrideEnabled: false,
   slowBrainEnabled: true,
   slowBrainShadowEnabled: true,
   slowBrainShadowRollout: 15,
@@ -768,6 +788,10 @@ function normalizePsycheMode(input?: Partial<PsycheModeConfig>): PsycheModeConfi
       typeof input?.captureProbeEnabled === 'boolean'
         ? input.captureProbeEnabled
         : DEFAULT_PSYCHE_MODE.captureProbeEnabled,
+    signalOverrideEnabled:
+      typeof input?.signalOverrideEnabled === 'boolean'
+        ? input.signalOverrideEnabled
+        : DEFAULT_PSYCHE_MODE.signalOverrideEnabled,
     slowBrainEnabled:
       typeof input?.slowBrainEnabled === 'boolean'
         ? input.slowBrainEnabled
@@ -792,6 +816,8 @@ function readPsycheModeConfig(projectDir: string): PsycheModeConfig {
       typeof raw.resonanceEnabled === 'boolean' ? raw.resonanceEnabled : undefined,
     captureProbeEnabled:
       typeof raw.captureProbeEnabled === 'boolean' ? raw.captureProbeEnabled : undefined,
+    signalOverrideEnabled:
+      typeof raw.signalOverrideEnabled === 'boolean' ? raw.signalOverrideEnabled : undefined,
     slowBrainEnabled:
       typeof raw.slowBrainEnabled === 'boolean' ? raw.slowBrainEnabled : undefined,
     slowBrainShadowEnabled:
@@ -1307,6 +1333,11 @@ export function stopGateway(projectDir: string): {
     clearInterval(runtime.memoryReflectTimer);
     runtime.memoryReflectTimer = undefined;
   }
+  if (runtime.pendingQueueTimer) {
+    clearInterval(runtime.pendingQueueTimer);
+    runtime.pendingQueueTimer = undefined;
+  }
+  writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
   if (runtime.daemonLauncherUnsubscribe) {
     runtime.daemonLauncherUnsubscribe();
     runtime.daemonLauncherUnsubscribe = undefined;
@@ -2025,6 +2056,7 @@ interface GuardedOutboundCheckInput {
   userInitiated?: boolean;
   negotiationID?: string;
   retryAttemptType?: 'auto' | 'human';
+  pendingQueueDelivery?: boolean;
   evidenceConfidence?: number;
   captureLimitations?: string[];
   psycheSignals?: {
@@ -2111,6 +2143,168 @@ function consumeNegotiationBudget(input: {
   };
 }
 
+function pendingOutboundQueueFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-pending-outbound-queue.json');
+}
+
+function readPendingOutboundQueue(projectDir: string): PendingOutboundItem[] {
+  const file = pendingOutboundQueueFile(projectDir);
+  const raw = safeReadJsonObject(file);
+  const rows = Array.isArray(raw?.items) ? raw.items : [];
+  const out: PendingOutboundItem[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const request = (row as { request?: unknown }).request;
+    if (!request || typeof request !== 'object') continue;
+    const requestObj = request as GuardedOutboundSendInput;
+    if (!isChannelName(requestObj.channel)) continue;
+    if (typeof requestObj.destination !== 'string' || typeof requestObj.text !== 'string') continue;
+    const id = parseText((row as { id?: unknown }).id) || `poq_${randomUUID()}`;
+    const createdAt = parseText((row as { createdAt?: unknown }).createdAt) || nowIso();
+    const nextRunAt = parseText((row as { nextRunAt?: unknown }).nextRunAt) || nowIso();
+    const attemptsRaw = Number((row as { attempts?: unknown }).attempts);
+    const attempts = Number.isFinite(attemptsRaw) ? Math.max(0, Math.floor(attemptsRaw)) : 0;
+    const payloadHash = parseText((row as { payloadHash?: unknown }).payloadHash) ||
+      hashText(`${requestObj.channel}|${requestObj.destination}|${requestObj.text}|${requestObj.mediaPath ?? ''}`);
+    out.push({
+      id,
+      createdAt,
+      nextRunAt,
+      attempts,
+      lastReason: parseText((row as { lastReason?: unknown }).lastReason),
+      payloadHash,
+      request: requestObj,
+    });
+  }
+  return out.slice(-400);
+}
+
+function writePendingOutboundQueue(projectDir: string, items: PendingOutboundItem[]): void {
+  writeJsonAtomic(pendingOutboundQueueFile(projectDir), {
+    updatedAt: nowIso(),
+    items: items.slice(-400),
+  });
+}
+
+function enqueuePendingOutbound(input: {
+  projectDir: string;
+  runtime: GatewayRuntime;
+  request: GuardedOutboundSendInput;
+  payloadHash: string;
+  reason: string;
+  retryAfterSec: number;
+}): PendingOutboundItem {
+  const retryAfterSec = Math.max(10, Math.min(900, Math.floor(input.retryAfterSec)));
+  const now = Date.now();
+  const queue = input.runtime.pendingOutboundQueue;
+  const negotiationID = parseText(input.request.outboundCheck?.negotiationID);
+  const existing = queue.find((item) => {
+    const sameNegotiation =
+      negotiationID.length > 0 && parseText(item.request.outboundCheck?.negotiationID) === negotiationID;
+    if (sameNegotiation) return true;
+    return (
+      item.request.channel === input.request.channel &&
+      item.request.destination === input.request.destination &&
+      item.payloadHash === input.payloadHash
+    );
+  });
+  const nextRunAtIso = new Date(now + retryAfterSec * 1000).toISOString();
+  if (existing) {
+    existing.nextRunAt = nextRunAtIso;
+    existing.lastReason = input.reason;
+    existing.request = input.request;
+    writePendingOutboundQueue(input.projectDir, queue);
+    return existing;
+  }
+  const item: PendingOutboundItem = {
+    id: `poq_${randomUUID()}`,
+    createdAt: nowIso(),
+    nextRunAt: nextRunAtIso,
+    attempts: 0,
+    lastReason: input.reason,
+    payloadHash: input.payloadHash,
+    request: input.request,
+  };
+  queue.push(item);
+  if (queue.length > 400) queue.splice(0, queue.length - 400);
+  writePendingOutboundQueue(input.projectDir, queue);
+  return item;
+}
+
+function removePendingOutboundByNegotiationID(
+  projectDir: string,
+  runtime: GatewayRuntime,
+  negotiationID: string | undefined,
+): void {
+  const key = parseText(negotiationID);
+  if (!key) return;
+  const next = runtime.pendingOutboundQueue.filter(
+    (item) => parseText(item.request.outboundCheck?.negotiationID) !== key,
+  );
+  if (next.length === runtime.pendingOutboundQueue.length) return;
+  runtime.pendingOutboundQueue = next;
+  writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
+}
+
+async function processPendingOutboundQueue(projectDir: string, runtime: GatewayRuntime): Promise<void> {
+  if (runtime.pendingQueueBusy) return;
+  runtime.pendingQueueBusy = true;
+  try {
+    if (runtime.pendingOutboundQueue.length === 0) return;
+    const nowMs = Date.now();
+    runtime.pendingOutboundQueue.sort((a, b) => Date.parse(a.nextRunAt) - Date.parse(b.nextRunAt));
+    const item = runtime.pendingOutboundQueue.find((candidate) => {
+      const runAt = Date.parse(candidate.nextRunAt);
+      return Number.isFinite(runAt) && runAt <= nowMs;
+    });
+    if (!item) return;
+    item.attempts += 1;
+    const outboundCheck = item.request.outboundCheck ?? {};
+    let send: GuardedOutboundSendResult;
+    try {
+      send = await sendChannelMessageGuarded(projectDir, runtime, {
+        ...item.request,
+        outboundCheck: {
+          ...outboundCheck,
+          userInitiated: false,
+          pendingQueueDelivery: true,
+          retryAttemptType: 'auto',
+        },
+      });
+    } catch (error) {
+      item.lastReason = error instanceof Error ? error.message : String(error);
+      item.nextRunAt = new Date(Date.now() + Math.min(900, 30 * Math.max(1, item.attempts)) * 1000).toISOString();
+      writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
+      return;
+    }
+    const sent = Boolean(send.sent);
+    if (sent) {
+      runtime.pendingOutboundQueue = runtime.pendingOutboundQueue.filter((row) => row.id !== item.id);
+      writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
+      return;
+    }
+    const message = parseText(send.message);
+    const retryAfterSecRaw = Number((send as { retryAfterSec?: unknown }).retryAfterSec);
+    const retryAfterSec = Number.isFinite(retryAfterSecRaw)
+      ? Math.max(10, Math.min(900, Math.floor(retryAfterSecRaw)))
+      : Math.min(900, 30 * Math.max(1, item.attempts));
+    if (
+      message.includes('negotiation_budget_exhausted') ||
+      message.includes('psyche_denied') ||
+      message.includes('high_risk_confirmation_required')
+    ) {
+      runtime.pendingOutboundQueue = runtime.pendingOutboundQueue.filter((row) => row.id !== item.id);
+      writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
+      return;
+    }
+    item.lastReason = message || 'pending_retry';
+    item.nextRunAt = new Date(Date.now() + retryAfterSec * 1000).toISOString();
+    writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
+  } finally {
+    runtime.pendingQueueBusy = false;
+  }
+}
+
 async function sendChannelMessageGuarded(
   projectDir: string,
   runtime: GatewayRuntime,
@@ -2172,6 +2366,31 @@ async function sendChannelMessageGuarded(
     evidenceConfidence = Math.min(evidenceConfidence, 0.34);
   }
   const userInitiated = input.outboundCheck?.userInitiated !== false;
+  const pendingQueueDelivery = input.outboundCheck?.pendingQueueDelivery === true;
+  const queueDeferredOutbound = (inputQueue: {
+    retryAfterSec: number;
+    reason: string;
+    negotiationID?: string;
+  }): void => {
+    if (userInitiated || pendingQueueDelivery) return;
+    const request: GuardedOutboundSendInput = {
+      ...input,
+      outboundCheck: {
+        ...(input.outboundCheck ?? {}),
+        userInitiated: false,
+        pendingQueueDelivery: false,
+        negotiationID: inputQueue.negotiationID ?? input.outboundCheck?.negotiationID,
+      },
+    };
+    enqueuePendingOutbound({
+      projectDir,
+      runtime,
+      request,
+      payloadHash,
+      reason: inputQueue.reason,
+      retryAfterSec: inputQueue.retryAfterSec,
+    });
+  };
   if (isHighRiskInstruction(input.text)) {
     const physicalConfirmed = localPhysicalConfirmed;
     const secretVerified = verifyOwnerSecrets(projectDir, {
@@ -2341,6 +2560,8 @@ async function sendChannelMessageGuarded(
 
   const psycheMode = runtime.nexus.psycheMode;
   const psycheConsultEnabled = resolvePsycheConsultEnabled(projectDir, psycheMode);
+  const signalOverrideEnabled = psycheMode.signalOverrideEnabled === true;
+  const overrideSignals = signalOverrideEnabled ? input.outboundCheck?.psycheSignals : undefined;
   const psycheShadowSampled = shouldSamplePsycheShadow({
     mode: psycheMode,
     sessionID: input.sessionID,
@@ -2367,6 +2588,7 @@ async function sendChannelMessageGuarded(
       attemptType: input.outboundCheck?.retryAttemptType,
     });
     if (!budgetState.ok) {
+      removePendingOutboundByNegotiationID(projectDir, runtime, negotiationID);
       return {
         sent: false,
         message: `outbound_blocked:negotiation_budget_exhausted:${budgetState.reason ?? 'unknown'}`,
@@ -2378,6 +2600,11 @@ async function sendChannelMessageGuarded(
         negotiationID,
       };
     }
+    queueDeferredOutbound({
+      retryAfterSec: 120,
+      reason: 'outbound_blocked:resonance_disabled_safe_hold',
+      negotiationID,
+    });
     return {
       sent: false,
       message: 'outbound_blocked:resonance_disabled_safe_hold',
@@ -2414,7 +2641,8 @@ async function sendChannelMessageGuarded(
         channel: input.channel,
         userInitiated,
         allowScreenProbe: psycheMode.captureProbeEnabled,
-        signals: input.outboundCheck?.psycheSignals,
+        allowSignalOverride: signalOverrideEnabled,
+        signals: overrideSignals,
         captureLimitations: input.outboundCheck?.captureLimitations,
         trust: {
           target: `${input.channel}:${input.destination}`,
@@ -2473,6 +2701,7 @@ async function sendChannelMessageGuarded(
           attemptType: input.outboundCheck?.retryAttemptType,
         });
         if (!budgetState.ok) {
+          removePendingOutboundByNegotiationID(projectDir, runtime, negotiationID);
           return {
             sent: false,
             message: `outbound_blocked:negotiation_budget_exhausted:${budgetState.reason ?? 'unknown'}`,
@@ -2507,12 +2736,20 @@ async function sendChannelMessageGuarded(
             },
           });
         } catch {}
+        const blockedMessage =
+          consult.decision === 'deny'
+            ? 'outbound_blocked:psyche_denied'
+            : 'outbound_blocked:psyche_deferred';
+        if (consult.decision === 'defer') {
+          queueDeferredOutbound({
+            retryAfterSec: consult.nextCheckSec ?? consult.retryAfterSec ?? 120,
+            reason: blockedMessage,
+            negotiationID,
+          });
+        }
         return {
           sent: false,
-          message:
-            consult.decision === 'deny'
-              ? 'outbound_blocked:psyche_denied'
-              : 'outbound_blocked:psyche_deferred',
+          message: blockedMessage,
           policyHash: resolvedPolicyHash,
           psyche: consult,
           retryAfterSec: consult.nextCheckSec ?? consult.retryAfterSec,
@@ -2540,6 +2777,7 @@ async function sendChannelMessageGuarded(
           attemptType: input.outboundCheck?.retryAttemptType,
         });
         if (!budgetState.ok) {
+          removePendingOutboundByNegotiationID(projectDir, runtime, negotiationID);
           return {
             sent: false,
             message: `outbound_blocked:negotiation_budget_exhausted:${budgetState.reason ?? 'unknown'}`,
@@ -2551,6 +2789,11 @@ async function sendChannelMessageGuarded(
             negotiationID,
           };
         }
+        queueDeferredOutbound({
+          retryAfterSec: 30,
+          reason: 'outbound_blocked:psyche_deferred',
+          negotiationID,
+        });
         return {
           sent: false,
           message: 'outbound_blocked:psyche_deferred',
@@ -2579,7 +2822,8 @@ async function sendChannelMessageGuarded(
         channel: input.channel,
         userInitiated,
         allowScreenProbe: false,
-        signals: input.outboundCheck?.psycheSignals,
+        allowSignalOverride: signalOverrideEnabled,
+        signals: overrideSignals,
         captureLimitations: input.outboundCheck?.captureLimitations,
         trust: {
           target: `${input.channel}:${input.destination}`,
@@ -2658,6 +2902,7 @@ async function sendChannelMessageGuarded(
   const negotiationID = (input.outboundCheck?.negotiationID ?? '').trim();
   if (Boolean((result as { sent?: boolean }).sent) && negotiationID) {
     runtime.negotiationBudgets.delete(negotiationID);
+    removePendingOutboundByNegotiationID(projectDir, runtime, negotiationID);
   }
   if (psycheConsultEnabled && psycheConsult) {
     try {
@@ -3028,6 +3273,9 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   }));
   runtime.nexus.pendingTickets = approvals.filter((item) => item.status === 'pending').length;
   runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, kill);
+  const nextPending = [...runtime.pendingOutboundQueue]
+    .sort((a, b) => Date.parse(a.nextRunAt) - Date.parse(b.nextRunAt))
+    .at(0);
 
   const base: Omit<GatewaySnapshot, 'doctor'> = {
     updatedAt: nowIso(),
@@ -3056,6 +3304,11 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       psycheTraining,
       learningGate: runtime.nexus.learningGate,
       guardianSafeHoldReason: runtime.nexus.guardianSafeHoldReason,
+      pendingQueue: {
+        size: runtime.pendingOutboundQueue.length,
+        nextRunAt: nextPending?.nextRunAt,
+        lastReason: nextPending?.lastReason,
+      },
     },
     safety: {
       recentSelfApproval: listRecentSelfApprovalRecords(projectDir, 15),
@@ -4584,6 +4837,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
           outboundCheckRaw.retryAttemptType === 'human')
           ? (outboundCheckRaw.retryAttemptType as 'auto' | 'human')
           : undefined,
+      pendingQueueDelivery:
+        outboundCheckRaw && typeof outboundCheckRaw.pendingQueueDelivery === 'boolean'
+          ? Boolean(outboundCheckRaw.pendingQueueDelivery)
+          : undefined,
       evidenceConfidence:
         outboundCheckRaw &&
         typeof outboundCheckRaw.evidenceConfidence === 'number' &&
@@ -5187,6 +5444,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         typeof params.captureProbeEnabled === 'boolean'
           ? Boolean(params.captureProbeEnabled)
           : undefined,
+      signalOverrideEnabled:
+        typeof params.signalOverrideEnabled === 'boolean'
+          ? Boolean(params.signalOverrideEnabled)
+          : undefined,
       slowBrainEnabled:
         typeof params.slowBrainEnabled === 'boolean'
           ? Boolean(params.slowBrainEnabled)
@@ -5206,7 +5467,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
     runtime.nexus.psycheMode = next;
     appendNexusInsight(runtime, {
-      text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}，slow_brain=${next.slowBrainEnabled ? '开启' : '关闭'}，shadow=${next.slowBrainShadowEnabled ? '开启' : '关闭'}(${next.slowBrainShadowRollout}%)`,
+      text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}，信号覆盖=${next.signalOverrideEnabled ? '调试开启' : '关闭'}，slow_brain=${next.slowBrainEnabled ? '开启' : '关闭'}，shadow=${next.slowBrainShadowEnabled ? '开启' : '关闭'}(${next.slowBrainShadowRollout}%)`,
     });
     publishGatewayEvent(runtime, 'psyche.mode.update', {
       at: nowIso(),
@@ -7390,7 +7651,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     wizardTickTimer: undefined,
     ownerBeatTimer: undefined,
     memoryReflectTimer: undefined,
+    pendingQueueTimer: undefined,
     wizardRunnerBusy: false,
+    pendingQueueBusy: false,
+    pendingOutboundQueue: readPendingOutboundQueue(projectDir),
     dependencyAssistHashes: new Set(),
     daemonLauncherUnsubscribe: undefined,
     negotiationBudgets: new Map(),
@@ -7433,6 +7697,9 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     });
     if (tick.completed > 0) syncCompanionProfileMemoryFacts(projectDir);
   }, 20_000);
+  runtime.pendingQueueTimer = setInterval(() => {
+    void processPendingOutboundQueue(projectDir, runtime);
+  }, 5_000);
   runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === 'job.progress') {

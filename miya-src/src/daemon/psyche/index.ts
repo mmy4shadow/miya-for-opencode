@@ -29,6 +29,15 @@ export {
 export { appendPsycheObservation, appendPsycheOutcome } from './logger';
 export { consumeProbeBudget, type ProbeBudgetConfig } from './probe-budget';
 export {
+  collectNativeSentinelSignals,
+  type NativeSentinelSignalSample,
+} from './sensors';
+export {
+  runScreenProbe,
+  type ScreenProbeInput,
+  type ScreenProbeResult,
+} from './screen-probe';
+export {
   getTrustScore,
   updateTrustScore,
   trustTierFromScore,

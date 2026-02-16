@@ -3,6 +3,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../../workflow';
 import { inferSentinelState, type SentinelSignals, type SentinelState } from './state-machine';
+import { collectNativeSentinelSignals, type NativeSentinelSignalSample } from './sensors';
+import { runScreenProbe, type ScreenProbeResult } from './screen-probe';
 import {
   adjustFastBrain,
   fastBrainBucket,
@@ -27,6 +29,7 @@ export interface PsycheConsultRequest {
   channel?: string;
   userInitiated?: boolean;
   allowScreenProbe?: boolean;
+  allowSignalOverride?: boolean;
   signals?: SentinelSignals;
   captureLimitations?: string[];
   trust?: {
@@ -141,6 +144,13 @@ interface PsycheLifecycleState {
   firstSeenAt: string;
 }
 
+type NativeSignalProvider = () => NativeSentinelSignalSample;
+type ScreenProbeProvider = (input: {
+  intent: string;
+  channel?: string;
+  timeoutMs?: number;
+}) => ScreenProbeResult;
+
 const defaultRandomSource: RandomSource = {
   next: () => Math.random(),
 };
@@ -165,6 +175,8 @@ export class PsycheConsultService {
   private readonly shadowModeDays: number;
   private readonly random: RandomSource;
   private readonly delayedPenaltyApplied = new Set<string>();
+  private readonly nativeSignalsProvider: NativeSignalProvider;
+  private readonly screenProbeProvider: ScreenProbeProvider;
 
   constructor(
     private readonly projectDir: string,
@@ -172,6 +184,8 @@ export class PsycheConsultService {
       epsilon?: number;
       shadowModeDays?: number;
       random?: RandomSource;
+      nativeSignalsProvider?: NativeSignalProvider;
+      screenProbeProvider?: ScreenProbeProvider;
     },
   ) {
     const psycheDir = path.join(getMiyaRuntimeDir(projectDir), 'daemon', 'psyche');
@@ -186,6 +200,8 @@ export class PsycheConsultService {
     this.epsilon = Math.max(0, Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()));
     this.shadowModeDays = this.resolveShadowModeDays(options?.shadowModeDays);
     this.random = options?.random ?? defaultRandomSource;
+    this.nativeSignalsProvider = options?.nativeSignalsProvider ?? (() => collectNativeSentinelSignals());
+    this.screenProbeProvider = options?.screenProbeProvider ?? ((probeInput) => runScreenProbe(probeInput));
     this.ensureLifecycleState();
   }
 
@@ -193,11 +209,24 @@ export class PsycheConsultService {
     const intent = String(input.intent ?? '').trim() || 'unknown_intent';
     const urgency = asUrgency(input.urgency);
     const userInitiated = input.userInitiated !== false;
-    const captureLimitations = this.normalizeCaptureLimitations(
-      input.captureLimitations ?? input.signals?.captureLimitations,
-    );
-    const sentinel = inferSentinelState({
-      ...(input.signals ?? {}),
+    const nativeSample = this.safeReadNativeSignals();
+    const incomingSignals = input.signals ?? {};
+    const allowSignalOverride = input.allowSignalOverride === true;
+    let sampledSignals: SentinelSignals = allowSignalOverride
+      ? {
+          ...incomingSignals,
+        }
+      : {
+          ...incomingSignals,
+          ...nativeSample.signals,
+        };
+    let captureLimitations = this.normalizeCaptureLimitations([
+      ...(Array.isArray(input.captureLimitations) ? input.captureLimitations : []),
+      ...(Array.isArray(incomingSignals.captureLimitations) ? incomingSignals.captureLimitations : []),
+      ...nativeSample.captureLimitations,
+    ]);
+    let sentinel = inferSentinelState({
+      ...sampledSignals,
       captureLimitations,
     });
     const probeEnabled = input.allowScreenProbe !== false;
@@ -205,7 +234,36 @@ export class PsycheConsultService {
     const probeBudget = needsProbe
       ? consumeProbeBudget(this.probeBudgetPath, this.probeBudgetConfig())
       : { allowed: false, remainingTokens: 0 };
-    const shouldProbeScreen = needsProbe && probeBudget.allowed;
+    let shouldProbeScreen = false;
+    let probeMethod = '';
+    let probeConfidence: number | undefined;
+    let probeSceneTags: string[] = [];
+    let probeStatus: SentinelSignals['screenProbe'] = 'not_run';
+    if (needsProbe && probeBudget.allowed) {
+      const probe = this.safeRunScreenProbe({
+        intent,
+        channel: input.channel,
+        timeoutMs: this.resolveProbeTimeoutMs(),
+      });
+      shouldProbeScreen = true;
+      probeMethod = probe.method ?? '';
+      probeConfidence = probe.confidence;
+      probeSceneTags = probe.sceneTags;
+      probeStatus = probe.status;
+      captureLimitations = this.normalizeCaptureLimitations([
+        ...captureLimitations,
+        ...probe.captureLimitations,
+      ]);
+      sampledSignals = {
+        ...sampledSignals,
+        ...probe.inferredSignals,
+      };
+      sentinel = inferSentinelState({
+        ...sampledSignals,
+        captureLimitations,
+        screenProbe: probe.status,
+      });
+    }
     const state = sentinel.state;
     const auditID = randomUUID();
     const at = nowIso();
@@ -229,7 +287,7 @@ export class PsycheConsultService {
       urgency,
       intent,
       userInitiated,
-      shouldProbeScreen: needsProbe,
+      shouldProbeScreen: sentinel.shouldProbeScreen && !shouldProbeScreen,
       fastBrainScore,
       trustTier,
     });
@@ -257,8 +315,13 @@ export class PsycheConsultService {
 
     const reasonMarkers = [
       ...sentinel.reasons,
+      ...nativeSample.captureLimitations.map((item) => `native_limit:${item}`),
+      allowSignalOverride ? 'signal_override_enabled' : '',
       sentinel.shouldProbeScreen && !probeEnabled ? 'probe_disabled' : '',
       needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
+      probeMethod ? `probe_method:${probeMethod}` : '',
+      typeof probeConfidence === 'number' ? `probe_confidence=${probeConfidence.toFixed(2)}` : '',
+      probeSceneTags.length > 0 ? `probe_scene=${probeSceneTags.join('|')}` : '',
       `fast_brain_score=${fastBrainScore.toFixed(2)}`,
       budgetHint,
       explorationApplied ? 'epsilon_exploration' : '',
@@ -372,7 +435,8 @@ export class PsycheConsultService {
       shouldProbeScreen,
       reasons: result.reasons,
       signals: {
-        ...(input.signals ?? {}),
+        ...sampledSignals,
+        screenProbe: probeStatus,
         captureLimitations,
       },
       approvalMode: result.approvalMode,
@@ -581,6 +645,61 @@ export class PsycheConsultService {
 
   private appendConsultLog(result: PsycheConsultResult): void {
     fs.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}\n`, 'utf-8');
+  }
+
+  private safeReadNativeSignals(): NativeSentinelSignalSample {
+    try {
+      const sample = this.nativeSignalsProvider();
+      return {
+        sampledAt: typeof sample.sampledAt === 'string' ? sample.sampledAt : nowIso(),
+        signals: sample.signals ?? {},
+        captureLimitations: this.normalizeCaptureLimitations(sample.captureLimitations),
+      };
+    } catch (error) {
+      return {
+        sampledAt: nowIso(),
+        signals: {},
+        captureLimitations: [
+          `native_signal_provider_failed:${error instanceof Error ? error.message : String(error)}`,
+        ],
+      };
+    }
+  }
+
+  private safeRunScreenProbe(input: {
+    intent: string;
+    channel?: string;
+    timeoutMs?: number;
+  }): ScreenProbeResult {
+    try {
+      const result = this.screenProbeProvider(input);
+      return {
+        status: result.status,
+        method: result.method,
+        captureLimitations: this.normalizeCaptureLimitations(result.captureLimitations),
+        sceneTags: Array.isArray(result.sceneTags)
+          ? result.sceneTags.map((item) => String(item ?? '').trim()).filter(Boolean).slice(0, 8)
+          : [],
+        confidence: Number.isFinite(result.confidence) ? Number(result.confidence) : 0,
+        inferredSignals: result.inferredSignals ?? {},
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        captureLimitations: [
+          `screen_probe_provider_failed:${error instanceof Error ? error.message : String(error)}`,
+        ],
+        sceneTags: [],
+        confidence: 0,
+        inferredSignals: {},
+      };
+    }
+  }
+
+  private resolveProbeTimeoutMs(): number {
+    const raw = Number(process.env.MIYA_PSYCHE_SCREEN_PROBE_TIMEOUT_MS ?? 2800);
+    if (!Number.isFinite(raw)) return 2_800;
+    return Math.max(800, Math.min(10_000, Math.floor(raw)));
   }
 
   private probeBudgetConfig(): { capacity: number; refillPerSec: number } {

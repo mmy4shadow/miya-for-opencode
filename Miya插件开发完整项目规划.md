@@ -2126,7 +2126,7 @@ miya-src/src/daemon/psyche/
 | P1 | Fast Brain + bandit 闭环 + 统一 jsonl 日志 | “不发送但用户主动发起”可被 delayed reward 学到；负反馈率可观测 |
 | P2 | Resonance Gate + 语义焦点增强 + 可回滚 Slow Brain | 主动触达总量不增加且负反馈下降；共鸣层可一键关闭并回退到纯守门 |
 
-#### **6.4.5 当前代码状态快照（2026-02-15）**
+#### **6.4.5 当前代码状态快照（2026-02-16）**
 
 - 已落地（P0 核心）：  
   - `miya-src/src/daemon/psyche/state-machine.ts` 已实现多信号 Sentinel 判定，`UNKNOWN` 作为冲突/不确定默认回退。  
@@ -2136,6 +2136,10 @@ miya-src/src/daemon/psyche/
 - 已落地（P1 闭环关键项）：  
   - `miya-src/src/daemon/psyche/logger.ts` / `consult.ts` 已补充 delayed reward 相关口径（含 `userInitiatedWithinSec`），并对 defer/hold 决策可评分。  
   - 默认启用冷启动 Shadow Mode（可通过配置关闭），并保留 ε 探索与打扰预算。  
+  - 已切换为 **daemon 原生信号优先**：`miya-src/src/daemon/psyche/sensors/*` 新增 `foreground/input/audio/gamepad` 采集，并由 `consult.ts` 统一融合；Gateway 仅在 `signalOverrideEnabled=true` 时允许调试覆盖。  
+  - 已落地后台 `screen_probe` worker：`miya-src/src/daemon/psyche/screen-probe.ts` + `probe-worker/*` 实现 `WGC helper -> PrintWindow` 能力树与结构化降级（失败/黑屏回退 `UNKNOWN`）。  
+  - 已落地 defer 持久队列：`miya-src/src/gateway/index.ts` 新增 `pending_outbound_queue` 入队/重评估/预算熔断联动，打通 `psyche_deferred -> retryAfterSec -> 预算终止`。  
+  - `miya-src/src/multimodal/vision.ts` 已切换为 local-first（`MIYA_VISION_LOCAL_CMD`）并保留 remote/tesseract fallback。  
 
 - 进行中：  
   - Resonance Gate（语义焦点增强、风格注入、动量特征）尚未完整落地。  
@@ -2437,7 +2441,7 @@ Miya插件已经具备了坚实的架构基础：
 
 **未完成项集中清单（2026-02-16 二次对照补充）**：
 - 进行中（既有）：Evidence Pack V5 富媒体审批预览。现状：证据与 simulation 已入审计并进快照（`miya-src/src/channels/service.ts`、`miya-src/src/gateway/index.ts`），但控制台未展示外发证据明细预览（`miya-src/gateway-ui/src/App.tsx`）。
-- 进行中（既有）：Capture Capability Tree 真实采集能力。现状：已完成能力树判定与低置信升档（`miya-src/src/multimodal/vision.ts`），但尚未看到 WGC/PrintWindow/DXGI 的完整本地采集执行链落地（仍以可用能力声明与截图存在性判定为主）。
+- 进行中（既有）：Capture Capability Tree 真实采集能力。现状：已完成 daemon 后台 `WGC helper + PrintWindow` 采集执行链与结构化降级（`miya-src/src/daemon/psyche/screen-probe.ts`, `miya-src/src/daemon/psyche/probe-worker/*`），`DXGI` 仍为下一阶段增强项。
 - 进行中（既有）：Psyche 共鸣层 + Slow Brain。现状：Sentinel/consult/bandit 与训练摘要已落地（`miya-src/src/daemon/psyche/*`），但周期重训与可回滚慢脑链路仍在规划态。
 - 进行中（既有）：Traffic Light -> Hydraulics。现状：已有显存预算与互斥调度基础（`miya-src/src/resource-scheduler/`、`miya-src/src/gateway/index.ts`），Hydraulics（hotset/warm pool/offload）未完整落地。
 - 未完成（新增）：本地 ASR 推理闭环。现状：`voice.input.ingest` 目前仅接收文本或媒体元数据转写（`miya-src/src/multimodal/voice.ts`、`miya-src/src/gateway/index.ts`），未发现 Whisper/ASR 实际推理执行链路。

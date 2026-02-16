@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { getMediaItem } from '../media/store';
 import { readOcrCoordinateCache, writeOcrCoordinateCache } from './ocr-cache';
 import type { VisionAnalyzeInput, VisionAnalyzeResult } from './types';
@@ -99,12 +100,72 @@ async function runRemoteVisionInference(
   }
 }
 
+function runLocalVisionInference(
+  imagePath: string,
+  question?: string,
+): { text: string; summary?: string; boxes?: Array<Record<string, unknown>> } {
+  const command = process.env.MIYA_VISION_LOCAL_CMD?.trim();
+  if (!command) return { text: '' };
+  if (!fs.existsSync(imagePath)) return { text: '' };
+  const timeoutMsRaw = Number(process.env.MIYA_VISION_LOCAL_TIMEOUT_MS ?? 6_000);
+  const timeoutMs = Number.isFinite(timeoutMsRaw)
+    ? Math.max(800, Math.min(30_000, Math.floor(timeoutMsRaw)))
+    : 6_000;
+  const image = fs.readFileSync(imagePath);
+  const mimeType = imagePath.endsWith('.png')
+    ? 'image/png'
+    : imagePath.endsWith('.jpg') || imagePath.endsWith('.jpeg')
+      ? 'image/jpeg'
+      : 'application/octet-stream';
+  const payload = JSON.stringify({
+    imageBase64: image.toString('base64'),
+    mimeType,
+    imagePath,
+    question: question ?? '',
+    mode: 'vision_ocr',
+  });
+  try {
+    const result = spawnSync(command, [], {
+      input: payload,
+      timeout: timeoutMs,
+      encoding: 'utf-8',
+      shell: true,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (result.error || result.status !== 0 || result.signal) return { text: '' };
+    const parsed = JSON.parse(String(result.stdout ?? '').trim()) as {
+      text?: string;
+      summary?: string;
+      boxes?: Array<Record<string, unknown>>;
+      ocr_text?: string;
+    };
+    const text = String(parsed.text ?? parsed.ocr_text ?? '').trim();
+    return {
+      text,
+      summary: parsed.summary ? String(parsed.summary) : undefined,
+      boxes: Array.isArray(parsed.boxes) ? parsed.boxes : undefined,
+    };
+  } catch {
+    return { text: '' };
+  }
+}
+
 async function readTextFromImage(imagePath: string, question?: string): Promise<{
   source: 'remote_vlm' | 'tesseract' | 'none';
   text: string;
   summary?: string;
   boxes?: Array<Record<string, unknown>>;
 }> {
+  const local = runLocalVisionInference(imagePath, question);
+  if (local.text) {
+    return {
+      source: 'remote_vlm',
+      text: local.text,
+      summary: local.summary,
+      boxes: local.boxes,
+    };
+  }
   const remote = await runRemoteVisionInference(imagePath, question);
   if (remote.text) {
     return {

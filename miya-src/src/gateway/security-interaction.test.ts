@@ -479,6 +479,10 @@ describe('gateway security interaction acceptance', () => {
       expect(result.fixability).toBe('retry_later');
       expect(Number(result.budget?.autoRetry ?? 0)).toBeGreaterThanOrEqual(1);
       expect(Number(result.budget?.humanEdit ?? 0)).toBeGreaterThanOrEqual(1);
+      const snapshot = (await client.request('gateway.status.get')) as {
+        nexus?: { pendingQueue?: { size?: number } };
+      };
+      expect(Number(snapshot.nexus?.pendingQueue?.size ?? 0)).toBeGreaterThanOrEqual(1);
     } finally {
       client.close();
       stopGateway(projectDir);

@@ -162,6 +162,7 @@ export class MiyaClient {
     channel?: string;
     userInitiated?: boolean;
     allowScreenProbe?: boolean;
+    allowSignalOverride?: boolean;
     signals?: SentinelSignals;
     captureLimitations?: string[];
     trust?: {

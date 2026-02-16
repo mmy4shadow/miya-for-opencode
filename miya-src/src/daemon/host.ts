@@ -297,6 +297,10 @@ const server = Bun.serve({
               typeof params.allowScreenProbe === 'boolean'
                 ? Boolean(params.allowScreenProbe)
                 : undefined,
+            allowSignalOverride:
+              typeof params.allowSignalOverride === 'boolean'
+                ? Boolean(params.allowSignalOverride)
+                : undefined,
             signals:
               params.signals && typeof params.signals === 'object' && !Array.isArray(params.signals)
                 ? (params.signals as Record<string, unknown>)
