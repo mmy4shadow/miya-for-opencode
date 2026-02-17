@@ -671,6 +671,8 @@ export function verifySourcePackGovernance(
   lockValid: boolean;
   compatibilityValid: boolean;
   smokeValid: boolean;
+  regressionValid: boolean;
+  securityValid: boolean;
   governance?: SourcePackGovernanceRecord;
 } {
   const { sourcePack } = requireSourcePack(projectDir, sourcePackID, options);
@@ -688,6 +690,55 @@ export function verifySourcePackGovernance(
     lockValid: report.lockValid,
     compatibilityValid: report.compatibilityValid,
     smokeValid: report.smokeValid,
+    regressionValid: report.regressionValid,
+    securityValid: report.securityValid,
+    governance: report.record,
+  };
+}
+
+export function preflightSourcePackGovernance(
+  projectDir: string,
+  sourcePackID: string,
+  options?: EcosystemBridgeOptions,
+): {
+  sourcePackID: string;
+  localDir: string;
+  revision: string;
+  signatureValid: boolean;
+  lockValid: boolean;
+  compatibilityValid: boolean;
+  smokeValid: boolean;
+  regressionValid: boolean;
+  securityValid: boolean;
+  pass: boolean;
+  governance?: SourcePackGovernanceRecord;
+} {
+  const { sourcePack } = requireSourcePack(projectDir, sourcePackID, options);
+  const revision = sourcePack.pinnedRelease?.revision ?? sourcePack.headRevision;
+  const report = verifyGovernanceRecord(projectDir, {
+    sourcePackID,
+    localDir: sourcePack.localDir,
+    revision,
+    strict: true,
+  });
+  const pass =
+    report.signatureValid &&
+    report.lockValid &&
+    report.compatibilityValid &&
+    report.smokeValid &&
+    report.regressionValid &&
+    report.securityValid;
+  return {
+    sourcePackID,
+    localDir: sourcePack.localDir,
+    revision,
+    signatureValid: report.signatureValid,
+    lockValid: report.lockValid,
+    compatibilityValid: report.compatibilityValid,
+    smokeValid: report.smokeValid,
+    regressionValid: report.regressionValid,
+    securityValid: report.securityValid,
+    pass,
     governance: report.record,
   };
 }

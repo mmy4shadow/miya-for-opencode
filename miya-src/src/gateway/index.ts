@@ -170,6 +170,7 @@ import {
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
+import { readCompanionLearningMetrics } from '../companion/learning-metrics';
 import {
   listEmbeddingProviders,
   readEmbeddingProviderConfig,
@@ -235,10 +236,15 @@ import {
   applySourcePack,
   diffSourcePack,
   listEcosystemBridge,
+  preflightSourcePackGovernance,
   pullSourcePack,
   rollbackSourcePack,
   verifySourcePackGovernance,
 } from '../skills/sync';
+import {
+  listDesktopReplaySkills,
+  readDesktopAutomationKpi,
+} from '../channel/outbound/vision-action-bridge';
 import { buildMcpServiceManifest } from '../mcp';
 import { log } from '../utils/logger';
 import { safeInterval } from '../utils/safe-interval';
@@ -1808,6 +1814,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'miya.sync.list',
   'miya.sync.diff',
   'miya.sync.verify',
+  'miya.sync.preflight',
   'mcp.capabilities.list',
   'openclaw.status.get',
   'openclaw.skills.list',
@@ -1833,6 +1840,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'companion.memory.search',
   'companion.memory.vector.list',
   'companion.memory.drift.report',
+  'companion.learning.metrics.get',
   'miya.memory.sqlite.stats',
   'miya.memory.embedding.providers.list',
   'miya.memory.embedding.provider.get',
@@ -1845,6 +1853,9 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'daemon.vram.hydraulics.get',
   'autoflow.status.get',
   'routing.stats.get',
+  'lifecycle.sync.plan',
+  'desktop.automation.kpi.get',
+  'desktop.replay.skills.list',
   'learning.drafts.stats',
   'learning.drafts.list',
   'learning.drafts.recommend',
@@ -5130,6 +5141,102 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
   };
 
+  const buildLifecycleStatusSnapshot = () => {
+    const currentConfig = readConfig(projectDir);
+    const dashboardConfig =
+      ((currentConfig.ui as Record<string, unknown> | undefined)?.dashboard as
+        | Record<string, unknown>
+        | undefined) ?? {};
+    const owner = ownerSummary(projectDir);
+    const daemon = getLauncherDaemonSnapshot(projectDir);
+    const state = syncGatewayState(projectDir, runtime);
+    const autostart = getAutostartStatus(projectDir);
+    const coupling = {
+      openCodeStartsGateway: true,
+      gatewayStartsDaemon: true,
+      uiFollowsOpenCode: dashboardConfig.openOnStart !== false,
+      dockAutoLaunch:
+        process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
+        dashboardConfig.dockAutoLaunch === true,
+      autoUiBlockedByEnv: process.env.MIYA_AUTO_UI_OPEN === '0',
+    };
+    return {
+      generatedAt: nowIso(),
+      coupling,
+      autostart,
+      gateway: {
+        url: state.url,
+        uiUrl: state.uiUrl,
+        status: state.status,
+        startedAt: state.startedAt,
+        port: state.port,
+        isOwner: owner.isOwner,
+        ownerFresh: owner.ownerFresh,
+      },
+      daemon: {
+        connected: daemon.connected,
+        statusText: daemon.statusText,
+        lifecycleState: daemon.lifecycleState,
+        lifecycleMode: daemon.lifecycleMode ?? 'coupled',
+        desiredState: daemon.desiredState,
+        retryHalted: daemon.retryHalted,
+        retryHaltedUntil: daemon.retryHaltedUntil,
+        manualStopUntil: daemon.manualStopUntil,
+      },
+      recovery: {
+        recommendedAction: daemon.connected
+          ? 'none'
+          : daemon.retryHalted
+            ? 'manual_intervention'
+            : 'wait_or_restart',
+      },
+    };
+  };
+
+  const buildLifecycleSyncPlan = (snapshot: ReturnType<typeof buildLifecycleStatusSnapshot>) => {
+    const actions: Array<{
+      id: 'start_gateway' | 'restart_daemon' | 'manual_intervention' | 'open_ui';
+      required: boolean;
+      reason: string;
+    }> = [];
+    if (snapshot.gateway.status !== 'running') {
+      actions.push({
+        id: 'start_gateway',
+        required: true,
+        reason: 'gateway_not_running',
+      });
+    }
+    if (!snapshot.daemon.connected && !snapshot.daemon.retryHalted) {
+      actions.push({
+        id: 'restart_daemon',
+        required: true,
+        reason: 'daemon_not_connected',
+      });
+    }
+    if (snapshot.daemon.retryHalted) {
+      actions.push({
+        id: 'manual_intervention',
+        required: true,
+        reason: 'daemon_retry_halted',
+      });
+    }
+    if (
+      snapshot.coupling.uiFollowsOpenCode &&
+      !snapshot.coupling.autoUiBlockedByEnv &&
+      snapshot.gateway.status === 'running'
+    ) {
+      actions.push({
+        id: 'open_ui',
+        required: false,
+        reason: 'ui_follow_policy_enabled',
+      });
+    }
+    return {
+      ready: actions.filter((item) => item.required).length === 0,
+      actions,
+    };
+  };
+
   registerGatewayCoreMethods(methods, {
     projectDir,
     runtime,
@@ -5180,51 +5287,18 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
   });
   methods.register('lifecycle.status.get', async () => {
-    const config = readConfig(projectDir);
-    const dashboardConfig =
-      ((config.ui as Record<string, unknown> | undefined)?.dashboard as
-        | Record<string, unknown>
-        | undefined) ?? {};
-    const owner = ownerSummary(projectDir);
-    const daemon = getLauncherDaemonSnapshot(projectDir);
-    const state = syncGatewayState(projectDir, runtime);
+    const snapshot = buildLifecycleStatusSnapshot();
+    return {
+      ...snapshot,
+      syncPlan: buildLifecycleSyncPlan(snapshot),
+    };
+  });
+  methods.register('lifecycle.sync.plan', async () => {
+    const snapshot = buildLifecycleStatusSnapshot();
     return {
       generatedAt: nowIso(),
-      coupling: {
-        openCodeStartsGateway: true,
-        gatewayStartsDaemon: true,
-        uiFollowsOpenCode: dashboardConfig.openOnStart !== false,
-        dockAutoLaunch:
-          process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
-          dashboardConfig.dockAutoLaunch === true,
-        autoUiBlockedByEnv: process.env.MIYA_AUTO_UI_OPEN === '0',
-      },
-      gateway: {
-        url: state.url,
-        uiUrl: state.uiUrl,
-        status: state.status,
-        startedAt: state.startedAt,
-        port: state.port,
-        isOwner: owner.isOwner,
-        ownerFresh: owner.ownerFresh,
-      },
-      daemon: {
-        connected: daemon.connected,
-        statusText: daemon.statusText,
-        lifecycleState: daemon.lifecycleState,
-        lifecycleMode: daemon.lifecycleMode ?? 'coupled',
-        desiredState: daemon.desiredState,
-        retryHalted: daemon.retryHalted,
-        retryHaltedUntil: daemon.retryHaltedUntil,
-        manualStopUntil: daemon.manualStopUntil,
-      },
-      recovery: {
-        recommendedAction: daemon.connected
-          ? 'none'
-          : daemon.retryHalted
-            ? 'manual_intervention'
-            : 'wait_or_restart',
-      },
+      status: snapshot,
+      ...buildLifecycleSyncPlan(snapshot),
     };
   });
   methods.register('desktop.action.plan', async (params) => {
@@ -5264,6 +5338,18 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       dryRun,
       timeoutMs,
     });
+  });
+  methods.register('desktop.automation.kpi.get', async () => {
+    return readDesktopAutomationKpi(projectDir);
+  });
+  methods.register('desktop.replay.skills.list', async (params) => {
+    const limit =
+      typeof params.limit === 'number' && params.limit > 0
+        ? Math.min(500, Math.floor(Number(params.limit)))
+        : 50;
+    return {
+      items: listDesktopReplaySkills(projectDir, limit),
+    };
   });
   methods.register('capability.schema.list', async (params) => {
     const scope = parseText(params.scope) || 'all';
@@ -6693,6 +6779,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!sourcePackID) throw new Error('invalid_source_pack_id');
     return verifySourcePackGovernance(projectDir, sourcePackID);
   });
+  methods.register('miya.sync.preflight', async (params) => {
+    const sourcePackID = parseText(params.sourcePackID);
+    if (!sourcePackID) throw new Error('invalid_source_pack_id');
+    return preflightSourcePackGovernance(projectDir, sourcePackID);
+  });
   methods.register('mcp.capabilities.list', async (params) => {
     const disabled = Array.isArray(params.disabledMcps)
       ? params.disabledMcps.map(String)
@@ -7679,6 +7770,28 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('companion.memory.vector.list', async (params) => {
     requireOwnerMode(projectDir);
     return listCompanionMemoryVectors(projectDir, parseMemoryDomain(params.domain));
+  });
+  methods.register('companion.learning.metrics.get', async (params) => {
+    requireOwnerMode(projectDir);
+    const maxModeMisclassificationRate =
+      typeof params.maxModeMisclassificationRate === 'number' &&
+      Number.isFinite(params.maxModeMisclassificationRate)
+        ? Number(params.maxModeMisclassificationRate)
+        : undefined;
+    const minCorrectionConvergenceRate =
+      typeof params.minCorrectionConvergenceRate === 'number' &&
+      Number.isFinite(params.minCorrectionConvergenceRate)
+        ? Number(params.minCorrectionConvergenceRate)
+        : undefined;
+    const minMemoryHitRate =
+      typeof params.minMemoryHitRate === 'number' && Number.isFinite(params.minMemoryHitRate)
+        ? Number(params.minMemoryHitRate)
+        : undefined;
+    return readCompanionLearningMetrics(projectDir, {
+      maxModeMisclassificationRate,
+      minCorrectionConvergenceRate,
+      minMemoryHitRate,
+    });
   });
   methods.register('miya.memory.sqlite.stats', async () => {
     requireOwnerMode(projectDir);

@@ -62,5 +62,42 @@ describe('desktop action engine v2', () => {
     expect(parsed.actions[1]?.id).toBe('type_text');
     expect(parsed.context.appName).toBe('Notepad');
   });
-});
 
+  test('accepts non-coordinate targets for click/focus and text assertion', () => {
+    const plan = buildDesktopActionPlanV2FromRequest({
+      source: 'test.selector',
+      appName: 'Browser',
+      routeLevel: 'L2_OCR',
+      actions: [
+        {
+          id: 'focus_window',
+          kind: 'focus',
+          target: {
+            mode: 'window',
+            value: 'Chrome',
+          },
+        },
+        {
+          id: 'click_send',
+          kind: 'click',
+          target: {
+            mode: 'selector',
+            value: 'name=Send;control=button',
+          },
+        },
+        {
+          id: 'assert_text',
+          kind: 'assert',
+          assert: {
+            type: 'text',
+            expected: 'Message sent',
+            contains: true,
+          },
+        },
+      ],
+    });
+    const parsed = parseDesktopActionPlanV2(plan);
+    expect(parsed.actions[1]?.target?.mode).toBe('selector');
+    expect(parsed.actions[2]?.assert?.type).toBe('text');
+  });
+});

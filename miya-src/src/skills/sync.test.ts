@@ -6,6 +6,7 @@ import {
   applySourcePack,
   diffSourcePack,
   listEcosystemBridge,
+  preflightSourcePackGovernance,
   pullSourcePack,
   rollbackSourcePack,
   verifySourcePackGovernance,
@@ -153,6 +154,30 @@ describe('ecosystem bridge sync', () => {
       expect(listed.conflicts.length).toBe(1);
       expect(listed.conflicts[0]?.type).toBe('skill_name_collision');
       expect(listed.conflicts[0]?.sourcePackIDs.length).toBe(2);
+    } finally {
+      fs.rmSync(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  test('strict preflight blocks source pack without permission metadata and regression artifacts', () => {
+    const fixture = setupSkillRepoFixture();
+    try {
+      const options = {
+        sourceRoots: [path.join(fixture.projectDir, 'skills')],
+      };
+      const listed = listEcosystemBridge(fixture.projectDir, options);
+      const sourcePack = listed.sourcePacks[0];
+      const pulled = pullSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
+      expect(pulled.governance?.smoke.ok).toBe(true);
+
+      const preflight = preflightSourcePackGovernance(
+        fixture.projectDir,
+        sourcePack.sourcePackID,
+        options,
+      );
+      expect(preflight.pass).toBe(false);
+      expect(preflight.securityValid).toBe(false);
+      expect(preflight.regressionValid).toBe(false);
     } finally {
       fs.rmSync(fixture.rootDir, { recursive: true, force: true });
     }

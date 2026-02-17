@@ -39,6 +39,9 @@ function actionScript(): string {
   return `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName WindowsBase
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -46,11 +49,14 @@ using System.Text;
 public static class MiyaDesktopNative {
   [StructLayout(LayoutKind.Sequential)]
   public struct POINT { public int X; public int Y; }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT point);
   [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 }
 "@
@@ -114,6 +120,261 @@ function Get-ForegroundWindowTitle() {
   return $builder.ToString()
 }
 
+function Get-ForegroundWindowCenter() {
+  $hwnd = [MiyaDesktopNative]::GetForegroundWindow()
+  if ($hwnd -eq [IntPtr]::Zero) { return $null }
+  $rect = New-Object MiyaDesktopNative+RECT
+  if (-not [MiyaDesktopNative]::GetWindowRect($hwnd, [ref]$rect)) { return $null }
+  $width = [int]($rect.Right - $rect.Left)
+  $height = [int]($rect.Bottom - $rect.Top)
+  if ($width -le 2 -or $height -le 2) { return $null }
+  return @{
+    x = [int][Math]::Round($rect.Left + ($width / 2))
+    y = [int][Math]::Round($rect.Top + ($height / 2))
+  }
+}
+
+function Get-ForegroundAutomationRoot() {
+  try {
+    $hwnd = [MiyaDesktopNative]::GetForegroundWindow()
+    if ($hwnd -ne [IntPtr]::Zero) {
+      $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+      if ($null -ne $root) { return $root }
+    }
+  } catch {}
+  try {
+    return [System.Windows.Automation.AutomationElement]::RootElement
+  } catch {
+    return $null
+  }
+}
+
+function Parse-SelectorCriteria([string]$selector) {
+  $criteria = @{}
+  $text = [string]$selector
+  foreach ($rawPart in ($text -split ';')) {
+    $part = [string]$rawPart
+    if (-not $part) { continue }
+    $trimmed = $part.Trim()
+    if (-not $trimmed) { continue }
+    $eq = $trimmed.IndexOf('=')
+    if ($eq -le 0) { continue }
+    $key = $trimmed.Substring(0, $eq).Trim().ToLowerInvariant()
+    $value = $trimmed.Substring($eq + 1).Trim()
+    if (-not $value) { continue }
+    $criteria[$key] = $value
+  }
+  if ($criteria.Count -eq 0 -and $text.Trim().Length -gt 0) {
+    $criteria['name'] = $text.Trim()
+  }
+  return $criteria
+}
+
+function Element-MatchesSelector($element, $criteria) {
+  if ($null -eq $element -or $null -eq $criteria -or $criteria.Count -eq 0) { return $false }
+  try {
+    $name = [string]$element.Current.Name
+    $automationId = [string]$element.Current.AutomationId
+    $className = [string]$element.Current.ClassName
+    $controlType = [string]$element.Current.ControlType.ProgrammaticName
+    if ($criteria.ContainsKey('name')) {
+      $needle = [string]$criteria['name']
+      if (-not $name.ToLowerInvariant().Contains($needle.ToLowerInvariant())) { return $false }
+    }
+    if ($criteria.ContainsKey('automationid') -or $criteria.ContainsKey('automation_id')) {
+      $needle = if ($criteria.ContainsKey('automationid')) { [string]$criteria['automationid'] } else { [string]$criteria['automation_id'] }
+      if (-not $automationId.ToLowerInvariant().Contains($needle.ToLowerInvariant())) { return $false }
+    }
+    if ($criteria.ContainsKey('class') -or $criteria.ContainsKey('classname') -or $criteria.ContainsKey('class_name')) {
+      $needle = if ($criteria.ContainsKey('class')) { [string]$criteria['class'] } elseif ($criteria.ContainsKey('classname')) { [string]$criteria['classname'] } else { [string]$criteria['class_name'] }
+      if (-not $className.ToLowerInvariant().Contains($needle.ToLowerInvariant())) { return $false }
+    }
+    if ($criteria.ContainsKey('control') -or $criteria.ContainsKey('controltype') -or $criteria.ContainsKey('control_type')) {
+      $needle = if ($criteria.ContainsKey('control')) { [string]$criteria['control'] } elseif ($criteria.ContainsKey('controltype')) { [string]$criteria['controltype'] } else { [string]$criteria['control_type'] }
+      if (-not $controlType.ToLowerInvariant().Contains($needle.ToLowerInvariant())) { return $false }
+    }
+    return $true
+  } catch {
+    return $false
+  }
+}
+
+function Find-UiElement($target, [int]$timeoutMs = 1200) {
+  if ($null -eq $target -or -not $target.mode) { return $null }
+  $mode = [string]$target.mode
+  $value = ''
+  if ($target.value) { $value = [string]$target.value }
+  $deadline = (Get-Date).AddMilliseconds([Math]::Max(50, $timeoutMs))
+  $selector = $null
+  if ($mode -eq 'selector') {
+    $selector = Parse-SelectorCriteria $value
+  }
+  do {
+    $root = Get-ForegroundAutomationRoot
+    if ($null -eq $root) {
+      Start-Sleep -Milliseconds 60
+      continue
+    }
+    if ($mode -eq 'window' -and $value) {
+      try {
+        $title = [string]$root.Current.Name
+        if ($title.ToLowerInvariant().Contains($value.ToLowerInvariant())) {
+          return $root
+        }
+      } catch {}
+    }
+    try {
+      $all = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+      for ($i = 0; $i -lt $all.Count; $i++) {
+        $el = $all.Item($i)
+        if ($null -eq $el) { continue }
+        if ($mode -eq 'text' -and $value) {
+          try {
+            $name = [string]$el.Current.Name
+            if ($name.ToLowerInvariant().Contains($value.ToLowerInvariant())) { return $el }
+          } catch {}
+          continue
+        }
+        if ($mode -eq 'selector') {
+          if (Element-MatchesSelector -element $el -criteria $selector) {
+            return $el
+          }
+        }
+      }
+    } catch {}
+    Start-Sleep -Milliseconds 80
+  } while ((Get-Date) -lt $deadline)
+  return $null
+}
+
+function Get-ElementPoint($element) {
+  if ($null -eq $element) { return $null }
+  try {
+    $pt = New-Object System.Windows.Point
+    if ($element.TryGetClickablePoint([ref]$pt)) {
+      return @{
+        x = [int][Math]::Round($pt.X)
+        y = [int][Math]::Round($pt.Y)
+      }
+    }
+  } catch {}
+  try {
+    $rect = $element.Current.BoundingRectangle
+    if ($rect.Width -gt 1 -and $rect.Height -gt 1) {
+      return @{
+        x = [int][Math]::Round($rect.Left + ($rect.Width / 2))
+        y = [int][Math]::Round($rect.Top + ($rect.Height / 2))
+      }
+    }
+  } catch {}
+  return $null
+}
+
+function Focus-Target($target, [int]$timeoutMs = 1200) {
+  if ($null -eq $target -or -not $target.mode) { throw "focus_target_invalid" }
+  $mode = [string]$target.mode
+  if ($mode -eq 'window') {
+    if (-not $target.value) { throw "focus_target_invalid" }
+    $ok = $shell.AppActivate([string]$target.value)
+    Start-Sleep -Milliseconds 120
+    if (-not $ok) { throw "focus_window_not_found" }
+    return
+  }
+  if ($mode -eq 'coordinates') {
+    if (-not $target.point) { throw "focus_target_invalid" }
+    Invoke-ClickCoordinates -x ([int]$target.point.x) -y ([int]$target.point.y)
+    return
+  }
+  $element = Find-UiElement -target $target -timeoutMs $timeoutMs
+  if ($null -eq $element) { throw "focus_element_not_found" }
+  try {
+    $element.SetFocus()
+    Start-Sleep -Milliseconds 70
+    return
+  } catch {}
+  $point = Get-ElementPoint $element
+  if ($null -ne $point) {
+    Invoke-ClickCoordinates -x ([int]$point.x) -y ([int]$point.y)
+    return
+  }
+  throw "focus_element_not_focusable"
+}
+
+function Resolve-TargetPoint($target, [int]$timeoutMs = 1200) {
+  if ($null -eq $target -or -not $target.mode) { throw "target_invalid" }
+  $mode = [string]$target.mode
+  switch ($mode) {
+    'coordinates' {
+      if (-not $target.point) { throw "target_point_missing" }
+      return @{
+        x = [int]$target.point.x
+        y = [int]$target.point.y
+      }
+    }
+    'window' {
+      if (-not $target.value) { throw "window_target_missing" }
+      [void]$shell.AppActivate([string]$target.value)
+      Start-Sleep -Milliseconds 90
+      $center = Get-ForegroundWindowCenter
+      if ($null -ne $center) { return $center }
+      $windowEl = Find-UiElement -target $target -timeoutMs $timeoutMs
+      $point = Get-ElementPoint $windowEl
+      if ($null -ne $point) { return $point }
+      throw "window_target_unresolved"
+    }
+    'text' {
+      $element = Find-UiElement -target $target -timeoutMs $timeoutMs
+      if ($null -eq $element) { throw "text_target_not_found" }
+      $point = Get-ElementPoint $element
+      if ($null -eq $point) { throw "text_target_not_clickable" }
+      return $point
+    }
+    'selector' {
+      $element = Find-UiElement -target $target -timeoutMs $timeoutMs
+      if ($null -eq $element) { throw "selector_target_not_found" }
+      $point = Get-ElementPoint $element
+      if ($null -eq $point) { throw "selector_target_not_clickable" }
+      return $point
+    }
+    default {
+      throw "target_mode_not_supported"
+    }
+  }
+}
+
+function Test-TextVisible([string]$expected, [bool]$contains, [int]$timeoutMs = 1000) {
+  if (-not $expected) { return $false }
+  $deadline = (Get-Date).AddMilliseconds([Math]::Max(50, $timeoutMs))
+  do {
+    $title = Get-ForegroundWindowTitle
+    if ($contains) {
+      if ($title.ToLowerInvariant().Contains($expected.ToLowerInvariant())) { return $true }
+    } else {
+      if ($title -eq $expected) { return $true }
+    }
+    $root = Get-ForegroundAutomationRoot
+    if ($null -ne $root) {
+      try {
+        $all = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        for ($i = 0; $i -lt $all.Count; $i++) {
+          $el = $all.Item($i)
+          if ($null -eq $el) { continue }
+          $name = ''
+          try { $name = [string]$el.Current.Name } catch { $name = '' }
+          if (-not $name) { continue }
+          if ($contains) {
+            if ($name.ToLowerInvariant().Contains($expected.ToLowerInvariant())) { return $true }
+          } else {
+            if ($name -eq $expected) { return $true }
+          }
+        }
+      } catch {}
+    }
+    Start-Sleep -Milliseconds 80
+  } while ((Get-Date) -lt $deadline)
+  return $false
+}
+
 function Invoke-Hotkey([System.__ComObject]$shell, $keys) {
   if ($null -eq $keys -or $keys.Count -eq 0) { throw "hotkey_keys_missing" }
   $mods = ''
@@ -174,6 +435,7 @@ $plan = $planPayload | ConvertFrom-Json
 $result = New-Result -traceID $traceID
 $shell = New-Object -ComObject WScript.Shell
 $mutexEnabled = [string]$env:MIYA_INPUT_MUTEX_ENABLED -eq '1'
+$abortOnInterference = [string]$env:MIYA_ABORT_ON_INTERFERENCE -ne '0'
 $cursorBaseline = Get-CursorPoint
 
 try {
@@ -186,74 +448,104 @@ try {
       message = ''
       durationMs = 0
     }
-    if ($mutexEnabled -and (Test-UserInterference -baseline $cursorBaseline)) {
-      throw "input_mutex_timeout:user_interference"
-    }
-    switch ([string]$action.kind) {
-      'focus' {
-        if (-not $action.target -or [string]$action.target.mode -eq 'coordinates') { throw "focus_target_invalid" }
-        $ok = $shell.AppActivate([string]$action.target.value)
-        Start-Sleep -Milliseconds 120
-        if (-not $ok) { throw "focus_window_not_found" }
-      }
-      'click' {
-        if (-not $action.target -or [string]$action.target.mode -ne 'coordinates' -or -not $action.target.point) {
-          throw "click_target_not_supported"
+    try {
+      if ($mutexEnabled -and (Test-UserInterference -baseline $cursorBaseline)) {
+        $result.inputMutexTriggered = $true
+        if ($abortOnInterference) {
+          throw "input_mutex_timeout:user_interference"
         }
-        Invoke-ClickCoordinates -x ([int]$action.target.point.x) -y ([int]$action.target.point.y)
       }
-      'type' {
-        if (-not [string]$action.text) { throw "type_text_missing" }
-        $shell.SendKeys((Escape-SendKeys ([string]$action.text)))
-      }
-      'hotkey' {
-        Invoke-Hotkey -shell $shell -keys $action.keys
-      }
-      'scroll' {
-        if ($null -eq $action.scrollDeltaY) { throw "scroll_delta_missing" }
-        [MiyaDesktopNative]::mouse_event($MOUSEEVENTF_WHEEL, 0, 0, [uint32]([int]$action.scrollDeltaY), [UIntPtr]::Zero)
-      }
-      'drag' {
-        if (-not $action.target -or [string]$action.target.mode -ne 'coordinates' -or -not $action.target.point -or -not $action.dragTo) {
-          throw "drag_target_not_supported"
+      $actionTimeout = 1200
+      if ($null -ne $action.timeoutMs) {
+        $candidate = [int]$action.timeoutMs
+        if ($candidate -gt 0) {
+          $actionTimeout = [Math]::Max(100, [Math]::Min(60000, $candidate))
         }
-        Invoke-Drag -fromX ([int]$action.target.point.x) -fromY ([int]$action.target.point.y) -toX ([int]$action.dragTo.x) -toY ([int]$action.dragTo.y)
       }
-      'assert' {
-        if (-not $action.assert -or [string]$action.assert.type -ne 'window') {
-          throw "assert_not_supported"
+      switch ([string]$action.kind) {
+        'focus' {
+          Focus-Target -target $action.target -timeoutMs $actionTimeout
         }
-        $title = Get-ForegroundWindowTitle
-        $expected = [string]$action.assert.expected
-        $contains = $true
-        if ($null -ne $action.assert.contains) { $contains = [bool]$action.assert.contains }
-        if ($contains) {
-          if (-not $title.ToLowerInvariant().Contains($expected.ToLowerInvariant())) {
-            throw "assert_window_mismatch"
+        'click' {
+          if (-not $action.target) { throw "click_target_missing" }
+          $point = Resolve-TargetPoint -target $action.target -timeoutMs $actionTimeout
+          Invoke-ClickCoordinates -x ([int]$point.x) -y ([int]$point.y)
+        }
+        'type' {
+          if (-not [string]$action.text) { throw "type_text_missing" }
+          if ($action.target) {
+            Focus-Target -target $action.target -timeoutMs $actionTimeout
           }
-        } else {
-          if ($title -ne $expected) {
-            throw "assert_window_mismatch"
+          $shell.SendKeys((Escape-SendKeys ([string]$action.text)))
+        }
+        'hotkey' {
+          Invoke-Hotkey -shell $shell -keys $action.keys
+        }
+        'scroll' {
+          if ($null -eq $action.scrollDeltaY) { throw "scroll_delta_missing" }
+          [MiyaDesktopNative]::mouse_event($MOUSEEVENTF_WHEEL, 0, 0, [uint32]([int]$action.scrollDeltaY), [UIntPtr]::Zero)
+        }
+        'drag' {
+          if (-not $action.target -or [string]$action.target.mode -ne 'coordinates' -or -not $action.target.point -or -not $action.dragTo) {
+            throw "drag_target_not_supported"
+          }
+          Invoke-Drag -fromX ([int]$action.target.point.x) -fromY ([int]$action.target.point.y) -toX ([int]$action.dragTo.x) -toY ([int]$action.dragTo.y)
+        }
+        'assert' {
+          if (-not $action.assert) { throw "assert_payload_missing" }
+          $expected = [string]$action.assert.expected
+          $contains = $true
+          if ($null -ne $action.assert.contains) { $contains = [bool]$action.assert.contains }
+          if ([string]$action.assert.type -eq 'window') {
+            $title = Get-ForegroundWindowTitle
+            if ($contains) {
+              if (-not $title.ToLowerInvariant().Contains($expected.ToLowerInvariant())) {
+                throw "assert_window_mismatch"
+              }
+            } else {
+              if ($title -ne $expected) {
+                throw "assert_window_mismatch"
+              }
+            }
+          } elseif ([string]$action.assert.type -eq 'text') {
+            if (-not (Test-TextVisible -expected $expected -contains $contains -timeoutMs $actionTimeout)) {
+              throw "assert_text_mismatch"
+            }
+          } elseif ([string]$action.assert.type -eq 'image') {
+            throw "assert_image_not_supported"
+          } else {
+            throw "assert_not_supported"
           }
         }
+        default {
+          throw "unsupported_action_kind"
+        }
       }
-      default {
-        throw "unsupported_action_kind"
+      $cursorBaseline = Get-CursorPoint
+    } catch {
+      $err = [string]$_.Exception.Message
+      if ($err.StartsWith('input_mutex_timeout')) {
+        $result.inputMutexTriggered = $true
       }
+      $step.status = 'failed'
+      $step.message = $err
+      $result.ok = $false
+      $result.failureReason = $err
+      $result.failureStepID = [string]$step.id
     }
     $step.durationMs = [Math]::Max(1, [int]((Get-Date) - $stepStartedAt).TotalMilliseconds)
     $result.steps += $step
-    $result.executedCount += 1
+    if ($step.status -eq 'ok') {
+      $result.executedCount += 1
+    } else {
+      break
+    }
   }
 } catch {
-  $err = [string]$_.Exception.Message
-  if ($err.StartsWith('input_mutex_timeout')) {
-    $result.inputMutexTriggered = $true
-  }
+  $outerErr = [string]$_.Exception.Message
   $result.ok = $false
-  $result.failureReason = $err
-  if ($result.steps.Count -gt 0) {
-    $result.failureStepID = [string]$result.steps[$result.steps.Count - 1].id
+  if (-not $result.failureReason) {
+    $result.failureReason = if ($outerErr) { $outerErr } else { "execution_failed" }
   }
 }
 
@@ -339,6 +631,7 @@ export async function executeDesktopActionPlan(
         MIYA_DESKTOP_TRACE_ID: traceID,
         MIYA_DESKTOP_ACTION_PLAN_B64: planPayload,
         MIYA_INPUT_MUTEX_ENABLED: plan.safety.inputMutex ? '1' : '0',
+        MIYA_ABORT_ON_INTERFERENCE: plan.safety.abortOnUserInterference ? '1' : '0',
       },
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -435,4 +728,3 @@ export async function executeDesktopActionPlan(
     stderr,
   };
 }
-
