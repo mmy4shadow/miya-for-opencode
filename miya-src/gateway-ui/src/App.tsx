@@ -739,15 +739,11 @@ export default function App() {
                   filteredTaskRecords.map((task) => {
                     const statusMeta = taskStatusMeta(task.status);
                     return (
-                      <article
+                      <button
+                        type="button"
                         key={task.id}
-                        role="button"
-                        tabIndex={0}
                         onClick={() => navigate('tasks-detail', task.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') navigate('tasks-detail', task.id);
-                        }}
-                        className="flex cursor-pointer flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 transition hover:border-sky-200 hover:bg-sky-50 md:flex-row md:items-center"
+                        className="flex w-full cursor-pointer flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50 md:flex-row md:items-center"
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-lg font-semibold text-slate-800">{task.title}</p>
@@ -757,17 +753,10 @@ export default function App() {
                         <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${statusMeta.className}`}>
                           {statusMeta.text}
                         </span>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            navigate('tasks-detail', task.id);
-                          }}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-100"
-                        >
+                        <span className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">
                           查看详情
-                        </button>
-                      </article>
+                        </span>
+                      </button>
                     );
                   })
                 )}
