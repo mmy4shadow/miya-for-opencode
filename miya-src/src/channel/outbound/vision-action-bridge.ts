@@ -4,6 +4,10 @@ import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { z } from 'zod';
 import { getMiyaRuntimeDir } from '../../workflow';
+import {
+  buildDesktopOutboundHumanActions,
+  desktopActionSchema,
+} from '../../desktop/action-engine';
 
 export type DesktopPerceptionRoute = 'L0_ACTION_MEMORY' | 'L1_UIA' | 'L2_OCR' | 'L3_SOM_VLM';
 export type AutomationRisk = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -115,6 +119,7 @@ const desktopActionPlanSchema = z.object({
         promoteReplaySkillOnSuccess: z.literal(true),
       }),
     }),
+    humanActions: z.array(desktopActionSchema).min(3).max(24),
     steps: z.array(actionPlanStepSchema).min(3).max(12),
   }),
 });
@@ -876,6 +881,14 @@ export function buildDesktopActionPlan(input: {
           promoteReplaySkillOnSuccess: true,
         },
       },
+      humanActions: buildDesktopOutboundHumanActions({
+        routeLevel,
+        appName: intent.appName,
+        destination: intent.destination,
+        hasText: intent.hasText,
+        hasMedia: intent.hasMedia,
+        selectedCandidateId,
+      }),
       steps: buildSteps(routeLevel, intent),
     },
   });

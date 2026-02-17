@@ -261,6 +261,25 @@ export class GatewayMethodRegistry {
     this.handlers.set(method, handler);
   }
 
+  has(method: string): boolean {
+    return this.handlers.has(method);
+  }
+
+  handlerOf(method: string): GatewayMethodHandler | undefined {
+    return this.handlers.get(method);
+  }
+
+  registerAlias(aliasMethod: string, targetMethod: string): boolean {
+    if (aliasMethod === targetMethod) return false;
+    if (this.handlers.has(aliasMethod)) return false;
+    const target = this.handlers.get(targetMethod);
+    if (!target) {
+      throw new Error(`alias_target_not_found:${targetMethod}`);
+    }
+    this.handlers.set(aliasMethod, async (params, context) => target(params, context));
+    return true;
+  }
+
   async invoke(
     method: string,
     params: Record<string, unknown>,

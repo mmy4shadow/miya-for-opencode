@@ -110,6 +110,18 @@ import {
 import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
 import { getAutostartStatus, setAutostartEnabled } from '../system/autostart';
 import {
+  buildDesktopActionPlanV2FromRequest,
+  buildDesktopOutboundHumanActions,
+  parseDesktopActionPlanV2,
+  type DesktopPerceptionRouteV2,
+} from '../desktop/action-engine';
+import { executeDesktopActionPlan } from '../desktop/runtime';
+import {
+  getEcosystemBridgeEntry,
+  listEcosystemBridgeRegistry,
+  registerGatewayV2Aliases,
+} from '../compat';
+import {
   buildGatewayCapabilitySchemas,
   buildSkillCapabilitySchemas,
 } from '../capability/schema';
@@ -1573,6 +1585,19 @@ function parseMemoryDomain(value: unknown): 'work' | 'relationship' | undefined 
   return undefined;
 }
 
+function parseDesktopRouteLevel(value: unknown): DesktopPerceptionRouteV2 | undefined {
+  const raw = parseText(value).trim();
+  if (
+    raw === 'L0_ACTION_MEMORY' ||
+    raw === 'L1_UIA' ||
+    raw === 'L2_OCR' ||
+    raw === 'L3_SOM_VLM'
+  ) {
+    return raw;
+  }
+  return undefined;
+}
+
 function parseEvidenceList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1832,7 +1857,8 @@ const UI_ALLOWED_METHODS = new Set<string>([
 
 function assertConsoleMethodAllowed(method: string, context: GatewayMethodContext): void {
   if (context.role !== 'ui') return;
-  if (UI_ALLOWED_METHODS.has(method)) return;
+  const normalized = method.startsWith('v2.') ? method.slice(3) : method;
+  if (UI_ALLOWED_METHODS.has(method) || UI_ALLOWED_METHODS.has(normalized)) return;
   throw new Error(`console_method_forbidden:${method}`);
 }
 
@@ -2681,14 +2707,17 @@ async function processPendingOutboundQueue(projectDir: string, runtime: GatewayR
     writePendingOutboundQueue(projectDir, runtime.pendingOutboundQueue);
   } finally {
     runtime.pendingQueueBusy = false;
+    let shouldReschedule = true;
     if (runtime.pendingQueueGeneration !== generation || !runtimes.has(projectDir)) {
       runtime.pendingQueueRescheduleNeeded = false;
       clearPendingOutboundScheduler(runtime);
-      return;
+      shouldReschedule = false;
     }
-    const immediate = runtime.pendingQueueRescheduleNeeded;
-    runtime.pendingQueueRescheduleNeeded = false;
-    schedulePendingOutboundQueue(projectDir, runtime, { immediate });
+    if (shouldReschedule) {
+      const immediate = runtime.pendingQueueRescheduleNeeded;
+      runtime.pendingQueueRescheduleNeeded = false;
+      schedulePendingOutboundQueue(projectDir, runtime, { immediate });
+    }
   }
 }
 
@@ -5037,6 +5066,70 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return result.result;
   };
 
+  const parseDesktopSafety = (
+    value: unknown,
+  ): { inputMutex?: boolean; abortOnUserInterference?: boolean } | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const raw = value as Record<string, unknown>;
+    return {
+      inputMutex:
+        typeof raw.inputMutex === 'boolean' ? Boolean(raw.inputMutex) : undefined,
+      abortOnUserInterference:
+        typeof raw.abortOnUserInterference === 'boolean'
+          ? Boolean(raw.abortOnUserInterference)
+          : undefined,
+    };
+  };
+
+  const buildDesktopPlanFromParams = (params: Record<string, unknown>) => {
+    const routeLevel = parseDesktopRouteLevel(params.routeLevel);
+    const source = parseText(params.source).trim() || 'gateway.desktop.action.plan';
+    const safety = parseDesktopSafety(params.safety);
+    const template = parseText(params.template).trim().toLowerCase();
+    if (template === 'outbound_send') {
+      const destination = parseText(params.destination).trim();
+      if (!destination) throw new Error('desktop_plan_destination_required');
+      const appNameText = parseText(params.appName).trim().toLowerCase();
+      const appName = appNameText.includes('wechat') ? 'WeChat' : 'QQ';
+      const hasText =
+        typeof params.hasText === 'boolean'
+          ? Boolean(params.hasText)
+          : parseText(params.text).trim().length > 0;
+      const hasMedia =
+        typeof params.hasMedia === 'boolean'
+          ? Boolean(params.hasMedia)
+          : parseText(params.mediaPath).trim().length > 0;
+      const selectedCandidateId =
+        typeof params.selectedCandidateId === 'number' &&
+        Number.isFinite(params.selectedCandidateId)
+          ? Math.max(1, Math.floor(Number(params.selectedCandidateId)))
+          : undefined;
+      return buildDesktopActionPlanV2FromRequest({
+        source,
+        appName,
+        windowHint: destination,
+        routeLevel,
+        safety,
+        actions: buildDesktopOutboundHumanActions({
+          routeLevel: routeLevel ?? 'L1_UIA',
+          appName,
+          destination,
+          hasText,
+          hasMedia,
+          selectedCandidateId,
+        }),
+      });
+    }
+    return buildDesktopActionPlanV2FromRequest({
+      source,
+      appName: parseText(params.appName).trim() || undefined,
+      windowHint: parseText(params.windowHint).trim() || undefined,
+      routeLevel,
+      safety,
+      actions: Array.isArray(params.actions) ? params.actions : undefined,
+    });
+  };
+
   registerGatewayCoreMethods(methods, {
     projectDir,
     runtime,
@@ -5084,6 +5177,92 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       enabled: Boolean(params.enabled),
       taskName: typeof params.taskName === 'string' ? params.taskName : undefined,
       command: typeof params.command === 'string' ? params.command : undefined,
+    });
+  });
+  methods.register('lifecycle.status.get', async () => {
+    const config = readConfig(projectDir);
+    const dashboardConfig =
+      ((config.ui as Record<string, unknown> | undefined)?.dashboard as
+        | Record<string, unknown>
+        | undefined) ?? {};
+    const owner = ownerSummary(projectDir);
+    const daemon = getLauncherDaemonSnapshot(projectDir);
+    const state = syncGatewayState(projectDir, runtime);
+    return {
+      generatedAt: nowIso(),
+      coupling: {
+        openCodeStartsGateway: true,
+        gatewayStartsDaemon: true,
+        uiFollowsOpenCode: dashboardConfig.openOnStart !== false,
+        dockAutoLaunch:
+          process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
+          dashboardConfig.dockAutoLaunch === true,
+        autoUiBlockedByEnv: process.env.MIYA_AUTO_UI_OPEN === '0',
+      },
+      gateway: {
+        url: state.url,
+        uiUrl: state.uiUrl,
+        status: state.status,
+        startedAt: state.startedAt,
+        port: state.port,
+        isOwner: owner.isOwner,
+        ownerFresh: owner.ownerFresh,
+      },
+      daemon: {
+        connected: daemon.connected,
+        statusText: daemon.statusText,
+        lifecycleState: daemon.lifecycleState,
+        lifecycleMode: daemon.lifecycleMode ?? 'coupled',
+        desiredState: daemon.desiredState,
+        retryHalted: daemon.retryHalted,
+        retryHaltedUntil: daemon.retryHaltedUntil,
+        manualStopUntil: daemon.manualStopUntil,
+      },
+      recovery: {
+        recommendedAction: daemon.connected
+          ? 'none'
+          : daemon.retryHalted
+            ? 'manual_intervention'
+            : 'wait_or_restart',
+      },
+    };
+  });
+  methods.register('desktop.action.plan', async (params) => {
+    return buildDesktopPlanFromParams(params);
+  });
+  methods.register('desktop.action.execute', async (params) => {
+    const sessionID = parseText(params.sessionID).trim() || 'main';
+    const dryRun = params.dryRun === true;
+    const timeoutMs =
+      typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs)
+        ? Number(params.timeoutMs)
+        : undefined;
+    const plan =
+      params.plan && typeof params.plan === 'object' && !Array.isArray(params.plan)
+        ? parseDesktopActionPlanV2(params.plan)
+        : buildDesktopPlanFromParams(params);
+    if (!dryRun) {
+      const policyHash = parseText(params.policyHash) || undefined;
+      requirePolicyHash(projectDir, policyHash);
+      requireDomainRunning(projectDir, 'desktop_control');
+      const token = enforceToken({
+        projectDir,
+        sessionID,
+        permission: 'desktop_control',
+        patterns: [
+          'desktop_action_execute',
+          `plan_sha256=${hashText(JSON.stringify(plan.actions))}`,
+          `action_count=${plan.actions.length}`,
+          `window_hint=${(plan.context.windowHint ?? '').slice(0, 80)}`,
+        ],
+      });
+      if (!token.ok) throw new Error(`approval_required:${token.reason}`);
+    }
+    return executeDesktopActionPlan({
+      projectDir,
+      plan,
+      dryRun,
+      timeoutMs,
     });
   });
   methods.register('capability.schema.list', async (params) => {
@@ -6433,6 +6612,20 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       limit: typeof params.limit === 'number' ? Number(params.limit) : undefined,
       replayToken: parseText(params.replayToken) || undefined,
     });
+  });
+  methods.register('ecosystem.bridge.registry.list', async () => {
+    return {
+      generatedAt: nowIso(),
+      total: listEcosystemBridgeRegistry().length,
+      entries: listEcosystemBridgeRegistry(),
+    };
+  });
+  methods.register('ecosystem.bridge.registry.get', async (params) => {
+    const id = parseText(params.id);
+    if (!id) throw new Error('invalid_ecosystem_bridge_id');
+    const entry = getEcosystemBridgeEntry(id);
+    if (!entry) throw new Error(`ecosystem_bridge_not_found:${id}`);
+    return entry;
   });
   methods.register('miya.sync.list', async () => listEcosystemBridge(projectDir));
   methods.register('miya.sync.diff', async (params) => {
@@ -7806,6 +7999,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     };
   });
 
+  const aliasReport = registerGatewayV2Aliases(methods);
+  if (aliasReport.created > 0) {
+    log('[gateway] v2 compatibility aliases registered', {
+      projectDir,
+      scanned: aliasReport.scanned,
+      created: aliasReport.created,
+      skipped: aliasReport.skipped,
+    });
+  }
+
   return methods;
 }
 
@@ -8733,6 +8936,88 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
     },
   });
 
+  const miya_desktop_action_plan = tool({
+    description: 'Build a generic desktop action plan (v2) with human-like action primitives.',
+    args: {
+      template: z.string().optional().describe('Optional template, eg. outbound_send'),
+      appName: z.string().optional().describe('Target app name, eg. QQ / WeChat / Notepad'),
+      destination: z.string().optional().describe('Destination text for outbound template'),
+      routeLevel: z
+        .enum(['L0_ACTION_MEMORY', 'L1_UIA', 'L2_OCR', 'L3_SOM_VLM'])
+        .optional()
+        .describe('Perception route'),
+      actionsJson: z
+        .string()
+        .optional()
+        .describe('Optional JSON array for custom actions'),
+    },
+    async execute(args) {
+      registerGatewayDependencies(ctx.directory, { client: ctx.client });
+      ensureGatewayRunning(ctx.directory);
+      const runtime = runtimes.get(ctx.directory);
+      if (!runtime) throw new Error('gateway_runtime_unavailable');
+      let actions: unknown[] | undefined;
+      if (typeof args.actionsJson === 'string' && args.actionsJson.trim().length > 0) {
+        const parsed = JSON.parse(args.actionsJson) as unknown;
+        if (!Array.isArray(parsed)) throw new Error('actions_json_must_be_array');
+        actions = parsed;
+      }
+      const result = await invokeGatewayMethod(
+        ctx.directory,
+        runtime,
+        'desktop.action.plan',
+        {
+          source: 'tool.miya_desktop_action_plan',
+          template: args.template,
+          appName: args.appName,
+          destination: args.destination,
+          routeLevel: args.routeLevel,
+          actions,
+        },
+        { clientID: 'gateway-tool', role: 'admin' },
+      );
+      return JSON.stringify(result, null, 2);
+    },
+  });
+
+  const miya_desktop_action_execute = tool({
+    description: 'Execute a desktop action plan (v2). Supports dryRun for safe validation.',
+    args: {
+      planJson: z.string().describe('Desktop action plan JSON'),
+      dryRun: z.boolean().optional().describe('Whether to run in simulation mode'),
+      timeoutMs: z.number().optional().describe('Execution timeout in milliseconds'),
+      sessionID: z.string().optional().describe('Session ID for approval scope'),
+    },
+    async execute(args) {
+      registerGatewayDependencies(ctx.directory, { client: ctx.client });
+      ensureGatewayRunning(ctx.directory);
+      const runtime = runtimes.get(ctx.directory);
+      if (!runtime) throw new Error('gateway_runtime_unavailable');
+      const plan = JSON.parse(args.planJson) as unknown;
+      const dryRun = args.dryRun === true;
+      const result = await invokeGatewayMethod(
+        ctx.directory,
+        runtime,
+        'desktop.action.execute',
+        {
+          plan,
+          dryRun,
+          timeoutMs:
+            typeof args.timeoutMs === 'number' && Number.isFinite(args.timeoutMs)
+              ? Number(args.timeoutMs)
+              : undefined,
+          sessionID:
+            typeof args.sessionID === 'string' && args.sessionID.trim().length > 0
+              ? args.sessionID.trim()
+              : 'main',
+          policyHash: dryRun ? undefined : currentPolicyHash(ctx.directory),
+        },
+        { clientID: 'gateway-tool', role: 'admin' },
+      );
+      return JSON.stringify(result, null, 2);
+    },
+  });
+
   return {
     miya_gateway_start,
     miya_gateway_status,
@@ -8740,6 +9025,8 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
     miya_security_audit,
     miya_gateway_shutdown,
     miya_memory_reflect,
+    miya_desktop_action_plan,
+    miya_desktop_action_execute,
   };
 }
 

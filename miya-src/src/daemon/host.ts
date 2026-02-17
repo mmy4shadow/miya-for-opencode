@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { getMiyaRuntimeDir } from '../workflow';
 import { readConfig, validateConfigPatch, applyConfigPatch } from '../settings';
 import { assertPolicyHash, currentPolicyHash } from '../policy';
+import { resolveDaemonCompatMethod } from '../compat';
 import { MiyaDaemonService } from './service';
 import type { ResourceTaskKind } from '../resource-scheduler';
 import {
@@ -274,7 +275,9 @@ const server = Bun.serve({
       }
 
       const params = frame.params ?? {};
-      if (frame.method === 'daemon.status.get') {
+      const requestedMethod = frame.method;
+      const method = resolveDaemonCompatMethod(requestedMethod);
+      if (method === 'daemon.status.get') {
         ws.send(
           JSON.stringify(
             DaemonResponseFrameSchema.parse({
@@ -288,7 +291,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.psyche.consult') {
+      if (method === 'daemon.psyche.consult') {
         try {
           const consultDelayMs = resolvePsycheConsultDelayMs();
           if (consultDelayMs > 0) {
@@ -369,7 +372,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.psyche.signals.get') {
+      if (method === 'daemon.psyche.signals.get') {
         ws.send(
           JSON.stringify(
             DaemonResponseFrameSchema.parse({
@@ -383,7 +386,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.psyche.slowbrain.get') {
+      if (method === 'daemon.psyche.slowbrain.get') {
         ws.send(
           JSON.stringify(
             DaemonResponseFrameSchema.parse({
@@ -397,7 +400,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.psyche.slowbrain.retrain') {
+      if (method === 'daemon.psyche.slowbrain.retrain') {
         try {
           const result = daemonService.retrainPsycheSlowBrain({
             force: params.force === true,
@@ -434,7 +437,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.psyche.slowbrain.rollback') {
+      if (method === 'daemon.psyche.slowbrain.rollback') {
         try {
           const result = daemonService.rollbackPsycheSlowBrain(
             typeof params.versionID === 'string' ? params.versionID : undefined,
@@ -467,7 +470,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.psyche.outcome') {
+      if (method === 'daemon.psyche.outcome') {
         try {
           const explicitFeedbackRaw = String(params.explicitFeedback ?? 'none').trim().toLowerCase();
           const explicitFeedback =
@@ -559,7 +562,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.python.env.get') {
+      if (method === 'daemon.python.env.get') {
         ws.send(
           JSON.stringify(
             DaemonResponseFrameSchema.parse({
@@ -573,7 +576,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.model.locks.get') {
+      if (method === 'daemon.model.locks.get') {
         ws.send(
           JSON.stringify(
             DaemonResponseFrameSchema.parse({
@@ -587,7 +590,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.model.update.plan') {
+      if (method === 'daemon.model.update.plan') {
         const target =
           typeof params.target === 'string' && params.target.trim()
             ? params.target.trim()
@@ -605,7 +608,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.model.update.apply') {
+      if (method === 'daemon.model.update.apply') {
         try {
           const target =
             typeof params.target === 'string' && params.target.trim()
@@ -639,7 +642,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'config.center.get') {
+      if (method === 'config.center.get') {
         ws.send(
           JSON.stringify(
             DaemonResponseFrameSchema.parse({
@@ -653,7 +656,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'config.center.patch') {
+      if (method === 'config.center.patch') {
         const policyHash = typeof params.policyHash === 'string' ? params.policyHash : undefined;
         const guard = assertPolicyHash(args.projectDir, policyHash);
         if (!guard.ok) {
@@ -704,7 +707,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.flux.generate') {
+      if (method === 'daemon.flux.generate') {
         try {
           const result = await daemonService.runFluxImageGenerate({
             prompt: String(params.prompt ?? ''),
@@ -742,7 +745,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.sovits.tts') {
+      if (method === 'daemon.sovits.tts') {
         try {
           const fmt = String(params.format ?? 'wav');
           const format = fmt === 'mp3' || fmt === 'ogg' ? fmt : 'wav';
@@ -781,7 +784,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.asr.transcribe') {
+      if (method === 'daemon.asr.transcribe') {
         try {
           const result = await daemonService.runAsrTranscribe({
             inputPath: String(params.inputPath ?? ''),
@@ -815,7 +818,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.training.flux') {
+      if (method === 'daemon.training.flux') {
         try {
           const result = await daemonService.runFluxTraining({
             profileDir: String(params.profileDir ?? ''),
@@ -852,7 +855,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.training.sovits') {
+      if (method === 'daemon.training.sovits') {
         try {
           const result = await daemonService.runSovitsTraining({
             profileDir: String(params.profileDir ?? ''),
@@ -889,7 +892,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.training.cancel') {
+      if (method === 'daemon.training.cancel') {
         const jobID = String(params.jobID ?? '').trim();
         if (!jobID) {
           ws.send(
@@ -921,7 +924,7 @@ const server = Bun.serve({
         return;
       }
 
-      if (frame.method === 'daemon.process.run_isolated') {
+      if (method === 'daemon.process.run_isolated') {
         try {
           const requestedKind = String(params.kind ?? 'generic');
           const allowedKinds = new Set<ResourceTaskKind>([
@@ -1004,7 +1007,7 @@ const server = Bun.serve({
             ok: false,
             error: {
               code: 'unknown_method',
-              message: frame.method,
+              message: requestedMethod,
             },
           }),
         ),
@@ -1091,3 +1094,4 @@ process.on('exit', () => {
 if (process.send) {
   process.send({ type: 'miya-daemon-started', port: Number(server.port), pid: process.pid });
 }
+

@@ -1,4 +1,7 @@
 # **Miya 插件开发深度研究报告与实施蓝图**
+
+Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建的是一种 “云-端协同” (Cloud-Edge Collaboration) 架构：云端 (OpenCode)：负责高维智慧（对话、决策、代码生成）等工作。端侧 (Miya)：负责低维感知（看屏幕、听声音）、执行（点鼠标）、边缘计算（本地模型推理），记忆和情感维护等工作。Miya 是 OpenCode 的“手”和“眼”，驻扎本地，开机即用，极致省流，兼容一切。 不止是这样，miya还负责调用本地模型生成音频，图片，包括识别我 的声音和电脑软件，浏览器之类的点击位置。而且miya可以做到像人类一样使用电脑，不受不同软件的限制。实现Gateway常驻自启 + 网页UI随OpenCode起落 + 本地算力调度。miya是不连接大模型api的，实际对话和模型调用全部在opencode。 在我的理解里，miya是一个能扩展opencode的agent能力的插件，辅助，调度，连接电脑与opencode。而且miya可以充分利用上本地部署的条件，比如要控制电脑，opencode的大模型给出指令到miya，miya传递到本地模型，本地模型出结果给miya再传递到opencode的模型做下一步。而且miya有一个增强交互系统学习我的习惯，落实记忆管理，但实际该做什么说什么都是由opencode的大模型发出。miya是一个扩展复杂的扩展插件。
+
 核心点：1.像人类一样流畅控制电脑。2.极具特色的能不断适应的陪伴式聊天。3.深度绑定opencode，基于各种开源项目开发，充分利用开源项目不断更新的资源。比如说opencode不断更新增强的AI自主编程能力，openclaw的不断丰富的skills和工具等等。4.增强自主工作流，自动并行化——复杂任务由多代理合作完成，持久执行——直到任务被验证为完成或者重复失败才会放弃，成本优化——智能模型路由可节省30-50%的tokens，从经验中学习——自动提取并重复使用解决问题的模式。
 **核心设计哲学**：
 - **OpenCode原生优先**：充分利用OpenCode内置的permission体系（allow/ask/deny）和Agent/Skill系统，避免重复造轮子，并且必须兼容openclaw的生态，能直接使用他们成熟的工具和skill等资源。
@@ -19,6 +22,25 @@
 本补丁为本规划的“解释优先层”。若后续章节存在历史口径冲突，以本补丁为准，原文保留仅用于追溯演进背景。
 
 ## 2026-02-16 实装状态同步（对齐源码）
+
+## 2026-02-17 兼容优先与不减功能总章（冻结）
+
+本章为“兼容优先 + 能力增强”最高优先级口径，若与旧段落冲突，以本章为准。
+
+- 不删减现有功能：保持既有桌控、陪伴、多代理自主流、模型路由、学习复用主链路可用。
+- 不破坏现有接口：旧 `gateway method`、`daemon ws method`、配置键与工具入口保持可调用。
+- 仅做增量增强：新增能力默认采用兼容层与别名路由，避免替代式重写。
+
+### 2026-02-17 A-H 落地对照（以当前源码为准）
+
+- Phase A（接口/能力基线 + no-regression 门禁）：已落地。新增 `miya-src/tools/interface-baseline-lib.ts`、`miya-src/tools/interface-baseline.ts`、`miya-src/tools/no-regression-gate.ts`，并生成基线 `miya-src/baseline/interface-capability-baseline.json`。
+- Phase B（兼容层与 v2 路由）：已落地。新增 `miya-src/src/compat/gateway-v2.ts`、`miya-src/src/compat/daemon-v2.ts`、`miya-src/src/compat/index.ts`；网关与 daemon 已接入兼容解析。
+- Phase C（跨软件“像人一样”桌控统一动作引擎）：实施中（首版已落地）。新增通用动作模型与执行器（`miya-src/src/desktop/action-engine.ts`、`miya-src/src/desktop/runtime.ts`），已支持 `focus/click/type/hotkey/scroll/drag/assert` 统一动作语义；网关新增 `desktop.action.plan` / `desktop.action.execute`，既有 QQ/微信链路保持不变。
+- Phase D（适应型陪伴聊天）：实施中。现有 persona/world/memory/psyche 主链路已在运行，偏好学习闭环指标化仍需继续补全。
+- Phase E（OpenCode 深绑定 + 开源生态纳管融合）：部分落地。新增 `Ecosystem Bridge Registry`（`miya-src/src/compat/ecosystem-bridge-registry.ts`）与网关查询方法，外部能力包的生产准入自动化仍需继续扩展。
+- Phase F（多代理自主工作流强化）：实施中。现有并行协作、持久执行、预算与路由能力保持可用；长期任务“恢复点 + fixability 协商”的端到端策略持续增强。
+- Phase G（启动与生命周期语义）：实施中（可观测增强已落地）。新增 `lifecycle.status.get` 生命周期快照接口（`miya-src/src/gateway/index.ts`），可统一观测 OpenCode->Gateway->Daemon/UI 耦合状态；`Gateway 常驻 + Web UI 随 OpenCode 启停` 的策略编排继续细化。
+- Phase H（文档与发布门禁）：已落地第一阶段。`check:ci` 已纳入 no-regression 门禁，发布前运行 `opencode debug config`、`opencode debug skill`、`opencode debug paths` 作为固定检查。
 
 - `P0` PlanBundle v1 事务对象：已落地（`miya-src/src/autopilot/plan-bundle.ts`、`miya-src/src/autopilot/executor.ts`、`miya-src/src/gateway/protocol.ts`）。
 - `P0` 网关按域拆分：已启动并接入运行（`miya-src/src/gateway/methods/core.ts` + `miya-src/src/gateway/kernel/action-ledger.ts`，`gateway/index.ts` 改为组合式注册）。
