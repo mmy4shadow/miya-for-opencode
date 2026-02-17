@@ -8,6 +8,7 @@ const AGENTS = [
   'explorer',
   'librarian',
   'fixer',
+  'simplicity_reviewer',
 ] as const;
 
 type AgentName = (typeof AGENTS)[number];
@@ -23,6 +24,7 @@ const ROLE_VARIANT: Record<AgentName, string | undefined> = {
   explorer: 'low',
   librarian: 'low',
   fixer: 'low',
+  simplicity_reviewer: 'low',
 };
 
 function getEnabledProviders(config: InstallConfig): string[] {
@@ -104,7 +106,8 @@ function roleScore(agent: AgentName, model: DiscoveredModel): number {
     (agent === 'orchestrator' ||
       agent === 'explorer' ||
       agent === 'librarian' ||
-      agent === 'fixer') &&
+      agent === 'fixer' ||
+      agent === 'simplicity_reviewer') &&
     !model.toolcall
   ) {
     return -10_000;
@@ -193,13 +196,19 @@ export function buildDynamicModelPlan(
       .filter((m): m is string => Boolean(m));
 
     const selectedOpencode =
-      agent === 'explorer' || agent === 'librarian' || agent === 'fixer'
+      agent === 'explorer' ||
+      agent === 'librarian' ||
+      agent === 'fixer' ||
+      agent === 'simplicity_reviewer'
         ? (config.selectedOpenCodeSecondaryModel ??
           config.selectedOpenCodePrimaryModel)
         : config.selectedOpenCodePrimaryModel;
 
     const selectedChutes =
-      agent === 'explorer' || agent === 'librarian' || agent === 'fixer'
+      agent === 'explorer' ||
+      agent === 'librarian' ||
+      agent === 'fixer' ||
+      agent === 'simplicity_reviewer'
         ? (config.selectedChutesSecondaryModel ??
           config.selectedChutesPrimaryModel)
         : config.selectedChutesPrimaryModel;

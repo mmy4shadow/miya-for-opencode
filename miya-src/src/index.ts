@@ -9,8 +9,10 @@ import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
 import {
   extractAgentModelSelectionsFromEvent,
+  extractAgentRuntimeSelectionsFromCommandEvent,
   persistAgentRuntimeSelection,
   readPersistedAgentRuntime,
+  syncPersistedAgentRuntimeFromOpenCodeState,
 } from './config/agent-model-persistence';
 import { parseList } from './config/agent-mcps';
 import {
@@ -238,6 +240,17 @@ function isAutonomousRunTool(tool: string, args: unknown): boolean {
 }
 
 const MiyaPlugin: Plugin = async (ctx) => {
+  try {
+    const synced = syncPersistedAgentRuntimeFromOpenCodeState(ctx.directory);
+    if (synced) {
+      log('[model-persistence] synchronized from opencode state on startup');
+    }
+  } catch (error) {
+    log('[model-persistence] startup sync failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   const config = loadPluginConfig(ctx.directory);
   const agents = getAgentConfigs(config, ctx.directory);
 
@@ -287,7 +300,6 @@ const MiyaPlugin: Plugin = async (ctx) => {
       autoOpenEnabled &&
       autoOpenEnabledResolved &&
       !autoOpenBlockedByEnv &&
-      interactiveSession &&
       shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
     ) {
       setTimeout(async () => {
@@ -676,6 +688,17 @@ const MiyaPlugin: Plugin = async (ctx) => {
     mcp: mcps,
 
     config: async (opencodeConfig: Record<string, unknown>) => {
+      try {
+        const synced = syncPersistedAgentRuntimeFromOpenCodeState(ctx.directory);
+        if (synced) {
+          log('[model-persistence] synchronized from opencode state on config merge');
+        }
+      } catch (error) {
+        log('[model-persistence] config merge sync failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
       const persistedRuntime = readPersistedAgentRuntime(ctx.directory);
       (opencodeConfig as { default_agent?: string }).default_agent =
         persistedRuntime.activeAgentId ?? '1-task-manager';
@@ -905,6 +928,43 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
 
     event: async (input) => {
+      const eventType = isPlainObject(input.event) ? String(input.event.type ?? '') : '';
+      if (
+        ['command.executed', 'tui.command.execute', 'session.created', 'session.updated'].includes(
+          eventType,
+        )
+      ) {
+        try {
+          const synced = syncPersistedAgentRuntimeFromOpenCodeState(ctx.directory);
+          if (synced) {
+            log('[model-persistence] synchronized from opencode state on event', {
+              eventType,
+            });
+          }
+        } catch (error) {
+          log('[model-persistence] event sync failed', {
+            eventType,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      const runtimeBefore = readPersistedAgentRuntime(ctx.directory);
+      const commandSelections = extractAgentRuntimeSelectionsFromCommandEvent(
+        input.event,
+        runtimeBefore.activeAgentId,
+      );
+      for (const commandSelection of commandSelections) {
+        const changed = persistAgentRuntimeSelection(ctx.directory, commandSelection);
+        if (changed) {
+          log('[model-persistence] updated from command event', {
+            eventType,
+            agent: commandSelection.agentName,
+            model: commandSelection.model,
+          });
+        }
+      }
+
       // Handle model/runtime persistence from message, agent switch, and settings-save events.
       const selections = extractAgentModelSelectionsFromEvent(input.event);
       for (const modelSelection of selections) {

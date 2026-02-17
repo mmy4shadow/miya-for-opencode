@@ -7,6 +7,7 @@ const FALLBACK_AGENT_NAMES = [
   '4-architecture-advisor',
   '5-code-fixer',
   '6-ui-designer',
+  '7-code-simplicity-reviewer',
 ] as const;
 
 const AgentModelChainSchema = z.array(z.string()).min(1);
@@ -20,6 +21,7 @@ const FallbackChainsSchema = z
     '4-architecture-advisor': AgentModelChainSchema.optional(),
     '5-code-fixer': AgentModelChainSchema.optional(),
     '6-ui-designer': AgentModelChainSchema.optional(),
+    '7-code-simplicity-reviewer': AgentModelChainSchema.optional(),
 
     // Legacy names (backward compatibility)
     orchestrator: AgentModelChainSchema.optional(),
@@ -28,6 +30,8 @@ const FallbackChainsSchema = z
     oracle: AgentModelChainSchema.optional(),
     fixer: AgentModelChainSchema.optional(),
     designer: AgentModelChainSchema.optional(),
+    'code-simplicity-reviewer': AgentModelChainSchema.optional(),
+    simplicity_reviewer: AgentModelChainSchema.optional(),
   })
   .strict();
 

@@ -46,7 +46,7 @@ function baseInstallConfig(): InstallConfig {
 }
 
 describe('dynamic-model-selection', () => {
-  test('builds assignments and chains for all six agents', () => {
+  test('builds assignments and chains for all seven agents', () => {
     const plan = buildDynamicModelPlan(
       [
         m({ model: 'openai/gpt-5.3-codex', reasoning: true, toolcall: true }),
@@ -82,6 +82,7 @@ describe('dynamic-model-selection', () => {
       '4-architecture-advisor',
       '5-code-fixer',
       '6-ui-designer',
+      '7-code-simplicity-reviewer',
     ]);
     expect(chains['4-architecture-advisor']).toContain('openai/gpt-5.3-codex');
     expect(chains['1-task-manager']).toContain('chutes/kimi-k2.5');

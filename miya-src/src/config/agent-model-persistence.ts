@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
@@ -7,6 +8,8 @@ import type { PluginConfig } from './schema';
 const KNOWN_AGENT_NAMES = new Set<string>(ALL_AGENT_NAMES as readonly string[]);
 const AGENT_RUNTIME_VERSION = 1;
 const MAX_WRITE_RETRIES = 4;
+const OPEN_CODE_MODEL_TOKEN_RE = /\b[a-z0-9._-]+\/[a-z0-9._/-]+\b/i;
+const STATE_SYNC_STAMP_BY_DIR = new Map<string, string>();
 
 interface AgentRuntimeEntry {
   model?: string;
@@ -136,6 +139,210 @@ function normalizeStringValue(value: unknown): string | undefined {
 function normalizeOptions(value: unknown): Record<string, unknown> | undefined {
   if (!isObject(value)) return undefined;
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function readJsonObjectFile(filePath: string): Record<string, unknown> | null {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as unknown;
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function uniqueStrings(values: Array<string | undefined | null>): string[] {
+  const set = new Set<string>();
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (!text) continue;
+    set.add(text);
+  }
+  return [...set];
+}
+
+function collectOpenCodeStateDirCandidates(projectDir: string): string[] {
+  const envXdgStateHome = normalizeStringValue(process.env.XDG_STATE_HOME);
+  const envOpenCodeStateHome = normalizeStringValue(
+    process.env.OPENCODE_STATE_HOME,
+  );
+  const envLocalAppData = normalizeStringValue(process.env.LOCALAPPDATA);
+  const envAppData = normalizeStringValue(process.env.APPDATA);
+  const homeDir = normalizeStringValue(os.homedir());
+
+  const candidates = uniqueStrings([
+    envOpenCodeStateHome ? path.join(envOpenCodeStateHome, 'opencode') : undefined,
+    envXdgStateHome ? path.join(envXdgStateHome, 'opencode') : undefined,
+    homeDir ? path.join(homeDir, '.local', 'state', 'opencode') : undefined,
+    envLocalAppData ? path.join(envLocalAppData, 'opencode', 'state') : undefined,
+    envAppData ? path.join(envAppData, 'opencode', 'state') : undefined,
+    path.join(projectDir, '.opencode', 'state', 'opencode'),
+    path.join(projectDir, '.opencode', 'state'),
+  ]);
+
+  return candidates.filter((dir) => fs.existsSync(dir));
+}
+
+function buildStateFilesStamp(files: string[]): string {
+  return files
+    .map((file) => {
+      if (!fs.existsSync(file)) return `${file}:missing`;
+      const stat = fs.statSync(file);
+      return `${file}:${stat.size}:${Math.floor(stat.mtimeMs)}`;
+    })
+    .join('|');
+}
+
+function extractAgentPatchesFromMap(
+  map: Record<string, unknown>,
+): AgentRuntimeSelectionInput[] {
+  const patches: AgentRuntimeSelectionInput[] = [];
+
+  for (const [rawAgentName, rawEntry] of Object.entries(map)) {
+    const agentName = normalizeAgentName(rawAgentName);
+    if (!agentName) continue;
+
+    const entry = isObject(rawEntry) ? rawEntry : { model: rawEntry };
+    const model = normalizeModelRef(entry.model ?? rawEntry) ?? undefined;
+    const variant = normalizeStringValue(entry.variant);
+    const providerID =
+      normalizeProviderID(entry.providerID) ??
+      (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+    const options = normalizeOptions(entry.options ?? entry.providerOptions);
+    const apiKey = normalizeStringValue(entry.apiKey);
+    const baseURL = normalizeStringValue(entry.baseURL);
+
+    if (!model && !variant && !providerID && !options && !apiKey && !baseURL) {
+      continue;
+    }
+
+    patches.push({
+      agentName,
+      model,
+      variant,
+      providerID,
+      options,
+      apiKey,
+      baseURL,
+    });
+  }
+
+  return patches;
+}
+
+function mergeRuntimePatch(
+  grouped: Map<string, AgentRuntimeSelectionInput>,
+  patch: AgentRuntimeSelectionInput,
+): void {
+  const key = normalizeAgentName(patch.agentName);
+  if (!key) return;
+
+  const next = {
+    ...(grouped.get(key) ?? { agentName: key }),
+    ...patch,
+    agentName: key,
+  };
+  grouped.set(key, next);
+}
+
+function extractAgentPatchesFromFlatKeys(
+  source: Record<string, unknown>,
+): AgentRuntimeSelectionInput[] {
+  const grouped = new Map<string, AgentRuntimeSelectionInput>();
+  const keyRegex = /^(?:agent|agents)\.([^.]+)\.(model|variant|providerID|options|apiKey|baseURL)$/i;
+
+  for (const [rawKey, value] of Object.entries(source)) {
+    const match = rawKey.match(keyRegex);
+    if (!match) continue;
+
+    const agentName = normalizeAgentName(String(match[1] ?? ''));
+    const field = String(match[2] ?? '');
+    if (!agentName || !field) continue;
+
+    const current = grouped.get(agentName) ?? { agentName };
+    if (field === 'model') {
+      const model = normalizeModelRef(value);
+      if (model) {
+        current.model = model;
+        current.providerID = normalizeProviderID(model.split('/')[0]);
+      }
+    }
+    if (field === 'variant') current.variant = normalizeStringValue(value);
+    if (field === 'providerID') current.providerID = normalizeProviderID(value);
+    if (field === 'options') current.options = normalizeOptions(value);
+    if (field === 'apiKey') current.apiKey = normalizeStringValue(value);
+    if (field === 'baseURL') current.baseURL = normalizeStringValue(value);
+    grouped.set(agentName, current);
+  }
+
+  return [...grouped.values()];
+}
+
+function extractActiveAgentFromState(source: Record<string, unknown>): string | undefined {
+  const candidates = [
+    source.activeAgent,
+    source.active_agent,
+    source.defaultAgent,
+    source.default_agent,
+    source.agent,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeAgentName(String(candidate ?? ''));
+    if (normalized) return normalized;
+  }
+  return undefined;
+}
+
+function extractPatchesFromStateObject(
+  source: Record<string, unknown> | null,
+): { patches: AgentRuntimeSelectionInput[]; activeAgentId?: string } {
+  if (!source) return { patches: [] };
+
+  const grouped = new Map<string, AgentRuntimeSelectionInput>();
+  const mapCandidates = [
+    source.agents,
+    source.agentModels,
+    source.modelsByAgent,
+    source.byAgent,
+    source.selectedByAgent,
+  ];
+
+  for (const mapCandidate of mapCandidates) {
+    if (!isObject(mapCandidate)) continue;
+    for (const patch of extractAgentPatchesFromMap(mapCandidate)) {
+      mergeRuntimePatch(grouped, patch);
+    }
+  }
+
+  for (const patch of extractAgentPatchesFromFlatKeys(source)) {
+    mergeRuntimePatch(grouped, patch);
+  }
+
+  const activeAgentId = extractActiveAgentFromState(source);
+  return { patches: [...grouped.values()], activeAgentId };
+}
+
+function modelTokenFromText(text: string): string | undefined {
+  const match = text.match(OPEN_CODE_MODEL_TOKEN_RE);
+  if (!match || !match[0]) return undefined;
+  const token = match[0].trim();
+  return normalizeModelRef(token) ?? undefined;
+}
+
+function tokensFromText(text: string): string[] {
+  return text
+    .split(/[\s,'"`;|]+/g)
+    .map((token) => token.replace(/^[^a-z0-9_-]+|[^a-z0-9._/-]+$/gi, '').trim())
+    .filter(Boolean);
+}
+
+function agentFromText(text: string): string | undefined {
+  for (const token of tokensFromText(text)) {
+    const normalized = normalizeAgentName(token);
+    if (normalized) return normalized;
+  }
+  return undefined;
 }
 
 function normalizeAgentRuntimeEntry(value: unknown): AgentRuntimeEntry | null {
@@ -459,6 +666,151 @@ export function applyPersistedAgentModelOverrides(
     agents: nextAgents,
     provider: nextProvider,
   };
+}
+
+export function syncPersistedAgentRuntimeFromOpenCodeState(
+  projectDir: string,
+): boolean {
+  const stateDirs = collectOpenCodeStateDirCandidates(projectDir);
+  if (stateDirs.length === 0) return false;
+
+  const modelFiles = stateDirs.map((dir) => path.join(dir, 'model.json'));
+  const kvFiles = stateDirs.map((dir) => path.join(dir, 'kv.json'));
+  const files = [...modelFiles, ...kvFiles];
+
+  const stamp = buildStateFilesStamp(files);
+  if (STATE_SYNC_STAMP_BY_DIR.get(projectDir) === stamp) {
+    return false;
+  }
+  STATE_SYNC_STAMP_BY_DIR.set(projectDir, stamp);
+
+  let changed = false;
+  let activeAgentId: string | undefined;
+  const grouped = new Map<string, AgentRuntimeSelectionInput>();
+
+  for (const file of modelFiles) {
+    const parsed = readJsonObjectFile(file);
+    const result = extractPatchesFromStateObject(parsed);
+    if (!activeAgentId && result.activeAgentId) {
+      activeAgentId = result.activeAgentId;
+    }
+    for (const patch of result.patches) {
+      mergeRuntimePatch(grouped, patch);
+    }
+  }
+
+  for (const file of kvFiles) {
+    const parsed = readJsonObjectFile(file);
+    const result = extractPatchesFromStateObject(parsed);
+    if (!activeAgentId && result.activeAgentId) {
+      activeAgentId = result.activeAgentId;
+    }
+    for (const patch of result.patches) {
+      mergeRuntimePatch(grouped, patch);
+    }
+  }
+
+  for (const patch of grouped.values()) {
+    const mergedPatch: AgentRuntimeSelectionInput = {
+      ...patch,
+      activeAgentId: patch.activeAgentId ?? activeAgentId,
+    };
+    changed = persistAgentRuntimeSelection(projectDir, mergedPatch) || changed;
+  }
+
+  if (activeAgentId && !grouped.has(activeAgentId)) {
+    changed =
+      persistAgentRuntimeSelection(projectDir, {
+        agentName: activeAgentId,
+        activeAgentId,
+      }) || changed;
+  }
+
+  return changed;
+}
+
+export function extractAgentRuntimeSelectionsFromCommandEvent(
+  event: unknown,
+  activeAgentHint?: string,
+): AgentRuntimeSelectionInput[] {
+  if (!isObject(event) || !isObject(event.properties)) return [];
+
+  const properties = event.properties;
+  const eventType = String(event.type ?? '').trim().toLowerCase();
+  const activeAgent = normalizeAgentName(String(activeAgentHint ?? '')) ?? undefined;
+  const selections: AgentRuntimeSelectionInput[] = [];
+
+  if (eventType === 'command.executed') {
+    const commandName = String(properties.name ?? '').trim();
+    const commandArgs = String(properties.arguments ?? '').trim();
+    const loweredName = commandName.toLowerCase();
+
+    if (loweredName.includes('agent')) {
+      const selectedAgent = agentFromText(commandArgs) ?? agentFromText(commandName);
+      if (selectedAgent) {
+        selections.push({
+          agentName: selectedAgent,
+          activeAgentId: selectedAgent,
+        });
+      }
+    }
+
+    const isModelCommand =
+      loweredName.includes('model') || /\bmodel\b/i.test(commandArgs);
+    if (isModelCommand) {
+      const selectedModel = modelTokenFromText(commandArgs) ?? modelTokenFromText(commandName);
+      const selectedAgent =
+        agentFromText(commandArgs) ?? agentFromText(commandName) ?? activeAgent;
+      if (selectedAgent && selectedModel) {
+        selections.push({
+          agentName: selectedAgent,
+          model: selectedModel,
+          providerID: normalizeProviderID(selectedModel.split('/')[0]),
+          activeAgentId: selectedAgent,
+        });
+      }
+    }
+  }
+
+  if (eventType === 'tui.command.execute') {
+    const command = String(properties.command ?? '').trim();
+    const loweredCommand = command.toLowerCase();
+    if (loweredCommand.includes('agent')) {
+      const selectedAgent = agentFromText(command);
+      if (selectedAgent) {
+        selections.push({
+          agentName: selectedAgent,
+          activeAgentId: selectedAgent,
+        });
+      }
+    }
+    if (loweredCommand.includes('model') && activeAgent) {
+      const selectedModel = modelTokenFromText(command);
+      if (selectedModel) {
+        selections.push({
+          agentName: activeAgent,
+          model: selectedModel,
+          providerID: normalizeProviderID(selectedModel.split('/')[0]),
+          activeAgentId: activeAgent,
+        });
+      }
+    }
+  }
+
+  if (selections.length <= 1) {
+    return selections;
+  }
+
+  const deduped = new Map<string, AgentRuntimeSelectionInput>();
+  for (const selection of selections) {
+    const key = [
+      selection.agentName,
+      String(selection.model ?? ''),
+      String(selection.activeAgentId ?? ''),
+    ].join('|');
+    deduped.set(key, selection);
+  }
+  return [...deduped.values()];
 }
 
 export function extractAgentModelSelectionFromEvent(

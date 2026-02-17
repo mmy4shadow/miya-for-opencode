@@ -56,7 +56,7 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - `P0` 自治执行闸门收口：已落地（`miya-src/src/index.ts` 对 `miya_autopilot/miya_autoflow` 统一映射 `bash` 风险权限，执行前强制安全门；`miya-src/src/autopilot/plan-bundle-binding.ts` 持久化会话单据绑定）。
 - `P0` PlanBundle v1 冻结字段补齐：已落地（`miya-src/src/autopilot/types.ts`、`miya-src/src/autopilot/plan-bundle.ts`、`miya-src/src/gateway/protocol.ts`；新增 `bundleId/mode/riskTier/budget/capabilitiesNeeded/steps/approvalPolicy/verificationPlan/policyHash`）。
 - `P1` 模式低置信安全回退 + 记忆注入可追溯：已下沉到 transform 神经链（`miya-src/src/hooks/mode-kernel/index.ts`、`miya-src/src/hooks/memory-weaver/index.ts`、`miya-src/src/hooks/psyche-tone/index.ts`），低置信回退 `work`，记忆块 `reference_only` 并附 `confidence/source`。
-- `P0` Windows 弹窗治理：已落地（`miya-src/src/index.ts`；Auto UI Open 改为显式 opt-in，默认关闭；Windows 启动改为隐藏 PowerShell 拉起，抑制反复 terminal 弹窗）。
+- `P0` Windows 弹窗治理：已落地（`miya-src/src/index.ts` + `miya-src/src/settings/tools.ts`；Auto UI Open 改为默认开启且支持环境变量关闭；Windows 打开 UI 统一改为隐藏 PowerShell 拉起，抑制反复 terminal 弹窗）。
 - `P2` 策略实验框架：已落地（`miya-src/src/strategy/experiments.ts`），支持 A/B 分流与离线回放汇总，已接入路由/记忆写入/审批阈值观测。
 
 ### 2026-02-16 增量实装状态回填（本轮）
@@ -372,7 +372,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
       - **大模型边界（硬规则）**：Miya 不接入独立大模型服务，不新增自有文本推理入口；仅复用 OpenCode 已有模型能力与会话上下文。
       - 实现范式：参考 Oh-my-opencode 的多代理编排成功范式，采用“每代理独立配置 + 切换即回读 + 会话落盘恢复”
       - 持久化要求：每个代理独立配置键（`agentId -> modelId`），禁止全局共享键覆盖
-      - 已知问题（必须修复）：当前切换代理后模型选择会被第6代理覆盖，导致其他代理无法保持独立模型配置
+      - 已知问题（2026-02-17 已修复）：代理模型持久化扩展为 7 代理独立键，补齐命令事件与状态文件同步链路，避免被第6代理覆盖
     - **小模型（图像/语音/ASR）**：**本地部署+本地推理**（绝不外发图片/音频到第三方）
       - 图像生成：
       1.即时生图FLUX.1 schnell："G:\pythonG\py\yun\.opencode\miya\model\tu pian\FLUX.1 schnell"。
@@ -436,7 +436,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 - “严格隔离”状态定义为 **已完成**：已移除插件侧 service 直调路径，并补充静态防回归检查（`src/daemon/isolation-guard.test.ts`、`src/daemon/lifecycle-guards.test.ts`）。
 
 ### **0.2 女友=助理，不分人格体、不新增 agent**
-- 不新增"女友代理"。仍是定义的 6 大 Agent
+- 不新增"女友代理"。维持 6 大核心 Agent + 1 个代码简洁性审阅代理（`7-code-simplicity-reviewer`），不引入第二套平行编排体系
 - 所谓"女友感"是 **一份共享人格层（Persona Layer）**，但采用**按角色动态挂载**：
   - 执行型 Agent（Fixer/Search/Advisor）默认 Zero-Persona，仅保留最小称呼和边界约束
   - Task Manager 的内部调度/派工指令默认 Zero-Persona，仅在最终对外回复阶段启用人格润色
@@ -2077,7 +2077,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 | P1-1 多模态真实能力替换 | 已完成 | 视觉已接入 OCR/VLM 推理链路并打通桌控发送前校验；保留多级 fallback | `miya-src/src/multimodal/vision.ts`, `miya-src/src/multimodal/index.test.ts`, `miya-src/src/channels/service.ts` |
 | P1-2 架构整理与文档回写 | 已完成（2026-02-14） | 文档状态已回写并绑定新增验收测试路径；后续仅增量维护 | `Miya插件开发完整项目规划.md` |
 | P0-4 启动稳定性收口（owner/follower + gateway 自愈） | 已完成（2026-02-14） | 新增 20 轮启动探活自动验收，Gateway 可达率基线固化 | `miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
-| P0-5 代理配置持久化主链路切换（agent-runtime） | 已完成（2026-02-14） | 已完成 revision/原子写/legacy 迁移与六代理独立配置防串写验证 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`, `miya-src/src/index.ts` |
+| P0-5 代理配置持久化主链路切换（agent-runtime） | 已完成（2026-02-17） | 已完成 revision/原子写/legacy 迁移与七代理独立配置防串写验证，并补齐 command/state 同步兜底 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`, `miya-src/src/index.ts` |
 | P0-6 严格进程隔离封口（插件仅 RPC） | 已完成（2026-02-14） | 已收口为 launcher/host/client 主链路 + 新增静态防回归测试，禁止非 daemon 模块直接引用 `daemon/service` 或 `MiyaDaemonService`（测试：`bun test src/daemon/isolation-guard.test.ts src/daemon/service.test.ts`） | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/isolation-guard.test.ts`, `miya-src/src/daemon/service.test.ts` |
 | P0-7 通信背压压测与拒绝语义稳定性 | 已完成（2026-02-14） | 已固化“10 指令并发”压测验收用例；并修复 Gateway 事件帧 `undefined` 字段导致的协议异常 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
 | P0-8 自治执行安全收口（Autopilot/Autoflow） | 已完成（2026-02-16） | `tool.execute.before` 对自治工具非只读模式统一走副作用权限与 `miya_self_approve`，并新增 PlanBundle 冻结字段校验（`bundleId/policyHash/riskTier`）与“无单据拒绝” | `miya-src/src/index.ts`, `miya-src/src/safety/risk.ts`, `miya-src/src/tools/autopilot.ts`, `miya-src/src/tools/autoflow.ts`, `miya-src/src/safety/risk.test.ts` |
@@ -2367,7 +2367,7 @@ miya-src/src/daemon/psyche/
 - 已完成：owner/follower 仲裁、gateway 状态诊断输出（is_owner/owner_pid/active_agent/revision/gateway_healthy）
 - 已完成：settings 保存事件到 `agent-runtime.json` 的主链路拦截
 - 已完成：legacy `agent-models.json -> agent-runtime.json` 首读迁移落盘
-- 已完成：20 次连续冷启动稳定性验收、6 代理 provider 覆盖日志与 baseURL/apiKey 审计验收
+- 已完成：20 次连续冷启动稳定性验收、7 代理 provider 覆盖日志与 baseURL/apiKey 审计验收
 - 关键路径：
   - `miya-src/src/gateway/index.ts`
   - `miya-src/src/config/agent-model-persistence.ts`
@@ -2443,7 +2443,7 @@ miya-src/src/daemon/psyche/
    - 路径：`Miya插件开发完整项目规划.md`
 6. `P0-4`：连续 20 次启动无重复 toast，`miya_ui_open` 可达率 100%  
    - 路径：`miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts`
-7. `P0-5`：`agent-runtime.json` 首启迁移落盘，6 代理配置重启后不串写  
+7. `P0-5`：`agent-runtime.json` 首启迁移落盘，7 代理配置重启后不串写  
    - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`
 8. `P1-3`：active agent 的 provider apiKey/baseURL/options 覆盖优先于全局  
    - 路径：`miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/provider-override-audit.ts`, `miya-src/src/config/provider-override-audit.test.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/index.ts`

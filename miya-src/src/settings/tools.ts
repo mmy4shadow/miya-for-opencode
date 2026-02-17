@@ -56,10 +56,16 @@ function formatValidationResult(
 
 function openUrl(url: string): void {
   if (process.platform === 'win32') {
-    const child = spawn('cmd', ['/c', 'start', '', url], {
+    const escaped = url.replace(/'/g, "''");
+    const child = spawn(
+      'powershell',
+      ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', `Start-Process '${escaped}'`],
+      {
       detached: true,
       stdio: 'ignore',
-    });
+      windowsHide: true,
+      },
+    );
     child.unref();
     return;
   }

@@ -7,12 +7,14 @@ import {
   applyPersistedAgentModelOverrides,
   extractAgentModelSelectionFromEvent,
   extractAgentModelSelectionsFromEvent,
+  extractAgentRuntimeSelectionsFromCommandEvent,
   normalizeAgentName,
   normalizeModelRef,
   persistAgentModelSelection,
   persistAgentRuntimeSelection,
   readPersistedAgentModels,
   readPersistedAgentRuntime,
+  syncPersistedAgentRuntimeFromOpenCodeState,
 } from './agent-model-persistence';
 
 describe('agent-model-persistence', () => {
@@ -29,6 +31,7 @@ describe('agent-model-persistence', () => {
   test('normalizes agent aliases and model refs', () => {
     expect(normalizeAgentName('explorer')).toBe('2-code-search');
     expect(normalizeAgentName('2-code-search')).toBe('2-code-search');
+    expect(normalizeAgentName('simplicity_reviewer')).toBe('7-code-simplicity-reviewer');
     expect(normalizeAgentName('unknown-agent')).toBeNull();
 
     expect(normalizeModelRef('openai/gpt-5.2-codex')).toBe(
@@ -230,7 +233,7 @@ describe('agent-model-persistence', () => {
     expect(extracted[0]?.apiKey).toBe('{env:OPENAI_AGENT6_KEY}');
   });
 
-  test('persists six agent configs independently without overwriting each other', () => {
+  test('persists seven agent configs independently without overwriting each other', () => {
     const entries = [
       ['1-task-manager', 'openai/gpt-5.3-codex'],
       ['2-code-search', 'openai/gpt-5.1-codex-mini'],
@@ -238,6 +241,7 @@ describe('agent-model-persistence', () => {
       ['4-architecture-advisor', 'openai/gpt-5.2-codex'],
       ['5-code-fixer', 'openrouter/z-ai/glm-5'],
       ['6-ui-designer', 'google/gemini-2.5-pro'],
+      ['7-code-simplicity-reviewer', 'openrouter/z-ai/glm-5'],
     ] as const;
 
     for (const [agentName, model] of entries) {
@@ -254,6 +258,74 @@ describe('agent-model-persistence', () => {
     for (const [agentName, model] of entries) {
       expect(runtime.agents[agentName]?.model).toBe(model);
       expect(runtime.agents[agentName]?.providerID).toBe(model.split('/')[0]);
+    }
+  });
+
+  test('extracts model selection from command.executed using active agent fallback', () => {
+    const extracted = extractAgentRuntimeSelectionsFromCommandEvent(
+      {
+        type: 'command.executed',
+        properties: {
+          name: 'model',
+          arguments: 'openrouter/z-ai/glm-5',
+        },
+      },
+      '7-code-simplicity-reviewer',
+    );
+
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0]).toMatchObject({
+      agentName: '7-code-simplicity-reviewer',
+      model: 'openrouter/z-ai/glm-5',
+      providerID: 'openrouter',
+      activeAgentId: '7-code-simplicity-reviewer',
+    });
+  });
+
+  test('synchronizes per-agent models from opencode state files', () => {
+    const previousXdgStateHome = process.env.XDG_STATE_HOME;
+    const stateHome = path.join(tempDir, 'xdg-state');
+    const stateDir = path.join(stateHome, 'opencode');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, 'model.json'),
+      JSON.stringify(
+        {
+          activeAgent: '7-code-simplicity-reviewer',
+          agents: {
+            '2-code-search': {
+              model: 'openai/gpt-5.1-codex-mini',
+              providerID: 'openai',
+            },
+            '7-code-simplicity-reviewer': {
+              model: 'openrouter/z-ai/glm-5',
+              providerID: 'openrouter',
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
+    try {
+      process.env.XDG_STATE_HOME = stateHome;
+      const changed = syncPersistedAgentRuntimeFromOpenCodeState(tempDir);
+      expect(changed).toBe(true);
+
+      const runtime = readPersistedAgentRuntime(tempDir);
+      expect(runtime.activeAgentId).toBe('7-code-simplicity-reviewer');
+      expect(runtime.agents['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
+      expect(runtime.agents['7-code-simplicity-reviewer']?.model).toBe(
+        'openrouter/z-ai/glm-5',
+      );
+    } finally {
+      if (previousXdgStateHome === undefined) {
+        delete process.env.XDG_STATE_HOME;
+      } else {
+        process.env.XDG_STATE_HOME = previousXdgStateHome;
+      }
     }
   });
 });
