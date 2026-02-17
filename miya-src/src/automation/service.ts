@@ -4,6 +4,7 @@ import {
   createApproval,
   createHistoryId,
   createJobId,
+  removeHistoryRecord,
   readAutomationState,
   readHistoryRecords,
   touchJob,
@@ -197,6 +198,10 @@ export class MiyaAutomationService {
 
   listHistory(limit = 20): MiyaJobHistoryRecord[] {
     return readHistoryRecords(this.projectDir, limit);
+  }
+
+  deleteHistoryRecord(runId: string): boolean {
+    return removeHistoryRecord(this.projectDir, runId);
   }
 
   scheduleDailyCommand(input: {

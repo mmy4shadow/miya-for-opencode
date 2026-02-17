@@ -553,9 +553,34 @@ export default function App() {
       setErrorText('该任务没有关联 jobID，无法重新执行。');
       return;
     }
+    const policyHash = snapshot.policyHash;
+    if (!policyHash) {
+      setErrorText('缺少策略哈希，无法执行高风险操作，请刷新后重试。');
+      return;
+    }
     await runAction(async () => {
-      await invokeGateway('cron.run.now', { jobID: task.jobId });
+      await invokeGateway('cron.run.now', { jobID: task.jobId, policyHash });
     }, `已触发重新执行：${task.title}`);
+  };
+
+  const deleteTaskHistory = async (task: TaskRecord) => {
+    const policyHash = snapshot.policyHash;
+    if (!policyHash) {
+      setErrorText('缺少策略哈希，无法删除任务记录，请刷新后重试。');
+      return;
+    }
+    await runAction(async () => {
+      const result = (await invokeGateway('cron.runs.remove', {
+        runID: task.id,
+        policyHash,
+      })) as { removed?: boolean };
+      if (!result?.removed) {
+        throw new Error('task_history_not_found_or_delete_failed');
+      }
+      if (view === 'tasks-detail') {
+        navigate('tasks-list');
+      }
+    }, `已删除任务记录：${task.id}`);
   };
 
   const exportTaskLogs = (task: TaskRecord) => {
@@ -859,7 +884,7 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setErrorText('当前版本暂无任务历史删除接口。')}
+                      onClick={() => void deleteTaskHistory(selectedTask)}
                       className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
                     >
                       删除任务记录

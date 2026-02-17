@@ -111,7 +111,10 @@ import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
 import { getAutostartStatus, setAutostartEnabled } from '../system/autostart';
 import {
   buildDesktopActionPlanV2FromRequest,
+  buildDesktopSingleStepPlanFromDecision,
+  buildDesktopSingleStepPromptKit,
   buildDesktopOutboundHumanActions,
+  parseDesktopSingleStepDecision,
   parseDesktopActionPlanV2,
   type DesktopPerceptionRouteV2,
 } from '../desktop/action-engine';
@@ -1786,7 +1789,15 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'sessions.get',
   'cron.list',
   'cron.runs.list',
+  'cron.runs.remove',
+  'cron.run.now',
   'cron.approvals.list',
+  'policy.domain.pause',
+  'policy.domain.resume',
+  'killswitch.set_mode',
+  'trust.set_mode',
+  'psyche.mode.set',
+  'insight.append',
   'channels.list',
   'channels.status',
   'channels.governance.get',
@@ -5304,12 +5315,63 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('desktop.action.plan', async (params) => {
     return buildDesktopPlanFromParams(params);
   });
+  methods.register('desktop.action.single_step.prompt', async () => {
+    return buildDesktopSingleStepPromptKit();
+  });
+  methods.register('desktop.action.single_step.next', async (params) => {
+    const source =
+      parseText(params.source).trim() || 'gateway.desktop.action.single_step.next';
+    const routeLevel = parseDesktopRouteLevel(params.routeLevel);
+    const safety = parseDesktopSafety(params.safety);
+    const stepIndexRaw =
+      typeof params.stepIndex === 'number' && Number.isFinite(params.stepIndex)
+        ? Number(params.stepIndex)
+        : 1;
+    const stepIndex = Math.max(1, Math.min(10_000, Math.floor(stepIndexRaw)));
+    const decisionRaw =
+      params.decision != null
+        ? params.decision
+        : typeof params.modelOutput === 'string'
+          ? params.modelOutput
+          : undefined;
+    if (decisionRaw == null) throw new Error('desktop_single_step_decision_required');
+    const decision = parseDesktopSingleStepDecision(decisionRaw);
+    const result = buildDesktopSingleStepPlanFromDecision({
+      source,
+      appName: parseText(params.appName).trim() || undefined,
+      windowHint: parseText(params.windowHint).trim() || undefined,
+      routeLevel: routeLevel ?? 'L1_UIA',
+      safety,
+      stepIndex,
+      enforceFocusBeforeAction:
+        typeof params.enforceFocusBeforeAction === 'boolean'
+          ? Boolean(params.enforceFocusBeforeAction)
+          : true,
+      decision,
+    });
+    return {
+      protocol: 'desktop_single_step.v1',
+      stepIndex,
+      ...result,
+      promptKit: buildDesktopSingleStepPromptKit(),
+      nextActionHint: result.status === 'ready' ? 'execute' : 'refresh_observation_then_decide',
+    };
+  });
   methods.register('desktop.action.execute', async (params) => {
     const sessionID = parseText(params.sessionID).trim() || 'main';
     const dryRun = params.dryRun === true;
     const timeoutMs =
       typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs)
         ? Number(params.timeoutMs)
+        : undefined;
+    const singleStep = params.singleStep === true;
+    const stepRetryLimit =
+      typeof params.stepRetryLimit === 'number' && Number.isFinite(params.stepRetryLimit)
+        ? Math.max(0, Math.min(4, Math.floor(Number(params.stepRetryLimit))))
+        : undefined;
+    const verifyAfterAction =
+      typeof params.verifyAfterAction === 'boolean'
+        ? Boolean(params.verifyAfterAction)
         : undefined;
     const plan =
       params.plan && typeof params.plan === 'object' && !Array.isArray(params.plan)
@@ -5337,6 +5399,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       plan,
       dryRun,
       timeoutMs,
+      singleStep,
+      stepRetryLimit,
+      verifyAfterAction,
     });
   });
   methods.register('desktop.automation.kpi.get', async () => {
@@ -5490,6 +5555,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ? Math.min(200, Number(params.limit))
         : 50;
     return depsOf(projectDir).automationService?.listHistory(limit) ?? [];
+  });
+  methods.register('cron.runs.remove', async (params) => {
+    const service = depsOf(projectDir).automationService;
+    if (!service) throw new Error('automation_service_unavailable');
+    const policyHash = parseText(params.policyHash) || undefined;
+    const runID = parseText(params.runID);
+    if (!runID) throw new Error('invalid_run_id');
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
+    return { removed: service.deleteHistoryRecord(runID) };
   });
   methods.register('cron.add', async (params) => {
     const service = depsOf(projectDir).automationService;
@@ -9093,6 +9168,76 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
     },
   });
 
+  const miya_desktop_single_step_prompt = tool({
+    description:
+      'Get strict single-step desktop decision rules (JSON only: action/coordinate/content) with few-shot examples.',
+    args: {},
+    async execute() {
+      registerGatewayDependencies(ctx.directory, { client: ctx.client });
+      ensureGatewayRunning(ctx.directory);
+      const runtime = runtimes.get(ctx.directory);
+      if (!runtime) throw new Error('gateway_runtime_unavailable');
+      const result = await invokeGatewayMethod(
+        ctx.directory,
+        runtime,
+        'desktop.action.single_step.prompt',
+        {},
+        { clientID: 'gateway-tool', role: 'admin' },
+      );
+      return JSON.stringify(result, null, 2);
+    },
+  });
+
+  const miya_desktop_single_step_next = tool({
+    description:
+      'Convert one model single-step decision (action/coordinate/content) into an executable desktop action plan.',
+    args: {
+      decisionJson: z
+        .string()
+        .describe('Model output JSON, must contain only action/coordinate/content'),
+      appName: z.string().optional().describe('Target app name for focus guard'),
+      windowHint: z.string().optional().describe('Target window hint for focus guard'),
+      routeLevel: z
+        .enum(['L0_ACTION_MEMORY', 'L1_UIA', 'L2_OCR', 'L3_SOM_VLM'])
+        .optional()
+        .describe('Perception route'),
+      stepIndex: z.number().optional().describe('Single-step loop index'),
+      enforceFocusBeforeAction: z
+        .boolean()
+        .optional()
+        .describe('Auto prepend focus action before click/type/enter'),
+    },
+    async execute(args) {
+      registerGatewayDependencies(ctx.directory, { client: ctx.client });
+      ensureGatewayRunning(ctx.directory);
+      const runtime = runtimes.get(ctx.directory);
+      if (!runtime) throw new Error('gateway_runtime_unavailable');
+      const decision = JSON.parse(args.decisionJson) as unknown;
+      const result = await invokeGatewayMethod(
+        ctx.directory,
+        runtime,
+        'desktop.action.single_step.next',
+        {
+          source: 'tool.miya_desktop_single_step_next',
+          decision,
+          appName: args.appName,
+          windowHint: args.windowHint,
+          routeLevel: args.routeLevel,
+          stepIndex:
+            typeof args.stepIndex === 'number' && Number.isFinite(args.stepIndex)
+              ? Number(args.stepIndex)
+              : undefined,
+          enforceFocusBeforeAction:
+            typeof args.enforceFocusBeforeAction === 'boolean'
+              ? Boolean(args.enforceFocusBeforeAction)
+              : undefined,
+        },
+        { clientID: 'gateway-tool', role: 'admin' },
+      );
+      return JSON.stringify(result, null, 2);
+    },
+  });
+
   const miya_desktop_action_execute = tool({
     description: 'Execute a desktop action plan (v2). Supports dryRun for safe validation.',
     args: {
@@ -9100,6 +9245,12 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
       dryRun: z.boolean().optional().describe('Whether to run in simulation mode'),
       timeoutMs: z.number().optional().describe('Execution timeout in milliseconds'),
       sessionID: z.string().optional().describe('Session ID for approval scope'),
+      singleStep: z.boolean().optional().describe('Only execute the first action in plan'),
+      stepRetryLimit: z.number().optional().describe('Retry limit per action when execution fails'),
+      verifyAfterAction: z
+        .boolean()
+        .optional()
+        .describe('Run post-action verification guard when possible'),
     },
     async execute(args) {
       registerGatewayDependencies(ctx.directory, { client: ctx.client });
@@ -9123,6 +9274,15 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
             typeof args.sessionID === 'string' && args.sessionID.trim().length > 0
               ? args.sessionID.trim()
               : 'main',
+          singleStep: args.singleStep === true,
+          stepRetryLimit:
+            typeof args.stepRetryLimit === 'number' && Number.isFinite(args.stepRetryLimit)
+              ? Number(args.stepRetryLimit)
+              : undefined,
+          verifyAfterAction:
+            typeof args.verifyAfterAction === 'boolean'
+              ? Boolean(args.verifyAfterAction)
+              : undefined,
           policyHash: dryRun ? undefined : currentPolicyHash(ctx.directory),
         },
         { clientID: 'gateway-tool', role: 'admin' },
@@ -9139,6 +9299,8 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
     miya_gateway_shutdown,
     miya_memory_reflect,
     miya_desktop_action_plan,
+    miya_desktop_single_step_prompt,
+    miya_desktop_single_step_next,
     miya_desktop_action_execute,
   };
 }

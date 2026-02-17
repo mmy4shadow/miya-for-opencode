@@ -22,6 +22,189 @@ export const desktopActionKindSchema = z.enum([
 
 export type DesktopActionKind = z.infer<typeof desktopActionKindSchema>;
 
+export const desktopSingleStepActionSchema = z.enum([
+  'focus',
+  'click',
+  'type',
+  'enter',
+  'scroll',
+  'assert',
+  'retry',
+  'done',
+]);
+
+export type DesktopSingleStepAction = z.infer<typeof desktopSingleStepActionSchema>;
+
+const desktopSingleStepCoordinateSchema = z
+  .object({
+    x: z.number().int().min(0).max(32_767),
+    y: z.number().int().min(0).max(32_767),
+  })
+  .strict();
+
+const desktopSingleStepDecisionSchemaInternal = z
+  .object({
+    action: desktopSingleStepActionSchema,
+    coordinate: desktopSingleStepCoordinateSchema.nullable(),
+    content: z.string().max(4_000),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const hasCoordinate = Boolean(value.coordinate);
+    const hasContent = value.content.trim().length > 0;
+    if ((value.action === 'focus' || value.action === 'click') && !hasCoordinate && !hasContent) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.action} requires coordinate or content`,
+      });
+    }
+    if ((value.action === 'type' || value.action === 'assert') && !hasContent) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.action} requires content`,
+      });
+    }
+  });
+
+export const desktopSingleStepDecisionSchema = desktopSingleStepDecisionSchemaInternal;
+
+export type DesktopSingleStepDecision = z.infer<typeof desktopSingleStepDecisionSchema>;
+
+export interface DesktopSingleStepPromptKit {
+  protocol: 'desktop_single_step_prompt.v1';
+  ruleVersion: '2026-02-17';
+  responseSchema: {
+    type: 'json_object';
+    required: ['action', 'coordinate', 'content'];
+    forbidExtraKeys: true;
+  };
+  rules: string[];
+  fewShot: Array<{
+    observation: string;
+    output: DesktopSingleStepDecision;
+  }>;
+}
+
+function parseJsonObjectFromText(input: string): unknown {
+  const text = input.trim();
+  if (!text) throw new Error('single_step_decision_empty');
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const sliced = text.slice(start, end + 1);
+      return JSON.parse(sliced) as unknown;
+    }
+    throw new Error('single_step_decision_not_json');
+  }
+}
+
+function normalizeSingleStepAction(raw: string): DesktopSingleStepAction {
+  const normalized = raw.trim().toLowerCase();
+  const mapped: Record<string, DesktopSingleStepAction> = {
+    focus: 'focus',
+    activate: 'focus',
+    click: 'click',
+    tap: 'click',
+    type: 'type',
+    input: 'type',
+    enter: 'enter',
+    send: 'enter',
+    scroll: 'scroll',
+    assert: 'assert',
+    verify: 'assert',
+    retry: 'retry',
+    done: 'done',
+    complete: 'done',
+    completed: 'done',
+    finish: 'done',
+    finished: 'done',
+    stop: 'done',
+  };
+  const action = mapped[normalized];
+  if (!action) throw new Error(`single_step_action_unsupported:${raw}`);
+  return action;
+}
+
+export function parseDesktopSingleStepDecision(input: unknown): DesktopSingleStepDecision {
+  const rawObject =
+    typeof input === 'string'
+      ? parseJsonObjectFromText(input)
+      : input && typeof input === 'object'
+        ? input
+        : (() => {
+            throw new Error('single_step_decision_invalid');
+          })();
+  const raw = rawObject as Record<string, unknown>;
+  const allowedKeys = new Set(['action', 'coordinate', 'content']);
+  const unexpectedKey = Object.keys(raw).find((key) => !allowedKeys.has(key));
+  if (unexpectedKey) {
+    throw new Error(`single_step_decision_extra_field:${unexpectedKey}`);
+  }
+  const normalized = {
+    action: normalizeSingleStepAction(String(raw.action ?? '')),
+    coordinate: raw.coordinate == null ? null : raw.coordinate,
+    content: typeof raw.content === 'string' ? raw.content : String(raw.content ?? ''),
+  };
+  return desktopSingleStepDecisionSchema.parse(normalized);
+}
+
+export function buildDesktopSingleStepPromptKit(): DesktopSingleStepPromptKit {
+  return {
+    protocol: 'desktop_single_step_prompt.v1',
+    ruleVersion: '2026-02-17',
+    responseSchema: {
+      type: 'json_object',
+      required: ['action', 'coordinate', 'content'],
+      forbidExtraKeys: true,
+    },
+    rules: [
+      '只能输出 JSON 对象，且仅允许 action/coordinate/content 三个字段。',
+      '先定位元素再操作：需要点击或输入时，优先给出 coordinate（x/y）。',
+      '执行输入前必须确保焦点已激活；若无法确认焦点，先输出 focus。',
+      '找不到元素时不要猜测，输出 {"action":"retry","coordinate":null,"content":"element_not_found"}。',
+      '若当前目标已完成，输出 {"action":"done","coordinate":null,"content":"completed"}，禁止继续多余操作。',
+      '每次只决策下一步，不做多步计划，不输出解释文本。',
+    ],
+    fewShot: [
+      {
+        observation: '窗口: QQ 聊天框已激活，发送按钮在(1720,980)',
+        output: {
+          action: 'click',
+          coordinate: { x: 1720, y: 980 },
+          content: 'send_button',
+        },
+      },
+      {
+        observation: '输入框未激活，消息内容为“晚上8点开会”',
+        output: {
+          action: 'focus',
+          coordinate: { x: 860, y: 996 },
+          content: 'chat_input',
+        },
+      },
+      {
+        observation: 'OCR 未识别到联系人“Alice”',
+        output: {
+          action: 'retry',
+          coordinate: null,
+          content: 'element_not_found',
+        },
+      },
+      {
+        observation: '已看到“发送成功”提示且最后一条消息是目标内容',
+        output: {
+          action: 'done',
+          coordinate: null,
+          content: 'completed',
+        },
+      },
+    ],
+  };
+}
+
 const desktopPointSchema = z.object({
   x: z.number().int().min(0).max(32_767),
   y: z.number().int().min(0).max(32_767),
@@ -122,6 +305,155 @@ export const desktopActionSchema = z
   });
 
 export type DesktopActionV2 = z.infer<typeof desktopActionSchema>;
+
+function parseScrollDelta(content: string): number {
+  const text = content.trim().toLowerCase();
+  const fromNumber = Number(text);
+  if (Number.isFinite(fromNumber) && fromNumber !== 0) {
+    return Math.max(-9_600, Math.min(9_600, Math.floor(fromNumber)));
+  }
+  if (text.includes('up') || text.includes('上')) return 720;
+  return -720;
+}
+
+function targetFromDecision(input: {
+  decision: DesktopSingleStepDecision;
+  fallbackHint?: string;
+}): z.infer<typeof desktopActionTargetSchema> | undefined {
+  const coordinate = input.decision.coordinate;
+  if (coordinate) {
+    return {
+      mode: 'coordinates',
+      point: {
+        x: coordinate.x,
+        y: coordinate.y,
+      },
+    };
+  }
+  const hint = input.decision.content.trim() || input.fallbackHint?.trim();
+  if (!hint) return undefined;
+  return {
+    mode: 'text',
+    value: hint,
+  };
+}
+
+export function buildDesktopActionFromSingleStepDecision(input: {
+  decision: DesktopSingleStepDecision;
+  routeLevel?: DesktopPerceptionRouteV2;
+  stepID?: string;
+  fallbackHint?: string;
+}): { executable: true; action: DesktopActionV2 } | { executable: false; status: 'retry' | 'done' } {
+  const routeLevel = input.routeLevel ?? 'L1_UIA';
+  const stepID = input.stepID?.trim() || 'single_step_action';
+  const decision = input.decision;
+  if (decision.action === 'retry') return { executable: false, status: 'retry' };
+  if (decision.action === 'done') return { executable: false, status: 'done' };
+  if (decision.action === 'focus') {
+    return {
+      executable: true,
+      action: desktopActionSchema.parse({
+        id: stepID,
+        kind: 'focus',
+        route: routeLevel,
+        target:
+          targetFromDecision({
+            decision,
+            fallbackHint: input.fallbackHint,
+          }) ??
+          ({
+            mode: 'window',
+            value: input.fallbackHint?.trim() || 'Desktop',
+          } as const),
+      }),
+    };
+  }
+  if (decision.action === 'click') {
+    return {
+      executable: true,
+      action: desktopActionSchema.parse({
+        id: stepID,
+        kind: 'click',
+        route: routeLevel,
+        target: targetFromDecision({
+          decision,
+          fallbackHint: input.fallbackHint,
+        }),
+      }),
+    };
+  }
+  if (decision.action === 'type') {
+    return {
+      executable: true,
+      action: desktopActionSchema.parse({
+        id: stepID,
+        kind: 'type',
+        route: routeLevel,
+        target: targetFromDecision({
+          decision,
+          fallbackHint: input.fallbackHint,
+        }),
+        text: decision.content,
+      }),
+    };
+  }
+  if (decision.action === 'enter') {
+    return {
+      executable: true,
+      action: desktopActionSchema.parse({
+        id: stepID,
+        kind: 'hotkey',
+        route: routeLevel,
+        keys: ['enter'],
+      }),
+    };
+  }
+  if (decision.action === 'scroll') {
+    return {
+      executable: true,
+      action: desktopActionSchema.parse({
+        id: stepID,
+        kind: 'scroll',
+        route: routeLevel,
+        scrollDeltaY: parseScrollDelta(decision.content),
+      }),
+    };
+  }
+  return {
+    executable: true,
+    action: desktopActionSchema.parse({
+      id: stepID,
+      kind: 'assert',
+      route: routeLevel,
+      assert: {
+        type: 'text',
+        expected: decision.content,
+        contains: true,
+      },
+    }),
+  };
+}
+
+export interface DesktopSingleStepPlanInput {
+  source?: string;
+  appName?: string;
+  windowHint?: string;
+  routeLevel?: DesktopPerceptionRouteV2;
+  safety?: {
+    inputMutex?: boolean;
+    abortOnUserInterference?: boolean;
+  };
+  stepIndex?: number;
+  enforceFocusBeforeAction?: boolean;
+  decision: DesktopSingleStepDecision;
+}
+
+export interface DesktopSingleStepPlanResult {
+  decision: DesktopSingleStepDecision;
+  executable: boolean;
+  status: 'ready' | 'retry' | 'done';
+  plan?: DesktopActionPlanV2;
+}
 
 const desktopActionSafetySchema = z.object({
   inputMutex: z.boolean().default(true),
@@ -241,6 +573,65 @@ export function buildDesktopActionPlanV2FromRequest(
   });
 }
 
+export function buildDesktopSingleStepPlanFromDecision(
+  input: DesktopSingleStepPlanInput,
+): DesktopSingleStepPlanResult {
+  const decision = desktopSingleStepDecisionSchema.parse(input.decision);
+  const routeLevel = input.routeLevel ?? 'L1_UIA';
+  const stepIndex = Math.max(1, Math.floor(Number(input.stepIndex ?? 1) || 1));
+  const targetHint = input.windowHint?.trim() || input.appName?.trim() || '';
+  const converted = buildDesktopActionFromSingleStepDecision({
+    decision,
+    routeLevel,
+    stepID: `step_${stepIndex}_main`,
+    fallbackHint: targetHint || undefined,
+  });
+
+  if (!converted.executable) {
+    return {
+      decision,
+      executable: false,
+      status: converted.status,
+    };
+  }
+
+  const actions: DesktopActionV2[] = [];
+  const shouldAutoFocus =
+    input.enforceFocusBeforeAction !== false &&
+    converted.action.kind !== 'focus' &&
+    converted.action.kind !== 'assert' &&
+    targetHint.length > 0;
+  if (shouldAutoFocus) {
+    actions.push(
+      desktopActionSchema.parse({
+        id: `step_${stepIndex}_focus_guard`,
+        kind: 'focus',
+        route: routeLevel,
+        target: {
+          mode: 'window',
+          value: targetHint,
+        },
+        notes: 'Auto focus guard before executing single-step action.',
+      }),
+    );
+  }
+  actions.push(converted.action);
+
+  return {
+    decision,
+    executable: true,
+    status: 'ready',
+    plan: buildDesktopActionPlanV2FromRequest({
+      source: input.source?.trim() || 'miya.desktop.single_step',
+      appName: input.appName?.trim() || undefined,
+      windowHint: input.windowHint?.trim() || undefined,
+      routeLevel,
+      safety: input.safety,
+      actions,
+    }),
+  };
+}
+
 export function parseDesktopActionPlanV2(input: unknown): DesktopActionPlanV2 {
   return desktopActionPlanSchemaV2.parse(input);
 }
@@ -324,4 +715,3 @@ export function buildDesktopOutboundHumanActions(input: {
 
   return actions;
 }
-

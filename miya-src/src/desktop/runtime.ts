@@ -16,6 +16,28 @@ export interface DesktopActionExecutionResult {
   startedAt: string;
   finishedAt: string;
   executedCount: number;
+  plannedCount?: number;
+  remainingCount?: number;
+  retryCount?: number;
+  retryClass?:
+    | 'none'
+    | 'target_not_found'
+    | 'verification_failed'
+    | 'input_mutex'
+    | 'unsupported_action'
+    | 'timeout'
+    | 'unknown';
+  recoveryAdvice?:
+    | 'none'
+    | 'recapture_screen_and_retry'
+    | 'wait_user_idle_then_retry'
+    | 'manual_takeover';
+  nextActionHint?:
+    | 'done'
+    | 'decide_next_step'
+    | 'refresh_observation_then_decide'
+    | 'wait_user_idle_then_decide'
+    | 'manual_takeover';
   failureStepID?: string;
   failureReason?: string;
   inputMutexTriggered: boolean;
@@ -29,6 +51,9 @@ interface DesktopActionExecutionInput {
   plan: DesktopActionPlanV2;
   dryRun?: boolean;
   timeoutMs?: number;
+  singleStep?: boolean;
+  stepRetryLimit?: number;
+  verifyAfterAction?: boolean;
 }
 
 function nowIso(): string {
@@ -588,39 +613,159 @@ function dryRunResult(plan: DesktopActionPlanV2): DesktopActionExecutionResult {
     startedAt,
     finishedAt: nowIso(),
     executedCount: 0,
+    retryClass: 'none',
+    recoveryAdvice: 'none',
+    nextActionHint: 'done',
     inputMutexTriggered: false,
     steps,
   };
 }
 
-export async function executeDesktopActionPlan(
-  input: DesktopActionExecutionInput,
-): Promise<DesktopActionExecutionResult> {
-  const plan = parseDesktopActionPlanV2(input.plan);
-  if (input.dryRun === true) {
-    return dryRunResult(plan);
-  }
-  if (process.platform !== 'win32') {
-    return {
-      ok: false,
-      dryRun: false,
-      traceID: `${plan.planID}_platform`,
-      platform: 'other',
-      startedAt: nowIso(),
-      finishedAt: nowIso(),
-      executedCount: 0,
-      failureReason: 'platform_not_supported',
-      inputMutexTriggered: false,
-      steps: [],
-    };
-  }
+function clampTimeoutMs(value: unknown, fallback = 25_000): number {
+  const raw = Number(value ?? fallback);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(1_000, Math.min(120_000, Math.floor(raw)));
+}
 
+function clonePlanWithActions(input: {
+  plan: DesktopActionPlanV2;
+  actions: DesktopActionPlanV2['actions'];
+  suffix: string;
+}): DesktopActionPlanV2 {
+  return parseDesktopActionPlanV2({
+    ...input.plan,
+    planID: `${input.plan.planID}_${input.suffix}`,
+    createdAt: nowIso(),
+    actions: input.actions,
+  });
+}
+
+function decorateAttemptSteps(
+  steps: DesktopActionExecutionStep[],
+  attempt: number,
+  includeRetryHint: boolean,
+): DesktopActionExecutionStep[] {
+  return steps.map((step) => ({
+    ...step,
+    message:
+      includeRetryHint || step.message
+        ? [step.message, `attempt=${attempt}`].filter(Boolean).join('; ')
+        : undefined,
+  }));
+}
+
+function failureText(result: DesktopActionExecutionResult): string {
+  const reason = [
+    result.failureReason ?? '',
+    ...result.steps
+      .filter((step) => step.status === 'failed')
+      .map((step) => step.message ?? ''),
+  ]
+    .join('|')
+    .toLowerCase();
+  return reason;
+}
+
+function classifyRetryClass(result: DesktopActionExecutionResult): NonNullable<DesktopActionExecutionResult['retryClass']> {
+  const reason = failureText(result);
+  if (!reason) return 'none';
+  if (/input_mutex|user_interference/.test(reason)) return 'input_mutex';
+  if (/execution_timeout|timeout/.test(reason)) return 'timeout';
+  if (/not_found|unresolved|target_|focus_|window_/.test(reason)) return 'target_not_found';
+  if (/post_action_verify_failed|assert_.*mismatch|mismatch|drift/.test(reason)) {
+    return 'verification_failed';
+  }
+  if (/unsupported|not_supported|invalid/.test(reason)) return 'unsupported_action';
+  return 'unknown';
+}
+
+function recoveryAdviceByRetryClass(
+  retryClass: NonNullable<DesktopActionExecutionResult['retryClass']>,
+): NonNullable<DesktopActionExecutionResult['recoveryAdvice']> {
+  if (retryClass === 'none') return 'none';
+  if (retryClass === 'input_mutex') return 'wait_user_idle_then_retry';
+  if (
+    retryClass === 'target_not_found' ||
+    retryClass === 'verification_failed' ||
+    retryClass === 'timeout'
+  ) {
+    return 'recapture_screen_and_retry';
+  }
+  return 'manual_takeover';
+}
+
+function nextActionHintByResult(input: {
+  ok: boolean;
+  singleStep: boolean;
+  remainingCount: number;
+  retryClass: NonNullable<DesktopActionExecutionResult['retryClass']>;
+}): NonNullable<DesktopActionExecutionResult['nextActionHint']> {
+  if (input.ok) {
+    if (input.singleStep || input.remainingCount > 0) return 'decide_next_step';
+    return 'done';
+  }
+  if (input.retryClass === 'input_mutex') return 'wait_user_idle_then_decide';
+  if (
+    input.retryClass === 'target_not_found' ||
+    input.retryClass === 'verification_failed' ||
+    input.retryClass === 'timeout'
+  ) {
+    return 'refresh_observation_then_decide';
+  }
+  return 'manual_takeover';
+}
+
+function retryableFailure(result: DesktopActionExecutionResult): boolean {
+  const retryClass = classifyRetryClass(result);
+  return (
+    retryClass === 'target_not_found' ||
+    retryClass === 'verification_failed' ||
+    retryClass === 'timeout'
+  );
+}
+
+async function backoffBeforeRetry(attempt: number): Promise<void> {
+  const delayMs = Math.min(500, 120 + Math.max(0, attempt - 1) * 180);
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function buildPostActionVerifyPlan(
+  plan: DesktopActionPlanV2,
+  action: DesktopActionPlanV2['actions'][number],
+  stepIndex: number,
+): DesktopActionPlanV2 | null {
+  if (!action.target || !action.target.value || action.target.mode === 'coordinates') return null;
+  const expected = action.target.value.trim();
+  if (!expected) return null;
+  const assertType = action.target.mode === 'window' ? 'window' : 'text';
+  return clonePlanWithActions({
+    plan,
+    suffix: `verify_${stepIndex}`,
+    actions: [
+      {
+        id: `${action.id}_post_verify`,
+        kind: 'assert',
+        route: action.route,
+        assert: {
+          type: assertType,
+          expected,
+          contains: true,
+        },
+        timeoutMs: 2_000,
+        notes: 'Post action verify guard.',
+      },
+    ],
+  });
+}
+
+async function executeDesktopActionPlanOnce(input: {
+  plan: DesktopActionPlanV2;
+  timeoutMs?: number;
+}): Promise<DesktopActionExecutionResult> {
+  const plan = parseDesktopActionPlanV2(input.plan);
   const traceID = `desktop_exec_${Date.now().toString(36)}`;
   const planPayload = Buffer.from(JSON.stringify(plan), 'utf-8').toString('base64');
-  const timeoutMsRaw = Number(input.timeoutMs ?? 25_000);
-  const timeoutMs = Number.isFinite(timeoutMsRaw)
-    ? Math.max(1_000, Math.min(120_000, Math.floor(timeoutMsRaw)))
-    : 25_000;
+  const timeoutMs = clampTimeoutMs(input.timeoutMs, 25_000);
   const startedAt = nowIso();
 
   const proc = Bun.spawn(
@@ -723,6 +868,208 @@ export async function executeDesktopActionPlan(
           ? parsed.failureReason.trim()
           : undefined,
     inputMutexTriggered: parsed.inputMutexTriggered === true,
+    steps,
+    stdout,
+    stderr,
+  };
+}
+
+export async function executeDesktopActionPlan(
+  input: DesktopActionExecutionInput,
+): Promise<DesktopActionExecutionResult> {
+  const parsedPlan = parseDesktopActionPlanV2(input.plan);
+  const singleStep = input.singleStep === true;
+  const actionsToRun = singleStep ? parsedPlan.actions.slice(0, 1) : parsedPlan.actions;
+  const remainingCount = Math.max(0, parsedPlan.actions.length - actionsToRun.length);
+  const plan = clonePlanWithActions({
+    plan: parsedPlan,
+    actions: actionsToRun,
+    suffix: singleStep ? 'single_step' : 'full',
+  });
+  if (input.dryRun === true) {
+    const result = dryRunResult(plan);
+    const retryClass: NonNullable<DesktopActionExecutionResult['retryClass']> = 'none';
+    return {
+      ...result,
+      plannedCount: actionsToRun.length,
+      remainingCount,
+      retryCount: 0,
+      retryClass,
+      recoveryAdvice: recoveryAdviceByRetryClass(retryClass),
+      nextActionHint: nextActionHintByResult({
+        ok: true,
+        singleStep,
+        remainingCount,
+        retryClass,
+      }),
+    };
+  }
+  if (process.platform !== 'win32') {
+    const retryClass: NonNullable<DesktopActionExecutionResult['retryClass']> = 'unsupported_action';
+    return {
+      ok: false,
+      dryRun: false,
+      traceID: `${plan.planID}_platform`,
+      platform: 'other',
+      startedAt: nowIso(),
+      finishedAt: nowIso(),
+      executedCount: 0,
+      plannedCount: actionsToRun.length,
+      remainingCount,
+      retryCount: 0,
+      retryClass,
+      recoveryAdvice: recoveryAdviceByRetryClass(retryClass),
+      nextActionHint: nextActionHintByResult({
+        ok: false,
+        singleStep,
+        remainingCount,
+        retryClass,
+      }),
+      failureReason: 'platform_not_supported',
+      inputMutexTriggered: false,
+      steps: [],
+    };
+  }
+
+  const startedAt = nowIso();
+  const traceID = `desktop_exec_seq_${Date.now().toString(36)}`;
+  const timeoutMs = clampTimeoutMs(input.timeoutMs, 25_000);
+  const deadline = Date.now() + timeoutMs;
+  const stepRetryLimitRaw = Number(
+    input.stepRetryLimit ?? process.env.MIYA_DESKTOP_STEP_RETRY_LIMIT ?? 2,
+  );
+  const stepRetryLimit = Number.isFinite(stepRetryLimitRaw)
+    ? Math.max(0, Math.min(4, Math.floor(stepRetryLimitRaw)))
+    : 2;
+  const verifyAfterAction =
+    input.verifyAfterAction ?? process.env.MIYA_DESKTOP_VERIFY_AFTER_ACTION !== '0';
+
+  const steps: DesktopActionExecutionStep[] = [];
+  let ok = true;
+  let executedCount = 0;
+  let failureReason: string | undefined;
+  let failureStepID: string | undefined;
+  let inputMutexTriggered = false;
+  let stdout = '';
+  let stderr = '';
+  let retryCount = 0;
+
+  for (let index = 0; index < actionsToRun.length; index += 1) {
+    const action = actionsToRun[index];
+    if (!action) continue;
+    const attemptMax = stepRetryLimit + 1;
+    let actionSucceeded = false;
+    for (let attempt = 1; attempt <= attemptMax; attempt += 1) {
+      if (attempt > 1) retryCount += 1;
+      const remainingTimeout = Math.max(1_000, deadline - Date.now());
+      if (remainingTimeout <= 1_000 && Date.now() > deadline) {
+        ok = false;
+        failureReason = 'execution_timeout';
+        failureStepID = action.id;
+        break;
+      }
+      const stepPlan = clonePlanWithActions({
+        plan,
+        actions: [action],
+        suffix: `step_${index + 1}_attempt_${attempt}`,
+      });
+      const run = await executeDesktopActionPlanOnce({
+        plan: stepPlan,
+        timeoutMs: remainingTimeout,
+      });
+      stdout = run.stdout ?? stdout;
+      stderr = run.stderr ?? stderr;
+      inputMutexTriggered = inputMutexTriggered || run.inputMutexTriggered;
+      steps.push(...decorateAttemptSteps(run.steps, attempt, attempt > 1));
+      if (run.ok) {
+        if (verifyAfterAction) {
+          const verifyPlan = buildPostActionVerifyPlan(plan, action, index + 1);
+          if (verifyPlan) {
+            const verifyRun = await executeDesktopActionPlanOnce({
+              plan: verifyPlan,
+              timeoutMs: Math.max(1_000, Math.min(4_000, deadline - Date.now())),
+            });
+            stdout = verifyRun.stdout ?? stdout;
+            stderr = verifyRun.stderr ?? stderr;
+            inputMutexTriggered = inputMutexTriggered || verifyRun.inputMutexTriggered;
+            steps.push(
+              ...decorateAttemptSteps(
+                verifyRun.steps.map((step) => ({
+                  ...step,
+                  id: `${action.id}_post_verify`,
+                })),
+                attempt,
+                attempt > 1,
+              ),
+            );
+            if (!verifyRun.ok) {
+              if (attempt < attemptMax) {
+                await backoffBeforeRetry(attempt);
+                continue;
+              }
+              ok = false;
+              failureReason = `post_action_verify_failed:${verifyRun.failureReason ?? 'verify_failed'}`;
+              failureStepID = action.id;
+              break;
+            }
+          }
+        }
+        actionSucceeded = true;
+        executedCount += 1;
+        break;
+      }
+      if (attempt < attemptMax && retryableFailure(run)) {
+        await backoffBeforeRetry(attempt);
+        continue;
+      }
+      ok = false;
+      failureReason = run.failureReason ?? 'execution_failed';
+      failureStepID = run.failureStepID ?? action.id;
+      break;
+    }
+    if (!actionSucceeded) {
+      break;
+    }
+  }
+
+  const retryClass = classifyRetryClass({
+    ok,
+    dryRun: false,
+    traceID,
+    platform: 'windows',
+    startedAt,
+    finishedAt: nowIso(),
+    executedCount,
+    failureStepID,
+    failureReason,
+    inputMutexTriggered,
+    steps,
+    stdout,
+    stderr,
+  });
+
+  return {
+    ok,
+    dryRun: false,
+    traceID,
+    platform: 'windows',
+    startedAt,
+    finishedAt: nowIso(),
+    executedCount,
+    plannedCount: actionsToRun.length,
+    remainingCount,
+    retryCount,
+    retryClass,
+    recoveryAdvice: recoveryAdviceByRetryClass(retryClass),
+    nextActionHint: nextActionHintByResult({
+      ok,
+      singleStep,
+      remainingCount,
+      retryClass,
+    }),
+    failureStepID,
+    failureReason,
+    inputMutexTriggered,
     steps,
     stdout,
     stderr,

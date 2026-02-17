@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  buildDesktopSingleStepPlanFromDecision,
+  buildDesktopSingleStepPromptKit,
   buildDesktopActionPlanV2FromRequest,
   buildDesktopOutboundHumanActions,
+  parseDesktopSingleStepDecision,
   parseDesktopActionPlanV2,
 } from './action-engine';
 
@@ -99,5 +102,47 @@ describe('desktop action engine v2', () => {
     const parsed = parseDesktopActionPlanV2(plan);
     expect(parsed.actions[1]?.target?.mode).toBe('selector');
     expect(parsed.actions[2]?.assert?.type).toBe('text');
+  });
+
+  test('parses strict single-step json decision and rejects extra fields', () => {
+    const parsed = parseDesktopSingleStepDecision(
+      '{"action":"click","coordinate":{"x":1440,"y":962},"content":"send"}',
+    );
+    expect(parsed.action).toBe('click');
+    expect(parsed.coordinate?.x).toBe(1440);
+
+    expect(() =>
+      parseDesktopSingleStepDecision(
+        '{"action":"click","coordinate":{"x":1,"y":2},"content":"x","extra":"forbidden"}',
+      ),
+    ).toThrow();
+  });
+
+  test('builds single-step plan with auto focus guard before type action', () => {
+    const result = buildDesktopSingleStepPlanFromDecision({
+      source: 'test.single-step',
+      appName: 'QQ',
+      windowHint: 'Alice',
+      routeLevel: 'L2_OCR',
+      stepIndex: 3,
+      decision: parseDesktopSingleStepDecision({
+        action: 'type',
+        coordinate: null,
+        content: 'hello world',
+      }),
+    });
+    expect(result.status).toBe('ready');
+    expect(result.executable).toBe(true);
+    expect(result.plan?.actions.length).toBe(2);
+    expect(result.plan?.actions[0]?.kind).toBe('focus');
+    expect(result.plan?.actions[1]?.kind).toBe('type');
+  });
+
+  test('exposes prompt kit with rules and few-shot examples', () => {
+    const kit = buildDesktopSingleStepPromptKit();
+    expect(kit.protocol).toBe('desktop_single_step_prompt.v1');
+    expect(kit.rules.length).toBeGreaterThanOrEqual(5);
+    expect(kit.fewShot.length).toBeGreaterThanOrEqual(4);
+    expect(kit.responseSchema.required).toEqual(['action', 'coordinate', 'content']);
   });
 });

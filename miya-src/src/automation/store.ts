@@ -97,6 +97,46 @@ export function readHistoryRecords(
   }
 }
 
+export function removeHistoryRecord(projectDir: string, runId: string): boolean {
+  const historyPath = getHistoryPath(projectDir);
+  if (!fs.existsSync(historyPath)) {
+    return false;
+  }
+
+  try {
+    const lines = fs
+      .readFileSync(historyPath, 'utf-8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    let removed = false;
+    const kept: string[] = [];
+    for (const line of lines) {
+      let record: MiyaJobHistoryRecord | null = null;
+      try {
+        record = JSON.parse(line) as MiyaJobHistoryRecord;
+      } catch {
+        kept.push(line);
+        continue;
+      }
+      if (!removed && record?.id === runId) {
+        removed = true;
+        continue;
+      }
+      kept.push(line);
+    }
+
+    if (!removed) return false;
+    ensureDir(path.dirname(historyPath));
+    const next = kept.length > 0 ? `${kept.join('\n')}\n` : '';
+    fs.writeFileSync(historyPath, next, 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function createJobId(): string {
   return randomId('job');
 }
