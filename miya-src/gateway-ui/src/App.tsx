@@ -30,6 +30,8 @@ interface PsycheModeConfig {
 }
 
 type KillSwitchMode = 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
+type ControlView = 'modules' | 'tasks-list' | 'tasks-detail';
+type TaskStatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'stopped';
 
 interface GatewaySnapshot {
   updatedAt?: string;
@@ -136,6 +138,65 @@ interface GatewayResponseFrame {
   };
 }
 
+interface MiyaJob {
+  id: string;
+  name: string;
+}
+
+interface MiyaJobRun {
+  id: string;
+  jobId: string;
+  jobName: string;
+  trigger: 'scheduler' | 'manual' | 'approval';
+  startedAt: string;
+  endedAt: string;
+  status: 'success' | 'failed' | 'skipped';
+  exitCode: number | null;
+  timedOut: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+type UiTaskStatus = 'completed' | 'running' | 'failed' | 'stopped';
+
+interface TaskRecord {
+  id: string;
+  jobId?: string;
+  title: string;
+  trigger: string;
+  startedAt: string;
+  endedAt?: string;
+  durationText: string;
+  sourceText: string;
+  status: UiTaskStatus;
+  stdout?: string;
+  stderr?: string;
+  timedOut?: boolean;
+}
+
+function parseRoute(pathname: string): { view: ControlView; taskId?: string; basePath: string } {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  const matched = normalized.match(/^(.*)\/tasks(?:\/([^/]+))?$/);
+  if (matched) {
+    return {
+      view: matched[2] ? 'tasks-detail' : 'tasks-list',
+      taskId: matched[2] ? decodeURIComponent(matched[2]) : undefined,
+      basePath: matched[1] || '',
+    };
+  }
+  return {
+    view: 'modules',
+    basePath: normalized === '/' ? '' : normalized,
+  };
+}
+
+function buildRoute(basePath: string, view: ControlView, taskId?: string): string {
+  const base = basePath || '';
+  if (view === 'modules') return base || '/';
+  if (view === 'tasks-list') return `${base}/tasks`;
+  return `${base}/tasks/${encodeURIComponent(taskId || '')}`;
+}
+
 function killSwitchLabel(mode: KillSwitchMode): string {
   if (mode === 'all_stop') return '全部停止';
   if (mode === 'outbound_only') return '仅停外发';
@@ -187,6 +248,38 @@ function evidenceImageUrl(auditID?: string, slot: 'pre' | 'post' = 'pre'): strin
     slot,
   });
   return `/api/evidence/image?${params.toString()}`;
+}
+
+function formatDateTime(input?: string): string {
+  if (!input) return '-';
+  const date = new Date(input);
+  if (!Number.isFinite(date.getTime())) return input;
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function formatDuration(startedAt?: string, endedAt?: string): string {
+  if (!startedAt) return '-';
+  const start = Date.parse(startedAt);
+  if (!Number.isFinite(start)) return '-';
+  const end = endedAt ? Date.parse(endedAt) : Date.now();
+  if (!Number.isFinite(end) || end < start) return '-';
+  const sec = Math.floor((end - start) / 1000);
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+}
+
+function taskStatusMeta(status: UiTaskStatus): { text: string; className: string } {
+  if (status === 'completed') return { text: '已完成', className: 'bg-emerald-500 text-white' };
+  if (status === 'running') return { text: '执行中', className: 'bg-sky-500 text-white' };
+  if (status === 'failed') return { text: '执行失败', className: 'bg-rose-500 text-white' };
+  return { text: '已终止', className: 'bg-slate-400 text-white' };
+}
+
+function normalizeTaskStatus(status: MiyaJobRun['status']): UiTaskStatus {
+  if (status === 'success') return 'completed';
+  if (status === 'failed') return 'failed';
+  return 'stopped';
 }
 
 async function invokeGateway(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -247,13 +340,21 @@ async function invokeGateway(method: string, params: Record<string, unknown> = {
 }
 
 export default function App() {
+  const routeState = parseRoute(location.pathname);
   const [snapshot, setSnapshot] = useState<GatewaySnapshot>({});
   const [domains, setDomains] = useState<PolicyDomainRow[]>([]);
+  const [jobs, setJobs] = useState<MiyaJob[]>([]);
+  const [taskRuns, setTaskRuns] = useState<MiyaJobRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [successText, setSuccessText] = useState('');
   const [insightText, setInsightText] = useState('');
+  const [view, setView] = useState<ControlView>(routeState.view);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(routeState.taskId);
+  const [basePath, setBasePath] = useState(routeState.basePath);
+  const [taskFilter, setTaskFilter] = useState<TaskStatusFilter>('all');
+  const [expandedTaskLogs, setExpandedTaskLogs] = useState<Record<string, boolean>>({});
   const [trustModeForm, setTrustModeForm] = useState<TrustModeConfig>({
     silentMin: 90,
     modalMax: 50,
@@ -271,9 +372,11 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [statusRes, domainsResult] = await Promise.all([
+      const [statusRes, domainsResult, jobsResult, runsResult] = await Promise.all([
         fetch('/api/status', { cache: 'no-store' }),
         invokeGateway('policy.domains.list'),
+        invokeGateway('cron.list'),
+        invokeGateway('cron.runs.list', { limit: 80 }),
       ]);
       if (!statusRes.ok) {
         setConnected(false);
@@ -284,6 +387,8 @@ export default function App() {
       setConnected(Boolean(status.daemon?.connected));
       const rows = (domainsResult as { domains?: PolicyDomainRow[] }).domains ?? [];
       setDomains(rows);
+      setJobs(Array.isArray(jobsResult) ? (jobsResult as MiyaJob[]) : []);
+      setTaskRuns(Array.isArray(runsResult) ? (runsResult as MiyaJobRun[]) : []);
       const incomingMode = status.nexus?.trustMode;
       if (incomingMode) {
         setTrustModeForm(incomingMode);
@@ -306,6 +411,29 @@ export default function App() {
     }, 2500);
     return () => clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const route = parseRoute(location.pathname);
+      setView(route.view);
+      setSelectedTaskId(route.taskId);
+      setBasePath(route.basePath);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const navigate = useCallback(
+    (nextView: ControlView, taskId?: string) => {
+      const nextPath = buildRoute(basePath, nextView, taskId);
+      if (nextPath !== location.pathname) {
+        history.pushState({}, '', nextPath);
+      }
+      setView(nextView);
+      setSelectedTaskId(taskId);
+    },
+    [basePath],
+  );
 
   const killSwitchMode = snapshot.nexus?.killSwitchMode ?? 'off';
   const trust = snapshot.nexus?.trust;
@@ -337,6 +465,65 @@ export default function App() {
     [connected, snapshot],
   );
 
+  const jobNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const job of jobs) map.set(job.id, job.name);
+    return map;
+  }, [jobs]);
+
+  const taskRecords = useMemo<TaskRecord[]>(() => {
+    const records: TaskRecord[] = taskRuns.map((run) => ({
+      id: run.id,
+      jobId: run.jobId,
+      title: run.jobName || jobNameMap.get(run.jobId) || run.jobId || '未命名任务',
+      trigger: run.trigger,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
+      durationText: formatDuration(run.startedAt, run.endedAt),
+      sourceText: `触发方式：${run.trigger} · 退出码：${run.exitCode ?? '-'}${run.timedOut ? ' · 已超时' : ''}`,
+      status: normalizeTaskStatus(run.status),
+      stdout: run.stdout || undefined,
+      stderr: run.stderr || undefined,
+      timedOut: run.timedOut,
+    }));
+
+    const activeJobID = snapshot.daemon?.activeJobID;
+    if (activeJobID && !records.some((item) => item.jobId === activeJobID && item.status === 'running')) {
+      records.unshift({
+        id: `live-${activeJobID}`,
+        jobId: activeJobID,
+        title: jobNameMap.get(activeJobID) || `执行任务 ${activeJobID}`,
+        trigger: 'scheduler',
+        startedAt: snapshot.updatedAt || new Date().toISOString(),
+        durationText: '进行中',
+        sourceText: '实时执行中',
+        status: 'running',
+      });
+    }
+
+    return records;
+  }, [jobNameMap, snapshot.daemon?.activeJobID, snapshot.updatedAt, taskRuns]);
+
+  const filteredTaskRecords = useMemo(
+    () => taskRecords.filter((item) => (taskFilter === 'all' ? true : item.status === taskFilter)),
+    [taskFilter, taskRecords],
+  );
+
+  const selectedTask = useMemo(
+    () => taskRecords.find((item) => item.id === selectedTaskId) ?? null,
+    [selectedTaskId, taskRecords],
+  );
+
+  const selectedTaskProgress = useMemo(() => {
+    if (!selectedTask) return 0;
+    if (selectedTask.status !== 'running') return 100;
+    const progress = snapshot.daemon?.activeJobProgress;
+    if (typeof progress === 'number' && Number.isFinite(progress)) {
+      return Math.max(0, Math.min(100, Math.floor(progress * 100)));
+    }
+    return 45;
+  }, [selectedTask, snapshot.daemon?.activeJobProgress]);
+
   const runAction = async (task: () => Promise<unknown>, successMessage: string) => {
     setLoading(true);
     setSuccessText('');
@@ -361,6 +548,39 @@ export default function App() {
     }, `已切换为：${killSwitchLabel(mode)}`);
   };
 
+  const rerunTask = async (task: TaskRecord) => {
+    if (!task.jobId) {
+      setErrorText('该任务没有关联 jobID，无法重新执行。');
+      return;
+    }
+    await runAction(async () => {
+      await invokeGateway('cron.run.now', { jobID: task.jobId });
+    }, `已触发重新执行：${task.title}`);
+  };
+
+  const exportTaskLogs = (task: TaskRecord) => {
+    const payload = {
+      id: task.id,
+      jobId: task.jobId,
+      title: task.title,
+      trigger: task.trigger,
+      status: task.status,
+      startedAt: task.startedAt,
+      endedAt: task.endedAt,
+      stdout: task.stdout ?? '',
+      stderr: task.stderr ?? '',
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `task-log-${task.id}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setSuccessText(`已导出任务日志：${task.id}`);
+  };
+
   const panelClass = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
 
   return (
@@ -373,15 +593,29 @@ export default function App() {
             <p className="mt-1 text-sm text-slate-500">控制台</p>
           </div>
           <nav className="space-y-1 px-3 py-4 text-base">
-            {['聊天', 'IM 通道', '技能', '模块', '状态'].map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={`flex w-full items-center rounded-xl px-4 py-3 text-left ${item === '模块' ? 'border border-sky-200 bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'}`}
-              >
-                {item}
-              </button>
-            ))}
+            {[
+              { key: 'chat', label: '聊天' },
+              { key: 'im', label: 'IM 通道' },
+              { key: 'skills', label: '技能' },
+              { key: 'tasks', label: '任务' },
+              { key: 'modules', label: '模块' },
+              { key: 'status', label: '状态' },
+            ].map((item) => {
+              const active = (view === 'modules' && item.key === 'modules') || (view !== 'modules' && item.key === 'tasks');
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => {
+                    if (item.key === 'tasks') navigate('tasks-list');
+                    if (item.key === 'modules') navigate('modules');
+                  }}
+                  className={`flex w-full items-center rounded-xl px-4 py-3 text-left ${active ? 'border border-sky-200 bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </nav>
           <div className="mt-auto border-t border-slate-200 p-4 text-sm text-slate-500">
             <p>配置</p>
@@ -420,17 +654,223 @@ export default function App() {
           </header>
 
           <nav className="flex flex-wrap gap-2 lg:hidden">
-            {['聊天', 'IM 通道', '技能', '模块', '状态'].map((item) => (
-              <button
-                key={`mobile-${item}`}
-                type="button"
-                className={`rounded-lg border px-3 py-1.5 text-sm ${item === '模块' ? 'border-sky-200 bg-sky-100 text-sky-700' : 'border-slate-300 bg-white text-slate-600'}`}
-              >
-                {item}
-              </button>
-            ))}
+            {[
+              { key: 'chat', label: '聊天' },
+              { key: 'im', label: 'IM 通道' },
+              { key: 'skills', label: '技能' },
+              { key: 'tasks', label: '任务' },
+              { key: 'modules', label: '模块' },
+              { key: 'status', label: '状态' },
+            ].map((item) => {
+              const active = (view === 'modules' && item.key === 'modules') || (view !== 'modules' && item.key === 'tasks');
+              return (
+                <button
+                  key={`mobile-${item.key}`}
+                  type="button"
+                  onClick={() => {
+                    if (item.key === 'tasks') navigate('tasks-list');
+                    if (item.key === 'modules') navigate('modules');
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-sm ${active ? 'border-sky-200 bg-sky-100 text-sky-700' : 'border-slate-300 bg-white text-slate-600'}`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </nav>
 
+          {view === 'tasks-list' ? (
+            <section className={panelClass}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-3xl font-semibold text-slate-800">任务管理</h2>
+                  <p className="mt-2 text-sm text-slate-500">查看与管理所有执行过的任务记录，点击任务查看详情。</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={taskFilter}
+                    onChange={(event) => setTaskFilter(event.target.value as TaskStatusFilter)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                  >
+                    <option value="all">全部状态</option>
+                    <option value="completed">已完成</option>
+                    <option value="running">执行中</option>
+                    <option value="failed">执行失败</option>
+                    <option value="stopped">已终止</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void refresh()}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-100"
+                  >
+                    刷新
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 space-y-3">
+                {filteredTaskRecords.length === 0 ? (
+                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">暂无任务记录</p>
+                ) : (
+                  filteredTaskRecords.map((task) => {
+                    const statusMeta = taskStatusMeta(task.status);
+                    return (
+                      <article
+                        key={task.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => navigate('tasks-detail', task.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') navigate('tasks-detail', task.id);
+                        }}
+                        className="flex cursor-pointer flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 transition hover:border-sky-200 hover:bg-sky-50 md:flex-row md:items-center"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-lg font-semibold text-slate-800">{task.title}</p>
+                          <p className="mt-1 text-xs text-slate-600">{formatDateTime(task.startedAt)} · 耗时 {task.durationText}</p>
+                          <p className="mt-1 text-xs text-slate-500">{task.sourceText}</p>
+                        </div>
+                        <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${statusMeta.className}`}>
+                          {statusMeta.text}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate('tasks-detail', task.id);
+                          }}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-100"
+                        >
+                          查看详情
+                        </button>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {view === 'tasks-detail' ? (
+            <section className="space-y-4">
+              <article className={panelClass}>
+                <button
+                  type="button"
+                  onClick={() => navigate('tasks-list')}
+                  className="text-sm text-sky-700 hover:text-sky-800"
+                >
+                  {'< 返回任务列表'}
+                </button>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <h2 className="text-3xl font-semibold text-slate-800">{selectedTask?.title || '任务详情'}</h2>
+                  {selectedTask ? (
+                    <span className={`rounded-full px-3 py-1 text-xs ${taskStatusMeta(selectedTask.status).className}`}>
+                      {taskStatusMeta(selectedTask.status).text}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  开始：{formatDateTime(selectedTask?.startedAt)} · 结束：{formatDateTime(selectedTask?.endedAt)} · 总时长：{selectedTask?.durationText || '-'} · 触发：{selectedTask?.trigger || '-'}
+                </p>
+              </article>
+              {!selectedTask ? (
+                <article className={panelClass}>
+                  <p className="text-sm text-slate-500">该任务不存在或已被清理，请返回列表刷新后重试。</p>
+                </article>
+              ) : (
+                <>
+                  <article className={panelClass}>
+                    <h3 className="text-base font-semibold text-slate-800">任务进度</h3>
+                    <div className="mt-3 h-2 w-full rounded-full bg-slate-200">
+                      <div className="h-2 rounded-full bg-sky-500" style={{ width: `${selectedTaskProgress}%` }} />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">当前完成度：{selectedTaskProgress}%</p>
+                  </article>
+                  <article className={panelClass}>
+                    <h3 className="text-base font-semibold text-slate-800">执行日志与错误信息</h3>
+                    <div className="mt-3 space-y-2">
+                      {selectedTask.stderr ? (
+                        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+                          <p className="text-xs font-medium text-rose-700">错误日志</p>
+                          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-rose-700">
+                            {expandedTaskLogs[selectedTask.id] ? selectedTask.stderr : selectedTask.stderr.slice(0, 600)}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {selectedTask.stdout ? (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs font-medium text-slate-700">普通日志</p>
+                          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
+                            {expandedTaskLogs[selectedTask.id] ? selectedTask.stdout : selectedTask.stdout.slice(0, 600)}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {(selectedTask.stdout?.length || 0) > 600 || (selectedTask.stderr?.length || 0) > 600 ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedTaskLogs((prev) => ({
+                              ...prev,
+                              [selectedTask.id]: !prev[selectedTask.id],
+                            }))
+                          }
+                          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                        >
+                          {expandedTaskLogs[selectedTask.id] ? '折叠日志' : '展开日志'}
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                  <article className={panelClass}>
+                    <h3 className="text-base font-semibold text-slate-800">获得的经验与习惯</h3>
+                    <div className="mt-3 space-y-2 text-sm text-slate-700">
+                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">任务来源：<span className="font-medium">{selectedTask.trigger}</span>，建议后续同类任务保持相同触发方式。</p>
+                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">执行表现：<span className="font-medium">{taskStatusMeta(selectedTask.status).text}</span>，时长 {selectedTask.durationText}。</p>
+                    </div>
+                  </article>
+                  <article className={panelClass}>
+                    <h3 className="text-base font-semibold text-slate-800">记忆写入记录</h3>
+                    <p className="mt-2 text-xs text-slate-500">当前网关未提供单任务记忆写入明细接口，以下基于系统时间线生成摘要。</p>
+                    <div className="mt-3 space-y-2 text-xs">
+                      {(snapshot.nexus?.insights || []).slice(0, 5).map((item, index) => (
+                        <div key={`${item.at || 'insight'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">更新</span>
+                            <span className="text-slate-500">{formatDateTime(item.at)}</span>
+                          </div>
+                          <p className="mt-1 text-slate-700">{item.text || '无内容'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                  <article className={`${panelClass} flex flex-wrap gap-2`}>
+                    <button
+                      type="button"
+                      onClick={() => void rerunTask(selectedTask)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                    >
+                      重新执行任务
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => exportTaskLogs(selectedTask)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                    >
+                      导出任务日志
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setErrorText('当前版本暂无任务历史删除接口。')}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                    >
+                      删除任务记录
+                    </button>
+                  </article>
+                </>
+              )}
+            </section>
+          ) : null}
+
+          <div className={view === 'modules' ? 'space-y-4' : 'hidden'}>
           <section className={`${panelClass}`}>
             <h2 className="text-3xl font-semibold text-slate-800">模块管理</h2>
             <p className="mt-2 text-sm text-slate-500">管理控制面板与安全模块。先看状态，再操作，再写入时间线。</p>
@@ -847,6 +1287,7 @@ export default function App() {
             </div>
           </article>
         </section>
+        </div>
         </main>
       </div>
     </div>

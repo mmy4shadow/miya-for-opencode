@@ -2,6 +2,9 @@
 
 Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建的是一种 “云-端协同” (Cloud-Edge Collaboration) 架构：云端 (OpenCode)：负责高维智慧（对话、决策、代码生成）等工作。端侧 (Miya)：负责低维感知（看屏幕、听声音）、执行（点鼠标）、边缘计算（本地模型推理），记忆和情感维护等工作。Miya 是 OpenCode 的“手”和“眼”，驻扎本地，开机即用，极致省流，兼容一切。 不止是这样，miya还负责调用本地模型生成音频，图片，包括识别我 的声音和电脑软件，浏览器之类的点击位置。而且miya可以做到像人类一样使用电脑，不受不同软件的限制。实现Gateway常驻自启 + 网页UI随OpenCode起落 + 本地算力调度。miya是不连接大模型api的，实际对话和模型调用全部在opencode。 在我的理解里，miya是一个能扩展opencode的agent能力的插件，辅助，调度，连接电脑与opencode。而且miya可以充分利用上本地部署的条件，比如要控制电脑，opencode的大模型给出指令到miya，miya传递到本地模型，本地模型出结果给miya再传递到opencode的模型做下一步。而且miya有一个增强交互系统学习我的习惯，落实记忆管理，但实际该做什么说什么都是由opencode的大模型发出。miya是一个扩展复杂的扩展插件。
 
+大模型只负责决策思考和指挥，图像及声音识别生图声音克隆等工作交给本地模型，其他简单工作交给miya(注意miya不接大模型，所有大模型调用都在opencode)，还有其他复杂一点给大模型和miya共同完成（比如分析错误落实到记忆，记录习惯，根据记忆习惯调整交互体验等等这些用到大模型能把工作效率和效果显著提升的工作，我们这里的所有目的都是减少tokens消耗，加速加精度，提效果）
+
+
 实现核心点：1.像人类一样流畅控制电脑。2.极具特色的能不断适应的陪伴式聊天。3.深度绑定opencode，基于各种开源项目开发，充分利用开源项目不断更新的资源。比如说opencode不断更新增强的AI自主编程能力，openclaw的不断丰富的skills和工具等等。4.增强自主工作流，自动并行化——复杂任务由多代理合作完成，持久执行——直到任务被验证为完成或者重复失败才会放弃，成本优化——智能模型路由可节省30-50%的tokens，从经验中学习——自动提取并重复使用解决问题的模式。
 **核心设计哲学**：
 - **OpenCode原生优先**：充分利用OpenCode内置的permission体系（allow/ask/deny）和Agent/Skill系统，避免重复造轮子，并且必须兼容openclaw的生态，能直接使用他们成熟的工具和skill等资源。
@@ -2058,6 +2061,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 | 桌控异常健壮性补丁（互斥锁释放 + 错误详情解析） | 已完成（2026-02-15） | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts`, `miya-src/src/channels/service.test.ts`, `miya-src/src/channel/outbound/shared.test.ts` |
 | 陪伴自适应短语池接入（wake_words 动态加载） | 已完成（2026-02-15） | `miya-src/src/daemon/audio-filler.ts`, `miya-src/src/daemon/audio-filler.test.ts` |
 | Ecosystem Bridge 冲突检测（同名 Skill 导入碰撞） | 已完成（2026-02-15） | `miya-src/src/skills/sync.ts`, `miya-src/src/skills/sync.test.ts`, `miya-src/src/gateway/index.ts` |
+| Gateway 任务管理页（侧栏入口 + 列表/详情） | 已完成（2026-02-17） | `miya-src/gateway-ui/src/App.tsx`（新增侧栏“任务”、`/tasks` 与 `/tasks/:taskId` 视图、`cron.list`/`cron.runs.list`/`cron.run.now` 接入） |
 
 ---
 
