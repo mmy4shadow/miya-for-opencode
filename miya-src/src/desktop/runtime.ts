@@ -566,7 +566,7 @@ function parseJsonFromOutput(raw: string): Record<string, unknown> | null {
     try {
       return JSON.parse(line) as Record<string, unknown>;
     } catch {
-      continue;
+      // ignore malformed output lines and continue scanning upward
     }
   }
   return null;
