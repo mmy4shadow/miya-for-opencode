@@ -137,15 +137,37 @@ export function loadPluginConfig(directory: string): PluginConfig {
     'opencode',
     CONFIG_BASE_NAME,
   );
+  // Also check project root for miya.json/jsonc (for "oh-my-opencode" style configs)
   const projectConfigBase = path.join(directory, '.opencode', CONFIG_BASE_NAME);
+  const projectRootConfigBase = path.join(directory, CONFIG_BASE_NAME);
 
   // Find existing config files, preferring .jsonc over .json.
   const userConfigPath = findConfigPath(userConfigBase);
   const projectConfigPath = findConfigPath(projectConfigBase);
+  const projectRootConfigPath = findConfigPath(projectRootConfigBase);
 
   let config: PluginConfig = userConfigPath
     ? (loadConfigFromPath(userConfigPath) ?? {})
     : {};
+
+  // Merge project root config if exists (intermediate layer)
+  const projectRootConfig = projectRootConfigPath
+    ? loadConfigFromPath(projectRootConfigPath)
+    : null;
+    
+  if (projectRootConfig) {
+    config = {
+      ...config,
+      ...projectRootConfig,
+      agents: deepMerge(config.agents, projectRootConfig.agents),
+      tmux: deepMerge(config.tmux, projectRootConfig.tmux),
+      fallback: deepMerge(config.fallback, projectRootConfig.fallback),
+      contextGovernance: deepMerge(
+        config.contextGovernance,
+        projectRootConfig.contextGovernance,
+      ),
+    };
+  }
 
   const projectConfig = projectConfigPath
     ? loadConfigFromPath(projectConfigPath)

@@ -284,6 +284,9 @@ export function createAgents(config?: PluginConfig, projectDir?: string): AgentD
     orchestrator.config.prompt = `${soulPersonaLayer(projectDir, soulLayer)}\n\n${String(orchestrator.config.prompt ?? '')}`;
   }
 
+  // Ensure consistent sorting for all sub-agents before returning
+  allSubAgents.sort((a, b) => a.name.localeCompare(b.name));
+
   return [orchestrator, ...allSubAgents];
 }
 

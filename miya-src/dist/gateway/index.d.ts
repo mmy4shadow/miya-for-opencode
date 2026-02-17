@@ -4,10 +4,12 @@ import type { BackgroundTaskManager } from '../background';
 export type GatewayStatus = 'running' | 'killswitch';
 export interface GatewayState {
     url: string;
+    uiUrl: string;
     port: number;
     pid: number;
     startedAt: string;
     status: GatewayStatus;
+    authToken?: string;
 }
 interface GatewayDependencies {
     client?: PluginInput['client'];
@@ -16,6 +18,8 @@ interface GatewayDependencies {
     extraSkillDirs?: string[];
 }
 export declare function registerGatewayDependencies(projectDir: string, deps: GatewayDependencies): void;
+export declare function isGatewayOwner(projectDir: string): boolean;
+export declare function probeGatewayAlive(url: string, timeoutMs?: number): Promise<boolean>;
 export declare function stopGateway(projectDir: string): {
     stopped: boolean;
     previous?: GatewayState;

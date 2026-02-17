@@ -12,3 +12,9 @@ export declare const DEFAULT_TIMEOUT_MS: number;
 export declare const MAX_POLL_TIME_MS: number;
 export declare const FALLBACK_FAILOVER_TIMEOUT_MS = 15000;
 export declare const STABLE_POLLS_THRESHOLD = 3;
+export declare const MIYA_SECURITY_CONSTANTS: {
+    readonly INPUT_MUTEX_TIMEOUT_MS: 20000;
+    readonly DECAY_STRATEGY: "EXPONENTIAL";
+    readonly DEFAULT_LAMBDA: 0.05;
+    readonly WHITESPACE_PROTECTION: true;
+};

@@ -11,7 +11,7 @@ export declare function isSubagent(name: string): name is SubagentName;
  * @param config - Optional plugin configuration with agent overrides
  * @returns Array of agent definitions (orchestrator first, then subagents)
  */
-export declare function createAgents(config?: PluginConfig): AgentDefinition[];
+export declare function createAgents(config?: PluginConfig, projectDir?: string): AgentDefinition[];
 /**
  * Get agent configurations formatted for the OpenCode SDK.
  * Converts agent definitions to SDK config format and applies classification metadata.
@@ -19,4 +19,4 @@ export declare function createAgents(config?: PluginConfig): AgentDefinition[];
  * @param config - Optional plugin configuration with agent overrides
  * @returns Record mapping agent names to their SDK configurations
  */
-export declare function getAgentConfigs(config?: PluginConfig): Record<string, SDKAgentConfig>;
+export declare function getAgentConfigs(config?: PluginConfig, projectDir?: string): Record<string, SDKAgentConfig>;

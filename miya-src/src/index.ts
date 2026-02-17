@@ -267,7 +267,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
       | Record<string, unknown>
       | undefined) ?? {};
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
-  const autoOpenOptIn = process.env.MIYA_AUTO_UI_OPEN === '1' || dashboardConfig.openOnStart === true;
+  // Change default to TRUE unless explicitly disabled, to match user expectations for control panel launch.
+  // Previous logic required opt-in; now we default to auto-open if openOnStart is not false.
+  const autoOpenOptIn = true; 
   const autoOpenEnabledResolved = autoOpenEnabled && autoOpenOptIn;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === '0';
   const autoOpenCooldownMs =

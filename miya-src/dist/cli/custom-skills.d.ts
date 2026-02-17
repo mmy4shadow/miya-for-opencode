@@ -20,6 +20,7 @@ export declare const CUSTOM_SKILLS: CustomSkill[];
  * Get the target directory for custom skills installation.
  */
 export declare function getCustomSkillsDir(): string;
+export declare function getCustomSkillPermissionsForAgent(agentName: string): Record<string, 'allow' | 'deny'>;
 /**
  * Install a custom skill by copying from src/skills/ to ~/.config/opencode/skills/
  * @param skill - The custom skill to install

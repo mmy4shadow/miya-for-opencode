@@ -12,3 +12,10 @@ export declare function ensurePairRequest(projectDir: string, input: {
 export declare function resolvePairRequest(projectDir: string, pairID: string, status: 'approved' | 'rejected'): ChannelPairRequest | null;
 export declare function listPairRequests(projectDir: string, status?: 'pending' | 'approved' | 'rejected'): ChannelPairRequest[];
 export declare function isSenderAllowed(projectDir: string, channel: ChannelName, senderID: string): boolean;
+export declare function getContactTier(projectDir: string, channel: ChannelName, senderID: string): 'owner' | 'friend' | null;
+export declare function setContactTier(projectDir: string, channel: ChannelName, senderID: string, tier: 'owner' | 'friend'): ChannelState;
+export declare function listContactTiers(projectDir: string, channel?: ChannelName): Array<{
+    channel: ChannelName;
+    senderID: string;
+    tier: 'owner' | 'friend';
+}>;

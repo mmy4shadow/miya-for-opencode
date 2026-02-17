@@ -26,3 +26,4 @@ export declare function addCompanionAsset(projectDir: string, input: {
     label?: string;
 }): CompanionProfile;
 export declare function resetCompanionProfile(projectDir: string): CompanionProfile;
+export declare function syncCompanionProfileMemoryFacts(projectDir: string): CompanionProfile;

@@ -3,5 +3,6 @@ export interface AgentDefinition {
     name: string;
     description?: string;
     config: AgentConfig;
+    personaStyle: 'full' | 'minimal' | 'zero';
 }
-export declare function createOrchestratorAgent(model: string, customPrompt?: string, customAppendPrompt?: string): AgentDefinition;
+export declare function createOrchestratorAgent(model: string, customPrompt?: string, customAppendPrompt?: string, useSlimPrompt?: boolean): AgentDefinition;

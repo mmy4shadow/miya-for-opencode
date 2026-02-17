@@ -1,0 +1,38 @@
+import type { ResourceLease, ResourceRequest, ResourceSchedulerOptions, ResourceSchedulerSnapshot, VramBudgetPlan } from './types';
+export declare class ResourceScheduler {
+    private readonly projectDir;
+    private readonly totalVramMB;
+    private readonly safetyMarginMB;
+    private readonly maxConcurrentTasks;
+    private readonly hotsetLimitMB;
+    private readonly warmPoolLimitMB;
+    private readonly maxOffloadedModels;
+    private readonly queue;
+    private readonly active;
+    private readonly loadedModels;
+    private readonly offloadedModels;
+    private readonly currentModelByKind;
+    private usedVramMB;
+    private draining;
+    constructor(projectDir: string, options?: ResourceSchedulerOptions);
+    acquire(request: ResourceRequest): Promise<ResourceLease>;
+    withLease<T>(request: ResourceRequest, run: () => Promise<T> | T): Promise<T>;
+    snapshot(): ResourceSchedulerSnapshot;
+    planVramBudget(request: ResourceRequest): VramBudgetPlan;
+    private scheduleDrain;
+    private drainQueue;
+    private release;
+    private canGrant;
+    private selectModelSwapAction;
+    private availableVramMB;
+    private loadedModelsVramMB;
+    private removeExpiredPending;
+    private ensureModelLoaded;
+    private evictModelsIfNeeded;
+    private offloadModel;
+    private pinModel;
+    private unpinModel;
+    private touchModel;
+    private rebalanceHydraulics;
+    private recordSnapshot;
+}

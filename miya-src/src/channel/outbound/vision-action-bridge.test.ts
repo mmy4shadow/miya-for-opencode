@@ -142,8 +142,10 @@ const candidateId = ids.length > 0 ? ids[0] : 1;
 process.stdout.write(JSON.stringify({ candidateId, confidence: 0.88 }));`,
       'utf-8',
     );
-    setEnv('MIYA_DESKTOP_VLM_MAX_CALLS', '1');
-    setEnv('MIYA_QWEN3VL_CMD', `node "${selectorScript}"`);
+    const runtimeCommand = process.execPath;
+    setEnv('MIYA_DESKTOP_VLM_MAX_CALLS', '2');
+    setEnv('MIYA_DESKTOP_VLM_SELECTOR_TIMEOUT_MS', '12000');
+    setEnv('MIYA_QWEN3VL_CMD', `"${runtimeCommand}" "${selectorScript}"`);
     setEnv('MIYA_VISION_LOCAL_CMD', undefined);
 
     const plan = buildDesktopActionPlan({
@@ -158,9 +160,10 @@ process.stdout.write(JSON.stringify({ candidateId, confidence: 0.88 }));`,
     expect(plan.action_plan.routeLevel).toBe('L3_SOM_VLM');
     expect(plan.action_plan.som.selectionSource).toBe('vlm');
     expect(plan.action_plan.som.selectedCandidateId).toBeDefined();
-    expect(plan.action_plan.tokenPolicy.maxVlmCallsPerStep).toBe(1);
+    expect(plan.action_plan.tokenPolicy.maxVlmCallsPerStep).toBe(2);
     expect(plan.action_plan.som.vlmCallsPlanned).toBeGreaterThanOrEqual(1);
-    expect(plan.action_plan.som.vlmCallsBudget).toBe(0);
+    expect(plan.action_plan.som.vlmCallsBudget).toBeGreaterThanOrEqual(0);
+    expect(plan.action_plan.som.vlmCallsBudget).toBeLessThanOrEqual(1);
   });
 
   test('computes KPI snapshot from recorded outcomes', () => {

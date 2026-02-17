@@ -10,6 +10,7 @@ export interface SkillDescriptor {
         bins?: string[];
         env?: string[];
         platforms?: string[];
+        permissions?: string[];
     };
     gate: {
         loadable: boolean;

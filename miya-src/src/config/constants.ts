@@ -56,7 +56,7 @@ export const DEFAULT_MODELS: Record<AgentName, string> = {
   '3-docs-helper': 'openrouter/moonshotai/kimi-k2.5',
   '4-architecture-advisor': 'openrouter/moonshotai/kimi-k2.5',
   '5-code-fixer': 'openrouter/z-ai/glm-5',
-  '6-ui-designer': 'openrouter/minimax/z-ai/glm-5',
+  '6-ui-designer': 'openrouter/z-ai/glm-5',
 };
 
 // Polling configuration
