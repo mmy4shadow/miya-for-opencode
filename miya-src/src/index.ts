@@ -21,7 +21,6 @@ import {
   isGatewayOwner,
   probeGatewayAlive,
   registerGatewayDependencies,
-  startGatewayWithLog,
 } from './gateway';
 import { createIntakeTools } from './intake';
 import {
@@ -273,8 +272,20 @@ const MiyaPlugin: Plugin = async (ctx) => {
   }
 
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
-  startGatewayWithLog(ctx.directory);
-  const gatewayOwner = isGatewayOwner(ctx.directory);
+  let gatewayOwner = false;
+  try {
+    ensureGatewayRunning(ctx.directory);
+    gatewayOwner = isGatewayOwner(ctx.directory);
+    log('[gateway] startup attached', {
+      directory: ctx.directory,
+      gatewayOwner,
+    });
+  } catch (error) {
+    log('[gateway] startup attach failed', {
+      directory: ctx.directory,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   const dashboardConfig =
     ((config.ui as Record<string, unknown> | undefined)?.dashboard as
       | Record<string, unknown>

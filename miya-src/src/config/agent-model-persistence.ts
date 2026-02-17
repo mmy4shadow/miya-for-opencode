@@ -280,12 +280,18 @@ function extractAgentPatchesFromFlatKeys(
 }
 
 function extractActiveAgentFromState(source: Record<string, unknown>): string | undefined {
+  const agentSection = isObject(source.agent) ? source.agent : null;
   const candidates = [
     source.activeAgent,
+    source.activeAgentId,
     source.active_agent,
     source.defaultAgent,
     source.default_agent,
+    source.currentAgent,
+    source.selectedAgent,
     source.agent,
+    agentSection?.current,
+    agentSection?.active,
   ];
   for (const candidate of candidates) {
     const normalized = normalizeAgentName(String(candidate ?? ''));
@@ -306,6 +312,7 @@ function extractPatchesFromStateObject(
     source.modelsByAgent,
     source.byAgent,
     source.selectedByAgent,
+    source.model,
   ];
 
   for (const mapCandidate of mapCandidates) {

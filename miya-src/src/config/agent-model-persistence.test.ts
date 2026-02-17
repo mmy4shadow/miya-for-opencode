@@ -328,4 +328,49 @@ describe('agent-model-persistence', () => {
       }
     }
   });
+
+  test('synchronizes per-agent models from model.json model map', () => {
+    const previousXdgStateHome = process.env.XDG_STATE_HOME;
+    const stateHome = path.join(tempDir, 'xdg-state');
+    const stateDir = path.join(stateHome, 'opencode');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, 'model.json'),
+      JSON.stringify(
+        {
+          activeAgentId: '6-ui-designer',
+          model: {
+            '2-code-search': {
+              providerID: 'openai',
+              modelID: 'gpt-5.1-codex-mini',
+            },
+            '6-ui-designer': {
+              providerID: 'google',
+              modelID: 'gemini-2.5-pro',
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
+    try {
+      process.env.XDG_STATE_HOME = stateHome;
+      const changed = syncPersistedAgentRuntimeFromOpenCodeState(tempDir);
+      expect(changed).toBe(true);
+
+      const runtime = readPersistedAgentRuntime(tempDir);
+      expect(runtime.activeAgentId).toBe('6-ui-designer');
+      expect(runtime.agents['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
+      expect(runtime.agents['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
+    } finally {
+      if (previousXdgStateHome === undefined) {
+        delete process.env.XDG_STATE_HOME;
+      } else {
+        process.env.XDG_STATE_HOME = previousXdgStateHome;
+      }
+    }
+  });
 });
