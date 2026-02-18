@@ -1,0 +1,263 @@
+interface GatewayRpcClientOptions {
+  wsPath: string;
+  tokenProvider: () => string;
+  connectTimeoutMs?: number;
+  requestTimeoutMs?: number;
+}
+
+interface GatewayResponseFrame {
+  type?: string;
+  id?: string;
+  ok?: boolean;
+  result?: unknown;
+  error?: {
+    message?: string;
+  };
+}
+
+interface PendingGatewayRequest {
+  resolve: (value: unknown) => void;
+  reject: (reason: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const value = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return value === 'localhost' || value === '127.0.0.1' || value === '::1';
+}
+
+function buildWsCandidates(wsPath: string): string[] {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const candidates: string[] = [`${proto}://${location.host}${wsPath}`];
+  if (!isLoopbackHost(location.hostname)) {
+    return candidates;
+  }
+  const fallbackHosts = ['127.0.0.1', 'localhost', '[::1]'];
+  for (const host of fallbackHosts) {
+    const withPort = location.port ? `${host}:${location.port}` : host;
+    candidates.push(`${proto}://${withPort}${wsPath}`);
+  }
+  return [...new Set(candidates)];
+}
+
+export class GatewayRpcClient {
+  private ws: WebSocket | null = null;
+  private pending = new Map<string, PendingGatewayRequest>();
+  private openPromise: Promise<void> | null = null;
+  private seq = 0;
+  private activeUrl = '';
+  private readonly options: Required<
+    Pick<GatewayRpcClientOptions, 'connectTimeoutMs' | 'requestTimeoutMs'>
+  > &
+    Pick<GatewayRpcClientOptions, 'wsPath' | 'tokenProvider'>;
+
+  constructor(options: GatewayRpcClientOptions) {
+    this.options = {
+      wsPath: options.wsPath,
+      tokenProvider: options.tokenProvider,
+      connectTimeoutMs: Math.max(2000, options.connectTimeoutMs ?? 5000),
+      requestTimeoutMs: Math.max(2000, options.requestTimeoutMs ?? 10000),
+    };
+  }
+
+  async request(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<unknown> {
+    await this.ensureConnected();
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('gateway_ws_not_connected');
+    }
+    const requestId = `ui-${Date.now()}-${++this.seq}`;
+    return await new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(new Error(`gateway_request_timeout:${method}`));
+      }, this.options.requestTimeoutMs);
+      this.pending.set(requestId, { resolve, reject, timer });
+      try {
+        this.ws?.send(
+          JSON.stringify({
+            type: 'request',
+            id: requestId,
+            method,
+            params,
+          }),
+        );
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(
+          new Error(
+            error instanceof Error
+              ? error.message
+              : 'gateway_ws_send_request_failed',
+          ),
+        );
+      }
+    });
+  }
+
+  dispose(): void {
+    this.rejectPending('gateway_ws_disposed');
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {}
+    }
+    this.ws = null;
+    this.openPromise = null;
+    this.activeUrl = '';
+  }
+
+  private async ensureConnected(): Promise<void> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return;
+    }
+    if (this.openPromise) {
+      await this.openPromise;
+      return;
+    }
+    this.openPromise = this.connectWithFallback();
+    try {
+      await this.openPromise;
+    } finally {
+      this.openPromise = null;
+    }
+  }
+
+  private async connectWithFallback(): Promise<void> {
+    const errors: string[] = [];
+    for (const candidate of buildWsCandidates(this.options.wsPath)) {
+      try {
+        await this.connectOne(candidate);
+        this.activeUrl = candidate;
+        return;
+      } catch (error) {
+        errors.push(
+          error instanceof Error ? error.message : String(error ?? ''),
+        );
+      }
+    }
+    throw new Error(
+      `gateway_ws_connect_failed:${errors.filter(Boolean).join(' | ')}`,
+    );
+  }
+
+  private async connectOne(url: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(url);
+      let settled = false;
+
+      const done = (ok: boolean, reason?: string): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (ok) {
+          this.bindSocket(ws);
+          resolve();
+          return;
+        }
+        try {
+          ws.close();
+        } catch {}
+        reject(new Error(reason || `gateway_ws_connect_failed:${url}`));
+      };
+
+      const timer = setTimeout(() => {
+        done(false, `gateway_ws_connect_timeout:${url}`);
+      }, this.options.connectTimeoutMs);
+
+      ws.onopen = () => {
+        const token = this.options.tokenProvider();
+        ws.send(
+          JSON.stringify({
+            type: 'hello',
+            role: 'ui',
+            clientID: 'gateway-ui',
+            protocolVersion: '1.1',
+            auth: token ? { token } : undefined,
+          }),
+        );
+      };
+
+      ws.onmessage = (event) => {
+        if (settled) return;
+        let frame: GatewayResponseFrame;
+        try {
+          frame = JSON.parse(String(event.data)) as GatewayResponseFrame;
+        } catch {
+          return;
+        }
+        if (frame.type !== 'response' || frame.id !== 'hello') return;
+        if (frame.ok) {
+          done(true);
+        } else {
+          const message = frame.error?.message || `gateway_ws_hello_failed:${url}`;
+          done(false, message);
+        }
+      };
+
+      ws.onerror = () => {
+        done(false, `gateway_ws_error:${url}`);
+      };
+
+      ws.onclose = () => {
+        if (!settled) {
+          done(false, `gateway_ws_closed_before_ready:${url}`);
+        }
+      };
+    });
+  }
+
+  private bindSocket(ws: WebSocket): void {
+    this.ws = ws;
+    ws.onmessage = (event) => {
+      let frame: GatewayResponseFrame;
+      try {
+        frame = JSON.parse(String(event.data)) as GatewayResponseFrame;
+      } catch {
+        return;
+      }
+      if (frame.type !== 'response' || !frame.id) return;
+      const pending = this.pending.get(frame.id);
+      if (!pending) return;
+      this.pending.delete(frame.id);
+      clearTimeout(pending.timer);
+      if (frame.ok) {
+        pending.resolve(frame.result);
+      } else {
+        pending.reject(
+          new Error(frame.error?.message || 'gateway_request_failed'),
+        );
+      }
+    };
+    ws.onclose = () => {
+      if (this.ws === ws) {
+        this.ws = null;
+        this.activeUrl = '';
+      }
+      this.rejectPending('gateway_ws_closed');
+    };
+    ws.onerror = () => {
+      if (this.ws === ws) {
+        this.ws = null;
+        this.activeUrl = '';
+      }
+      this.rejectPending('gateway_ws_error');
+    };
+  }
+
+  private rejectPending(reason: string): void {
+    for (const [id, pending] of this.pending.entries()) {
+      clearTimeout(pending.timer);
+      pending.reject(
+        new Error(
+          this.activeUrl ? `${reason}:${this.activeUrl}:${id}` : `${reason}:${id}`,
+        ),
+      );
+      this.pending.delete(id);
+    }
+  }
+}
+

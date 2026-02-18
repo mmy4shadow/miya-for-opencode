@@ -411,9 +411,11 @@ interface GatewayRuntime {
   requestIdempotency: Map<string, GatewayRequestIdempotencyRecord>;
   nodeSockets: Map<string, Bun.ServerWebSocket<unknown>>;
   wsMeta: WeakMap<Bun.ServerWebSocket<unknown>, GatewayWsData>;
+  wsConnectionCount: number;
   wizardTickTimer?: ReturnType<typeof setInterval>;
   ownerBeatTimer?: ReturnType<typeof setInterval>;
   memoryReflectTimer?: ReturnType<typeof setInterval>;
+  healthTickTimer?: ReturnType<typeof setInterval>;
   pendingQueueKickTimer?: ReturnType<typeof setTimeout>;
   pendingQueueGeneration: number;
   pendingQueueRescheduleNeeded: boolean;
@@ -671,6 +673,33 @@ interface GatewayOwnerLock {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+const LOOPBACK_NO_PROXY = 'localhost,127.0.0.1,::1';
+
+function ensureLoopbackNoProxy(): void {
+  const keys = ['NO_PROXY', 'no_proxy'] as const;
+  for (const key of keys) {
+    const existing = String(process.env[key] ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const merged = [...existing];
+    for (const host of LOOPBACK_NO_PROXY.split(',')) {
+      if (!merged.includes(host)) merged.push(host);
+    }
+    process.env[key] = merged.join(',');
+  }
+}
+
+function buildGatewayHealthPayload(runtime: GatewayRuntime): Record<string, unknown> {
+  return {
+    at: nowIso(),
+    pid: process.pid,
+    uptimeMs: Math.max(0, Date.now() - Date.parse(runtime.startedAt)),
+    wsConnections: runtime.wsConnectionCount,
+    memory: process.memoryUsage(),
+  };
 }
 
 function periodicTaskError(
@@ -1866,6 +1895,10 @@ export function stopGateway(projectDir: string): {
   if (runtime.memoryReflectTimer) {
     clearInterval(runtime.memoryReflectTimer);
     runtime.memoryReflectTimer = undefined;
+  }
+  if (runtime.healthTickTimer) {
+    clearInterval(runtime.healthTickTimer);
+    runtime.healthTickTimer = undefined;
   }
   runtime.pendingQueueGeneration += 1;
   runtime.pendingQueueRescheduleNeeded = false;
@@ -9469,6 +9502,7 @@ async function handleWebhook(
 }
 
 export function ensureGatewayRunning(projectDir: string): GatewayState {
+  ensureLoopbackNoProxy();
   const existing = runtimes.get(projectDir);
   if (existing) {
     const owner = acquireGatewayOwner(projectDir);
@@ -9740,6 +9774,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       websocket: {
         open(ws) {
           ensureWsData(runtime, ws);
+          runtime.wsConnectionCount += 1;
         },
         close(ws) {
           const wsData = ensureWsData(runtime, ws);
@@ -9747,6 +9782,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
             runtime.nodeSockets.delete(wsData.nodeID);
             markNodeDisconnected(projectDir, wsData.nodeID);
           }
+          runtime.wsConnectionCount = Math.max(0, runtime.wsConnectionCount - 1);
           runtime.wsMeta.delete(ws);
         },
         async message(ws, message) {
@@ -9913,6 +9949,15 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
                     }),
                   ),
                 );
+                ws.send(
+                  JSON.stringify(
+                    toEventFrame({
+                      event: 'gateway.health',
+                      payload: buildGatewayHealthPayload(runtime),
+                      stateVersion: { gateway: runtime.stateVersion },
+                    }),
+                  ),
+                );
               } catch {}
             }, 0);
             return;
@@ -10073,9 +10118,11 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     requestIdempotency: new Map(),
     nodeSockets: new Map(),
     wsMeta: new WeakMap(),
+    wsConnectionCount: 0,
     wizardTickTimer: undefined,
     ownerBeatTimer: undefined,
     memoryReflectTimer: undefined,
+    healthTickTimer: undefined,
     pendingQueueKickTimer: undefined,
     pendingQueueGeneration: 0,
     pendingQueueRescheduleNeeded: false,
@@ -10148,6 +10195,18 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     {
       maxConsecutiveErrors: 3,
       cooldownMs: 30_000,
+      onError: (error) => periodicTaskError(projectDir, error),
+    },
+  );
+  runtime.healthTickTimer = safeInterval(
+    'gateway.health.broadcast',
+    2_500,
+    () => {
+      publishGatewayEvent(runtime, 'gateway.health', buildGatewayHealthPayload(runtime));
+    },
+    {
+      maxConsecutiveErrors: 3,
+      cooldownMs: 15_000,
       onError: (error) => periodicTaskError(projectDir, error),
     },
   );

@@ -55166,6 +55166,28 @@ var followerRecoveryTimers = new Map;
 function nowIso48() {
   return new Date().toISOString();
 }
+var LOOPBACK_NO_PROXY = "localhost,127.0.0.1,::1";
+function ensureLoopbackNoProxy() {
+  const keys = ["NO_PROXY", "no_proxy"];
+  for (const key of keys) {
+    const existing = String(process.env[key] ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+    const merged = [...existing];
+    for (const host of LOOPBACK_NO_PROXY.split(",")) {
+      if (!merged.includes(host))
+        merged.push(host);
+    }
+    process.env[key] = merged.join(",");
+  }
+}
+function buildGatewayHealthPayload(runtime) {
+  return {
+    at: nowIso48(),
+    pid: process.pid,
+    uptimeMs: Math.max(0, Date.now() - Date.parse(runtime.startedAt)),
+    wsConnections: runtime.wsConnectionCount,
+    memory: process.memoryUsage()
+  };
+}
 function periodicTaskError(projectDir, input) {
   log("[gateway] periodic task failed", {
     projectDir,
@@ -56003,6 +56025,10 @@ function stopGateway(projectDir) {
   if (runtime.memoryReflectTimer) {
     clearInterval(runtime.memoryReflectTimer);
     runtime.memoryReflectTimer = undefined;
+  }
+  if (runtime.healthTickTimer) {
+    clearInterval(runtime.healthTickTimer);
+    runtime.healthTickTimer = undefined;
   }
   runtime.pendingQueueGeneration += 1;
   runtime.pendingQueueRescheduleNeeded = false;
@@ -61733,6 +61759,7 @@ function createMethods(projectDir, runtime) {
   return methods;
 }
 function ensureGatewayRunning(projectDir) {
+  ensureLoopbackNoProxy();
   const existing = runtimes.get(projectDir);
   if (existing) {
     const owner2 = acquireGatewayOwner(projectDir);
@@ -61947,6 +61974,7 @@ function ensureGatewayRunning(projectDir) {
     websocket: {
       open(ws) {
         ensureWsData(runtime, ws);
+        runtime.wsConnectionCount += 1;
       },
       close(ws) {
         const wsData = ensureWsData(runtime, ws);
@@ -61954,6 +61982,7 @@ function ensureGatewayRunning(projectDir) {
           runtime.nodeSockets.delete(wsData.nodeID);
           markNodeDisconnected(projectDir, wsData.nodeID);
         }
+        runtime.wsConnectionCount = Math.max(0, runtime.wsConnectionCount - 1);
         runtime.wsMeta.delete(ws);
       },
       async message(ws, message) {
@@ -62066,6 +62095,11 @@ function ensureGatewayRunning(projectDir) {
               ws.send(JSON.stringify(toEventFrame({
                 event: "gateway.snapshot",
                 payload: buildSnapshot(projectDir, runtime),
+                stateVersion: { gateway: runtime.stateVersion }
+              })));
+              ws.send(JSON.stringify(toEventFrame({
+                event: "gateway.health",
+                payload: buildGatewayHealthPayload(runtime),
                 stateVersion: { gateway: runtime.stateVersion }
               })));
             } catch {}
@@ -62189,9 +62223,11 @@ function ensureGatewayRunning(projectDir) {
     requestIdempotency: new Map,
     nodeSockets: new Map,
     wsMeta: new WeakMap,
+    wsConnectionCount: 0,
     wizardTickTimer: undefined,
     ownerBeatTimer: undefined,
     memoryReflectTimer: undefined,
+    healthTickTimer: undefined,
     pendingQueueKickTimer: undefined,
     pendingQueueGeneration: 0,
     pendingQueueRescheduleNeeded: false,
@@ -62249,6 +62285,13 @@ function ensureGatewayRunning(projectDir) {
   }, {
     maxConsecutiveErrors: 3,
     cooldownMs: 30000,
+    onError: (error92) => periodicTaskError(projectDir, error92)
+  });
+  runtime.healthTickTimer = safeInterval("gateway.health.broadcast", 2500, () => {
+    publishGatewayEvent(runtime, "gateway.health", buildGatewayHealthPayload(runtime));
+  }, {
+    maxConsecutiveErrors: 3,
+    cooldownMs: 15000,
     onError: (error92) => periodicTaskError(projectDir, error92)
   });
   schedulePendingOutboundQueue(projectDir, runtime);

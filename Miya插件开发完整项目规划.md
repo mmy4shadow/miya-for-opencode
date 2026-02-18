@@ -51,6 +51,10 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - 控制台空状态与文案已优化：作业中心改为“表头常驻 + 空状态组件”，守门员信号中心补全空状态占位；`proactive_ping/quiet_hours` 调整为中文优先标签（`miya-src/gateway-ui/src/App.tsx`）。
 - Daemon 闪退可观测性已增强：launcher 将 host stdout/stderr 落盘到 `daemon/host.stdout.log` 与 `daemon/host.stderr.log`，host 进程新增 `host.crash.log`（未捕获异常/拒绝）以支撑闪退定位（`miya-src/src/daemon/launcher.ts`、`miya-src/src/daemon/host.ts`）。
 - Daemon 子进程环境已补 loopback 豁免：统一注入 `NO_PROXY/no_proxy=localhost,127.0.0.1,::1`，降低“开代理时本地链路被误代理”导致的终端/网关断联风险（`miya-src/src/daemon/service.ts`）。
+- 控制台 WS 链路已改为长连接复用：`gateway-ui` 新增持久化 RPC 客户端，握手成功后复用单一 WebSocket 并支持 loopback 地址回退（`127.0.0.1/localhost/::1`），减少高频重连导致的闪断（`miya-src/gateway-ui/src/gateway-client.ts`、`miya-src/gateway-ui/src/App.tsx`）。
+- 控制台状态读取已切到 WS RPC：`gateway.status.get` 替代 `/api/status` 轮询入口，避免代理/同源限制下的 HTTP 断链放大（`miya-src/gateway-ui/src/App.tsx`）。
+- Gateway 新增 health 广播：订阅连接建立后立即推送一次 `gateway.health`，并以 2.5s 心跳周期广播 `uptime/memory/wsConnections`，为前端实时状态订阅提供统一事件层（`miya-src/src/gateway/index.ts`）。
+- Gateway/worker/supervisor 启动前统一补齐 loopback 直连环境：`NO_PROXY/no_proxy` 自动合并 `localhost,127.0.0.1,::1`，降低“系统代理误劫持本地控制链路”的概率（`miya-src/src/gateway/index.ts`、`miya-src/src/cli/gateway-worker.ts`、`miya-src/src/cli/gateway-supervisor.ts`）。
 
 ### 2026-02-18 代码实读复核（逻辑闭环/触发链路）
 

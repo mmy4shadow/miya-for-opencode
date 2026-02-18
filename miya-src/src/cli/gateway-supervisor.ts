@@ -34,8 +34,25 @@ interface StartAttempt {
   label: string;
 }
 
+const LOOPBACK_NO_PROXY = 'localhost,127.0.0.1,::1';
+
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function ensureLoopbackNoProxy(): void {
+  const keys = ['NO_PROXY', 'no_proxy'] as const;
+  for (const key of keys) {
+    const existing = String(process.env[key] ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const merged = [...existing];
+    for (const host of LOOPBACK_NO_PROXY.split(',')) {
+      if (!merged.includes(host)) merged.push(host);
+    }
+    process.env[key] = merged.join(',');
+  }
 }
 
 function getMiyaRuntimeDir(projectDir: string): string {
@@ -313,6 +330,7 @@ async function waitReadyOrExit(
 }
 
 async function main(): Promise<void> {
+  ensureLoopbackNoProxy();
   const { workspace, verbose } = parseCliArgs(process.argv.slice(2));
   const runtimeDir = getMiyaRuntimeDir(workspace);
   const stopFile = runtimeSupervisorStopFile(workspace);

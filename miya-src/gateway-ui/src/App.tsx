@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { GatewayRpcClient } from './gateway-client';
 
 interface NexusTrustSnapshot {
   target: number;
@@ -143,17 +144,6 @@ interface GatewaySnapshot {
 interface PolicyDomainRow {
   domain: string;
   status: 'running' | 'paused';
-}
-
-interface GatewayResponseFrame {
-  type: 'response';
-  id: string;
-  ok: boolean;
-  result?: unknown;
-  error?: {
-    code?: string;
-    message?: string;
-  };
 }
 
 interface EmptyStateProps {
@@ -511,80 +501,36 @@ const POWERSHELL_PROXY_FIX_COMMAND =
   `[Environment]::SetEnvironmentVariable('NO_PROXY','${LOOPBACK_NO_PROXY}','User'); ` +
   `[Environment]::SetEnvironmentVariable('no_proxy','${LOOPBACK_NO_PROXY}','User')`;
 
+let cachedGatewayClient: GatewayRpcClient | null = null;
+let cachedGatewayClientKey = '';
+
+function getGatewayClient(): GatewayRpcClient {
+  const wsPath = withGatewayBasePath('/ws');
+  const key = `${location.protocol}//${location.host}${wsPath}`;
+  if (!cachedGatewayClient || cachedGatewayClientKey !== key) {
+    cachedGatewayClient?.dispose();
+    cachedGatewayClient = new GatewayRpcClient({
+      wsPath,
+      tokenProvider: resolveGatewayToken,
+    });
+    cachedGatewayClientKey = key;
+  }
+  return cachedGatewayClient;
+}
+
 async function invokeGateway(
   method: string,
   params: Record<string, unknown> = {},
 ): Promise<unknown> {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const wsPath = withGatewayBasePath('/ws');
-  const ws = new WebSocket(`${proto}://${location.host}${wsPath}`);
-  const reqId = `ui-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const token = resolveGatewayToken();
-
-  return await new Promise<unknown>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error(`gateway_request_timeout:${method}`));
-    }, 10000);
-
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          type: 'hello',
-          role: 'ui',
-          clientID: 'gateway-ui',
-          protocolVersion: '1.1',
-          auth: token ? { token } : undefined,
-        }),
-      );
-    };
-
-    ws.onerror = () => {
-      clearTimeout(timeout);
-      reject(new Error('gateway_ws_error'));
-    };
-
-    ws.onmessage = (event) => {
-      let frame: GatewayResponseFrame | null = null;
-      try {
-        frame = JSON.parse(String(event.data)) as GatewayResponseFrame;
-      } catch {
-        return;
-      }
-      if (!frame || frame.type !== 'response') return;
-      if (frame.id === 'hello') {
-        if (!frame.ok) {
-          clearTimeout(timeout);
-          ws.close();
-          reject(
-            new Error(
-              frame.error?.message === 'invalid_gateway_token'
-                ? 'invalid_gateway_token: 请使用带 token 的控制台链接重新打开'
-                : frame.error?.message || 'gateway_hello_failed',
-            ),
-          );
-          return;
-        }
-        ws.send(
-          JSON.stringify({
-            type: 'request',
-            id: reqId,
-            method,
-            params,
-          }),
-        );
-        return;
-      }
-      if (frame.id !== reqId) return;
-      clearTimeout(timeout);
-      ws.close();
-      if (frame.ok) {
-        resolve(frame.result);
-      } else {
-        reject(new Error(frame.error?.message || 'gateway_request_failed'));
-      }
-    };
-  });
+  try {
+    return await getGatewayClient().request(method, params);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    if (message.includes('invalid_gateway_token')) {
+      throw new Error('invalid_gateway_token: 请使用带 token 的控制台链接重新打开');
+    }
+    throw error instanceof Error ? error : new Error(message);
+  }
 }
 
 export default function App() {
@@ -654,23 +600,7 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const statusRes = await fetch(withGatewayBasePath('/api/status'), {
-        cache: 'no-store',
-      });
-      if (!statusRes.ok) {
-        let detail = '';
-        try {
-          detail = (await statusRes.text()).trim();
-        } catch {}
-        setConnected(false);
-        setErrorText(
-          detail
-            ? `status_http_${statusRes.status}: ${detail}`
-            : `status_http_${statusRes.status}`,
-        );
-        return;
-      }
-      const status = (await statusRes.json()) as GatewaySnapshot;
+      const status = (await invokeGateway('gateway.status.get')) as GatewaySnapshot;
       setSnapshot(status);
       const rpcErrors: string[] = [];
       if (status.statusError?.message) {
@@ -800,6 +730,14 @@ export default function App() {
     }, 2500);
     return () => clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    return () => {
+      cachedGatewayClient?.dispose();
+      cachedGatewayClient = null;
+      cachedGatewayClientKey = '';
+    };
+  }, []);
 
   useEffect(() => {
     const onPopState = () => {

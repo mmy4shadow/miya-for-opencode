@@ -5,8 +5,21 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+var LOOPBACK_NO_PROXY = "localhost,127.0.0.1,::1";
 function nowIso() {
   return new Date().toISOString();
+}
+function ensureLoopbackNoProxy() {
+  const keys = ["NO_PROXY", "no_proxy"];
+  for (const key of keys) {
+    const existing = String(process.env[key] ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+    const merged = [...existing];
+    for (const host of LOOPBACK_NO_PROXY.split(",")) {
+      if (!merged.includes(host))
+        merged.push(host);
+    }
+    process.env[key] = merged.join(",");
+  }
 }
 function getMiyaRuntimeDir(projectDir) {
   const normalized = path.resolve(projectDir);
@@ -242,6 +255,7 @@ async function waitReadyOrExit(workspace, child, timeoutMs) {
   return { ready: false, reason: "gateway_probe_timeout" };
 }
 async function main() {
+  ensureLoopbackNoProxy();
   const { workspace, verbose } = parseCliArgs(process.argv.slice(2));
   const runtimeDir = getMiyaRuntimeDir(workspace);
   const stopFile = runtimeSupervisorStopFile(workspace);
