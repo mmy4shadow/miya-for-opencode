@@ -219,16 +219,52 @@ function normalizeServerUrl(serverUrl: URL | string | undefined): URL | null {
   }
 }
 
-function resolveAutoUiLaunchUrl(input: {
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return (
+    normalized === '127.0.0.1' ||
+    normalized === 'localhost' ||
+    normalized === '::1'
+  );
+}
+
+async function probeHttpUrl(url: string, timeoutMs = 1_200): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function isServerUrlReachable(serverUrl: URL): Promise<boolean> {
+  const protocol = serverUrl.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') return false;
+  const host = serverUrl.hostname.toLowerCase();
+  if (host === 'opencode.internal') return false;
+  if (isLoopbackHost(host)) {
+    return probeHttpUrl(new URL('/health', serverUrl).toString(), 1_200);
+  }
+  return probeHttpUrl(new URL('/health', serverUrl).toString(), 1_800);
+}
+
+async function resolveAutoUiLaunchUrl(input: {
   serverUrl?: URL | string;
   gatewayUiUrl: string;
   gatewayAuthToken?: string;
-}): { launchUrl: string; publicUrl: string } {
+}): Promise<{ launchUrl: string; publicUrl: string }> {
   const mode = String(process.env.MIYA_UI_LAUNCH_MODE ?? 'proxy')
     .trim()
     .toLowerCase();
   const server = normalizeServerUrl(input.serverUrl);
-  if (mode !== 'gateway' && server) {
+  if (mode !== 'gateway' && server && (await isServerUrlReachable(server))) {
     const proxyUrl = new URL('/miya/', server).toString();
     return { launchUrl: proxyUrl, publicUrl: proxyUrl };
   }
@@ -377,7 +413,7 @@ function scheduleAutoUiOpenFromRuntimeState(
     if (state) {
       const healthy = await probeGatewayAlive(state.url, 1_200);
       if (healthy && shouldAutoOpenUi(projectDir, cooldownMs)) {
-        const resolvedLaunch = resolveAutoUiLaunchUrl({
+        const resolvedLaunch = await resolveAutoUiLaunchUrl({
           serverUrl,
           gatewayUiUrl: state.uiUrl,
           gatewayAuthToken: state.authToken,
@@ -921,7 +957,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
     shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs) &&
     gatewayState
   ) {
-    const resolvedLaunch = resolveAutoUiLaunchUrl({
+    const resolvedLaunch = await resolveAutoUiLaunchUrl({
       serverUrl: ctx.serverUrl,
       gatewayUiUrl: gatewayState.uiUrl,
       gatewayAuthToken: gatewayState.authToken,

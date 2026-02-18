@@ -69964,10 +69964,41 @@ function normalizeServerUrl(serverUrl) {
     return null;
   }
 }
-function resolveAutoUiLaunchUrl(input) {
+function isLoopbackHost(host) {
+  const normalized = host.trim().toLowerCase();
+  return normalized === "127.0.0.1" || normalized === "localhost" || normalized === "::1";
+}
+async function probeHttpUrl(url3, timeoutMs = 1200) {
+  const controller = new AbortController;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url3, {
+      method: "GET",
+      signal: controller.signal
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function isServerUrlReachable(serverUrl) {
+  const protocol = serverUrl.protocol.toLowerCase();
+  if (protocol !== "http:" && protocol !== "https:")
+    return false;
+  const host = serverUrl.hostname.toLowerCase();
+  if (host === "opencode.internal")
+    return false;
+  if (isLoopbackHost(host)) {
+    return probeHttpUrl(new URL("/health", serverUrl).toString(), 1200);
+  }
+  return probeHttpUrl(new URL("/health", serverUrl).toString(), 1800);
+}
+async function resolveAutoUiLaunchUrl(input) {
   const mode = String(process.env.MIYA_UI_LAUNCH_MODE ?? "proxy").trim().toLowerCase();
   const server = normalizeServerUrl(input.serverUrl);
-  if (mode !== "gateway" && server) {
+  if (mode !== "gateway" && server && await isServerUrlReachable(server)) {
     const proxyUrl = new URL("/miya/", server).toString();
     return { launchUrl: proxyUrl, publicUrl: proxyUrl };
   }
@@ -70089,7 +70120,7 @@ function scheduleAutoUiOpenFromRuntimeState(projectDir, cooldownMs, dockAutoLaun
     if (state2) {
       const healthy = await probeGatewayAlive(state2.url, 1200);
       if (healthy && shouldAutoOpenUi(projectDir, cooldownMs)) {
-        const resolvedLaunch = resolveAutoUiLaunchUrl({
+        const resolvedLaunch = await resolveAutoUiLaunchUrl({
           serverUrl,
           gatewayUiUrl: state2.uiUrl,
           gatewayAuthToken: state2.authToken
@@ -70506,7 +70537,7 @@ var MiyaPlugin = async (ctx) => {
   const dockAutoLaunch = process.env.MIYA_DOCK_AUTO_LAUNCH === "1" || process.env.MIYA_DOCK_AUTO_LAUNCH !== "0" && dashboardConfig.dockAutoLaunch !== false;
   const interactiveSession = isInteractiveSession();
   if (autoOpenEnabled && autoOpenEnabledResolved && !autoOpenBlockedByEnv && shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs) && gatewayState) {
-    const resolvedLaunch = resolveAutoUiLaunchUrl({
+    const resolvedLaunch = await resolveAutoUiLaunchUrl({
       serverUrl: ctx.serverUrl,
       gatewayUiUrl: gatewayState.uiUrl,
       gatewayAuthToken: gatewayState.authToken
