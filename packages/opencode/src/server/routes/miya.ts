@@ -451,6 +451,7 @@ type GatewayEndpoint = {
   http: string
   ws: string
   token?: string
+  tokenRefFile?: string
 }
 function resolveUiDistRoots(dir: string) {
   const envRoot = String(process.env.MIYA_UI_DIST_ROOT ?? "").trim()
@@ -462,8 +463,11 @@ function resolveUiDistRoots(dir: string) {
   return Array.from(new Set(roots))
 }
 function readGatewayToken(dir: string): string | undefined {
+  return readGatewayTokenFromAuthFile(gatewayAuthFile(dir))
+}
+function readGatewayTokenFromAuthFile(file: string): string | undefined {
   try {
-    const raw = JSON.parse(readFileSync(gatewayAuthFile(dir), "utf-8")) as { token?: unknown }
+    const raw = JSON.parse(readFileSync(file, "utf-8")) as { token?: unknown }
     const token = typeof raw.token === "string" ? raw.token.trim() : ""
     return token || undefined
   } catch {
@@ -477,6 +481,13 @@ function parseGatewayEndpoint(input: unknown): GatewayEndpoint | null {
     if (typeof input.url === "string") return input.url.trim()
     return ""
   })()
+  const tokenRefFile = (() => {
+    const auth = isRecord(input.auth) ? input.auth : null
+    const tokenRef = auth && typeof auth.tokenRef === "string" ? auth.tokenRef.trim() : ""
+    if (!tokenRef) return undefined
+    if (tokenRef.startsWith("file:")) return tokenRef.slice("file:".length)
+    return undefined
+  })()
   if (!httpRaw) return null
   const wsRaw =
     typeof input.ws === "string" && input.ws.trim().length > 0
@@ -489,6 +500,7 @@ function parseGatewayEndpoint(input: unknown): GatewayEndpoint | null {
     return {
       http: http.toString(),
       ws: ws.toString(),
+      tokenRefFile,
     }
   } catch {
     return null
@@ -508,10 +520,18 @@ async function resolveGatewayEndpoint(dir: string): Promise<GatewayEndpoint> {
   if (!endpoint) {
     throw new Error("gateway_endpoint_unavailable")
   }
+  const tokenFromRef = endpoint.tokenRefFile ? readGatewayTokenFromAuthFile(endpoint.tokenRefFile) : undefined
   return {
     ...endpoint,
-    token: readGatewayToken(dir),
+    token: tokenFromRef ?? readGatewayToken(dir),
   }
+}
+function normalizeWsCloseCode(code: number | undefined): number {
+  if (!Number.isInteger(code)) return 1011
+  const normalized = Number(code)
+  if (normalized >= 1000 && normalized <= 1015 && normalized !== 1004 && normalized !== 1005 && normalized !== 1006) return normalized
+  if (normalized >= 3000 && normalized <= 4999) return normalized
+  return 1011
 }
 async function serveMiyaUiFile(dir: string, relPath: string): Promise<Response | null> {
   const normalized = path.posix.normalize(relPath)
@@ -1586,28 +1606,32 @@ export const MiyaRoutes = lazy(() =>
       }
 
       return {
-        async onOpen(_event, ws) {
-          let endpoint: GatewayEndpoint
-          try {
-            endpoint = await resolveGatewayEndpoint(Instance.directory)
-          } catch {
-            ws.close(1011, "gateway_unavailable")
-            return
-          }
-          gatewayToken = endpoint.token ?? ""
-          upstream = new WebSocket(endpoint.ws)
-          upstream.onopen = () => flushPending()
-          upstream.onmessage = (event) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(typeof event.data === "string" ? event.data : String(event.data))
+        onOpen(_event, ws) {
+          void (async () => {
+            let endpoint: GatewayEndpoint
+            try {
+              endpoint = await resolveGatewayEndpoint(Instance.directory)
+            } catch {
+              if (ws.readyState === WebSocket.OPEN) ws.close(1011, "gateway_unavailable")
+              return
             }
-          }
-          upstream.onerror = () => {
-            if (ws.readyState === WebSocket.OPEN) ws.close(1011, "gateway_ws_error")
-          }
-          upstream.onclose = (event) => {
-            if (ws.readyState === WebSocket.OPEN) ws.close(event.code || 1011, event.reason || "gateway_closed")
-          }
+            gatewayToken = endpoint.token ?? ""
+            upstream = new WebSocket(endpoint.ws)
+            upstream.onopen = () => flushPending()
+            upstream.onmessage = (event) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(typeof event.data === "string" ? event.data : String(event.data))
+              }
+            }
+            upstream.onerror = () => {
+              if (ws.readyState === WebSocket.OPEN) ws.close(1011, "gateway_ws_error")
+            }
+            upstream.onclose = (event) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.close(normalizeWsCloseCode(event.code), event.reason || "gateway_closed")
+              }
+            }
+          })()
         },
         onMessage(event) {
           const raw = String(event.data ?? "")
