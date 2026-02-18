@@ -115,6 +115,7 @@ function deepMergeObject(
 
 const autoUiOpenAtByDir = new Map<string, number>();
 const dockLaunchAtByDir = new Map<string, number>();
+const gatewayConsoleLaunchAtByDir = new Map<string, number>();
 
 function autoUiOpenGuardFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'ui-auto-open.guard.json');
@@ -483,18 +484,22 @@ function resolveGatewaySupervisorScript(projectDir: string): string | null {
 }
 
 function resolveGatewaySupervisorNodeBin(): string | null {
-  const nodeBin = String(process.env.MIYA_GATEWAY_NODE_BIN ?? 'node').trim();
-  if (!nodeBin) return null;
-  try {
-    const probe = spawnSync(nodeBin, ['--version'], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    if (probe.error || probe.status !== 0) return null;
-    return nodeBin;
-  } catch {
-    return null;
+  const candidates = [
+    String(process.env.MIYA_GATEWAY_NODE_BIN ?? '').trim(),
+    'node',
+    'bun',
+    process.execPath,
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync(candidate, ['--version'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      if (!probe.error && probe.status === 0) return candidate;
+    } catch {}
   }
+  return null;
 }
 
 function startGatewaySupervisorDetached(projectDir: string): boolean {
@@ -512,6 +517,44 @@ function startGatewaySupervisorDetached(projectDir: string): boolean {
   });
   child.unref();
   return true;
+}
+
+function shouldUseVisibleGatewayConsole(): boolean {
+  if (process.platform !== 'win32') return false;
+  const raw = String(process.env.MIYA_GATEWAY_CONSOLE_VISIBLE ?? '1')
+    .trim()
+    .toLowerCase();
+  return raw !== '0' && raw !== 'false' && raw !== 'no';
+}
+
+function startGatewaySupervisorVisibleConsole(projectDir: string): boolean {
+  if (!shouldUseVisibleGatewayConsole()) return false;
+  const script = resolveGatewaySupervisorScript(projectDir);
+  const nodeBin = resolveGatewaySupervisorNodeBin();
+  if (!script || !nodeBin) return false;
+
+  const now = Date.now();
+  const lastAt = gatewayConsoleLaunchAtByDir.get(projectDir) ?? 0;
+  if (now - lastAt < 15_000) return true;
+
+  try {
+    fs.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
+  } catch {}
+
+  try {
+    const command = `title miya-gateway && "${nodeBin}" "${script}" --workspace "${projectDir}" --verbose`;
+    const child = spawn('cmd.exe', ['/d', '/k', command], {
+      cwd: projectDir,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    });
+    child.unref();
+    gatewayConsoleLaunchAtByDir.set(projectDir, now);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function waitGatewayRuntimeHealthy(
@@ -539,7 +582,9 @@ async function ensureGatewayBackgroundSupervisor(
 
   const supervisor = readGatewaySupervisorState(projectDir);
   if (!supervisor || !isPidAlive(supervisor.pid)) {
-    const started = startGatewaySupervisorDetached(projectDir);
+    const started =
+      startGatewaySupervisorVisibleConsole(projectDir) ||
+      startGatewaySupervisorDetached(projectDir);
     if (!started) return null;
   }
 
