@@ -1608,7 +1608,12 @@ function clearGatewayStateFile(projectDir: string): void {
     fs.unlinkSync(gatewayFile(projectDir));
   } catch {}
   try {
-    fs.unlinkSync(gatewayGlobalStateFile());
+    const globalFile = gatewayGlobalStateFile();
+    const raw = safeReadJsonObject(globalFile);
+    const pid = Number(raw?.pid);
+    if (Number.isFinite(pid) && pid === process.pid) {
+      fs.unlinkSync(globalFile);
+    }
   } catch {}
 }
 
