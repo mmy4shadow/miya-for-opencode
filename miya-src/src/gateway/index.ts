@@ -2283,6 +2283,15 @@ function requireDomainRunning(projectDir: string, domain: PolicyDomain): void {
 }
 
 function requireOwnerMode(projectDir: string): void {
+  const disableByEnv =
+    process.env.MIYA_DISABLE_OWNER_CHECK === '1' ||
+    String(process.env.DISABLE_OWNER_CHECK ?? '').trim().toLowerCase() === 'true';
+  if (disableByEnv) return;
+  const config = readConfig(projectDir);
+  const strictOwnerCheck =
+    ((config.security as Record<string, unknown> | undefined)?.ownerCheck as boolean | undefined) ??
+    false;
+  if (!strictOwnerCheck) return;
   const state = readOwnerIdentityState(projectDir);
   if (state.mode !== 'owner') {
     throw new Error(`owner_mode_required:current=${state.mode}`);
@@ -8565,7 +8574,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         if (missingUiFallback) {
           logControlUiFallback(projectDir, url.pathname, controlUi, controlUiResponse.status);
         }
-        if (!missingUiFallback) return controlUiResponse;
+        return controlUiResponse;
       }
 
       if (url.pathname === '/webchat') {
@@ -8587,7 +8596,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         });
       }
 
-      if (url.pathname === '/' || url.pathname === '/index.html') {
+      if (url.pathname === '/legacy-console') {
         return new Response(renderConsoleHtml(buildSnapshot(projectDir, runtime)), {
           headers: {
             'content-type': 'text/html; charset=utf-8',

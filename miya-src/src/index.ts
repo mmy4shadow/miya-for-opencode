@@ -114,6 +114,10 @@ function autoUiOpenGuardFile(projectDir: string): string {
   return path.join(projectDir, '.opencode', 'miya', 'ui-auto-open.guard.json');
 }
 
+function dockLaunchGuardFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'dock-launch.guard.json');
+}
+
 function readLastAutoUiOpenAt(projectDir: string): number {
   const file = autoUiOpenGuardFile(projectDir);
   if (!fs.existsSync(file)) return 0;
@@ -128,6 +132,28 @@ function readLastAutoUiOpenAt(projectDir: string): number {
 
 function writeLastAutoUiOpenAt(projectDir: string, atMs: number): void {
   const file = autoUiOpenGuardFile(projectDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}\n`,
+    'utf-8',
+  );
+}
+
+function readLastDockLaunchAt(projectDir: string): number {
+  const file = dockLaunchGuardFile(projectDir);
+  if (!fs.existsSync(file)) return 0;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown };
+    const atMs = Number(parsed?.atMs ?? 0);
+    return Number.isFinite(atMs) ? atMs : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeLastDockLaunchAt(projectDir: string, atMs: number): void {
+  const file = dockLaunchGuardFile(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -174,7 +200,9 @@ function openUrlSilently(url: string): void {
 function launchDockSilently(projectDir: string): void {
   if (process.platform !== 'win32') return;
   const now = Date.now();
-  const lastAt = dockLaunchAtByDir.get(projectDir) ?? 0;
+  const lastAtInProcess = dockLaunchAtByDir.get(projectDir) ?? 0;
+  const lastAtCrossProcess = readLastDockLaunchAt(projectDir);
+  const lastAt = Math.max(lastAtInProcess, lastAtCrossProcess);
   if (now - lastAt < 30_000) return;
   const pidFile = path.join(
     projectDir,
@@ -198,6 +226,7 @@ function launchDockSilently(projectDir: string): void {
     windowsHide: true,
   });
   dockLaunchAtByDir.set(projectDir, now);
+  writeLastDockLaunchAt(projectDir, now);
   child.unref();
 }
 

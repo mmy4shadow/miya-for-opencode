@@ -451,6 +451,7 @@ export default function App() {
   const [memoryStatusFilter, setMemoryStatusFilter] = useState<MemoryStatusFilter>('all');
   const [memoryDomainFilter, setMemoryDomainFilter] = useState<MemoryDomainFilter>('all');
   const [memoryEditText, setMemoryEditText] = useState('');
+  const [identityMode, setIdentityMode] = useState<'owner' | 'guest' | 'unknown'>('unknown');
   const [expandedTaskLogs, setExpandedTaskLogs] = useState<Record<string, boolean>>({});
   const [trustModeForm, setTrustModeForm] = useState<TrustModeConfig>({
     silentMin: 90,
@@ -477,11 +478,11 @@ export default function App() {
       const status = (await statusRes.json()) as GatewaySnapshot;
       setSnapshot(status);
       const rpcErrors: string[] = [];
-      const [domainsResult, jobsResult, runsResult, memoryResult] = await Promise.allSettled([
+      const [domainsResult, jobsResult, runsResult, identityResult] = await Promise.allSettled([
         invokeGateway('policy.domains.list'),
         invokeGateway('cron.list'),
         invokeGateway('cron.runs.list', { limit: 80 }),
-        invokeGateway('companion.memory.vector.list'),
+        invokeGateway('security.identity.status'),
       ]);
 
       if (domainsResult.status === 'fulfilled') {
@@ -512,14 +513,35 @@ export default function App() {
             : String(runsResult.reason),
         );
       }
-      if (memoryResult.status === 'fulfilled') {
-        setMemories(Array.isArray(memoryResult.value) ? (memoryResult.value as MemoryRecord[]) : []);
+      let resolvedIdentityMode: 'owner' | 'guest' | 'unknown' = identityMode;
+      if (identityResult.status === 'fulfilled') {
+        const modeRaw = String((identityResult.value as { mode?: string }).mode ?? 'unknown');
+        const mode =
+          modeRaw === 'owner' || modeRaw === 'guest' || modeRaw === 'unknown' ? modeRaw : 'unknown';
+        resolvedIdentityMode = mode;
+        setIdentityMode(mode);
       } else {
         rpcErrors.push(
-          memoryResult.reason instanceof Error
-            ? memoryResult.reason.message
-            : String(memoryResult.reason),
+          identityResult.reason instanceof Error
+            ? identityResult.reason.message
+            : String(identityResult.reason),
         );
+      }
+      const shouldLoadMemory =
+        view === 'memory-list' || view === 'memory-detail' || resolvedIdentityMode === 'owner';
+      if (shouldLoadMemory) {
+        try {
+          const memoryRows = (await invokeGateway('companion.memory.vector.list')) as unknown;
+          setMemories(Array.isArray(memoryRows) ? (memoryRows as MemoryRecord[]) : []);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!message.includes('owner_mode_required')) {
+            rpcErrors.push(message);
+          }
+          if (resolvedIdentityMode !== 'owner') setMemories([]);
+        }
+      } else {
+        setMemories([]);
       }
       const tokenError = rpcErrors.find((item) => item.includes('invalid_gateway_token'));
       setConnected(Boolean(status.daemon?.connected) && !tokenError);
@@ -560,7 +582,7 @@ export default function App() {
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, []);
+  }, [identityMode, view]);
 
   const navigate = useCallback(
     (nextView: ControlView, id?: string) => {
@@ -1149,6 +1171,11 @@ export default function App() {
                   </select>
                 </div>
               </div>
+              {identityMode !== 'owner' ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  当前身份：{identityMode}。记忆编辑仅在 Owner 模式下可用；可先完成 `security.identity.init`。
+                </p>
+              ) : null}
               <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
                 {[
                   { key: 'all', label: '全部', count: memories.length },

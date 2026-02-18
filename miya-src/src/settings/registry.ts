@@ -482,6 +482,13 @@ export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
     description: '多模态单元测试模式（使用可追溯降级资产）。',
   }),
   entry({
+    key: 'security.ownerCheck',
+    type: 'boolean',
+    defaultValue: false,
+    risk: 'HIGH',
+    description: '是否强制 Owner 模式校验（默认关闭以避免本机控制台陷入 owner_mode_required 循环）。',
+  }),
+  entry({
     key: 'security.voiceprint.strict',
     type: 'boolean',
     defaultValue: true,
