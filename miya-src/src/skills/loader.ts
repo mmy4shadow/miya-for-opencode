@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseSkillFrontmatter } from './frontmatter';
 import { evaluateSkillGate } from './gating';
 
@@ -41,7 +42,7 @@ function listSkillDirs(rootDir: string): string[] {
 function builtinSkillRoots(projectDir: string): string[] {
   const roots = new Set<string>();
   roots.add(path.join(projectDir, 'miya-src', 'src', 'skills'));
-  roots.add(path.join(import.meta.dir));
+  roots.add(path.dirname(fileURLToPath(import.meta.url)));
   return [...roots];
 }
 

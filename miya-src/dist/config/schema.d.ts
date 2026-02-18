@@ -1,5 +1,5 @@
 import { z } from 'zod';
-declare const FALLBACK_AGENT_NAMES: readonly ["1-task-manager", "2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer"];
+declare const FALLBACK_AGENT_NAMES: readonly ["1-task-manager", "2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer", "7-code-simplicity-reviewer"];
 export type FallbackAgentName = (typeof FALLBACK_AGENT_NAMES)[number];
 export declare const AgentOverrideConfigSchema: z.ZodObject<{
     model: z.ZodOptional<z.ZodString>;
@@ -91,12 +91,15 @@ export declare const FailoverConfigSchema: z.ZodObject<{
         '4-architecture-advisor': z.ZodOptional<z.ZodArray<z.ZodString>>;
         '5-code-fixer': z.ZodOptional<z.ZodArray<z.ZodString>>;
         '6-ui-designer': z.ZodOptional<z.ZodArray<z.ZodString>>;
+        '7-code-simplicity-reviewer': z.ZodOptional<z.ZodArray<z.ZodString>>;
         orchestrator: z.ZodOptional<z.ZodArray<z.ZodString>>;
         explorer: z.ZodOptional<z.ZodArray<z.ZodString>>;
         librarian: z.ZodOptional<z.ZodArray<z.ZodString>>;
         oracle: z.ZodOptional<z.ZodArray<z.ZodString>>;
         fixer: z.ZodOptional<z.ZodArray<z.ZodString>>;
         designer: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        'code-simplicity-reviewer': z.ZodOptional<z.ZodArray<z.ZodString>>;
+        simplicity_reviewer: z.ZodOptional<z.ZodArray<z.ZodString>>;
     }, z.core.$strict>>;
 }, z.core.$strip>;
 export type FailoverConfig = z.infer<typeof FailoverConfigSchema>;
@@ -157,12 +160,15 @@ export declare const PluginConfigSchema: z.ZodObject<{
             '4-architecture-advisor': z.ZodOptional<z.ZodArray<z.ZodString>>;
             '5-code-fixer': z.ZodOptional<z.ZodArray<z.ZodString>>;
             '6-ui-designer': z.ZodOptional<z.ZodArray<z.ZodString>>;
+            '7-code-simplicity-reviewer': z.ZodOptional<z.ZodArray<z.ZodString>>;
             orchestrator: z.ZodOptional<z.ZodArray<z.ZodString>>;
             explorer: z.ZodOptional<z.ZodArray<z.ZodString>>;
             librarian: z.ZodOptional<z.ZodArray<z.ZodString>>;
             oracle: z.ZodOptional<z.ZodArray<z.ZodString>>;
             fixer: z.ZodOptional<z.ZodArray<z.ZodString>>;
             designer: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            'code-simplicity-reviewer': z.ZodOptional<z.ZodArray<z.ZodString>>;
+            simplicity_reviewer: z.ZodOptional<z.ZodArray<z.ZodString>>;
         }, z.core.$strict>>;
     }, z.core.$strip>>;
     slimCompat: z.ZodOptional<z.ZodObject<{

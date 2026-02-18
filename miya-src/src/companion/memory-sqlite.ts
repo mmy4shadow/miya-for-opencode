@@ -1,8 +1,8 @@
-import { Database } from 'bun:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import type { CompanionMemoryVector } from './memory-vector';
+import { openSqliteDatabase, type SqliteDatabase } from './sqlite-runtime';
 
 function memoryDir(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'memory');
@@ -12,9 +12,10 @@ function sqlitePath(projectDir: string): string {
   return path.join(memoryDir(projectDir), 'memories.sqlite');
 }
 
-function openDatabase(projectDir: string): Database {
+function openDatabase(projectDir: string): SqliteDatabase | null {
   fs.mkdirSync(memoryDir(projectDir), { recursive: true });
-  const db = new Database(sqlitePath(projectDir));
+  const db = openSqliteDatabase(sqlitePath(projectDir));
+  if (!db) return null;
   db.exec(`
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
@@ -104,9 +105,10 @@ export function syncCompanionMemoriesToSqlite(
   projectDir: string,
   items: CompanionMemoryVector[],
 ): void {
-  let db: Database | null = null;
+  let db: SqliteDatabase | null = null;
   try {
     db = openDatabase(projectDir);
+    if (!db) return;
     const upsertMemory = db.query(`
       INSERT INTO memories (
         id, subject, predicate, object, memory_kind, semantic_layer, learning_stage,
@@ -212,10 +214,19 @@ export function getCompanionMemorySqliteStats(projectDir: string): {
   graphCount: number;
   byLearningStage: Record<string, number>;
 } {
-  let db: Database | null = null;
+  let db: SqliteDatabase | null = null;
   const dbPath = sqlitePath(projectDir);
   try {
     db = openDatabase(projectDir);
+    if (!db) {
+      return {
+        sqlitePath: dbPath,
+        memoryCount: 0,
+        vectorCount: 0,
+        graphCount: 0,
+        byLearningStage: {},
+      };
+    }
     const memoryCount = Number(
       (
         db.query('SELECT COUNT(1) AS c FROM memories').get() as {

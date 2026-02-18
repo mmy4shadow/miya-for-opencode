@@ -70,8 +70,8 @@ function resolveGatewayWorkerScript(workspace: string): string | null {
     return bundled;
   }
   const fallbackCandidates = [
-    path.join(workspace, 'miya-src', 'src', 'cli', 'gateway-worker.ts'),
-    path.join(workspace, 'src', 'cli', 'gateway-worker.ts'),
+    path.join(workspace, 'miya-src', 'dist', 'cli', 'gateway-worker.node.js'),
+    path.join(workspace, 'dist', 'cli', 'gateway-worker.node.js'),
   ];
   for (const candidate of fallbackCandidates) {
     if (fs.existsSync(candidate)) {
@@ -81,17 +81,11 @@ function resolveGatewayWorkerScript(workspace: string): string | null {
   return null;
 }
 
-function resolveBunBin(): string | null {
-  const bunBin = String(process.env.MIYA_GATEWAY_BUN_BIN ?? 'bun').trim();
-  if (!bunBin) return null;
-  const probe = spawnSync(bunBin, ['--version'], {
-    stdio: 'ignore',
-    windowsHide: true,
-  });
-  if (probe.error || probe.status !== 0) {
-    return null;
-  }
-  return bunBin;
+function allowOpencodeFallback(): boolean {
+  const raw = String(process.env.MIYA_GATEWAY_OPENCODE_FALLBACK ?? '')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
 function resolveStartAttempts(
@@ -100,52 +94,56 @@ function resolveStartAttempts(
 ): StartAttempt[] {
   const attempts: StartAttempt[] = [];
   const workerScript = resolveGatewayWorkerScript(workspace);
-  const bunBin = resolveBunBin();
-  if (workerScript && bunBin) {
+  if (workerScript) {
     attempts.push({
-      bin: bunBin,
+      bin: process.execPath,
       args: [
         workerScript,
         '--workspace',
         workspace,
         ...(verbose ? ['--verbose'] : []),
       ],
-      label: `bun ${workerScript} --workspace ${workspace}${verbose ? ' --verbose' : ''}`,
+      label: `node ${workerScript} --workspace ${workspace}${verbose ? ' --verbose' : ''}`,
     });
   }
-  attempts.push(
-    {
-      bin: 'opencode',
-      args: [
-        'run',
-        '--model',
-        'openrouter/moonshotai/kimi-k2.5',
-        '--command',
-        'miya-gateway-start',
-        '--dir',
-        workspace,
-      ],
-      label: `opencode run --model openrouter/moonshotai/kimi-k2.5 --command miya-gateway-start --dir ${workspace}`,
-    },
-    {
-      bin: 'opencode',
-      args: [
-        'run',
-        '--model',
-        'opencode/big-pickle',
-        '--command',
-        'miya-gateway-start',
-        '--dir',
-        workspace,
-      ],
-      label: `opencode run --model opencode/big-pickle --command miya-gateway-start --dir ${workspace}`,
-    },
-    {
-      bin: 'opencode',
-      args: ['run', '--command', 'miya-gateway-start', '--dir', workspace],
-      label: `opencode run --command miya-gateway-start --dir ${workspace}`,
-    },
-  );
+  if (allowOpencodeFallback()) {
+    attempts.push(
+      {
+        bin: 'opencode',
+        args: [
+          'run',
+          '--model',
+          'openrouter/moonshotai/kimi-k2.5',
+          '--command',
+          'miya-gateway-start',
+          '--dir',
+          workspace,
+        ],
+        label: `opencode run --model openrouter/moonshotai/kimi-k2.5 --command miya-gateway-start --dir ${workspace}`,
+      },
+      {
+        bin: 'opencode',
+        args: [
+          'run',
+          '--model',
+          'opencode/big-pickle',
+          '--command',
+          'miya-gateway-start',
+          '--dir',
+          workspace,
+        ],
+        label: `opencode run --model opencode/big-pickle --command miya-gateway-start --dir ${workspace}`,
+      },
+      {
+        bin: 'opencode',
+        args: ['run', '--command', 'miya-gateway-start', '--dir', workspace],
+        label: `opencode run --command miya-gateway-start --dir ${workspace}`,
+      },
+    );
+  }
+  if (attempts.length === 0) {
+    throw new Error('gateway_worker_script_missing');
+  }
   return attempts;
 }
 

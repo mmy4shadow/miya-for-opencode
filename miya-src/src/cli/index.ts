@@ -403,11 +403,11 @@ async function runGatewayStart(
   if (guard?.status === 'starting') {
     const ageMs = now - Date.parse(guard.updatedAt);
     if (ageMs < 30_000) {
-      return false;
+      return true;
     }
   }
   if (guard?.cooldownUntil && now < Date.parse(guard.cooldownUntil)) {
-    return false;
+    return true;
   }
   writeGatewayStartGuard(workspace, {
     status: 'starting',

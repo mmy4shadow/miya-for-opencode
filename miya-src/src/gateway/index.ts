@@ -1313,11 +1313,49 @@ function ensureDir(file: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
 }
 
+function isRetryableAtomicReplaceError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = String((error as { code?: unknown }).code ?? '').toUpperCase();
+  return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
+}
+
 function writeJsonAtomic(file: string, payload: unknown): void {
   ensureDir(file);
-  const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
-  fs.renameSync(tmp, file);
+  const content = `${JSON.stringify(payload, null, 2)}\n`;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const tmp = `${file}.tmp.${process.pid}.${Date.now()}.${attempt}`;
+    fs.writeFileSync(tmp, content, 'utf-8');
+    try {
+      fs.renameSync(tmp, file);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableAtomicReplaceError(error)) {
+        try {
+          fs.unlinkSync(tmp);
+        } catch {}
+        throw error;
+      }
+      try {
+        fs.copyFileSync(tmp, file);
+        fs.unlinkSync(tmp);
+        return;
+      } catch (copyError) {
+        lastError = copyError;
+        try {
+          fs.unlinkSync(tmp);
+        } catch {}
+      }
+    }
+  }
+  try {
+    fs.writeFileSync(file, content, 'utf-8');
+    return;
+  } catch {}
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('gateway_state_write_failed');
 }
 
 function safeReadJsonObject(file: string): Record<string, unknown> | null {

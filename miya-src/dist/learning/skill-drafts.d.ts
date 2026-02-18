@@ -1,5 +1,5 @@
-import type { RalphLoopResult } from '../ralph';
 import type { CompanionMemoryVector } from '../companion/memory-vector';
+import type { RalphLoopResult } from '../ralph';
 export type SkillDraftStatus = 'draft' | 'recommended' | 'accepted' | 'rejected';
 export type SkillDraftSource = 'ralph' | 'reflect';
 export interface SkillDraft {

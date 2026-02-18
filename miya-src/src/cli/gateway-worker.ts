@@ -1,6 +1,7 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { ensureBunNodeCompat } from './bun-node-compat';
 import { ensureGatewayRunning, stopGateway } from '../gateway';
 
 interface GatewayWorkerArgs {
@@ -46,6 +47,7 @@ function parseArgs(argv: string[]): GatewayWorkerArgs {
 }
 
 async function main(): Promise<void> {
+  ensureBunNodeCompat();
   const args = parseArgs(process.argv.slice(2));
   const state = ensureGatewayRunning(args.workspace);
   if (args.verbose) {

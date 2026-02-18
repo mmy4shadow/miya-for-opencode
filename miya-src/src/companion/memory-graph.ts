@@ -1,7 +1,7 @@
-import { Database } from 'bun:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
+import { openSqliteDatabase, type SqliteDatabase } from './sqlite-runtime';
 
 export interface CompanionMemoryGraphEdge {
   memoryID: string;
@@ -25,9 +25,10 @@ function sqlitePath(projectDir: string): string {
   return path.join(memoryDir(projectDir), 'memories.sqlite');
 }
 
-function openGraphDb(projectDir: string): Database {
+function openGraphDb(projectDir: string): SqliteDatabase | null {
   fs.mkdirSync(memoryDir(projectDir), { recursive: true });
-  const db = new Database(sqlitePath(projectDir));
+  const db = openSqliteDatabase(sqlitePath(projectDir));
+  if (!db) return null;
   db.exec(`
     CREATE TABLE IF NOT EXISTS long_term_graph (
       memory_id TEXT PRIMARY KEY,
@@ -87,9 +88,10 @@ export function searchCompanionMemoryGraph(
     typeof options?.minConfidence === 'number'
       ? Math.max(0, Math.min(1, options.minConfidence))
       : 0;
-  let db: Database | null = null;
+  let db: SqliteDatabase | null = null;
   try {
     db = openGraphDb(projectDir);
+    if (!db) return [];
     const like = `%${text.replace(/[%_]/g, '')}%`;
     const layer =
       typeof options?.semanticLayer === 'string'
@@ -162,9 +164,10 @@ export function listCompanionMemoryGraphNeighbors(
   const text = String(entity ?? '').trim();
   if (!text) return [];
   const safeLimit = Math.max(1, Math.min(80, Math.floor(limit)));
-  let db: Database | null = null;
+  let db: SqliteDatabase | null = null;
   try {
     db = openGraphDb(projectDir);
+    if (!db) return [];
     const like = `%${text.replace(/[%_]/g, '')}%`;
     const rows = db
       .query(
@@ -208,9 +211,17 @@ export function getCompanionMemoryGraphStats(projectDir: string): {
   byLayer: Record<string, number>;
   updatedAt?: string;
 } {
-  let db: Database | null = null;
+  let db: SqliteDatabase | null = null;
   try {
     db = openGraphDb(projectDir);
+    if (!db) {
+      return {
+        sqlitePath: sqlitePath(projectDir),
+        edgeCount: 0,
+        avgConfidence: 0,
+        byLayer: {},
+      };
+    }
     const row = db
       .query(
         `

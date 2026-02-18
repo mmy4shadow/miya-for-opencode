@@ -160,3 +160,13 @@ export declare function confirmCompanionMemoryVector(projectDir: string, input: 
     evidence?: string[];
 }): CompanionMemoryVector | null;
 export declare function getCompanionMemoryVector(projectDir: string, memoryID: string): CompanionMemoryVector | null;
+export declare function updateCompanionMemoryVector(projectDir: string, input: {
+    memoryID: string;
+    text: string;
+    domain?: MemoryDomain;
+    memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
+}): CompanionMemoryVector | null;
+export declare function archiveCompanionMemoryVector(projectDir: string, input: {
+    memoryID: string;
+    archived: boolean;
+}): CompanionMemoryVector | null;

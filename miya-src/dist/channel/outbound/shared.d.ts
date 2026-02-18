@@ -1,4 +1,4 @@
-import { type DesktopAutomationAcceptanceSnapshot, type AutomationRisk, type DesktopActionPlan, type DesktopPerceptionRoute } from './vision-action-bridge';
+import { type AutomationRisk, type DesktopActionPlan, type DesktopAutomationAcceptanceSnapshot, type DesktopPerceptionRoute } from './vision-action-bridge';
 export interface DesktopOutboundResult {
     sent: boolean;
     message: string;

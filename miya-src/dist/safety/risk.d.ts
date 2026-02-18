@@ -1,4 +1,4 @@
-import { type SafetyTier } from './tier';
+import type { SafetyTier } from './tier';
 export interface SafetyPermissionRequest {
     sessionID: string;
     permission: string;

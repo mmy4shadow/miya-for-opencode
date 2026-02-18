@@ -15,7 +15,7 @@ var __export = (target, all) => {
 import { spawn as spawn2, spawnSync as spawnSync8 } from "child_process";
 import * as fs20 from "fs";
 import * as path21 from "path";
-import { fileURLToPath as fileURLToPath3 } from "url";
+import { fileURLToPath as fileURLToPath4 } from "url";
 
 // src/nodes/client.ts
 import { randomUUID as randomUUID7 } from "crypto";
@@ -28,7 +28,7 @@ import { spawn } from "child_process";
 import { randomUUID as randomUUID6 } from "crypto";
 import * as fs17 from "fs";
 import * as path18 from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath as fileURLToPath2 } from "url";
 
 // src/settings/registry.ts
 function entry(input) {
@@ -33696,7 +33696,8 @@ var websearch = {
 };
 // src/multimodal/vision-regression.ts
 import * as path15 from "path";
-var FIXTURE_FILE = path15.join(import.meta.dir, "fixtures", "desktop-outbound-ocr-regression.json");
+import { fileURLToPath } from "url";
+var FIXTURE_FILE = path15.join(path15.dirname(fileURLToPath(import.meta.url)), "fixtures", "desktop-outbound-ocr-regression.json");
 // src/nodes/index.ts
 var HEARTBEAT_STALE_MS = 2 * 60 * 1000;
 
@@ -34915,7 +34916,7 @@ function writeLauncherPersistedState(runtime) {
   });
 }
 function resolveHostScriptPath() {
-  const here = path18.dirname(fileURLToPath(import.meta.url));
+  const here = path18.dirname(fileURLToPath2(import.meta.url));
   const tsFile = path18.join(here, "host.ts");
   const jsFile = path18.join(here, "host.js");
   if (fs17.existsSync(tsFile))
@@ -36267,8 +36268,8 @@ import {
   statSync
 } from "fs";
 import { homedir as homedir2 } from "os";
-import { dirname as dirname11, join as join21 } from "path";
-import { fileURLToPath as fileURLToPath2 } from "url";
+import { dirname as dirname12, join as join21 } from "path";
+import { fileURLToPath as fileURLToPath3 } from "url";
 var CUSTOM_SKILLS = [
   {
     name: "cartography",
@@ -36295,7 +36296,7 @@ function copyDirRecursive(src, dest) {
     if (stat.isDirectory()) {
       copyDirRecursive(srcPath, destPath);
     } else {
-      const destDir = dirname11(destPath);
+      const destDir = dirname12(destPath);
       if (!existsSync17(destDir)) {
         mkdirSync14(destDir, { recursive: true });
       }
@@ -36305,7 +36306,7 @@ function copyDirRecursive(src, dest) {
 }
 function installCustomSkill(skill) {
   try {
-    const packageRoot = fileURLToPath2(new URL("../..", import.meta.url));
+    const packageRoot = fileURLToPath3(new URL("../..", import.meta.url));
     const sourcePath = join21(packageRoot, skill.sourcePath);
     const targetPath = join21(getCustomSkillsDir(), skill.name);
     if (!existsSync17(sourcePath)) {
@@ -38190,7 +38191,7 @@ function resolveNodeBin() {
   return nodeBin;
 }
 function resolveGatewaySupervisorScriptPath() {
-  const script = fileURLToPath3(new URL("./gateway-supervisor.node.js", import.meta.url));
+  const script = fileURLToPath4(new URL("./gateway-supervisor.node.js", import.meta.url));
   if (!fs20.existsSync(script)) {
     throw new Error(`gateway_supervisor_script_missing:${script} (run \`bun run build\` in miya-src)`);
   }
@@ -38272,11 +38273,11 @@ async function runGatewayStart(cwd, options = {}) {
   if (guard?.status === "starting") {
     const ageMs = now - Date.parse(guard.updatedAt);
     if (ageMs < 30000) {
-      return false;
+      return true;
     }
   }
   if (guard?.cooldownUntil && now < Date.parse(guard.cooldownUntil)) {
-    return false;
+    return true;
   }
   writeGatewayStartGuard(workspace, {
     status: "starting",

@@ -3,6 +3,7 @@ export declare function readAutomationState(projectDir: string): MiyaAutomationS
 export declare function writeAutomationState(projectDir: string, state: MiyaAutomationState): void;
 export declare function appendHistoryRecord(projectDir: string, record: MiyaJobHistoryRecord): void;
 export declare function readHistoryRecords(projectDir: string, limit: number): MiyaJobHistoryRecord[];
+export declare function removeHistoryRecord(projectDir: string, runId: string): boolean;
 export declare function createJobId(): string;
 export declare function createApprovalId(): string;
 export declare function createHistoryId(): string;

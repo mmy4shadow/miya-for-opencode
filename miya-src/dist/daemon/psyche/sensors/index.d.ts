@@ -9,4 +9,4 @@ export interface NativeSentinelSignalSample {
     captureLimitations: string[];
 }
 export declare function collectNativeSentinelSignals(): NativeSentinelSignalSample;
-export { sampleInputSignal, sampleForegroundSignal, sampleAudioSignal, sampleGamepadSignal };
+export { sampleInputSignal, sampleForegroundSignal, sampleAudioSignal, sampleGamepadSignal, };

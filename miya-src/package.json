@@ -36,7 +36,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm && bun build src/cli/index.ts --outdir dist/cli --target bun --format esm && bun build src/cli/gateway-supervisor.ts --outfile dist/cli/gateway-supervisor.node.js --target node --format esm && tsc --emitDeclarationOnly",
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm && bun build src/cli/index.ts --outdir dist/cli --target bun --format esm && bun build src/cli/gateway-supervisor.ts --outfile dist/cli/gateway-supervisor.node.js --target node --format esm && bun build src/cli/gateway-worker.ts --outfile dist/cli/gateway-worker.node.js --target node --format esm && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "test": "bun test --max-concurrency=1",
     "test:regression": "bun test --max-concurrency=1 src/regression",
@@ -64,9 +64,11 @@
     "@opencode-ai/sdk": "^1.1.56",
     "vscode-jsonrpc": "^8.2.0",
     "vscode-languageserver-protocol": "^3.17.5",
+    "ws": "^8.18.3",
     "zod": "^4.1.8"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "@biomejs/biome": "2.3.11",
     "bun-types": "latest",
     "typescript": "^5.7.3"

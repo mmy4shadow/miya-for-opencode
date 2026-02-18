@@ -1,7 +1,8 @@
 export declare const AGENT_ALIASES: Record<string, string>;
 export declare const SUBAGENT_NAMES: readonly ["2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer"];
 export declare const ORCHESTRATOR_NAME: "1-task-manager";
-export declare const ALL_AGENT_NAMES: readonly ["1-task-manager", "2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer"];
+export declare const CODE_SIMPLICITY_REVIEWER_NAME: "7-code-simplicity-reviewer";
+export declare const ALL_AGENT_NAMES: readonly ["1-task-manager", "2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer", "7-code-simplicity-reviewer"];
 export type AgentName = (typeof ALL_AGENT_NAMES)[number];
 export declare const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]>;
 export declare const DEFAULT_MODELS: Record<AgentName, string>;

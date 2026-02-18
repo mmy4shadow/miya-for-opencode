@@ -1,6 +1,6 @@
-import { type SentinelSignals, type SentinelState } from './state-machine';
-import { type NativeSentinelSignalSample } from './sensors';
 import { type ScreenProbeResult } from './screen-probe';
+import { type NativeSentinelSignalSample } from './sensors';
+import { type SentinelSignals, type SentinelState } from './state-machine';
 import { type TrustTier } from './trust';
 export type PsycheUrgency = 'low' | 'medium' | 'high' | 'critical';
 export type PsycheDecision = 'allow' | 'defer' | 'deny';

@@ -1,6 +1,6 @@
 import type { RouteExecutionPlan } from '../router';
-import type { GatewayMode } from './sanitizer';
 import type { ModeKernelResult } from './mode-kernel';
+import type { GatewayMode } from './sanitizer';
 export interface SafetySignal {
     blocked: boolean;
     reason?: string;

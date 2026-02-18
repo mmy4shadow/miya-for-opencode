@@ -20,6 +20,26 @@ export interface SourcePackSmokeRecord {
     missingFiles: string[];
     checkedAt: string;
 }
+export interface SourcePackRegressionRecord {
+    ok: boolean;
+    requiredFiles: string[];
+    missingFiles: string[];
+    requireTestArtifacts: boolean;
+    testArtifacts: string[];
+    checkedAt: string;
+}
+export interface SourcePackSecurityRecord {
+    ok: boolean;
+    strict: boolean;
+    requirePermissionMetadata: boolean;
+    checkedSkillFiles: string[];
+    missingPermissionMetadata: string[];
+    disallowedPermissions: Array<{
+        skillFile: string;
+        permission: string;
+    }>;
+    checkedAt: string;
+}
 export interface SourcePackGovernanceRecord {
     sourcePackID: string;
     revision: string;
@@ -27,6 +47,8 @@ export interface SourcePackGovernanceRecord {
     signature: SourcePackSignatureRecord;
     compatibility: SourcePackCompatibilityMatrix;
     smoke: SourcePackSmokeRecord;
+    regression?: SourcePackRegressionRecord;
+    security?: SourcePackSecurityRecord;
     updatedAt: string;
 }
 export declare function refreshSourcePackGovernance(projectDir: string, input: {
@@ -39,10 +61,13 @@ export declare function verifySourcePackGovernance(projectDir: string, input: {
     sourcePackID: string;
     localDir: string;
     revision: string;
+    strict?: boolean;
 }): {
     signatureValid: boolean;
     lockValid: boolean;
     compatibilityValid: boolean;
     smokeValid: boolean;
+    regressionValid: boolean;
+    securityValid: boolean;
     record?: SourcePackGovernanceRecord;
 };

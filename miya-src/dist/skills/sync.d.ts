@@ -100,6 +100,21 @@ export declare function verifySourcePackGovernance(projectDir: string, sourcePac
     lockValid: boolean;
     compatibilityValid: boolean;
     smokeValid: boolean;
+    regressionValid: boolean;
+    securityValid: boolean;
+    governance?: SourcePackGovernanceRecord;
+};
+export declare function preflightSourcePackGovernance(projectDir: string, sourcePackID: string, options?: EcosystemBridgeOptions): {
+    sourcePackID: string;
+    localDir: string;
+    revision: string;
+    signatureValid: boolean;
+    lockValid: boolean;
+    compatibilityValid: boolean;
+    smokeValid: boolean;
+    regressionValid: boolean;
+    securityValid: boolean;
+    pass: boolean;
     governance?: SourcePackGovernanceRecord;
 };
 export {};

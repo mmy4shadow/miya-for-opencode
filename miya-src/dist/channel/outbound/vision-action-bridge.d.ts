@@ -17,8 +17,8 @@ declare const desktopIntentSchema: z.ZodObject<{
     hasMedia: z.ZodBoolean;
     risk: z.ZodDefault<z.ZodEnum<{
         LOW: "LOW";
-        MEDIUM: "MEDIUM";
         HIGH: "HIGH";
+        MEDIUM: "MEDIUM";
     }>>;
 }, z.core.$strip>;
 declare const somCandidateSchema: z.ZodObject<{
@@ -89,12 +89,12 @@ declare const actionPlanStepSchema: z.ZodObject<{
     id: z.ZodString;
     kind: z.ZodEnum<{
         focus_window: "focus_window";
+        submit_send: "submit_send";
         resolve_target: "resolve_target";
         prepare_media: "prepare_media";
         commit_media: "commit_media";
         prepare_text: "prepare_text";
         commit_text: "commit_text";
-        submit_send: "submit_send";
         verify_receipt: "verify_receipt";
     }>;
     via: z.ZodEnum<{
@@ -127,8 +127,8 @@ declare const desktopActionPlanSchema: z.ZodObject<{
         hasMedia: z.ZodBoolean;
         risk: z.ZodDefault<z.ZodEnum<{
             LOW: "LOW";
-            MEDIUM: "MEDIUM";
             HIGH: "HIGH";
+            MEDIUM: "MEDIUM";
         }>>;
     }, z.core.$strip>;
     screen_state: z.ZodObject<{
@@ -240,16 +240,65 @@ declare const desktopActionPlanSchema: z.ZodObject<{
                 promoteReplaySkillOnSuccess: z.ZodLiteral<true>;
             }, z.core.$strip>;
         }, z.core.$strip>;
+        humanActions: z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            kind: z.ZodEnum<{
+                type: "type";
+                focus: "focus";
+                click: "click";
+                hotkey: "hotkey";
+                scroll: "scroll";
+                drag: "drag";
+                assert: "assert";
+            }>;
+            route: z.ZodDefault<z.ZodEnum<{
+                L0_ACTION_MEMORY: "L0_ACTION_MEMORY";
+                L1_UIA: "L1_UIA";
+                L2_OCR: "L2_OCR";
+                L3_SOM_VLM: "L3_SOM_VLM";
+            }>>;
+            target: z.ZodOptional<z.ZodObject<{
+                mode: z.ZodEnum<{
+                    text: "text";
+                    window: "window";
+                    coordinates: "coordinates";
+                    selector: "selector";
+                }>;
+                value: z.ZodOptional<z.ZodString>;
+                point: z.ZodOptional<z.ZodObject<{
+                    x: z.ZodNumber;
+                    y: z.ZodNumber;
+                }, z.core.$strip>>;
+            }, z.core.$strip>>;
+            text: z.ZodOptional<z.ZodString>;
+            keys: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            scrollDeltaY: z.ZodOptional<z.ZodNumber>;
+            dragTo: z.ZodOptional<z.ZodObject<{
+                x: z.ZodNumber;
+                y: z.ZodNumber;
+            }, z.core.$strip>>;
+            assert: z.ZodOptional<z.ZodObject<{
+                type: z.ZodEnum<{
+                    text: "text";
+                    image: "image";
+                    window: "window";
+                }>;
+                expected: z.ZodString;
+                contains: z.ZodDefault<z.ZodBoolean>;
+            }, z.core.$strip>>;
+            timeoutMs: z.ZodOptional<z.ZodNumber>;
+            notes: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>>;
         steps: z.ZodArray<z.ZodObject<{
             id: z.ZodString;
             kind: z.ZodEnum<{
                 focus_window: "focus_window";
+                submit_send: "submit_send";
                 resolve_target: "resolve_target";
                 prepare_media: "prepare_media";
                 commit_media: "commit_media";
                 prepare_text: "prepare_text";
                 commit_text: "commit_text";
-                submit_send: "submit_send";
                 verify_receipt: "verify_receipt";
             }>;
             via: z.ZodEnum<{

@@ -11,6 +11,7 @@ export declare class MiyaAutomationService {
     listJobs(): MiyaJob[];
     listApprovals(): MiyaApprovalRequest[];
     listHistory(limit?: number): MiyaJobHistoryRecord[];
+    deleteHistoryRecord(runId: string): boolean;
     scheduleDailyCommand(input: {
         name: string;
         time: string;

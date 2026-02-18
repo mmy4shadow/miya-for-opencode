@@ -1,7 +1,5 @@
 import { type NativeSentinelSignalSample } from './sensors';
-interface SignalHubCollector {
-    (): NativeSentinelSignalSample;
-}
+type SignalHubCollector = () => NativeSentinelSignalSample;
 export interface PsycheNativeSignalHubStatus {
     running: boolean;
     sequence: number;

@@ -1,8 +1,8 @@
-export type { ChannelName, ChannelPairRequest, ChannelState, ChannelStore } from '../channels/types';
-export { CHANNEL_NAMES, isChannelName } from '../channels/types';
 export type { ChannelDirection } from '../channels/policy';
-import type { ChannelName } from '../channels/types';
+export type { ChannelName, ChannelPairRequest, ChannelState, ChannelStore, } from '../channels/types';
+export { CHANNEL_NAMES, isChannelName } from '../channels/types';
 import type { ChannelDirection } from '../channels/policy';
+import type { ChannelName } from '../channels/types';
 export interface ChannelConfig {
     id: string;
     type: ChannelName;

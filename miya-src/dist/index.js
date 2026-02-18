@@ -21687,7 +21687,7 @@ import { spawn as spawn5 } from "child_process";
 import { randomUUID as randomUUID27 } from "crypto";
 import * as fs70 from "fs";
 import * as path69 from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath as fileURLToPath3 } from "url";
 
 // src/settings/registry.ts
 function entry(input) {
@@ -41786,9 +41786,109 @@ function embedTextWithProvider(projectDir, text) {
 }
 
 // src/companion/memory-sqlite.ts
-import { Database } from "bun:sqlite";
 import * as fs29 from "fs";
 import * as path31 from "path";
+
+// src/companion/sqlite-runtime.ts
+import { createRequire } from "module";
+var cachedBackend;
+function resolveBunBackend(require2) {
+  try {
+    const mod = require2("bun:sqlite");
+    const BunDatabase = mod?.Database;
+    if (typeof BunDatabase !== "function")
+      return null;
+    return {
+      open(file3) {
+        const db = new BunDatabase(file3);
+        return {
+          exec(sql) {
+            db.exec(sql);
+          },
+          query(sql) {
+            const statement = db.query(sql);
+            return {
+              run: (...args) => statement.run(...args),
+              get: (...args) => statement.get(...args),
+              all: (...args) => statement.all(...args)
+            };
+          },
+          transaction(callback) {
+            return db.transaction(callback);
+          },
+          close() {
+            db.close();
+          }
+        };
+      }
+    };
+  } catch {
+    return null;
+  }
+}
+function resolveNodeBackend(require2) {
+  try {
+    const mod = require2("node:sqlite");
+    const DatabaseSync = mod?.DatabaseSync;
+    if (typeof DatabaseSync !== "function")
+      return null;
+    return {
+      open(file3) {
+        const db = new DatabaseSync(file3);
+        return {
+          exec(sql) {
+            db.exec(sql);
+          },
+          query(sql) {
+            return {
+              run: (...args) => db.prepare(sql).run(...args),
+              get: (...args) => db.prepare(sql).get(...args),
+              all: (...args) => db.prepare(sql).all(...args)
+            };
+          },
+          transaction(callback) {
+            return () => {
+              db.exec("BEGIN IMMEDIATE");
+              try {
+                callback();
+                db.exec("COMMIT");
+              } catch (error92) {
+                try {
+                  db.exec("ROLLBACK");
+                } catch {}
+                throw error92;
+              }
+            };
+          },
+          close() {
+            db.close();
+          }
+        };
+      }
+    };
+  } catch {
+    return null;
+  }
+}
+function resolveBackend() {
+  if (cachedBackend !== undefined)
+    return cachedBackend;
+  const require2 = createRequire(import.meta.url);
+  cachedBackend = resolveBunBackend(require2) ?? resolveNodeBackend(require2);
+  return cachedBackend;
+}
+function openSqliteDatabase(file3) {
+  const backend = resolveBackend();
+  if (!backend)
+    return null;
+  try {
+    return backend.open(file3);
+  } catch {
+    return null;
+  }
+}
+
+// src/companion/memory-sqlite.ts
 function memoryDir(projectDir) {
   return path31.join(getMiyaRuntimeDir(projectDir), "memory");
 }
@@ -41797,7 +41897,9 @@ function sqlitePath(projectDir) {
 }
 function openDatabase(projectDir) {
   fs29.mkdirSync(memoryDir(projectDir), { recursive: true });
-  const db = new Database(sqlitePath(projectDir));
+  const db = openSqliteDatabase(sqlitePath(projectDir));
+  if (!db)
+    return null;
   db.exec(`
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
@@ -41881,6 +41983,8 @@ function syncCompanionMemoriesToSqlite(projectDir, items) {
   let db = null;
   try {
     db = openDatabase(projectDir);
+    if (!db)
+      return;
     const upsertMemory = db.query(`
       INSERT INTO memories (
         id, subject, predicate, object, memory_kind, semantic_layer, learning_stage,
@@ -41949,6 +42053,15 @@ function getCompanionMemorySqliteStats(projectDir) {
   const dbPath = sqlitePath(projectDir);
   try {
     db = openDatabase(projectDir);
+    if (!db) {
+      return {
+        sqlitePath: dbPath,
+        memoryCount: 0,
+        vectorCount: 0,
+        graphCount: 0,
+        byLearningStage: {}
+      };
+    }
     const memoryCount = Number(db.query("SELECT COUNT(1) AS c FROM memories").get()?.c ?? 0);
     const vectorCount = Number(db.query("SELECT COUNT(1) AS c FROM memories_vss").get()?.c ?? 0);
     const graphCount = Number(db.query("SELECT COUNT(1) AS c FROM long_term_graph").get()?.c ?? 0);
@@ -42840,7 +42953,6 @@ function readCompanionLearningMetrics(projectDir, input) {
 }
 
 // src/companion/memory-graph.ts
-import { Database as Database2 } from "bun:sqlite";
 import * as fs31 from "fs";
 import * as path33 from "path";
 function memoryDir2(projectDir) {
@@ -42851,7 +42963,9 @@ function sqlitePath2(projectDir) {
 }
 function openGraphDb(projectDir) {
   fs31.mkdirSync(memoryDir2(projectDir), { recursive: true });
-  const db = new Database2(sqlitePath2(projectDir));
+  const db = openSqliteDatabase(sqlitePath2(projectDir));
+  if (!db)
+    return null;
   db.exec(`
     CREATE TABLE IF NOT EXISTS long_term_graph (
       memory_id TEXT PRIMARY KEY,
@@ -42897,6 +43011,8 @@ function searchCompanionMemoryGraph(projectDir, query, limit = 8, options) {
   let db = null;
   try {
     db = openGraphDb(projectDir);
+    if (!db)
+      return [];
     const like = `%${text.replace(/[%_]/g, "")}%`;
     const layer = typeof options?.semanticLayer === "string" ? options.semanticLayer.trim() : "";
     const domain3 = typeof options?.domain === "string" ? options.domain.trim() : "";
@@ -42952,6 +43068,8 @@ function listCompanionMemoryGraphNeighbors(projectDir, entity, limit = 12) {
   let db = null;
   try {
     db = openGraphDb(projectDir);
+    if (!db)
+      return [];
     const like = `%${text.replace(/[%_]/g, "")}%`;
     const rows = db.query(`
           SELECT
@@ -42987,6 +43105,14 @@ function getCompanionMemoryGraphStats(projectDir) {
   let db = null;
   try {
     db = openGraphDb(projectDir);
+    if (!db) {
+      return {
+        sqlitePath: sqlitePath2(projectDir),
+        edgeCount: 0,
+        avgConfidence: 0,
+        byLayer: {}
+      };
+    }
     const row = db.query(`
           SELECT
             COUNT(1) AS edgeCount,
@@ -48752,7 +48878,8 @@ function detectMultimodalIntent(text) {
 }
 // src/multimodal/vision-regression.ts
 import * as path46 from "path";
-var FIXTURE_FILE = path46.join(import.meta.dir, "fixtures", "desktop-outbound-ocr-regression.json");
+import { fileURLToPath } from "url";
+var FIXTURE_FILE = path46.join(path46.dirname(fileURLToPath(import.meta.url)), "fixtures", "desktop-outbound-ocr-regression.json");
 // src/multimodal/voice.ts
 import * as fs49 from "fs";
 import * as path48 from "path";
@@ -52110,6 +52237,7 @@ function dequeueSessionMessage(projectDir, sessionID) {
 import * as fs60 from "fs";
 import * as os7 from "os";
 import * as path59 from "path";
+import { fileURLToPath as fileURLToPath2 } from "url";
 
 // src/skills/frontmatter.ts
 var LIST_KEYS = new Set(["bins", "env", "platforms", "permissions"]);
@@ -52224,7 +52352,7 @@ function listSkillDirs(rootDir) {
 function builtinSkillRoots(projectDir) {
   const roots = new Set;
   roots.add(path59.join(projectDir, "miya-src", "src", "skills"));
-  roots.add(path59.join(import.meta.dir));
+  roots.add(path59.dirname(fileURLToPath2(import.meta.url)));
   return [...roots];
 }
 function enforcePermissionMetadataGate(source, frontmatter, gate) {
@@ -55210,12 +55338,48 @@ function gatewayOwnerLockFile(projectDir) {
 function ensureDir25(file3) {
   fs68.mkdirSync(path67.dirname(file3), { recursive: true });
 }
+function isRetryableAtomicReplaceError(error92) {
+  if (!error92 || typeof error92 !== "object")
+    return false;
+  const code = String(error92.code ?? "").toUpperCase();
+  return code === "EPERM" || code === "EACCES" || code === "EBUSY";
+}
 function writeJsonAtomic(file3, payload) {
   ensureDir25(file3);
-  const tmp = `${file3}.tmp.${process.pid}.${Date.now()}`;
-  fs68.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}
-`, "utf-8");
-  fs68.renameSync(tmp, file3);
+  const content = `${JSON.stringify(payload, null, 2)}
+`;
+  let lastError;
+  for (let attempt = 0;attempt < 4; attempt += 1) {
+    const tmp = `${file3}.tmp.${process.pid}.${Date.now()}.${attempt}`;
+    fs68.writeFileSync(tmp, content, "utf-8");
+    try {
+      fs68.renameSync(tmp, file3);
+      return;
+    } catch (error92) {
+      lastError = error92;
+      if (!isRetryableAtomicReplaceError(error92)) {
+        try {
+          fs68.unlinkSync(tmp);
+        } catch {}
+        throw error92;
+      }
+      try {
+        fs68.copyFileSync(tmp, file3);
+        fs68.unlinkSync(tmp);
+        return;
+      } catch (copyError) {
+        lastError = copyError;
+        try {
+          fs68.unlinkSync(tmp);
+        } catch {}
+      }
+    }
+  }
+  try {
+    fs68.writeFileSync(file3, content, "utf-8");
+    return;
+  } catch {}
+  throw lastError instanceof Error ? lastError : new Error("gateway_state_write_failed");
 }
 function safeReadJsonObject(file3) {
   if (!fs68.existsSync(file3))
@@ -62635,7 +62799,7 @@ function writeLauncherPersistedState(runtime) {
   });
 }
 function resolveHostScriptPath() {
-  const here = path69.dirname(fileURLToPath(import.meta.url));
+  const here = path69.dirname(fileURLToPath3(import.meta.url));
   const tsFile = path69.join(here, "host.ts");
   const jsFile = path69.join(here, "host.js");
   if (fs70.existsSync(tsFile))
@@ -65266,19 +65430,19 @@ var {spawn: spawn6 } = globalThis.Bun;
 
 // src/tools/ast-grep/constants.ts
 import { existsSync as existsSync65, statSync as statSync3 } from "fs";
-import { createRequire as createRequire2 } from "module";
-import { dirname as dirname46, join as join71 } from "path";
+import { createRequire as createRequire3 } from "module";
+import { dirname as dirname48, join as join71 } from "path";
 
 // src/tools/ast-grep/downloader.ts
 import { chmodSync, existsSync as existsSync64, mkdirSync as mkdirSync56, unlinkSync as unlinkSync3 } from "fs";
-import { createRequire } from "module";
+import { createRequire as createRequire2 } from "module";
 import { homedir as homedir7 } from "os";
 import { join as join70 } from "path";
 var REPO = "ast-grep/ast-grep";
 var DEFAULT_VERSION = "0.40.0";
 function getAstGrepVersion() {
   try {
-    const require2 = createRequire(import.meta.url);
+    const require2 = createRequire2(import.meta.url);
     const pkg = require2("@ast-grep/cli/package.json");
     return pkg.version;
   } catch {
@@ -65422,9 +65586,9 @@ function findSgCliPathSync() {
     return cachedPath;
   }
   try {
-    const require2 = createRequire2(import.meta.url);
+    const require2 = createRequire3(import.meta.url);
     const cliPkgPath = require2.resolve("@ast-grep/cli/package.json");
-    const cliDir = dirname46(cliPkgPath);
+    const cliDir = dirname48(cliPkgPath);
     const sgPath = join71(cliDir, binaryName);
     if (existsSync65(sgPath) && isValidBinary(sgPath)) {
       return sgPath;
@@ -65433,9 +65597,9 @@ function findSgCliPathSync() {
   const platformPkg = getPlatformPackageName();
   if (platformPkg) {
     try {
-      const require2 = createRequire2(import.meta.url);
+      const require2 = createRequire3(import.meta.url);
       const pkgPath = require2.resolve(`${platformPkg}/package.json`);
-      const pkgDir = dirname46(pkgPath);
+      const pkgDir = dirname48(pkgPath);
       const astGrepName = process.platform === "win32" ? "ast-grep.exe" : "ast-grep";
       const binaryPath = join71(pkgDir, astGrepName);
       if (existsSync65(binaryPath) && isValidBinary(binaryPath)) {
@@ -66663,7 +66827,7 @@ var {spawn: spawn7 } = globalThis.Bun;
 // src/tools/grep/constants.ts
 import { spawnSync as spawnSync11 } from "child_process";
 import { existsSync as existsSync69 } from "fs";
-import { dirname as dirname47, join as join74 } from "path";
+import { dirname as dirname49, join as join74 } from "path";
 
 // src/tools/grep/downloader.ts
 import {
@@ -66708,7 +66872,7 @@ function getDataDir() {
 }
 function getOpenCodeBundledRg() {
   const execPath = process.execPath;
-  const execDir = dirname47(execPath);
+  const execDir = dirname49(execPath);
   const isWindows = process.platform === "win32";
   const rgName = isWindows ? "rg.exe" : "rg";
   const candidates = [
@@ -67589,16 +67753,16 @@ import {
   unlinkSync as unlinkSync5,
   writeFileSync as writeFileSync51
 } from "fs";
-import { dirname as dirname48, extname as extname5, join as join76, resolve as resolve9 } from "path";
-import { fileURLToPath as fileURLToPath2 } from "url";
+import { dirname as dirname50, extname as extname5, join as join76, resolve as resolve9 } from "path";
+import { fileURLToPath as fileURLToPath4 } from "url";
 function findWorkspaceRoot(filePath16) {
   let dir = resolve9(filePath16);
   try {
     if (!statSync4(dir).isDirectory()) {
-      dir = dirname48(dir);
+      dir = dirname50(dir);
     }
   } catch {
-    dir = dirname48(dir);
+    dir = dirname50(dir);
   }
   const markers = [
     ".git",
@@ -67615,12 +67779,12 @@ function findWorkspaceRoot(filePath16) {
       }
     }
     prevDir = dir;
-    dir = dirname48(dir);
+    dir = dirname50(dir);
   }
-  return dirname48(resolve9(filePath16));
+  return dirname50(resolve9(filePath16));
 }
 function uriToPath(uri) {
-  return fileURLToPath2(uri);
+  return fileURLToPath4(uri);
 }
 function formatServerLookupError(result) {
   if (result.status === "not_installed") {
@@ -69536,6 +69700,42 @@ function scheduleAutoUiOpen(projectDir, launchUrl, publicUrl, url3, cooldownMs, 
     });
   }, 1200);
 }
+function scheduleAutoUiOpenFromRuntimeState(projectDir, cooldownMs, dockAutoLaunch) {
+  const maxAttempts = 20;
+  const retryDelayMs = 1500;
+  const poll = async (attempt) => {
+    const state2 = readRuntimeGatewayState(projectDir);
+    if (state2) {
+      const healthy = await probeGatewayAlive(state2.url, 1200);
+      if (healthy && shouldAutoOpenUi(projectDir, cooldownMs)) {
+        const launchUrl = buildGatewayLaunchUrl({
+          url: state2.url,
+          authToken: state2.authToken
+        });
+        scheduleAutoUiOpen(projectDir, launchUrl, state2.uiUrl, state2.url, cooldownMs, dockAutoLaunch);
+        return;
+      }
+    }
+    if (attempt >= maxAttempts) {
+      log("[miya] deferred auto ui open skipped: gateway never became ready", {
+        projectDir,
+        cooldownMs,
+        maxAttempts
+      });
+      return;
+    }
+    setTimeout(() => {
+      poll(attempt + 1);
+    }, retryDelayMs);
+  };
+  setTimeout(() => {
+    poll(1).catch((error92) => {
+      log("[miya] deferred auto ui open failed", {
+        error: error92 instanceof Error ? error92.message : String(error92)
+      });
+    });
+  }, 800);
+}
 function shouldAutoOpenUi(projectDir, cooldownMs) {
   return canAutoOpenUi(projectDir, cooldownMs);
 }
@@ -69709,6 +69909,9 @@ var MiyaPlugin = async (ctx) => {
       hasGatewayState: Boolean(gatewayState),
       gatewayOwner
     });
+    if (autoOpenEnabled && autoOpenEnabledResolved && !autoOpenBlockedByEnv && !gatewayState) {
+      scheduleAutoUiOpenFromRuntimeState(ctx.directory, autoOpenCooldownMs, dockAutoLaunch);
+    }
   }
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);

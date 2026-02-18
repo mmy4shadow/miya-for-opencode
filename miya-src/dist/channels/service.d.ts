@@ -1,9 +1,9 @@
 import { sendQqDesktopMessage } from '../channel/outbound/qq';
 import { sendWechatDesktopMessage } from '../channel/outbound/wechat';
 import { analyzeDesktopOutboundEvidence } from '../multimodal/vision';
-import type { ChannelName } from './types';
-import { ensurePairRequest } from './pairing-store';
 import { type SemanticTag } from '../policy/semantic-tags';
+import { ensurePairRequest } from './pairing-store';
+import type { ChannelName } from './types';
 export interface ChannelInboundMessage {
     channel: ChannelName;
     senderID: string;

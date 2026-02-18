@@ -40,6 +40,8 @@ export declare function readPersistedAgentRuntime(projectDir: string): {
 export declare function persistAgentRuntimeSelection(projectDir: string, input: AgentRuntimeSelectionInput): boolean;
 export declare function persistAgentModelSelection(projectDir: string, agentName: string, model: unknown): boolean;
 export declare function applyPersistedAgentModelOverrides(config: PluginConfig, projectDir: string): PluginConfig;
+export declare function syncPersistedAgentRuntimeFromOpenCodeState(projectDir: string): boolean;
+export declare function extractAgentRuntimeSelectionsFromCommandEvent(event: unknown, activeAgentHint?: string): AgentRuntimeSelectionInput[];
 export declare function extractAgentModelSelectionFromEvent(event: unknown): AgentModelSelectionFromEvent | null;
 export declare function extractAgentModelSelectionsFromEvent(event: unknown): AgentModelSelectionFromEvent[];
 export {};

@@ -1,11 +1,11 @@
-export { PsycheConsultService, type PsycheConsultRequest, type PsycheConsultResult, type PsycheDecision, type PsycheApprovalMode, type PsycheFixability, type PsycheRiskSummary, type PsycheUrgency, type PsycheOutcomeRequest, type PsycheOutcomeResult, } from './consult';
-export { inferSentinelState, type SentinelInference, type SentinelSignals, type SentinelState, type SentinelForegroundCategory, type ScreenProbeStatus, } from './state-machine';
-export { fastBrainBucket, readFastBrainScore, touchFastBrain, adjustFastBrain, type BucketStats, type FastBrainStore, } from './bandit';
+export { adjustFastBrain, type BucketStats, type FastBrainStore, fastBrainBucket, readFastBrainScore, touchFastBrain, } from './bandit';
+export { type PsycheApprovalMode, type PsycheConsultRequest, type PsycheConsultResult, PsycheConsultService, type PsycheDecision, type PsycheFixability, type PsycheOutcomeRequest, type PsycheOutcomeResult, type PsycheRiskSummary, type PsycheUrgency, } from './consult';
 export { appendPsycheObservation, appendPsycheOutcome } from './logger';
 export { consumeProbeBudget, type ProbeBudgetConfig } from './probe-budget';
-export { collectNativeSentinelSignals, type NativeSentinelSignalSample, } from './sensors';
 export { runScreenProbe, type ScreenProbeInput, type ScreenProbeResult, } from './screen-probe';
+export { collectNativeSentinelSignals, type NativeSentinelSignalSample, } from './sensors';
 export { PsycheNativeSignalHub, type PsycheNativeSignalHubStatus, } from './signal-hub';
-export { getTrustScore, updateTrustScore, trustTierFromScore, type TrustEntityKind, type TrustEntityScore, type TrustTier, } from './trust';
-export { readPsycheTrainingSummary, type PsycheTrainingSummary } from './training-summary';
-export { readSlowBrainState, getActiveSlowBrainPolicy, retrainSlowBrainPolicy, maybeAutoRetrainSlowBrain, rollbackSlowBrainPolicy, type SlowBrainPolicy, type SlowBrainState, type SlowBrainRetrainResult, type SlowBrainRollbackResult, } from './slow-brain';
+export { getActiveSlowBrainPolicy, maybeAutoRetrainSlowBrain, readSlowBrainState, retrainSlowBrainPolicy, rollbackSlowBrainPolicy, type SlowBrainPolicy, type SlowBrainRetrainResult, type SlowBrainRollbackResult, type SlowBrainState, } from './slow-brain';
+export { inferSentinelState, type ScreenProbeStatus, type SentinelForegroundCategory, type SentinelInference, type SentinelSignals, type SentinelState, } from './state-machine';
+export { type PsycheTrainingSummary, readPsycheTrainingSummary, } from './training-summary';
+export { getTrustScore, type TrustEntityKind, type TrustEntityScore, type TrustTier, trustTierFromScore, updateTrustScore, } from './trust';

@@ -328,6 +328,54 @@ function scheduleAutoUiOpen(
   }, 1_200);
 }
 
+function scheduleAutoUiOpenFromRuntimeState(
+  projectDir: string,
+  cooldownMs: number,
+  dockAutoLaunch: boolean,
+): void {
+  const maxAttempts = 20;
+  const retryDelayMs = 1_500;
+  const poll = async (attempt: number): Promise<void> => {
+    const state = readRuntimeGatewayState(projectDir);
+    if (state) {
+      const healthy = await probeGatewayAlive(state.url, 1_200);
+      if (healthy && shouldAutoOpenUi(projectDir, cooldownMs)) {
+        const launchUrl = buildGatewayLaunchUrl({
+          url: state.url,
+          authToken: state.authToken,
+        });
+        scheduleAutoUiOpen(
+          projectDir,
+          launchUrl,
+          state.uiUrl,
+          state.url,
+          cooldownMs,
+          dockAutoLaunch,
+        );
+        return;
+      }
+    }
+    if (attempt >= maxAttempts) {
+      log('[miya] deferred auto ui open skipped: gateway never became ready', {
+        projectDir,
+        cooldownMs,
+        maxAttempts,
+      });
+      return;
+    }
+    setTimeout(() => {
+      void poll(attempt + 1);
+    }, retryDelayMs);
+  };
+  setTimeout(() => {
+    void poll(1).catch((error) => {
+      log('[miya] deferred auto ui open failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, 800);
+}
+
 function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
   return canAutoOpenUi(projectDir, cooldownMs);
 }
@@ -570,6 +618,18 @@ const MiyaPlugin: Plugin = async (ctx) => {
       hasGatewayState: Boolean(gatewayState),
       gatewayOwner,
     });
+    if (
+      autoOpenEnabled &&
+      autoOpenEnabledResolved &&
+      !autoOpenBlockedByEnv &&
+      !gatewayState
+    ) {
+      scheduleAutoUiOpenFromRuntimeState(
+        ctx.directory,
+        autoOpenCooldownMs,
+        dockAutoLaunch,
+      );
+    }
   }
 
   if (gatewayOwner) {

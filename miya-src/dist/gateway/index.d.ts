@@ -18,6 +18,10 @@ interface GatewayDependencies {
     extraSkillDirs?: string[];
 }
 export declare function registerGatewayDependencies(projectDir: string, deps: GatewayDependencies): void;
+export declare function buildGatewayLaunchUrl(input: {
+    url: string;
+    authToken?: string;
+}): string;
 export declare function isGatewayOwner(projectDir: string): boolean;
 export declare function probeGatewayAlive(url: string, timeoutMs?: number): Promise<boolean>;
 export declare function stopGateway(projectDir: string): {

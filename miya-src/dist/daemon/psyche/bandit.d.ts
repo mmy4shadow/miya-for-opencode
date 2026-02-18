@@ -1,5 +1,5 @@
-import type { SentinelState } from './state-machine';
 import type { PsycheUrgency } from './consult';
+import type { SentinelState } from './state-machine';
 export interface BucketStats {
     alpha: number;
     beta: number;

@@ -1,5 +1,5 @@
 import type { ResourceTaskKind } from '../resource-scheduler';
-import { readSlowBrainState, type PsycheConsultRequest, type PsycheConsultResult, type PsycheOutcomeRequest, type PsycheOutcomeResult, type PsycheNativeSignalHubStatus, type SlowBrainRetrainResult, type SlowBrainRollbackResult } from './psyche';
+import { type PsycheConsultRequest, type PsycheConsultResult, type PsycheNativeSignalHubStatus, type PsycheOutcomeRequest, type PsycheOutcomeResult, readSlowBrainState, type SlowBrainRetrainResult, type SlowBrainRollbackResult } from './psyche';
 import { type PythonRuntimeStatus } from './python-runtime';
 import type { DaemonJobProgressEvent, DaemonJobRequest, DaemonRunResult } from './types';
 type ModelTier = 'lora' | 'embedding' | 'reference';

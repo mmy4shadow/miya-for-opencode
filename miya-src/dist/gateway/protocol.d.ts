@@ -8,10 +8,10 @@ export declare const PlanBundleAuditEventSchema: z.ZodObject<{
     at: z.ZodString;
     stage: z.ZodEnum<{
         approval: "approval";
-        rollback: "rollback";
-        audit: "audit";
         execution: "execution";
         plan: "plan";
+        rollback: "rollback";
+        audit: "audit";
         finalize: "finalize";
     }>;
     action: z.ZodString;
@@ -97,10 +97,10 @@ export declare const PlanBundleSchema: z.ZodObject<{
         approved: "approved";
         failed: "failed";
         running: "running";
-        completed: "completed";
-        rolled_back: "rolled_back";
         draft: "draft";
         pending_approval: "pending_approval";
+        completed: "completed";
+        rolled_back: "rolled_back";
     }>;
     plan: z.ZodObject<{
         goal: z.ZodString;
@@ -109,9 +109,9 @@ export declare const PlanBundleSchema: z.ZodObject<{
             id: z.ZodString;
             title: z.ZodString;
             kind: z.ZodEnum<{
+                analysis: "analysis";
                 execution: "execution";
                 verification: "verification";
-                analysis: "analysis";
             }>;
             command: z.ZodOptional<z.ZodString>;
             done: z.ZodBoolean;
@@ -142,10 +142,10 @@ export declare const PlanBundleSchema: z.ZodObject<{
         at: z.ZodString;
         stage: z.ZodEnum<{
             approval: "approval";
-            rollback: "rollback";
-            audit: "audit";
             execution: "execution";
             plan: "plan";
+            rollback: "rollback";
+            audit: "audit";
             finalize: "finalize";
         }>;
         action: z.ZodString;
@@ -162,8 +162,8 @@ export declare const HelloFrameSchema: z.ZodObject<{
         unknown: "unknown";
         ui: "ui";
         channel: "channel";
-        node: "node";
         admin: "admin";
+        node: "node";
     }>>;
     clientID: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodOptional<z.ZodString>;
@@ -225,8 +225,8 @@ export declare const GatewayIncomingFrameSchema: z.ZodUnion<readonly [z.ZodObjec
         unknown: "unknown";
         ui: "ui";
         channel: "channel";
-        node: "node";
         admin: "admin";
+        node: "node";
     }>>;
     clientID: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodOptional<z.ZodString>;
@@ -292,6 +292,9 @@ export declare class GatewayMethodRegistry {
     private readonly queueTimeoutMs;
     constructor(options?: GatewayMethodRegistryOptions);
     register(method: string, handler: GatewayMethodHandler): void;
+    has(method: string): boolean;
+    handlerOf(method: string): GatewayMethodHandler | undefined;
+    registerAlias(aliasMethod: string, targetMethod: string): boolean;
     invoke(method: string, params: Record<string, unknown>, context: GatewayMethodContext): Promise<unknown>;
     list(): string[];
     stats(): {
