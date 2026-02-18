@@ -340,8 +340,21 @@ function resetLaunchFailureState(runtime: LauncherRuntime): void {
 }
 
 function resolveBunBinary(): string | null {
-  const byWhich = Bun.which('bun') ?? Bun.which('bun.exe');
-  if (byWhich) return byWhich;
+  if (process.platform === 'win32') {
+    const byExe = Bun.which('bun.exe');
+    if (byExe) return byExe;
+    const byBun = Bun.which('bun');
+    if (byBun) {
+      if (byBun.toLowerCase().endsWith('.cmd')) {
+        const exeCandidate = byBun.slice(0, -4) + '.exe';
+        if (fs.existsSync(exeCandidate)) return exeCandidate;
+      }
+      return byBun;
+    }
+  } else {
+    const byWhich = Bun.which('bun') ?? Bun.which('bun.exe');
+    if (byWhich) return byWhich;
+  }
   const execBase = path.basename(process.execPath).toLowerCase();
   if (execBase === 'bun' || execBase === 'bun.exe') return process.execPath;
   return null;

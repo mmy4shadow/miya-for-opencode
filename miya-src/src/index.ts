@@ -85,6 +85,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function shouldSyncModelStateFromEventType(eventType: string): boolean {
+  if (!eventType) return false;
+  // Avoid high-frequency message streams while still covering command/session/settings/model/agent updates.
+  return /(^|\.)(command|session|agent|settings|config|model)(\.|$)/i.test(eventType);
+}
+
 function deepMergeObject(
   base: Record<string, unknown>,
   override: Record<string, unknown>,
@@ -141,8 +147,7 @@ function isPidAlive(pid: number): boolean {
 
 function openUrlSilently(url: string): void {
   if (process.platform === 'win32') {
-    const escaped = url.replace(/'/g, "''");
-    const child = spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', `Start-Process '${escaped}'`], {
+    const child = spawn('rundll32.exe', ['url.dll,FileProtocolHandler', url], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
@@ -191,16 +196,76 @@ function launchDockSilently(projectDir: string): void {
   child.unref();
 }
 
-function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
+function canAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
   const last = autoUiOpenAtByDir.get(projectDir) ?? 0;
   const persistedLast = readLastAutoUiOpenAt(projectDir);
   const now = Date.now();
   const minCooldownMs = Math.max(10_000, Math.min(cooldownMs, 24 * 60_000));
   if (now - last < 10_000) return false;
   if (now - persistedLast < minCooldownMs) return false;
-  autoUiOpenAtByDir.set(projectDir, now);
-  writeLastAutoUiOpenAt(projectDir, now);
   return true;
+}
+
+function markAutoUiOpened(projectDir: string, atMs = Date.now()): void {
+  autoUiOpenAtByDir.set(projectDir, atMs);
+  writeLastAutoUiOpenAt(projectDir, atMs);
+}
+
+function scheduleAutoUiOpen(
+  projectDir: string,
+  uiUrl: string,
+  url: string,
+  cooldownMs: number,
+  dockAutoLaunch: boolean,
+): void {
+  const maxAttempts = 6;
+  const retryDelayMs = 1_000;
+  const openWhenHealthy = async (attempt: number): Promise<void> => {
+    const healthy = await probeGatewayAlive(url, 1_500);
+    if (!healthy) {
+      if (attempt < maxAttempts) {
+        log('[miya] auto ui open deferred: gateway unhealthy', {
+          url,
+          attempt,
+          maxAttempts,
+          retryDelayMs,
+        });
+        setTimeout(() => {
+          void openWhenHealthy(attempt + 1);
+        }, retryDelayMs);
+      } else {
+        log('[miya] auto ui open skipped: gateway unhealthy after retries', {
+          url,
+          attempt,
+          maxAttempts,
+        });
+      }
+      return;
+    }
+    if (dockAutoLaunch) {
+      launchDockSilently(projectDir);
+    }
+    openUrlSilently(uiUrl);
+    markAutoUiOpened(projectDir);
+    log('[miya] auto ui open triggered', {
+      url: uiUrl,
+      dockAutoLaunch,
+      cooldownMs,
+      attempt,
+      maxAttempts,
+    });
+  };
+  setTimeout(() => {
+    void openWhenHealthy(1).catch((error) => {
+      log('[miya] auto ui open failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, 1_200);
+}
+
+function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
+  return canAutoOpenUi(projectDir, cooldownMs);
 }
 
 function isInteractiveSession(): boolean {
@@ -313,29 +378,14 @@ const MiyaPlugin: Plugin = async (ctx) => {
       !autoOpenBlockedByEnv &&
       shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
     ) {
-      setTimeout(async () => {
-        try {
-          const state = ensureGatewayRunning(ctx.directory);
-          const healthy = await probeGatewayAlive(state.url, 1_500);
-          if (!healthy) {
-            log('[miya] auto ui open skipped: gateway unhealthy', { url: state.url });
-            return;
-          }
-          if (dockAutoLaunch) {
-            launchDockSilently(ctx.directory);
-          }
-          openUrlSilently(state.uiUrl);
-          log('[miya] auto ui open triggered', {
-            url: state.uiUrl,
-            dockAutoLaunch,
-            cooldownMs: autoOpenCooldownMs,
-          });
-        } catch (error) {
-          log('[miya] auto ui open failed', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }, 1_200);
+      const state = ensureGatewayRunning(ctx.directory);
+      scheduleAutoUiOpen(
+        ctx.directory,
+        state.uiUrl,
+        state.url,
+        autoOpenCooldownMs,
+        dockAutoLaunch,
+      );
     } else {
       log('[miya] auto ui open skipped', {
         autoOpenEnabled,
@@ -940,11 +990,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
     event: async (input) => {
       const eventType = isPlainObject(input.event) ? String(input.event.type ?? '') : '';
-      if (
-        ['command.executed', 'tui.command.execute', 'session.created', 'session.updated'].includes(
-          eventType,
-        )
-      ) {
+      if (shouldSyncModelStateFromEventType(eventType)) {
         try {
           const synced = syncPersistedAgentRuntimeFromOpenCodeState(ctx.directory);
           if (synced) {

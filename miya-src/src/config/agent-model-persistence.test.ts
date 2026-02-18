@@ -373,4 +373,72 @@ describe('agent-model-persistence', () => {
       }
     }
   });
+
+  test('synchronizes per-agent models from kv local.model/local.agent keys', () => {
+    const previousXdgStateHome = process.env.XDG_STATE_HOME;
+    const stateHome = path.join(tempDir, 'xdg-state');
+    const stateDir = path.join(stateHome, 'opencode');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, 'kv.json'),
+      JSON.stringify(
+        {
+          'local.agent': '2-code-search',
+          'local.model': {
+            model: {
+              '2-code-search': {
+                providerID: 'openai',
+                modelID: 'gpt-5.1-codex-mini',
+              },
+              '6-ui-designer': {
+                providerID: 'google',
+                modelID: 'gemini-2.5-pro',
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
+    try {
+      process.env.XDG_STATE_HOME = stateHome;
+      const changed = syncPersistedAgentRuntimeFromOpenCodeState(tempDir);
+      expect(changed).toBe(true);
+
+      const runtime = readPersistedAgentRuntime(tempDir);
+      expect(runtime.activeAgentId).toBe('2-code-search');
+      expect(runtime.agents['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
+      expect(runtime.agents['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
+    } finally {
+      if (previousXdgStateHome === undefined) {
+        delete process.env.XDG_STATE_HOME;
+      } else {
+        process.env.XDG_STATE_HOME = previousXdgStateHome;
+      }
+    }
+  });
+
+  test('extracts generic settings patch events for compatibility', () => {
+    const extracted = extractAgentModelSelectionsFromEvent({
+      type: 'settings.store',
+      properties: {
+        activeAgent: '6-ui-designer',
+        patch: {
+          set: {
+            'agent.6-ui-designer.model': 'google/gemini-2.5-pro',
+            'agent.2-code-search.model': 'openai/gpt-5.1-codex-mini',
+          },
+        },
+      },
+    });
+
+    expect(extracted).toHaveLength(2);
+    const byAgent = Object.fromEntries(extracted.map((item) => [item.agentName, item]));
+    expect(byAgent['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
+    expect(byAgent['6-ui-designer']?.source).toBe('settings_patch_generic');
+    expect(byAgent['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
+  });
 });

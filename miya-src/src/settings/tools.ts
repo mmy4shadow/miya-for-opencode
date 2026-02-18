@@ -56,16 +56,11 @@ function formatValidationResult(
 
 function openUrl(url: string): void {
   if (process.platform === 'win32') {
-    const escaped = url.replace(/'/g, "''");
-    const child = spawn(
-      'powershell',
-      ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', `Start-Process '${escaped}'`],
-      {
+    const child = spawn('rundll32.exe', ['url.dll,FileProtocolHandler', url], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
-      },
-    );
+    });
     child.unref();
     return;
   }

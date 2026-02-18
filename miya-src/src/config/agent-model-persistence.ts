@@ -281,6 +281,8 @@ function extractAgentPatchesFromFlatKeys(
 
 function extractActiveAgentFromState(source: Record<string, unknown>): string | undefined {
   const agentSection = isObject(source.agent) ? source.agent : null;
+  const localSection = isObject(source.local) ? source.local : null;
+  const localAgentSection = isObject(source['local.agent']) ? source['local.agent'] : null;
   const candidates = [
     source.activeAgent,
     source.activeAgentId,
@@ -289,9 +291,18 @@ function extractActiveAgentFromState(source: Record<string, unknown>): string | 
     source.default_agent,
     source.currentAgent,
     source.selectedAgent,
+    source['local.agent'],
     source.agent,
     agentSection?.current,
     agentSection?.active,
+    localSection?.agent,
+    localSection?.activeAgent,
+    localSection?.activeAgentId,
+    localSection?.defaultAgent,
+    localAgentSection?.current,
+    localAgentSection?.active,
+    localAgentSection?.id,
+    localAgentSection?.name,
   ];
   for (const candidate of candidates) {
     const normalized = normalizeAgentName(String(candidate ?? ''));
@@ -305,28 +316,42 @@ function extractPatchesFromStateObject(
 ): { patches: AgentRuntimeSelectionInput[]; activeAgentId?: string } {
   if (!source) return { patches: [] };
 
-  const grouped = new Map<string, AgentRuntimeSelectionInput>();
-  const mapCandidates = [
-    source.agents,
-    source.agentModels,
-    source.modelsByAgent,
-    source.byAgent,
-    source.selectedByAgent,
-    source.model,
-  ];
+  const localSection = isObject(source.local) ? source.local : null;
+  const scopes: Record<string, unknown>[] = [source];
+  if (isObject(source['local.model'])) scopes.push(source['local.model']);
+  if (localSection) scopes.push(localSection);
+  if (localSection && isObject(localSection.model)) scopes.push(localSection.model);
 
-  for (const mapCandidate of mapCandidates) {
-    if (!isObject(mapCandidate)) continue;
-    for (const patch of extractAgentPatchesFromMap(mapCandidate)) {
+  const grouped = new Map<string, AgentRuntimeSelectionInput>();
+  let activeAgentId: string | undefined;
+  for (const scope of scopes) {
+    for (const patch of extractAgentPatchesFromMap(scope)) {
       mergeRuntimePatch(grouped, patch);
+    }
+    const mapCandidates = [
+      scope.agents,
+      scope.agentModels,
+      scope.modelsByAgent,
+      scope.byAgent,
+      scope.selectedByAgent,
+      scope.model,
+    ];
+    for (const mapCandidate of mapCandidates) {
+      if (!isObject(mapCandidate)) continue;
+      for (const patch of extractAgentPatchesFromMap(mapCandidate)) {
+        mergeRuntimePatch(grouped, patch);
+      }
+    }
+
+    for (const patch of extractAgentPatchesFromFlatKeys(scope)) {
+      mergeRuntimePatch(grouped, patch);
+    }
+
+    if (!activeAgentId) {
+      activeAgentId = extractActiveAgentFromState(scope);
     }
   }
 
-  for (const patch of extractAgentPatchesFromFlatKeys(source)) {
-    mergeRuntimePatch(grouped, patch);
-  }
-
-  const activeAgentId = extractActiveAgentFromState(source);
   return { patches: [...grouped.values()], activeAgentId };
 }
 
@@ -1051,6 +1076,21 @@ export function extractAgentModelSelectionsFromEvent(
       const parsed = parseAgentPatchSet(properties.set, 'settings_save_set', activeAgentHint);
       if (parsed.length > 0) return parsed;
     }
+  }
+
+  // Compatibility fallback: some OpenCode builds emit alternative settings event names
+  // (e.g. settings.store/settings.apply). Parse patch/set payloads regardless of eventType.
+  const activeAgentHint = String(
+    properties.activeAgent ?? properties.currentAgent ?? properties.agent ?? properties.default_agent ?? '',
+  );
+  const patchRaw = properties.patch;
+  if (isObject(patchRaw) && isObject(patchRaw.set)) {
+    const parsed = parseAgentPatchSet(patchRaw.set, 'settings_patch_generic', activeAgentHint);
+    if (parsed.length > 0) return parsed;
+  }
+  if (isObject(properties.set)) {
+    const parsed = parseAgentPatchSet(properties.set, 'settings_set_generic', activeAgentHint);
+    if (parsed.length > 0) return parsed;
   }
 
   return [];
