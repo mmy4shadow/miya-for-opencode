@@ -414,10 +414,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       | Record<string, unknown>
       | undefined) ?? {};
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
-  // Change default to TRUE unless explicitly disabled, to match user expectations for control panel launch.
-  // Previous logic required opt-in; now we default to auto-open if openOnStart is not false.
-  const autoOpenOptIn = true;
-  const autoOpenEnabledResolved = autoOpenEnabled && autoOpenOptIn;
+  const autoOpenEnabledResolved = autoOpenEnabled;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === '0';
   const autoOpenCooldownMs =
     typeof dashboardConfig.autoOpenCooldownMs === 'number'
@@ -624,10 +621,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
     psycheToneHook,
     contextGovernorHook,
   ];
-  const slimCompatEnabled = config.slimCompat?.enabled ?? true;
+  const slimCompatEnabled = config.slimCompat?.enabled ?? false;
   const postWriteSimplicityEnabled =
     slimCompatEnabled &&
-    (config.slimCompat?.enablePostWriteSimplicityNudge ?? true);
+    (config.slimCompat?.enablePostWriteSimplicityNudge ?? false);
 
   const onPermissionAsked = async (
     input: {
@@ -942,12 +939,14 @@ const MiyaPlugin: Plugin = async (ctx) => {
         };
       }
 
-      commandConfig['miya-gateway-start'] = {
-        description: 'Start Miya Gateway and print runtime URL',
-        agent: '1-task-manager',
-        template:
-          'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
-      };
+      if (!commandConfig['miya-gateway-start']) {
+        commandConfig['miya-gateway-start'] = {
+          description: 'Start Miya Gateway and print runtime URL',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
+        };
+      }
 
       if (!commandConfig['miya-gateway-shutdown']) {
         commandConfig['miya-gateway-shutdown'] = {
