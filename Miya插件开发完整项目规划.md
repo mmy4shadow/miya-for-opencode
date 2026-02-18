@@ -5,9 +5,9 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 大模型只负责决策思考和指挥，图像及声音识别生图声音克隆等工作交给本地模型，其他简单工作交给miya(注意miya不接大模型，所有大模型调用都在opencode)，还有其他复杂一点给大模型和miya共同完成（比如分析错误落实到记忆，记录习惯，根据记忆习惯调整交互体验等等这些用到大模型能把工作效率和效果显著提升的工作，我们这里的所有目的都是减少tokens消耗，加速加精度，提效果）
 
 
-实现核心点：1.像人类一样流畅控制电脑。2.极具特色的能不断适应的陪伴式聊天。3.深度绑定opencode，基于各种开源项目开发，充分利用开源项目不断更新的资源。比如说opencode不断更新增强的AI自主编程能力，openclaw的不断丰富的skills和工具等等。4.增强自主工作流，自动并行化——复杂任务由多代理合作完成，持久执行——直到任务被验证为完成或者重复失败才会放弃，成本优化——智能模型路由可节省30-50%的tokens，从经验中学习——自动提取并重复使用解决问题的模式。
+实现核心点：1.像人类一样流畅控制电脑。2.极具特色的能不断适应的陪伴式聊天。3.深度绑定opencode，基于各种开源项目开发，充分利用开源项目不断更新的资源。比如说opencode不断更新增强的AI自主编程能力，openclaw的不断丰富的skills和工具等等。4.增强自主工作流，自动并行化——复杂任务由多代理合作完成，持久执行——直到任务被验证为完成或者重复失败才会放弃，成本优化——智能模型路由节省tokens，从经验中学习——自动提取并重复使用解决问题的模式。
 **核心设计哲学**：
-- **OpenCode原生优先**：充分利用OpenCode内置的permission体系（allow/ask/deny）和Agent/Skill系统，避免重复造轮子，并且必须兼容openclaw的生态，能直接使用他们成熟的工具和skill等资源。
+- **OpenCode原生优先**：充分利用OpenCode内置的permission体系（allow/ask/deny）和Agent/Skill系统，避免重复造轮子，并且必须兼容opencode和openclaw的生态，能直接使用他们成熟的工具和skill等资源。
 - **高度自主化工作**：通过OpenCode原生permission配置 + 可选的Self-Approval增强，实现工作流级别的审批自动化，非紧急情况不打断自主工作流；紧急情况直接暂停相关能力域并通过已有渠道（比如指定的微信和QQ账号，opencode界面同时发布通知和报告）。**补充（2026-02-13决策）**：若微信或QQ任意一个出问题，默认触发**按能力域停机**（至少 `outbound_send` / `desktop_control` 停止，`local_build` / `read_only_research` 可继续）；并在OpenCode上发给我报告（包括遇见了什么，为什么停止，现在哪些能力域停止，分别做到什么情况和下一步的计划等等）并等待我的指令。
 - **证据驱动**：每个影响大的作用动作前必须有验证证据，严格遵守硬规则（在下面有阐述）。
 - **miya双定位**：1.对内：提升opencode编程工作流（多代理、工具闸门、循环修复、RAG）+ 2.对外：常驻管家（控制电脑完成指令、陪伴式聊天、虚拟伴侣）
@@ -2077,7 +2077,7 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 | P1-1 多模态真实能力替换 | 已完成 | 视觉已接入 OCR/VLM 推理链路并打通桌控发送前校验；保留多级 fallback | `miya-src/src/multimodal/vision.ts`, `miya-src/src/multimodal/index.test.ts`, `miya-src/src/channels/service.ts` |
 | P1-2 架构整理与文档回写 | 已完成（2026-02-14） | 文档状态已回写并绑定新增验收测试路径；后续仅增量维护 | `Miya插件开发完整项目规划.md` |
 | P0-4 启动稳定性收口（owner/follower + gateway 自愈） | 已完成（2026-02-18） | 新增 20 轮启动探活自动验收基础上，补齐 UI 自动打开“健康探测重试 + 成功后再写冷却标记”与 Windows 无终端 URL 拉起，降低“未开面板/终端闪窗”概率 | `miya-src/src/gateway/index.ts`, `miya-src/src/settings/tools.ts`, `miya-src/src/cli/index.ts`, `miya-src/src/index.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
-| P0-5 代理配置持久化主链路切换（agent-runtime） | 已完成（2026-02-18） | 在 revision/原子写/legacy 迁移与七代理独立配置基础上，新增 `kv.json(local.model/local.agent)` 与通用 settings patch 兼容解析，扩展 event-type 同步触发，修复 Tab 切换代理后模型未回写场景 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`, `miya-src/src/index.ts` |
+| P0-5 代理配置持久化主链路切换（agent-runtime） | 已完成（2026-02-18） | 在 revision/原子写/legacy 迁移与七代理独立配置基础上，新增 `kv.json(local.model/local.agent)` 与通用 settings patch 兼容解析，扩展 event-type 同步触发；并补齐 `model.selected` 等对话前事件抽取与 provider/model 规范化，修复 Tab 切换代理后模型未回写、以及 `openrouter/minimax/z-ai/glm-5` 类无效模型串风险 | `miya-src/src/config/agent-model-persistence.ts`, `miya-src/src/config/agent-model-persistence.test.ts`, `miya-src/src/index.ts` |
 | P0-6 严格进程隔离封口（插件仅 RPC） | 已完成（2026-02-14） | 已收口为 launcher/host/client 主链路 + 新增静态防回归测试，禁止非 daemon 模块直接引用 `daemon/service` 或 `MiyaDaemonService`（测试：`bun test src/daemon/isolation-guard.test.ts src/daemon/service.test.ts`） | `miya-src/src/daemon/index.ts`, `miya-src/src/daemon/host.ts`, `miya-src/src/daemon/isolation-guard.test.ts`, `miya-src/src/daemon/service.test.ts` |
 | P0-7 通信背压压测与拒绝语义稳定性 | 已完成（2026-02-14） | 已固化“10 指令并发”压测验收用例；并修复 Gateway 事件帧 `undefined` 字段导致的协议异常 | `miya-src/src/gateway/protocol.ts`, `miya-src/src/daemon/launcher.ts`, `miya-src/src/gateway/protocol.test.ts`, `miya-src/src/gateway/milestone-acceptance.test.ts` |
 | P0-8 自治执行安全收口（Autopilot/Autoflow） | 已完成（2026-02-16） | `tool.execute.before` 对自治工具非只读模式统一走副作用权限与 `miya_self_approve`，并新增 PlanBundle 冻结字段校验（`bundleId/policyHash/riskTier`）与“无单据拒绝” | `miya-src/src/index.ts`, `miya-src/src/safety/risk.ts`, `miya-src/src/tools/autopilot.ts`, `miya-src/src/tools/autoflow.ts`, `miya-src/src/safety/risk.test.ts` |

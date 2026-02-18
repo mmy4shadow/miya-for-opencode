@@ -43,6 +43,18 @@ describe('agent-model-persistence', () => {
         modelID: 'gpt-5.1-codex-mini',
       }),
     ).toBe('openai/gpt-5.1-codex-mini');
+    expect(
+      normalizeModelRef({
+        providerID: 'openrouter',
+        modelID: 'openrouter/z-ai/glm-5',
+      }),
+    ).toBe('openrouter/z-ai/glm-5');
+    expect(
+      normalizeModelRef({
+        providerID: 'openrouter',
+        modelID: 'minimax/z-ai/glm-5',
+      }),
+    ).toBe('openrouter/z-ai/glm-5');
     expect(normalizeModelRef('invalid-model')).toBeNull();
   });
 
@@ -440,5 +452,24 @@ describe('agent-model-persistence', () => {
     expect(byAgent['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
     expect(byAgent['6-ui-designer']?.source).toBe('settings_patch_generic');
     expect(byAgent['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
+  });
+
+  test('extracts model-selected event payloads before first message', () => {
+    const extracted = extractAgentModelSelectionsFromEvent({
+      type: 'model.selected',
+      properties: {
+        agentId: '6-ui-designer',
+        providerID: 'openrouter',
+        model: 'z-ai/glm-5',
+      },
+    });
+
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0]).toMatchObject({
+      agentName: '6-ui-designer',
+      model: 'openrouter/z-ai/glm-5',
+      providerID: 'openrouter',
+      source: 'event_generic',
+    });
   });
 });

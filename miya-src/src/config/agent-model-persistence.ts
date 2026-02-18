@@ -114,12 +114,69 @@ export function normalizeModelRef(value: unknown): string | null {
 
   if (isObject(value)) {
     const providerID = String(value.providerID ?? '').trim();
-    const modelID = String(value.modelID ?? '').trim();
+    let modelID = String(value.modelID ?? '').trim();
     if (!providerID || !modelID) return null;
+    if (modelID.toLowerCase().startsWith(`${providerID.toLowerCase()}/`)) {
+      modelID = modelID.slice(providerID.length + 1);
+    }
+    if (providerID.toLowerCase() === 'openrouter') {
+      const parts = modelID.split('/').filter(Boolean);
+      if (parts.length > 2) {
+        modelID = parts.slice(-2).join('/');
+      }
+    }
     return `${providerID}/${modelID}`;
   }
 
   return null;
+}
+
+function normalizeModelWithProvider(
+  modelRaw: unknown,
+  providerRaw: unknown,
+): { model?: string; providerID?: string } {
+  const model = normalizeModelRef(modelRaw) ?? undefined;
+  let providerID = normalizeProviderID(providerRaw);
+  if (!model) {
+    return {
+      model: undefined,
+      providerID,
+    };
+  }
+
+  const parts = model.split('/').filter(Boolean);
+  if (parts.length === 0) {
+    return {
+      model: undefined,
+      providerID,
+    };
+  }
+
+  if (!providerID) {
+    return {
+      model,
+      providerID: normalizeProviderID(parts[0]),
+    };
+  }
+
+  if (parts[0] === providerID) {
+    if (providerID === 'openrouter' && parts.length > 3) {
+      const compact = `openrouter/${parts.slice(-2).join('/')}`;
+      return { model: compact, providerID };
+    }
+    return { model, providerID };
+  }
+
+  if (providerID === 'openrouter') {
+    const compact = `openrouter/${parts.slice(-2).join('/')}`;
+    return { model: compact, providerID };
+  }
+
+  const modelProvider = normalizeProviderID(parts[0]);
+  return {
+    model,
+    providerID: modelProvider ?? providerID,
+  };
 }
 
 function parsePersistedModel(value: unknown): string | null {
@@ -380,11 +437,12 @@ function agentFromText(text: string): string | undefined {
 function normalizeAgentRuntimeEntry(value: unknown): AgentRuntimeEntry | null {
   if (!isObject(value)) return null;
 
-  const model = parsePersistedModel(value.model ?? value);
+  const { model, providerID: normalizedProviderID } = normalizeModelWithProvider(
+    value.model ?? value,
+    value.providerID,
+  );
   const variant = normalizeStringValue(value.variant);
-  const providerID =
-    normalizeProviderID(value.providerID) ??
-    (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+  const providerID = normalizedProviderID;
   const options = normalizeOptions(value.options ?? value.providerOptions);
   const apiKey = normalizeStringValue(value.apiKey);
   const baseURL = normalizeStringValue(value.baseURL);
@@ -544,11 +602,10 @@ function normalizeSelectionInput(input: AgentRuntimeSelectionInput): {
   const agentName = normalizeAgentName(input.agentName);
   if (!agentName) return null;
 
-  const model = normalizeModelRef(input.model);
+  const normalized = normalizeModelWithProvider(input.model, input.providerID);
+  const model = normalized.model;
   const variant = normalizeStringValue(input.variant);
-  const providerID =
-    normalizeProviderID(input.providerID) ??
-    (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+  const providerID = normalized.providerID;
   const options = normalizeOptions(input.options);
   const apiKey = normalizeStringValue(input.apiKey);
   const baseURL = normalizeStringValue(input.baseURL);
@@ -858,11 +915,10 @@ function normalizeSelectionFromDraft(
 ): AgentModelSelectionFromEvent | null {
   const agentName = normalizeAgentName(String(draft.agentName ?? ''));
   if (!agentName) return null;
-  const model = normalizeModelRef(draft.model);
+  const normalized = normalizeModelWithProvider(draft.model, draft.providerID);
+  const model = normalized.model;
   const variant = normalizeStringValue(draft.variant);
-  const providerID =
-    normalizeProviderID(draft.providerID) ??
-    (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+  const providerID = normalized.providerID;
   const options = normalizeOptions(draft.options);
   const apiKey = normalizeStringValue(draft.apiKey);
   const baseURL = normalizeStringValue(draft.baseURL);
@@ -992,15 +1048,19 @@ export function extractAgentModelSelectionsFromEvent(
     activeAgent = false,
   ): AgentModelSelectionFromEvent | null => {
     const agentName =
-      normalizeAgentName(String(scope.agent ?? scope.agentName ?? scope.newAgent ?? fallbackAgent ?? '')) ??
+      normalizeAgentName(
+        String(scope.agent ?? scope.agentName ?? scope.agentId ?? scope.newAgent ?? fallbackAgent ?? ''),
+      ) ??
       null;
     if (!agentName) return null;
 
-    const model = normalizeModelRef(scope.model ?? scope.selectedModel ?? scope.agentModel);
+    const normalized = normalizeModelWithProvider(
+      scope.model ?? scope.selectedModel ?? scope.agentModel,
+      scope.providerID ?? scope.provider,
+    );
+    const model = normalized.model;
     const variant = normalizeStringValue(scope.variant);
-    const providerID =
-      normalizeProviderID(scope.providerID ?? scope.provider) ??
-      (model ? normalizeProviderID(model.split('/')[0]) : undefined);
+    const providerID = normalized.providerID;
     const options = normalizeOptions(scope.options ?? scope.providerOptions);
     const apiKey = normalizeStringValue(scope.apiKey ?? (isObject(scope.options) ? scope.options.apiKey : undefined));
     const baseURL = normalizeStringValue(
@@ -1076,6 +1136,16 @@ export function extractAgentModelSelectionsFromEvent(
       const parsed = parseAgentPatchSet(properties.set, 'settings_save_set', activeAgentHint);
       if (parsed.length > 0) return parsed;
     }
+  }
+
+  const genericCandidate = extractFromEvent(
+    'event_generic',
+    properties,
+    String(properties.activeAgent ?? properties.currentAgent ?? properties.agent ?? properties.agentId ?? ''),
+    false,
+  );
+  if (genericCandidate) {
+    return [genericCandidate];
   }
 
   // Compatibility fallback: some OpenCode builds emit alternative settings event names
