@@ -4,27 +4,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-var START_ATTEMPTS = [
-  (workspace) => [
-    "run",
-    "--model",
-    "openrouter/moonshotai/kimi-k2.5",
-    "--command",
-    "miya-gateway-start",
-    "--dir",
-    workspace
-  ],
-  (workspace) => [
-    "run",
-    "--model",
-    "opencode/big-pickle",
-    "--command",
-    "miya-gateway-start",
-    "--dir",
-    workspace
-  ],
-  (workspace) => ["run", "--command", "miya-gateway-start", "--dir", workspace]
-];
+import { fileURLToPath } from "node:url";
 function nowIso() {
   return new Date().toISOString();
 }
@@ -46,6 +26,82 @@ function runtimeSupervisorStopFile(workspace) {
 }
 function runtimeSupervisorLogFile(workspace) {
   return path.join(getMiyaRuntimeDir(workspace), "gateway-supervisor.log");
+}
+function resolveGatewayWorkerScript(workspace) {
+  const bundled = fileURLToPath(new URL("./gateway-worker.node.js", import.meta.url));
+  if (fs.existsSync(bundled)) {
+    return bundled;
+  }
+  const fallbackCandidates = [
+    path.join(workspace, "miya-src", "src", "cli", "gateway-worker.ts"),
+    path.join(workspace, "src", "cli", "gateway-worker.ts")
+  ];
+  for (const candidate of fallbackCandidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+function resolveBunBin() {
+  const bunBin = String(process.env.MIYA_GATEWAY_BUN_BIN ?? "bun").trim();
+  if (!bunBin)
+    return null;
+  const probe = spawnSync(bunBin, ["--version"], {
+    stdio: "ignore",
+    windowsHide: true
+  });
+  if (probe.error || probe.status !== 0) {
+    return null;
+  }
+  return bunBin;
+}
+function resolveStartAttempts(workspace, verbose) {
+  const attempts = [];
+  const workerScript = resolveGatewayWorkerScript(workspace);
+  const bunBin = resolveBunBin();
+  if (workerScript && bunBin) {
+    attempts.push({
+      bin: bunBin,
+      args: [
+        workerScript,
+        "--workspace",
+        workspace,
+        ...verbose ? ["--verbose"] : []
+      ],
+      label: `bun ${workerScript} --workspace ${workspace}${verbose ? " --verbose" : ""}`
+    });
+  }
+  attempts.push({
+    bin: "opencode",
+    args: [
+      "run",
+      "--model",
+      "openrouter/moonshotai/kimi-k2.5",
+      "--command",
+      "miya-gateway-start",
+      "--dir",
+      workspace
+    ],
+    label: `opencode run --model openrouter/moonshotai/kimi-k2.5 --command miya-gateway-start --dir ${workspace}`
+  }, {
+    bin: "opencode",
+    args: [
+      "run",
+      "--model",
+      "opencode/big-pickle",
+      "--command",
+      "miya-gateway-start",
+      "--dir",
+      workspace
+    ],
+    label: `opencode run --model opencode/big-pickle --command miya-gateway-start --dir ${workspace}`
+  }, {
+    bin: "opencode",
+    args: ["run", "--command", "miya-gateway-start", "--dir", workspace],
+    label: `opencode run --command miya-gateway-start --dir ${workspace}`
+  });
+  return attempts;
 }
 function sleep(ms) {
   return new Promise((resolve2) => setTimeout(resolve2, ms));
@@ -131,8 +187,21 @@ function parseCliArgs(argv) {
       workspace = current.slice("--workspace=".length);
     }
   }
+  const resolvedInput = path.resolve(workspace || process.cwd());
+  let resolvedWorkspace = resolvedInput;
+  if (path.basename(resolvedInput).toLowerCase() === "miya-src") {
+    const parent = path.dirname(resolvedInput);
+    if (path.basename(parent).toLowerCase() === ".opencode") {
+      resolvedWorkspace = parent;
+    }
+  } else {
+    const embeddedOpencode = path.join(resolvedInput, ".opencode");
+    if (fs.existsSync(path.join(embeddedOpencode, "miya-src", "src", "index.ts"))) {
+      resolvedWorkspace = embeddedOpencode;
+    }
+  }
   return {
-    workspace: path.resolve(workspace || process.cwd()),
+    workspace: resolvedWorkspace,
     verbose: argv.includes("--verbose")
   };
 }
@@ -171,7 +240,7 @@ async function waitReadyOrExit(workspace, child, timeoutMs) {
       return { ready: true, reason: "ready" };
     }
     if (child.exitCode !== null) {
-      return { ready: false, reason: `opencode_exit_${child.exitCode}` };
+      return { ready: false, reason: `child_exit_${child.exitCode}` };
     }
     await sleep(400);
   }
@@ -197,6 +266,7 @@ async function main() {
   let stopping = false;
   let attemptIndex = 0;
   let restartCount = 0;
+  const startAttempts = resolveStartAttempts(workspace, verbose);
   const stopRequested = () => stopping || fs.existsSync(runtimeSupervisorStopFile(workspace));
   const onStopSignal = (signal) => {
     stopping = true;
@@ -218,16 +288,21 @@ async function main() {
       await sleep(1500);
       continue;
     }
-    const argsFactory = START_ATTEMPTS[attemptIndex % START_ATTEMPTS.length];
+    if (child && child.exitCode === null) {
+      appendLog(workspace, `gateway_unhealthy_with_live_child pid=${child.pid ?? 0} -> restarting worker`);
+      terminateChild(child);
+      child = null;
+      await sleep(500);
+    }
+    const attempt = startAttempts[attemptIndex % startAttempts.length];
     attemptIndex += 1;
-    const opencodeArgs = argsFactory(workspace);
     writeSupervisorState(workspace, {
       status: "starting",
       childPid: undefined,
       restartCount
     }, baseline);
-    appendLog(workspace, `starting_opencode attempt=${attemptIndex} cmd=opencode ${opencodeArgs.join(" ")}`);
-    child = spawn("opencode", opencodeArgs, {
+    appendLog(workspace, `starting_gateway attempt=${attemptIndex} cmd=${attempt.label}`);
+    child = spawn(attempt.bin, attempt.args, {
       cwd: workspace,
       stdio: verbose ? ["ignore", "pipe", "pipe"] : "ignore",
       windowsHide: true
@@ -236,14 +311,14 @@ async function main() {
       child.stdout.on("data", (chunk) => {
         const text = String(chunk);
         process.stdout.write(text);
-        appendLog(workspace, `opencode.stdout ${text.trim()}`);
+        appendLog(workspace, `child.stdout ${text.trim()}`);
       });
     }
     if (verbose && child.stderr) {
       child.stderr.on("data", (chunk) => {
         const text = String(chunk);
         process.stderr.write(text);
-        appendLog(workspace, `opencode.stderr ${text.trim()}`);
+        appendLog(workspace, `child.stderr ${text.trim()}`);
       });
     }
     const waited = await waitReadyOrExit(workspace, child, 30000);

@@ -901,7 +901,7 @@ ShowGatewayHint() {
     return
   }
   DockState.lastGatewayWarnAt := now
-  ToolTip "Gateway not running. Try /miya-gateway-start"
+  ToolTip "Gateway not running. Try: miya gateway start --force"
   SetTimer () => ToolTip(), -1800
 }
 
@@ -912,7 +912,13 @@ TryStartGatewayCommand() {
   }
   DockState.lastGatewayStartAttempt := now
   try {
-    Run A_ComSpec ' /c opencode run --command "miya-gateway-start"', A_ScriptDir, "Hide"
+    projectRoot := A_ScriptDir "\..\..\.."
+    nodeSupervisor := projectRoot "\miya-src\dist\cli\gateway-supervisor.node.js"
+    if FileExist(nodeSupervisor) {
+      Run A_ComSpec ' /c node "' nodeSupervisor '" --workspace "' projectRoot '"', projectRoot, "Hide"
+      return
+    }
+    Run A_ComSpec ' /c miya gateway start --force', projectRoot, "Hide"
   } catch {
     ; Fallback is tooltip instruction.
   }

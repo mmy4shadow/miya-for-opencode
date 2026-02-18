@@ -56,9 +56,78 @@ function writeJson(file: string, value: unknown): void {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
 }
 
+function quotePowerShellLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function isLegacyAutostartCommand(command: string): boolean {
+  const normalized = command.trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized.includes('miya-gateway-start')) {
+    return true;
+  }
+  if (
+    /--workspace\s+['"][^'"]*[\\\/]\.opencode[\\\/]miya-src['"]/i.test(command)
+  ) {
+    return true;
+  }
+  return /miya-src(?:\\\\|\\|\/)miya-src(?:\\\\|\\|\/)dist(?:\\\\|\\|\/)cli(?:\\\\|\\|\/)gateway-supervisor\.node\.js/i.test(
+    command,
+  );
+}
+
+function resolveAutostartCommand(projectDir: string, current?: string): string {
+  const currentCommand =
+    typeof current === 'string' ? current.trim() : '';
+  if (!currentCommand || isLegacyAutostartCommand(currentCommand)) {
+    return defaultCommand(projectDir);
+  }
+  return currentCommand;
+}
+
 function defaultCommand(projectDir: string): string {
-  const escaped = path.resolve(projectDir).replace(/'/g, "''");
-  return `powershell -NoProfile -WindowStyle Hidden -Command "Set-Location -LiteralPath '${escaped}'; opencode"`;
+  const resolvedProjectDir = path.resolve(projectDir);
+  let workspaceDir = resolvedProjectDir;
+  if (path.basename(resolvedProjectDir).toLowerCase() === 'miya-src') {
+    const parent = path.dirname(resolvedProjectDir);
+    if (path.basename(parent).toLowerCase() === '.opencode') {
+      workspaceDir = parent;
+    }
+  }
+  const escapedProjectDir = quotePowerShellLiteral(workspaceDir);
+  const baseName = path.basename(workspaceDir).toLowerCase();
+  const candidateSet = new Set<string>();
+  candidateSet.add(
+    path.join(workspaceDir, 'dist', 'cli', 'gateway-supervisor.node.js'),
+  );
+  if (baseName === 'miya-src') {
+    candidateSet.add(
+      path.join(
+        path.dirname(workspaceDir),
+        'miya-src',
+        'dist',
+        'cli',
+        'gateway-supervisor.node.js',
+      ),
+    );
+  } else {
+    candidateSet.add(
+      path.join(
+        workspaceDir,
+        'miya-src',
+        'dist',
+        'cli',
+        'gateway-supervisor.node.js',
+      ),
+    );
+  }
+  const supervisorCandidates = [...candidateSet].map((item) =>
+    quotePowerShellLiteral(item),
+  );
+  const scriptList = supervisorCandidates
+    .map((item) => `'${item}'`)
+    .join(', ');
+  return `powershell -NoProfile -WindowStyle Hidden -Command "Set-Location -LiteralPath '${escapedProjectDir}'; $miyaScripts = @(${scriptList}); $miyaScript = $miyaScripts | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1; if ($miyaScript) { node $miyaScript --workspace '${escapedProjectDir}' } else { exit 1 }"`;
 }
 
 function normalizeState(
@@ -68,11 +137,11 @@ function normalizeState(
   const enabled = raw?.enabled === true;
   const taskNameRaw =
     typeof raw?.taskName === 'string' ? raw.taskName.trim() : '';
-  const commandRaw = typeof raw?.command === 'string' ? raw.command.trim() : '';
+  const commandRaw = typeof raw?.command === 'string' ? raw.command : '';
   return {
     enabled,
     taskName: taskNameRaw || DEFAULT_TASK_NAME,
-    command: commandRaw || defaultCommand(projectDir),
+    command: resolveAutostartCommand(projectDir, commandRaw),
     updatedAt:
       typeof raw?.updatedAt === 'string' && raw.updatedAt.trim()
         ? raw.updatedAt
@@ -189,7 +258,7 @@ export function setAutostartEnabled(
     command:
       typeof input.command === 'string' && input.command.trim()
         ? input.command.trim()
-        : current.command || defaultCommand(projectDir),
+        : resolveAutostartCommand(projectDir, current.command),
     updatedAt: nowIso(),
   };
 

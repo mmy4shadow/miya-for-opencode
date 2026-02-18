@@ -2,6 +2,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 type SupervisorStatus =
   | 'starting'
@@ -27,27 +28,11 @@ interface GatewayRuntimeState {
   pid: number;
 }
 
-const START_ATTEMPTS = [
-  (workspace: string) => [
-    'run',
-    '--model',
-    'openrouter/moonshotai/kimi-k2.5',
-    '--command',
-    'miya-gateway-start',
-    '--dir',
-    workspace,
-  ],
-  (workspace: string) => [
-    'run',
-    '--model',
-    'opencode/big-pickle',
-    '--command',
-    'miya-gateway-start',
-    '--dir',
-    workspace,
-  ],
-  (workspace: string) => ['run', '--command', 'miya-gateway-start', '--dir', workspace],
-] as const;
+interface StartAttempt {
+  bin: string;
+  args: string[];
+  label: string;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -75,6 +60,93 @@ function runtimeSupervisorStopFile(workspace: string): string {
 
 function runtimeSupervisorLogFile(workspace: string): string {
   return path.join(getMiyaRuntimeDir(workspace), 'gateway-supervisor.log');
+}
+
+function resolveGatewayWorkerScript(workspace: string): string | null {
+  const bundled = fileURLToPath(
+    new URL('./gateway-worker.node.js', import.meta.url),
+  );
+  if (fs.existsSync(bundled)) {
+    return bundled;
+  }
+  const fallbackCandidates = [
+    path.join(workspace, 'miya-src', 'src', 'cli', 'gateway-worker.ts'),
+    path.join(workspace, 'src', 'cli', 'gateway-worker.ts'),
+  ];
+  for (const candidate of fallbackCandidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveBunBin(): string | null {
+  const bunBin = String(process.env.MIYA_GATEWAY_BUN_BIN ?? 'bun').trim();
+  if (!bunBin) return null;
+  const probe = spawnSync(bunBin, ['--version'], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  if (probe.error || probe.status !== 0) {
+    return null;
+  }
+  return bunBin;
+}
+
+function resolveStartAttempts(
+  workspace: string,
+  verbose: boolean,
+): StartAttempt[] {
+  const attempts: StartAttempt[] = [];
+  const workerScript = resolveGatewayWorkerScript(workspace);
+  const bunBin = resolveBunBin();
+  if (workerScript && bunBin) {
+    attempts.push({
+      bin: bunBin,
+      args: [
+        workerScript,
+        '--workspace',
+        workspace,
+        ...(verbose ? ['--verbose'] : []),
+      ],
+      label: `bun ${workerScript} --workspace ${workspace}${verbose ? ' --verbose' : ''}`,
+    });
+  }
+  attempts.push(
+    {
+      bin: 'opencode',
+      args: [
+        'run',
+        '--model',
+        'openrouter/moonshotai/kimi-k2.5',
+        '--command',
+        'miya-gateway-start',
+        '--dir',
+        workspace,
+      ],
+      label: `opencode run --model openrouter/moonshotai/kimi-k2.5 --command miya-gateway-start --dir ${workspace}`,
+    },
+    {
+      bin: 'opencode',
+      args: [
+        'run',
+        '--model',
+        'opencode/big-pickle',
+        '--command',
+        'miya-gateway-start',
+        '--dir',
+        workspace,
+      ],
+      label: `opencode run --model opencode/big-pickle --command miya-gateway-start --dir ${workspace}`,
+    },
+    {
+      bin: 'opencode',
+      args: ['run', '--command', 'miya-gateway-start', '--dir', workspace],
+      label: `opencode run --command miya-gateway-start --dir ${workspace}`,
+    },
+  );
+  return attempts;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -173,8 +245,25 @@ function parseCliArgs(argv: string[]): { workspace: string; verbose: boolean } {
       workspace = current.slice('--workspace='.length);
     }
   }
+  const resolvedInput = path.resolve(workspace || process.cwd());
+  let resolvedWorkspace = resolvedInput;
+  if (path.basename(resolvedInput).toLowerCase() === 'miya-src') {
+    const parent = path.dirname(resolvedInput);
+    if (path.basename(parent).toLowerCase() === '.opencode') {
+      resolvedWorkspace = parent;
+    }
+  } else {
+    const embeddedOpencode = path.join(resolvedInput, '.opencode');
+    if (
+      fs.existsSync(
+        path.join(embeddedOpencode, 'miya-src', 'src', 'index.ts'),
+      )
+    ) {
+      resolvedWorkspace = embeddedOpencode;
+    }
+  }
   return {
-    workspace: path.resolve(workspace || process.cwd()),
+    workspace: resolvedWorkspace,
     verbose: argv.includes('--verbose'),
   };
 }
@@ -218,7 +307,7 @@ async function waitReadyOrExit(
       return { ready: true, reason: 'ready' };
     }
     if (child.exitCode !== null) {
-      return { ready: false, reason: `opencode_exit_${child.exitCode}` };
+      return { ready: false, reason: `child_exit_${child.exitCode}` };
     }
     await sleep(400);
   }
@@ -247,6 +336,7 @@ async function main(): Promise<void> {
   let stopping = false;
   let attemptIndex = 0;
   let restartCount = 0;
+  const startAttempts = resolveStartAttempts(workspace, verbose);
 
   const stopRequested = (): boolean =>
     stopping || fs.existsSync(runtimeSupervisorStopFile(workspace));
@@ -279,9 +369,18 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const argsFactory = START_ATTEMPTS[attemptIndex % START_ATTEMPTS.length];
+    if (child && child.exitCode === null) {
+      appendLog(
+        workspace,
+        `gateway_unhealthy_with_live_child pid=${child.pid ?? 0} -> restarting worker`,
+      );
+      terminateChild(child);
+      child = null;
+      await sleep(500);
+    }
+
+    const attempt = startAttempts[attemptIndex % startAttempts.length];
     attemptIndex += 1;
-    const opencodeArgs = argsFactory(workspace);
     writeSupervisorState(
       workspace,
       {
@@ -293,9 +392,9 @@ async function main(): Promise<void> {
     );
     appendLog(
       workspace,
-      `starting_opencode attempt=${attemptIndex} cmd=opencode ${opencodeArgs.join(' ')}`,
+      `starting_gateway attempt=${attemptIndex} cmd=${attempt.label}`,
     );
-    child = spawn('opencode', opencodeArgs, {
+    child = spawn(attempt.bin, attempt.args, {
       cwd: workspace,
       stdio: verbose ? ['ignore', 'pipe', 'pipe'] : 'ignore',
       windowsHide: true,
@@ -305,14 +404,14 @@ async function main(): Promise<void> {
       child.stdout.on('data', (chunk: Buffer | string) => {
         const text = String(chunk);
         process.stdout.write(text);
-        appendLog(workspace, `opencode.stdout ${text.trim()}`);
+        appendLog(workspace, `child.stdout ${text.trim()}`);
       });
     }
     if (verbose && child.stderr) {
       child.stderr.on('data', (chunk: Buffer | string) => {
         const text = String(chunk);
         process.stderr.write(text);
-        appendLog(workspace, `opencode.stderr ${text.trim()}`);
+        appendLog(workspace, `child.stderr ${text.trim()}`);
       });
     }
 

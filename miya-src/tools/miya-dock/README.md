@@ -59,7 +59,7 @@ Edit `tools/miya-dock/miya-dock.ahk` header:
 - `keepTopmostWhenOpenCodeActive` (topmost only when OpenCode context is active)
 - `stripWindowFrame` (off by default to avoid Chromium repaint glitches)
 - `openCodeLostHideDelayMs` (delay before hiding dock when OpenCode detection is temporarily lost)
-- `autoStartGatewayOnExpand` (default `false`; when `true`, Dock will run `opencode run --command "miya-gateway-start"` if Gateway is unreachable)
+- `autoStartGatewayOnExpand` (default `false`; when `true`, Dock will run `node miya-src/dist/cli/gateway-supervisor.node.js --workspace <projectRoot>` if Gateway is unreachable)
 - `terminalTitleLooseMatch` (keep current bound terminal window even if tab title changes)
 - `openCodeTitle` (primary matcher, default `OpenCode`)
 - `openCodeExe` / `openCodeClass` (fallback matcher)
@@ -79,7 +79,8 @@ These are excluded from git by repository `.gitignore`.
 - Keep OpenCode title containing `OpenCode`, or set `OpenCodeExe` / `OpenCodeClass` in `miya-dock.ahk`.
 
 2. `gateway.json` missing or URL unreachable
-- In OpenCode run command: `/miya-gateway-start`
+- Run: `node .\miya-src\dist\cli\gateway-supervisor.node.js --workspace "$PWD"`
+- Or: `miya gateway start --force`
 - Then re-run `miya-launch.bat`.
 - Dock默认只提示 `Gateway not running`，不会自动后台拉起 OpenCode，避免终端闪烁/重试风暴。
 

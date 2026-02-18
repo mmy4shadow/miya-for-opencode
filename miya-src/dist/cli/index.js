@@ -38102,14 +38102,21 @@ function writeGatewayStartGuard(cwd, guard) {
 `, "utf-8");
 }
 function resolveWorkspaceDir(cwd) {
-  if (path21.basename(path21.resolve(cwd)).toLowerCase() === ".opencode") {
-    return cwd;
+  const resolved = path21.resolve(cwd);
+  if (path21.basename(resolved).toLowerCase() === ".opencode") {
+    return resolved;
   }
-  const nested = path21.join(cwd, "miya-src");
-  if (fs20.existsSync(path21.join(nested, "src", "index.ts"))) {
-    return nested;
+  if (path21.basename(resolved).toLowerCase() === "miya-src") {
+    const parent = path21.dirname(resolved);
+    if (path21.basename(parent).toLowerCase() === ".opencode") {
+      return parent;
+    }
   }
-  return cwd;
+  const embeddedOpencode = path21.join(resolved, ".opencode");
+  if (fs20.existsSync(path21.join(embeddedOpencode, "miya-src", "src", "index.ts"))) {
+    return embeddedOpencode;
+  }
+  return resolved;
 }
 function clearGatewayStateFile(cwd) {
   try {
@@ -38126,13 +38133,17 @@ function clearGatewaySupervisorStopSignal(cwd) {
     fs20.unlinkSync(runtimeGatewaySupervisorStopFile(cwd));
   } catch {}
 }
-function readGatewayUrl(cwd) {
+function readGatewayEndpoint(cwd) {
   const file3 = runtimeGatewayFile(cwd);
   if (!fs20.existsSync(file3))
     return null;
   try {
     const parsed = JSON.parse(fs20.readFileSync(file3, "utf-8"));
-    return parsed.url ?? null;
+    const url3 = String(parsed.url ?? "").trim();
+    if (!url3)
+      return null;
+    const authToken = typeof parsed.authToken === "string" && parsed.authToken.trim().length > 0 ? parsed.authToken.trim() : undefined;
+    return { url: url3, authToken };
   } catch {
     return null;
   }
@@ -38232,9 +38243,10 @@ function readGatewayState(cwd) {
     const parsed = JSON.parse(fs20.readFileSync(file3, "utf-8"));
     const url3 = String(parsed.url ?? "").trim();
     const pid = Number(parsed.pid);
+    const authToken = typeof parsed.authToken === "string" && parsed.authToken.trim().length > 0 ? parsed.authToken.trim() : undefined;
     if (!url3 || !Number.isFinite(pid))
       return null;
-    return { url: url3, pid };
+    return { url: url3, pid, authToken };
   } catch {
     return null;
   }
@@ -38245,7 +38257,7 @@ async function waitGatewayReady(cwd, timeoutMs = 15000) {
     const state = readGatewayState(cwd);
     if (state && isPidAlive2(state.pid)) {
       try {
-        await callGatewayMethod(state.url, "gateway.status.get", {});
+        await callGatewayMethod(state.url, "gateway.status.get", {}, state.authToken);
         return true;
       } catch {}
     }
@@ -38296,7 +38308,7 @@ async function runGatewayStart(cwd, options = {}) {
   });
   return false;
 }
-async function callGatewayMethod(url3, method, params) {
+async function callGatewayMethod(url3, method, params, authToken) {
   const wsUrl = url3.replace(/^http/, "ws");
   const socket = new WebSocket(`${wsUrl}/ws`);
   return await new Promise((resolve4, reject) => {
@@ -38307,7 +38319,7 @@ async function callGatewayMethod(url3, method, params) {
       reject(new Error("gateway_timeout"));
     }, 1e4);
     socket.addEventListener("open", () => {
-      const token = process.env.MIYA_GATEWAY_TOKEN;
+      const token = authToken ?? process.env.MIYA_GATEWAY_TOKEN;
       socket.send(JSON.stringify({
         type: "hello",
         role: "admin",
@@ -38344,24 +38356,24 @@ async function callGatewayMethod(url3, method, params) {
     });
   });
 }
-async function ensureGatewayUrl(cwd, autoStart = true) {
+async function ensureGatewayEndpoint(cwd, autoStart = true) {
   const workspace = resolveWorkspaceDir(cwd);
-  let url3 = readGatewayUrl(workspace);
-  if (url3) {
+  let endpoint = readGatewayEndpoint(workspace);
+  if (endpoint) {
     try {
-      await callGatewayMethod(url3, "gateway.status.get", {});
-      return url3;
+      await callGatewayMethod(endpoint.url, "gateway.status.get", {}, endpoint.authToken);
+      return endpoint;
     } catch {
       clearGatewayStateFile(workspace);
-      url3 = null;
+      endpoint = null;
     }
   }
   if (autoStart && await runGatewayStart(workspace)) {
-    url3 = readGatewayUrl(workspace);
-    if (url3) {
+    endpoint = readGatewayEndpoint(workspace);
+    if (endpoint) {
       try {
-        await callGatewayMethod(url3, "gateway.status.get", {});
-        return url3;
+        await callGatewayMethod(endpoint.url, "gateway.status.get", {}, endpoint.authToken);
+        return endpoint;
       } catch {
         clearGatewayStateFile(workspace);
       }
@@ -38393,7 +38405,8 @@ async function runGatewayCommand(cwd, args) {
   const action = args[0] ?? "status";
   const workspace = resolveWorkspaceDir(cwd);
   if (action === "start" || action === "serve") {
-    const allowCliStart = args.includes("--force") || process.env.MIYA_GATEWAY_CLI_START_ENABLE === "1";
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    const allowCliStart = args.includes("--force") || process.env.MIYA_GATEWAY_CLI_START_ENABLE === "1" || !interactive;
     if (!allowCliStart) {
       console.error("gateway_start_blocked:safety_guard (use `miya gateway start --force` or set MIYA_GATEWAY_CLI_START_ENABLE=1)");
       return 2;
@@ -38407,9 +38420,9 @@ async function runGatewayCommand(cwd, args) {
     });
     return ok ? 0 : 1;
   }
-  let url3 = "";
+  let endpoint = null;
   try {
-    url3 = await ensureGatewayUrl(cwd, false);
+    endpoint = await ensureGatewayEndpoint(cwd, false);
   } catch (error92) {
     if (action === "shutdown") {
       const supervisorStopped = await stopGatewaySupervisor(workspace);
@@ -38423,20 +38436,23 @@ async function runGatewayCommand(cwd, args) {
     }
     throw error92;
   }
+  if (!endpoint) {
+    throw new Error("gateway_unavailable");
+  }
   if (action === "status") {
-    const result = await callGatewayMethod(url3, "gateway.status.get", {});
+    const result = await callGatewayMethod(endpoint.url, "gateway.status.get", {}, endpoint.authToken);
     console.log(JSON.stringify(result, null, 2));
     return 0;
   }
   if (action === "doctor") {
-    const result = await callGatewayMethod(url3, "doctor.run", {});
+    const result = await callGatewayMethod(endpoint.url, "doctor.run", {}, endpoint.authToken);
     console.log(JSON.stringify(result, null, 2));
     return 0;
   }
   if (action === "shutdown") {
     const supervisorStopped = await stopGatewaySupervisor(workspace);
     try {
-      const result = await callGatewayMethod(url3, "gateway.shutdown", {});
+      const result = await callGatewayMethod(endpoint.url, "gateway.shutdown", {}, endpoint.authToken);
       console.log(JSON.stringify({
         ...result,
         supervisorStopped
@@ -38455,7 +38471,7 @@ async function runGatewayCommand(cwd, args) {
   throw new Error(`unknown_gateway_action:${action}`);
 }
 async function runSubcommand(cwd, top, args) {
-  const url3 = await ensureGatewayUrl(cwd);
+  const endpoint = await ensureGatewayEndpoint(cwd);
   const workspace = resolveWorkspaceDir(cwd);
   const withPolicyHash = (params2) => ({
     ...params2,
@@ -38720,7 +38736,7 @@ async function runSubcommand(cwd, top, args) {
     throw new Error(`unknown_subcommand:${top}`);
   }
   const [methodName, params] = method;
-  const result = await callGatewayMethod(url3, methodName, params);
+  const result = await callGatewayMethod(endpoint.url, methodName, params, endpoint.authToken);
   console.log(JSON.stringify(result, null, 2));
   return 0;
 }
@@ -38735,7 +38751,7 @@ function readFlagValue(args, key) {
   return;
 }
 async function runNodeHostCommand(cwd, args) {
-  const gateway = readFlagValue(args, "--gateway") ?? await ensureGatewayUrl(cwd);
+  const gateway = readFlagValue(args, "--gateway") ?? (await ensureGatewayEndpoint(cwd)).url;
   const nodeID = readFlagValue(args, "--node-id");
   const deviceID = readFlagValue(args, "--device-id");
   const capabilitiesValue = readFlagValue(args, "--capabilities");

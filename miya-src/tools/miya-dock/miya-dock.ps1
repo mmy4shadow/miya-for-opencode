@@ -97,10 +97,51 @@ function Test-PidAlive {
   }
 }
 
-function Try-StartGatewayViaOpenCode {
+function Resolve-GatewayStartBootstrap {
   param([string]$WorkingDirectory)
+
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  $nodeSupervisorCandidates = @(
+    (Join-Path $WorkingDirectory "dist\cli\gateway-supervisor.node.js"),
+    (Join-Path $WorkingDirectory "miya-src\dist\cli\gateway-supervisor.node.js")
+  )
+  $nodeSupervisor = $nodeSupervisorCandidates | Where-Object {
+    Test-Path -LiteralPath $_
+  } | Select-Object -First 1
+  if ($node -and $nodeSupervisor) {
+    return @{
+      FilePath = $node.Source
+      Args = @($nodeSupervisor, "--workspace", $WorkingDirectory)
+      Label = "node gateway-supervisor.node.js"
+    }
+  }
+
+  $miya = Get-Command miya -ErrorAction SilentlyContinue
+  if ($miya) {
+    return @{
+      FilePath = $miya.Source
+      Args = @("gateway", "start", "--force")
+      Label = "miya gateway start --force"
+    }
+  }
+
   $opencode = Get-Command opencode -ErrorAction SilentlyContinue
-  if (-not $opencode) {
+  if ($opencode) {
+    return @{
+      FilePath = $opencode.Source
+      Args = @("run", "--command", "miya-gateway-start")
+      Label = "opencode run --command miya-gateway-start"
+    }
+  }
+
+  return $null
+}
+
+function Try-StartGatewayViaCli {
+  param([string]$WorkingDirectory)
+
+  $bootstrap = Resolve-GatewayStartBootstrap -WorkingDirectory $WorkingDirectory
+  if (-not $bootstrap) {
     return $false
   }
 
@@ -110,8 +151,8 @@ function Try-StartGatewayViaOpenCode {
     $Env:MIYA_AUTO_UI_OPEN = "0"
     $Env:MIYA_DOCK_AUTO_LAUNCH = "0"
     $proc = Start-Process `
-      -FilePath $opencode.Source `
-      -ArgumentList @("run", "--command", "miya-gateway-start") `
+      -FilePath $bootstrap.FilePath `
+      -ArgumentList $bootstrap.Args `
       -WorkingDirectory $WorkingDirectory `
       -PassThru `
       -WindowStyle Hidden
@@ -189,8 +230,10 @@ if ($gateway -and $gateway.url) {
 }
 
 if (-not $ready -and $TryStartGateway) {
-  Write-Host "[miya-dock] Gateway not ready, trying: opencode run --command miya-gateway-start"
-  $null = Try-StartGatewayViaOpenCode -WorkingDirectory $ProjectRoot
+  $bootstrap = Resolve-GatewayStartBootstrap -WorkingDirectory $ProjectRoot
+  $label = if ($bootstrap) { $bootstrap.Label } else { "no_bootstrap_available" }
+  Write-Host "[miya-dock] Gateway not ready, trying: $label"
+  $null = Try-StartGatewayViaCli -WorkingDirectory $ProjectRoot
   Start-Sleep -Milliseconds 800
   Cleanup-StaleGatewayFiles -Candidates $GatewayCandidates
   $GatewayFile = Resolve-GatewayFile -Candidates $GatewayCandidates
@@ -205,8 +248,8 @@ if (-not $ready) {
 Gateway is not ready.
 Expected file: $GatewayFile
 Recovery:
-1) Start OpenCode in this project (with Miya plugin loaded)
-2) Run command: /miya-gateway-start
+1) Run: node .\miya-src\dist\cli\gateway-supervisor.node.js --workspace "$ProjectRoot"
+2) If node path is unavailable: miya gateway start --force
 3) Re-run tools/miya-dock/miya-launch.bat
 "@
 }
