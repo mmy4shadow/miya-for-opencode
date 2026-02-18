@@ -95,6 +95,22 @@ function shouldExitOnUnhandledRejection(): boolean {
   return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
+function isFatalUnhandledRejection(reason: unknown): boolean {
+  const text =
+    reason instanceof Error
+      ? `${reason.name}:${reason.message}`
+      : String(reason ?? '');
+  const normalized = text.toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('out_of_memory') ||
+    normalized.includes('heap out of memory') ||
+    normalized.includes('eaddrinuse') ||
+    normalized.includes('permission denied') ||
+    normalized.includes('invalid_gateway_token')
+  );
+}
+
 function readJsonObject(filePath: string): Record<string, unknown> | null {
   if (!fs.existsSync(filePath)) return null;
   try {
@@ -187,7 +203,7 @@ process.on('unhandledRejection', (reason) => {
       reason instanceof Error ? reason.stack || reason.message : String(reason)
     }`,
   );
-  if (shouldExitOnUnhandledRejection()) {
+  if (shouldExitOnUnhandledRejection() && isFatalUnhandledRejection(reason)) {
     process.exit(1);
   }
 });

@@ -1,26 +1,62 @@
 [CmdletBinding()]
 param(
-  [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
+  [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
   [switch]$TryStartGateway
 )
 
 $ErrorActionPreference = "Stop"
 
-$GatewayPrimary = Join-Path $ProjectRoot ".opencode\miya\gateway.json"
-$GatewayAlternate = Join-Path $ProjectRoot "miya-src\.opencode\miya\gateway.json"
+$GatewayCandidates = @(
+  (Join-Path $ProjectRoot "miya\gateway.json"),
+  (Join-Path $ProjectRoot ".opencode\miya\gateway.json"),
+  (Join-Path $ProjectRoot "miya-src\miya\gateway.json"),
+  (Join-Path $ProjectRoot "miya-src\.opencode\miya\gateway.json")
+)
+$ProjectRootLeaf = Split-Path -Path $ProjectRoot -Leaf
+if ($ProjectRootLeaf -eq "miya-src") {
+  $repoRoot = Split-Path -Path $ProjectRoot -Parent
+  $GatewayCandidates += @(
+    (Join-Path $repoRoot "miya\gateway.json"),
+    (Join-Path $repoRoot ".opencode\miya\gateway.json")
+  )
+}
 $DockScript = Join-Path $PSScriptRoot "miya-dock.ahk"
 $PidFile = Join-Path $PSScriptRoot "miya-dock.pid"
 
 function Resolve-GatewayFile {
-  param([string]$Primary, [string]$Alternate)
-  $candidates = @($Primary, $Alternate) | Where-Object { Test-Path -LiteralPath $_ }
+  param([string[]]$Candidates)
+  $candidates = @($Candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
   if ($candidates.Count -eq 0) {
-    return $Primary
+    return $Candidates[0]
   }
   if ($candidates.Count -eq 1) {
     return $candidates[0]
   }
   return ($candidates | Sort-Object { (Get-Item -LiteralPath $_).LastWriteTimeUtc } -Descending | Select-Object -First 1)
+}
+
+function Cleanup-StaleGatewayFiles {
+  param([string[]]$Candidates)
+  $unique = @($Candidates | Select-Object -Unique)
+  foreach ($candidate in $unique) {
+    if (-not $candidate -or -not (Test-Path -LiteralPath $candidate)) {
+      continue
+    }
+    $state = Read-GatewayState -Path $candidate
+    if (-not $state) {
+      continue
+    }
+    $statePid = 0
+    try {
+      $statePid = [int]$state.pid
+    } catch {
+      $statePid = 0
+    }
+    if ($statePid -gt 0 -and -not (Test-PidAlive -ProcessId $statePid)) {
+      Write-Host "[miya-dock] stale gateway state removed: $candidate (pid=$statePid)"
+      Remove-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
+    }
+  }
 }
 
 function Read-GatewayState {
@@ -125,7 +161,8 @@ function Resolve-AhkExecutable {
   return $null
 }
 
-$GatewayFile = Resolve-GatewayFile -Primary $GatewayPrimary -Alternate $GatewayAlternate
+Cleanup-StaleGatewayFiles -Candidates $GatewayCandidates
+$GatewayFile = Resolve-GatewayFile -Candidates $GatewayCandidates
 
 if (-not (Test-Path -LiteralPath $DockScript)) {
   throw "Dock script not found: $DockScript"
@@ -145,7 +182,7 @@ if ($gateway -and $gateway.url) {
     Write-Host "[miya-dock] stale gateway.json detected (pid=$($gateway.pid) not alive), removing stale state."
     Remove-Item -LiteralPath $GatewayFile -Force -ErrorAction SilentlyContinue
     $gateway = $null
-    $GatewayFile = Resolve-GatewayFile -Primary $GatewayPrimary -Alternate $GatewayAlternate
+    $GatewayFile = Resolve-GatewayFile -Candidates $GatewayCandidates
   } else {
     $ready = Test-GatewayUrl -Url $gateway.url
   }
@@ -155,7 +192,8 @@ if (-not $ready -and $TryStartGateway) {
   Write-Host "[miya-dock] Gateway not ready, trying: opencode run --command miya-gateway-start"
   $null = Try-StartGatewayViaOpenCode -WorkingDirectory $ProjectRoot
   Start-Sleep -Milliseconds 800
-  $GatewayFile = Resolve-GatewayFile -Primary $GatewayPrimary -Alternate $GatewayAlternate
+  Cleanup-StaleGatewayFiles -Candidates $GatewayCandidates
+  $GatewayFile = Resolve-GatewayFile -Candidates $GatewayCandidates
   $gateway = Read-GatewayState -Path $GatewayFile
   if ($gateway -and $gateway.url) {
     $ready = Test-GatewayUrl -Url $gateway.url

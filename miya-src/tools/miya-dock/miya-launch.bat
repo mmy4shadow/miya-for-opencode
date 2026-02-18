@@ -2,7 +2,7 @@
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
-set "PROJECT_ROOT=%SCRIPT_DIR%..\.."
+set "PROJECT_ROOT=%SCRIPT_DIR%..\..\.."
 set "MAX_RETRIES=6"
 set "RETRY_WAIT_SECONDS=4"
 if defined MIYA_DOCK_MAX_RETRIES set "MAX_RETRIES=%MIYA_DOCK_MAX_RETRIES%"

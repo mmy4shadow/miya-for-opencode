@@ -545,9 +545,11 @@ function spawnDaemon(runtime: LauncherRuntime): SpawnResult {
     return 'failed';
   }
   const hostScript = resolveHostScriptPath();
-  const hostStdout = fs.openSync(daemonLogFile(runtime.projectDir, 'stdout'), 'a');
-  const hostStderr = fs.openSync(daemonLogFile(runtime.projectDir, 'stderr'), 'a');
+  let hostStdout: number | undefined;
+  let hostStderr: number | undefined;
   try {
+    hostStdout = fs.openSync(daemonLogFile(runtime.projectDir, 'stdout'), 'a');
+    hostStderr = fs.openSync(daemonLogFile(runtime.projectDir, 'stderr'), 'a');
     const child = spawn(
       bunBinary,
       [
@@ -567,13 +569,22 @@ function spawnDaemon(runtime: LauncherRuntime): SpawnResult {
       },
     );
     child.unref();
+  } catch {
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = 'Miya Daemon Spawn Failed';
+    noteLaunchFailure(runtime, 'spawn_failed');
+    return 'failed';
   } finally {
-    try {
-      fs.closeSync(hostStdout);
-    } catch {}
-    try {
-      fs.closeSync(hostStderr);
-    } catch {}
+    if (typeof hostStdout === 'number') {
+      try {
+        fs.closeSync(hostStdout);
+      } catch {}
+    }
+    if (typeof hostStderr === 'number') {
+      try {
+        fs.closeSync(hostStderr);
+      } catch {}
+    }
   }
   setLifecycleState(runtime, 'STARTING', 'Miya Daemon Booting');
   return 'spawned';

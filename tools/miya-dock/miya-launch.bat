@@ -13,7 +13,7 @@ echo [miya-dock] ensuring gateway and launching dock...
 
 :retry_launch
 echo [miya-dock] attempt %ATTEMPT%/%MAX_RETRIES% ...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%miya-dock.ps1" -ProjectRoot "%PROJECT_ROOT%" -TryStartGateway
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_ROOT%\miya-src\tools\miya-dock\miya-dock.ps1" -ProjectRoot "%PROJECT_ROOT%" -TryStartGateway
 if not errorlevel 1 (
   echo [miya-dock] ready.
   exit /b 0

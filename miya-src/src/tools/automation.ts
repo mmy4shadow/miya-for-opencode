@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import type { MiyaAutomationService } from '../automation';
 import { getSafetySnapshot } from '../safety';
+import { getMiyaRuntimeDir } from '../workflow';
 
 const z = tool.schema;
 
@@ -101,7 +102,7 @@ function readAutoGitStatus(projectDir: string): {
   target_ref?: string;
   session_id?: string;
 } {
-  const file = path.join(projectDir, '.opencode', 'miya', 'auto-git-push.json');
+  const file = path.join(getMiyaRuntimeDir(projectDir), 'auto-git-push.json');
   if (!fs.existsSync(file)) return {};
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as {
@@ -122,7 +123,7 @@ function readGatewayStatus(projectDir: string): {
   url?: string;
   port?: number;
 } {
-  const file = path.join(projectDir, '.opencode', 'miya', 'gateway.json');
+  const file = path.join(getMiyaRuntimeDir(projectDir), 'gateway.json');
   if (!fs.existsSync(file)) return {};
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as {

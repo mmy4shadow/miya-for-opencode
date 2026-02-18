@@ -802,9 +802,7 @@ export default function App() {
     (nextView: ControlView, id?: string) => {
       const nextPath = buildRoute(basePath, nextView, id);
       const nextUrl = `${nextPath}${sanitizedLocationSearch()}${location.hash || ''}`;
-      if (
-        nextUrl !== `${location.pathname}${location.hash}`
-      ) {
+      if (nextUrl !== `${location.pathname}${location.search}${location.hash}`) {
         history.pushState({}, '', nextUrl);
       }
       setView(nextView);

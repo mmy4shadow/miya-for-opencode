@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { runNodeHost } from '../nodes/client';
 import { currentPolicyHash } from '../policy';
+import { getMiyaRuntimeDir } from '../workflow';
 import { install } from './install';
 import type { BooleanArg, InstallArgs } from './types';
 
@@ -74,7 +75,7 @@ Examples:
 }
 
 function runtimeGatewayFile(cwd: string): string {
-  return path.join(cwd, '.opencode', 'miya', 'gateway.json');
+  return path.join(getMiyaRuntimeDir(cwd), 'gateway.json');
 }
 
 interface GatewayStartGuard {
@@ -84,7 +85,7 @@ interface GatewayStartGuard {
 }
 
 function runtimeGatewayStartGuardFile(cwd: string): string {
-  return path.join(cwd, '.opencode', 'miya', 'gateway-start.guard.json');
+  return path.join(getMiyaRuntimeDir(cwd), 'gateway-start.guard.json');
 }
 
 function readGatewayStartGuard(cwd: string): GatewayStartGuard | null {
@@ -117,6 +118,9 @@ function writeGatewayStartGuard(cwd: string, guard: GatewayStartGuard): void {
 }
 
 function resolveWorkspaceDir(cwd: string): string {
+  if (path.basename(path.resolve(cwd)).toLowerCase() === '.opencode') {
+    return cwd;
+  }
   const nested = path.join(cwd, 'miya-src');
   if (fs.existsSync(path.join(nested, 'src', 'index.ts'))) {
     return nested;

@@ -81,6 +81,7 @@ import {
 } from './tools';
 import { startTmuxCheck } from './utils';
 import { log } from './utils/logger';
+import { getMiyaRuntimeDir } from './workflow';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -114,11 +115,11 @@ const autoUiOpenAtByDir = new Map<string, number>();
 const dockLaunchAtByDir = new Map<string, number>();
 
 function autoUiOpenGuardFile(projectDir: string): string {
-  return path.join(projectDir, '.opencode', 'miya', 'ui-auto-open.guard.json');
+  return path.join(getMiyaRuntimeDir(projectDir), 'ui-auto-open.guard.json');
 }
 
 function dockLaunchGuardFile(projectDir: string): string {
-  return path.join(projectDir, '.opencode', 'miya', 'dock-launch.guard.json');
+  return path.join(getMiyaRuntimeDir(projectDir), 'dock-launch.guard.json');
 }
 
 function readLastAutoUiOpenAt(projectDir: string): number {
@@ -242,6 +243,8 @@ function launchDockSilently(projectDir: string): void {
       'Hidden',
       '-File',
       ps1,
+      '-ProjectRoot',
+      projectDir,
     ],
     {
       cwd: projectDir,
