@@ -33,7 +33,7 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 ### 2026-02-18 控制台与网关启动链路修复（本轮）
 
 - `Gateway UI` 鉴权闭环已修复：WebSocket `hello` 增加 token 透传，路由切换保留 `?token=`，避免出现 `invalid_gateway_token` 后任务/模块空白。
-- 控制台导航已收敛：移除无效 `chat/im/skills/status` 导航项，仅保留可用且接通后端的 `控制中心`、`任务` 页面。
+- 控制台导航已收敛：移除无效 `chat/im/skills/status` 导航项，当前保留并接通后端的主栏目为 `控制中枢`、`作业中心`、`记忆库`、`网关诊断`。
 - 启动行为默认值已对齐：`ui.dashboard.dockAutoLaunch` 默认启用；Windows 启动 OpenCode 时，控制面板可按配置自动跟随打开。
 - 网关拉起链路已减闪烁：`miya-dock.ps1` 改为直接调用 `opencode` 可执行文件启动网关，不再走 `cmd /c` 拼接命令；超时不再强杀子进程，避免终端反复弹窗与误杀启动。
 - 生命周期状态口径已统一：`lifecycle.status.get` 中 `dockAutoLaunch` 的判定逻辑与主启动逻辑保持一致，避免“实际已启用但面板显示未启用”的错位。
@@ -43,6 +43,9 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - 控制台信息架构新增：在 `控制中心/任务` 之外新增 `记忆`、`网关` 导航页，降低单页拥挤。
 - 记忆中心已落地可编辑能力：支持按域/状态筛选、详情编辑、待确认转生效、归档/取消归档；后端新增 `companion.memory.update`、`companion.memory.archive` 接口。
 - Owner 校验新增逃生阀：支持 `security.ownerCheck=false`（默认）或环境变量 `MIYA_DISABLE_OWNER_CHECK=1`，用于避免本机控制台在 `owner_mode_required` 下反复抖动。
+- 网关状态接口容错已补齐：`/api/status` 增加快照异常兜底，异常时返回降级 JSON（含 `statusError`）而非直接断链，降低前端 `Failed to fetch` 概率（`miya-src/src/gateway/index.ts`）。
+- 控制台栏目重构已落地：侧栏改为 `控制中枢/作业中心/记忆库/网关诊断`，并将任务/时间线等重复信息从控制中枢分流，减少主页面拥挤（`miya-src/gateway-ui/src/App.tsx`）。
+- 代理兼容提示已内置：控制中枢新增 `NO_PROXY` / loopback 直连提示与能力域联动入口，支持“常开代理 + 本地直连”并行使用（`miya-src/gateway-ui/src/App.tsx`）。
 
 ### 2026-02-18 代码实读复核（逻辑闭环/触发链路）
 

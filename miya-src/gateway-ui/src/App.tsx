@@ -133,6 +133,11 @@ interface GatewaySnapshot {
       };
     }>;
   };
+  statusError?: {
+    code?: string;
+    message?: string;
+    hint?: string;
+  };
 }
 
 interface PolicyDomainRow {
@@ -200,6 +205,14 @@ interface MiyaJobRun {
 }
 
 type UiTaskStatus = 'completed' | 'running' | 'failed' | 'stopped';
+
+type NavKey = 'modules' | 'tasks' | 'memory' | 'gateway';
+
+interface NavItem {
+  key: NavKey;
+  label: string;
+  subtitle: string;
+}
 
 interface TaskRecord {
   id: string;
@@ -285,6 +298,28 @@ function buildRoute(
   if (view === 'memory-detail')
     return `${base}/memory/${encodeURIComponent(taskId || '')}`;
   return `${base}/gateway`;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { key: 'modules', label: '控制中枢', subtitle: '总览与安全联锁' },
+  { key: 'tasks', label: '作业中心', subtitle: '任务执行与回放' },
+  { key: 'memory', label: '记忆库', subtitle: '记忆筛选与修订' },
+  { key: 'gateway', label: '网关诊断', subtitle: '节点与连接态' },
+];
+
+function isNavActive(view: ControlView, key: NavKey): boolean {
+  if (key === 'modules') return view === 'modules';
+  if (key === 'tasks') return view === 'tasks-list' || view === 'tasks-detail';
+  if (key === 'memory')
+    return view === 'memory-list' || view === 'memory-detail';
+  return view === 'gateway';
+}
+
+function targetViewForNav(key: NavKey): ControlView {
+  if (key === 'tasks') return 'tasks-list';
+  if (key === 'memory') return 'memory-list';
+  if (key === 'gateway') return 'gateway';
+  return 'modules';
 }
 
 function killSwitchLabel(mode: KillSwitchMode): string {
@@ -400,6 +435,19 @@ function normalizeTaskStatus(status: MiyaJobRun['status']): UiTaskStatus {
   if (status === 'success') return 'completed';
   if (status === 'failed') return 'failed';
   return 'stopped';
+}
+
+function normalizeStatusFetchError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const normalized = raw.toLowerCase();
+  if (
+    normalized.includes('failed to fetch') ||
+    normalized.includes('networkerror') ||
+    normalized.includes('fetch')
+  ) {
+    return '无法连接本地网关。请在代理中直连 localhost/127.0.0.1/::1，并检查网关与 daemon 是否在运行。';
+  }
+  return raw;
 }
 
 async function invokeGateway(
@@ -528,12 +576,29 @@ export default function App() {
     try {
       const statusRes = await fetch('/api/status', { cache: 'no-store' });
       if (!statusRes.ok) {
+        let detail = '';
+        try {
+          detail = (await statusRes.text()).trim();
+        } catch {}
         setConnected(false);
+        setErrorText(
+          detail
+            ? `status_http_${statusRes.status}: ${detail}`
+            : `status_http_${statusRes.status}`,
+        );
         return;
       }
       const status = (await statusRes.json()) as GatewaySnapshot;
       setSnapshot(status);
       const rpcErrors: string[] = [];
+      if (status.statusError?.message) {
+        const hint = status.statusError.hint ? `；${status.statusError.hint}` : '';
+        rpcErrors.push(
+          `status_snapshot_degraded:${
+            status.statusError.code || 'unknown'
+          }: ${status.statusError.message}${hint}`,
+        );
+      }
       const [domainsResult, jobsResult, runsResult, identityResult] =
         await Promise.allSettled([
           invokeGateway('policy.domains.list'),
@@ -640,7 +705,7 @@ export default function App() {
       }
     } catch (error) {
       setConnected(false);
-      setErrorText(error instanceof Error ? error.message : String(error));
+      setErrorText(normalizeStatusFetchError(error));
     }
   }, [identityMode, view]);
 
@@ -976,33 +1041,22 @@ export default function App() {
             </h1>
             <p className="mt-1 text-sm text-slate-500">控制台</p>
           </div>
-          <nav className="space-y-1 px-3 py-4 text-base">
-            {[
-              { key: 'modules', label: '控制中心' },
-              { key: 'tasks', label: '任务' },
-              { key: 'memory', label: '记忆' },
-              { key: 'gateway', label: '网关' },
-            ].map((item) => {
-              const active =
-                (view === 'modules' && item.key === 'modules') ||
-                ((view === 'tasks-list' || view === 'tasks-detail') &&
-                  item.key === 'tasks') ||
-                ((view === 'memory-list' || view === 'memory-detail') &&
-                  item.key === 'memory') ||
-                (view === 'gateway' && item.key === 'gateway');
+          <nav className="space-y-1.5 px-3 py-4 text-base">
+            {NAV_ITEMS.map((item) => {
+              const active = isNavActive(view, item.key);
               return (
                 <button
                   key={item.key}
                   type="button"
-                  onClick={() => {
-                    if (item.key === 'tasks') navigate('tasks-list');
-                    if (item.key === 'modules') navigate('modules');
-                    if (item.key === 'memory') navigate('memory-list');
-                    if (item.key === 'gateway') navigate('gateway');
-                  }}
-                  className={`flex w-full items-center rounded-xl px-4 py-3 text-left ${active ? 'border border-sky-200 bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'}`}
+                  onClick={() => navigate(targetViewForNav(item.key))}
+                  className={`flex w-full flex-col rounded-xl px-4 py-3 text-left transition ${active ? 'border border-sky-200 bg-sky-100 text-sky-700 shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
                 >
-                  {item.label}
+                  <span className="font-medium">{item.label}</span>
+                  <span
+                    className={`mt-0.5 text-xs ${active ? 'text-sky-600' : 'text-slate-500'}`}
+                  >
+                    {item.subtitle}
+                  </span>
                 </button>
               );
             })}
@@ -1055,32 +1109,22 @@ export default function App() {
                 成功：{successText}
               </p>
             ) : null}
+            {!connected ? (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                诊断提示：若长期启用代理，请确保 `localhost/127.0.0.1/::1`
+                走直连（NO_PROXY / 系统代理绕过）。
+              </p>
+            ) : null}
           </header>
 
           <nav className="flex flex-wrap gap-2 lg:hidden">
-            {[
-              { key: 'modules', label: '控制中心' },
-              { key: 'tasks', label: '任务' },
-              { key: 'memory', label: '记忆' },
-              { key: 'gateway', label: '网关' },
-            ].map((item) => {
-              const active =
-                (view === 'modules' && item.key === 'modules') ||
-                ((view === 'tasks-list' || view === 'tasks-detail') &&
-                  item.key === 'tasks') ||
-                ((view === 'memory-list' || view === 'memory-detail') &&
-                  item.key === 'memory') ||
-                (view === 'gateway' && item.key === 'gateway');
+            {NAV_ITEMS.map((item) => {
+              const active = isNavActive(view, item.key);
               return (
                 <button
                   key={`mobile-${item.key}`}
                   type="button"
-                  onClick={() => {
-                    if (item.key === 'tasks') navigate('tasks-list');
-                    if (item.key === 'modules') navigate('modules');
-                    if (item.key === 'memory') navigate('memory-list');
-                    if (item.key === 'gateway') navigate('gateway');
-                  }}
+                  onClick={() => navigate(targetViewForNav(item.key))}
                   className={`rounded-lg border px-3 py-1.5 text-sm ${active ? 'border-sky-200 bg-sky-100 text-sky-700' : 'border-slate-300 bg-white text-slate-600'}`}
                 >
                   {item.label}
@@ -1094,7 +1138,7 @@ export default function App() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="text-3xl font-semibold text-slate-800">
-                    任务管理
+                    作业中心
                   </h2>
                   <p className="mt-2 text-sm text-slate-500">
                     查看与管理所有执行过的任务记录，点击任务查看详情。
@@ -1349,7 +1393,7 @@ export default function App() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="text-3xl font-semibold text-slate-800">
-                    记忆中心
+                    记忆库
                   </h2>
                   <p className="mt-2 text-sm text-slate-500">
                     查看、分类与检索已写入记忆，支持跳转到详情编辑。
@@ -1551,7 +1595,7 @@ export default function App() {
             <section className="space-y-4">
               <article className={panelClass}>
                 <h2 className="text-3xl font-semibold text-slate-800">
-                  网关与运行态
+                  网关诊断
                 </h2>
                 <p className="mt-2 text-sm text-slate-500">
                   集中查看 Gateway/Daemon/节点与证据，减少控制中心信息拥挤。
@@ -1619,16 +1663,16 @@ export default function App() {
           <div className={view === 'modules' ? 'space-y-4' : 'hidden'}>
             <section className={`${panelClass}`}>
               <h2 className="text-3xl font-semibold text-slate-800">
-                模块管理
+                控制中枢
               </h2>
               <p className="mt-2 text-sm text-slate-500">
-                管理控制面板与安全模块。先看状态，再操作，再写入时间线。
+                仅保留全局控制项。任务、记忆、网关详情已分流到独立页面。
               </p>
               <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
                 {quickStats.map((item) => (
                   <article
                     key={item.title}
-                    className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"
+                    className="rounded-xl border border-sky-200 bg-sky-50 p-3"
                   >
                     <p className="text-xs text-slate-500">{item.title}</p>
                     <p className="mt-1 text-lg font-semibold text-slate-800">
@@ -1637,6 +1681,32 @@ export default function App() {
                     <p className="mt-1 text-xs text-slate-600">{item.desc}</p>
                   </article>
                 ))}
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => navigate('tasks-list')}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
+                >
+                  <p className="font-semibold text-slate-800">作业中心</p>
+                  <p className="mt-1 text-slate-500">任务列表、日志导出与重放</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('memory-list')}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
+                >
+                  <p className="font-semibold text-slate-800">记忆库</p>
+                  <p className="mt-1 text-slate-500">筛选、修订、归档、确认</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('gateway')}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
+                >
+                  <p className="font-semibold text-slate-800">网关诊断</p>
+                  <p className="mt-1 text-slate-500">节点、连接态、策略哈希</p>
+                </button>
               </div>
             </section>
 
@@ -1677,9 +1747,7 @@ export default function App() {
 
             <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
               <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  安全总开关（紧急开关）
-                </h2>
+                <h2 className="text-sm font-semibold">安全总开关（紧急）</h2>
                 <p className="mt-1 text-xs text-slate-500">
                   当前模式：{killSwitchLabel(killSwitchMode)}
                 </p>
@@ -1729,9 +1797,7 @@ export default function App() {
               </article>
 
               <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  信任阈值（审批疲劳优化）
-                </h2>
+                <h2 className="text-sm font-semibold">信任阈值</h2>
                 <p className="mt-1 text-xs text-slate-500">
                   分数高于静默阈值可自动放行，低于阻断阈值必须人工确认。
                 </p>
@@ -1806,9 +1872,7 @@ export default function App() {
               </article>
 
               <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  守门员开关（新手推荐）
-                </h2>
+                <h2 className="text-sm font-semibold">守门员策略</h2>
                 <p className="mt-1 text-xs text-slate-500">
                   关闭共鸣层后，自动触达将进入静默等待；关闭截图核验后，系统不再做截图/VLM探测。
                 </p>
@@ -1956,7 +2020,19 @@ export default function App() {
               </article>
             </section>
 
-            <section className="hidden grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">代理兼容设置</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  常开代理时，请让本地回环直连，外网流量走代理。
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-600">
+                  <li>`NO_PROXY=localhost,127.0.0.1,::1`</li>
+                  <li>系统代理绕过：`localhost;127.0.0.1;::1`</li>
+                  <li>Clash/TUN 请放行 loopback 后再刷新控制台</li>
+                </ul>
+              </article>
+
               <article className={panelClass}>
                 <h2 className="text-sm font-semibold">能力域状态</h2>
                 <p className="mt-1 text-xs text-slate-500">
@@ -2003,42 +2079,9 @@ export default function App() {
                   策略哈希：{snapshot.policyHash ?? '暂无'}
                 </p>
               </article>
-
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">节点状态</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  在线节点 {snapshot.nodes?.connected ?? 0} /{' '}
-                  {snapshot.nodes?.total ?? 0}
-                </p>
-                <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
-                  {(snapshot.nodes?.list ?? []).map((node, index) => (
-                    <div
-                      key={
-                        node.id ??
-                        `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`
-                      }
-                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
-                    >
-                      <p className="font-medium">
-                        {node.label || node.id || '未命名节点'}
-                      </p>
-                      <p
-                        className={
-                          node.connected ? 'text-emerald-700' : 'text-rose-700'
-                        }
-                      >
-                        {node.connected ? '在线' : '离线'}
-                      </p>
-                      <p className="text-slate-500">
-                        平台：{node.platform || '未知'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </article>
             </section>
 
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <section className="hidden grid grid-cols-1 gap-4 xl:grid-cols-2">
               <article className={panelClass}>
                 <h2 className="text-sm font-semibold">最近任务执行</h2>
                 <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">

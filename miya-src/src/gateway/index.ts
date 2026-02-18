@@ -643,6 +643,7 @@ const runtimes = new Map<string, GatewayRuntime>();
 const dependencies = new Map<string, GatewayDependencies>();
 const ownerTokens = new Map<string, string>();
 const controlUiFallbackLoggedAtByDir = new Map<string, number>();
+const statusSnapshotFailureLoggedAtByDir = new Map<string, number>();
 const followerRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 interface GatewayOwnerLock {
@@ -1597,6 +1598,19 @@ function logControlUiFallback(
   });
 }
 
+function logStatusSnapshotFailure(projectDir: string, error: unknown): void {
+  const logKey = `${projectDir}:status-snapshot-failure`;
+  if (
+    !shouldEmitThrottledLog(statusSnapshotFailureLoggedAtByDir, logKey, 10_000)
+  ) {
+    return;
+  }
+  log('[gateway] status snapshot failed; fallback payload emitted', {
+    projectDir,
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
 function toGatewayState(
   projectDir: string,
   runtime: GatewayRuntime,
@@ -1633,6 +1647,57 @@ function toPublicGatewayState(state: GatewayState): GatewayState {
     ...state,
     uiUrl: state.url,
     authToken: undefined,
+  };
+}
+
+function buildStatusFallbackPayload(
+  projectDir: string,
+  runtime: GatewayRuntime,
+  error: unknown,
+): Record<string, unknown> {
+  const message = error instanceof Error ? error.message : String(error);
+  let gateway: Record<string, unknown> = {
+    status: 'degraded',
+    url: '',
+    uiUrl: '',
+  };
+  try {
+    gateway = {
+      ...toPublicGatewayState(syncGatewayState(projectDir, runtime)),
+      status: 'degraded',
+    };
+  } catch {}
+
+  let daemon: Record<string, unknown> = { connected: false };
+  try {
+    daemon = {
+      ...getLauncherDaemonSnapshot(projectDir),
+      connected: false,
+    } as Record<string, unknown>;
+  } catch {}
+
+  return {
+    updatedAt: nowIso(),
+    gateway,
+    daemon,
+    policyHash: '',
+    sessions: { total: 0, active: 0, queued: 0, muted: 0 },
+    jobs: { total: 0, enabled: 0, pendingApprovals: 0, recentRuns: [] },
+    nodes: { total: 0, connected: 0, list: [] },
+    nexus: {
+      sessionId: runtime.nexus.sessionId,
+      pendingTickets: runtime.nexus.pendingTickets,
+      killSwitchMode: runtime.nexus.killSwitchMode,
+      insights: [],
+      trustMode: runtime.nexus.trustMode,
+      psycheMode: runtime.nexus.psycheMode,
+      guardianSafeHoldReason: 'status_snapshot_failed',
+    },
+    statusError: {
+      code: 'status_snapshot_failed',
+      message,
+      hint: '检查 daemon 日志，并确保代理绕过 localhost/127.0.0.1/::1。',
+    },
   };
 }
 
@@ -9343,9 +9408,23 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         }
 
         if (url.pathname === '/api/status') {
-          return Response.json(buildSnapshot(projectDir, runtime), {
-            headers: { 'cache-control': 'no-store' },
-          });
+          try {
+            return Response.json(buildSnapshot(projectDir, runtime), {
+              headers: { 'cache-control': 'no-store' },
+            });
+          } catch (error) {
+            logStatusSnapshotFailure(projectDir, error);
+            return Response.json(
+              buildStatusFallbackPayload(projectDir, runtime, error),
+              {
+                status: 200,
+                headers: {
+                  'cache-control': 'no-store',
+                  'x-miya-status': 'degraded',
+                },
+              },
+            );
+          }
         }
         if (url.pathname === '/api/evidence/image') {
           const auditID = String(url.searchParams.get('auditID') ?? '').trim();
