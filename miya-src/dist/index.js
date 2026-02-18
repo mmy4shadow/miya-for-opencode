@@ -69953,6 +69953,33 @@ function openUrlSilently(url3) {
   });
   child.unref();
 }
+function normalizeServerUrl(serverUrl) {
+  if (!serverUrl)
+    return null;
+  try {
+    if (serverUrl instanceof URL)
+      return new URL(serverUrl.toString());
+    return new URL(String(serverUrl));
+  } catch {
+    return null;
+  }
+}
+function resolveAutoUiLaunchUrl(input) {
+  const mode = String(process.env.MIYA_UI_LAUNCH_MODE ?? "proxy").trim().toLowerCase();
+  const server = normalizeServerUrl(input.serverUrl);
+  if (mode !== "gateway" && server) {
+    const proxyUrl = new URL("/miya/", server).toString();
+    return { launchUrl: proxyUrl, publicUrl: proxyUrl };
+  }
+  const launchUrl = buildGatewayLaunchUrl({
+    url: input.gatewayUiUrl,
+    authToken: input.gatewayAuthToken
+  });
+  return {
+    launchUrl,
+    publicUrl: input.gatewayUiUrl
+  };
+}
 function launchDockSilently(projectDir) {
   if (process.platform !== "win32")
     return;
@@ -70054,7 +70081,7 @@ function scheduleAutoUiOpen(projectDir, launchUrl, publicUrl, url3, cooldownMs, 
     });
   }, 1200);
 }
-function scheduleAutoUiOpenFromRuntimeState(projectDir, cooldownMs, dockAutoLaunch) {
+function scheduleAutoUiOpenFromRuntimeState(projectDir, cooldownMs, dockAutoLaunch, serverUrl) {
   const maxAttempts = 20;
   const retryDelayMs = 1500;
   const poll = async (attempt) => {
@@ -70062,11 +70089,12 @@ function scheduleAutoUiOpenFromRuntimeState(projectDir, cooldownMs, dockAutoLaun
     if (state2) {
       const healthy = await probeGatewayAlive(state2.url, 1200);
       if (healthy && shouldAutoOpenUi(projectDir, cooldownMs)) {
-        const launchUrl = buildGatewayLaunchUrl({
-          url: state2.uiUrl,
-          authToken: state2.authToken
+        const resolvedLaunch = resolveAutoUiLaunchUrl({
+          serverUrl,
+          gatewayUiUrl: state2.uiUrl,
+          gatewayAuthToken: state2.authToken
         });
-        scheduleAutoUiOpen(projectDir, launchUrl, state2.uiUrl, state2.url, cooldownMs, dockAutoLaunch);
+        scheduleAutoUiOpen(projectDir, resolvedLaunch.launchUrl, resolvedLaunch.publicUrl, state2.url, cooldownMs, dockAutoLaunch);
         return;
       }
     }
@@ -70478,11 +70506,12 @@ var MiyaPlugin = async (ctx) => {
   const dockAutoLaunch = process.env.MIYA_DOCK_AUTO_LAUNCH === "1" || process.env.MIYA_DOCK_AUTO_LAUNCH !== "0" && dashboardConfig.dockAutoLaunch !== false;
   const interactiveSession = isInteractiveSession();
   if (autoOpenEnabled && autoOpenEnabledResolved && !autoOpenBlockedByEnv && shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs) && gatewayState) {
-    const launchUrl = buildGatewayLaunchUrl({
-      url: gatewayState.uiUrl,
-      authToken: gatewayState.authToken
+    const resolvedLaunch = resolveAutoUiLaunchUrl({
+      serverUrl: ctx.serverUrl,
+      gatewayUiUrl: gatewayState.uiUrl,
+      gatewayAuthToken: gatewayState.authToken
     });
-    scheduleAutoUiOpen(ctx.directory, launchUrl, gatewayState.uiUrl, gatewayState.url, autoOpenCooldownMs, dockAutoLaunch);
+    scheduleAutoUiOpen(ctx.directory, resolvedLaunch.launchUrl, resolvedLaunch.publicUrl, gatewayState.url, autoOpenCooldownMs, dockAutoLaunch);
   } else {
     log("[miya] auto ui open skipped", {
       autoOpenEnabled,
@@ -70494,7 +70523,7 @@ var MiyaPlugin = async (ctx) => {
       gatewayOwner
     });
     if (autoOpenEnabled && autoOpenEnabledResolved && !autoOpenBlockedByEnv && !gatewayState) {
-      scheduleAutoUiOpenFromRuntimeState(ctx.directory, autoOpenCooldownMs, dockAutoLaunch);
+      scheduleAutoUiOpenFromRuntimeState(ctx.directory, autoOpenCooldownMs, dockAutoLaunch, ctx.serverUrl);
     }
   }
   if (gatewayOwner) {

@@ -209,6 +209,39 @@ function openUrlSilently(url: string): void {
   child.unref();
 }
 
+function normalizeServerUrl(serverUrl: URL | string | undefined): URL | null {
+  if (!serverUrl) return null;
+  try {
+    if (serverUrl instanceof URL) return new URL(serverUrl.toString());
+    return new URL(String(serverUrl));
+  } catch {
+    return null;
+  }
+}
+
+function resolveAutoUiLaunchUrl(input: {
+  serverUrl?: URL | string;
+  gatewayUiUrl: string;
+  gatewayAuthToken?: string;
+}): { launchUrl: string; publicUrl: string } {
+  const mode = String(process.env.MIYA_UI_LAUNCH_MODE ?? 'proxy')
+    .trim()
+    .toLowerCase();
+  const server = normalizeServerUrl(input.serverUrl);
+  if (mode !== 'gateway' && server) {
+    const proxyUrl = new URL('/miya/', server).toString();
+    return { launchUrl: proxyUrl, publicUrl: proxyUrl };
+  }
+  const launchUrl = buildGatewayLaunchUrl({
+    url: input.gatewayUiUrl,
+    authToken: input.gatewayAuthToken,
+  });
+  return {
+    launchUrl,
+    publicUrl: input.gatewayUiUrl,
+  };
+}
+
 function launchDockSilently(projectDir: string): void {
   if (process.platform !== 'win32') return;
   const now = Date.now();
@@ -335,6 +368,7 @@ function scheduleAutoUiOpenFromRuntimeState(
   projectDir: string,
   cooldownMs: number,
   dockAutoLaunch: boolean,
+  serverUrl?: URL | string,
 ): void {
   const maxAttempts = 20;
   const retryDelayMs = 1_500;
@@ -343,14 +377,15 @@ function scheduleAutoUiOpenFromRuntimeState(
     if (state) {
       const healthy = await probeGatewayAlive(state.url, 1_200);
       if (healthy && shouldAutoOpenUi(projectDir, cooldownMs)) {
-        const launchUrl = buildGatewayLaunchUrl({
-          url: state.uiUrl,
-          authToken: state.authToken,
+        const resolvedLaunch = resolveAutoUiLaunchUrl({
+          serverUrl,
+          gatewayUiUrl: state.uiUrl,
+          gatewayAuthToken: state.authToken,
         });
         scheduleAutoUiOpen(
           projectDir,
-          launchUrl,
-          state.uiUrl,
+          resolvedLaunch.launchUrl,
+          resolvedLaunch.publicUrl,
           state.url,
           cooldownMs,
           dockAutoLaunch,
@@ -886,14 +921,15 @@ const MiyaPlugin: Plugin = async (ctx) => {
     shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs) &&
     gatewayState
   ) {
-    const launchUrl = buildGatewayLaunchUrl({
-      url: gatewayState.uiUrl,
-      authToken: gatewayState.authToken,
+    const resolvedLaunch = resolveAutoUiLaunchUrl({
+      serverUrl: ctx.serverUrl,
+      gatewayUiUrl: gatewayState.uiUrl,
+      gatewayAuthToken: gatewayState.authToken,
     });
     scheduleAutoUiOpen(
       ctx.directory,
-      launchUrl,
-      gatewayState.uiUrl,
+      resolvedLaunch.launchUrl,
+      resolvedLaunch.publicUrl,
       gatewayState.url,
       autoOpenCooldownMs,
       dockAutoLaunch,
@@ -918,6 +954,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
         ctx.directory,
         autoOpenCooldownMs,
         dockAutoLaunch,
+        ctx.serverUrl,
       );
     }
   }
