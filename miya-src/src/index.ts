@@ -341,7 +341,7 @@ function scheduleAutoUiOpenFromRuntimeState(
       const healthy = await probeGatewayAlive(state.url, 1_200);
       if (healthy && shouldAutoOpenUi(projectDir, cooldownMs)) {
         const launchUrl = buildGatewayLaunchUrl({
-          url: state.url,
+          url: state.uiUrl,
           authToken: state.authToken,
         });
         scheduleAutoUiOpen(
@@ -597,7 +597,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
     gatewayState
   ) {
     const launchUrl = buildGatewayLaunchUrl({
-      url: gatewayState.url,
+      url: gatewayState.uiUrl,
       authToken: gatewayState.authToken,
     });
     scheduleAutoUiOpen(

@@ -266,7 +266,7 @@ export function createConfigTools(
         return `opened=false\nreason=gateway_unhealthy\nurl=${state.uiUrl}`;
       }
       const launchUrl = buildGatewayLaunchUrl({
-        url: state.url,
+        url: state.uiUrl,
         authToken: state.authToken,
       });
       openUrl(launchUrl);

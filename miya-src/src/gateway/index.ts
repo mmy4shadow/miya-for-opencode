@@ -1696,7 +1696,7 @@ function syncGatewayState(
 function toPublicGatewayState(state: GatewayState): GatewayState {
   return {
     ...state,
-    uiUrl: state.url,
+    uiUrl: state.uiUrl.replace(/\?.*$/, ''),
     authToken: undefined,
   };
 }
