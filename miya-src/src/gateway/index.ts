@@ -202,7 +202,6 @@ import {
   POLICY_DOMAINS,
   type PolicyDomain,
   readPolicy,
-  writePolicy,
 } from '../policy';
 import { evaluateOutboundDecisionFusion } from '../policy/decision-fusion';
 import { appendPolicyIncident, listPolicyIncidents } from '../policy/incident';
@@ -1138,7 +1137,7 @@ function rollbackPsycheModeConfig(
     );
   if (rows.length === 0) return { mode: readPsycheModeConfig(projectDir) };
   const target =
-    token && token.trim()
+    token?.trim()
       ? rows.find((row) => row.token === token.trim())
       : rows[rows.length - 1];
   if (!target?.previous) return { mode: readPsycheModeConfig(projectDir) };
