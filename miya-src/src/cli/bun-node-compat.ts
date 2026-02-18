@@ -393,10 +393,20 @@ export function ensureBunNodeCompat(): void {
     spawnSync: createBunSpawnSyncCompat,
     file: createBunFileCompat,
   };
-  const merged = {
-    ...(existing ? (existing as BunCompatRuntime) : {}),
-    ...compat,
-  } as BunCompatRuntime;
-  runtime.Bun = merged;
-  (globalThis as any).Bun = merged;
+  if (existing && typeof existing === 'object') {
+    Object.assign(existing as unknown as object, compat);
+    return;
+  }
+  const merged = { ...compat } as BunCompatRuntime;
+  try {
+    Object.defineProperty(globalThis, 'Bun', {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: merged,
+    });
+  } catch {
+    // Last resort for locked globals: keep a reachable compat object.
+    (runtime as Record<string, unknown>).__miyaBunCompat = merged;
+  }
 }

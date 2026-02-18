@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin, ToolDefinition } from '@opencode-ai/plugin';
@@ -449,6 +450,61 @@ function runtimeGatewaySupervisorStopFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-supervisor.stop');
 }
 
+function runtimeGatewayBootstrapLogFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-bootstrap.log');
+}
+
+function appendGatewayBootstrapLog(projectDir: string, message: string): void {
+  try {
+    fs.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+    fs.appendFileSync(
+      runtimeGatewayBootstrapLogFile(projectDir),
+      `[${new Date().toISOString()}] ${message}\n`,
+      'utf-8',
+    );
+  } catch {}
+}
+
+function gatewayGlobalStateFile(): string {
+  if (process.platform === 'win32') {
+    const appData =
+      String(process.env.APPDATA ?? '').trim() ||
+      path.join(os.homedir(), 'AppData', 'Roaming');
+    return path.join(appData, 'miya', 'gateway.json');
+  }
+  return path.join(os.homedir(), '.config', 'miya', 'gateway.json');
+}
+
+function readGlobalGatewayState(): GatewayState | null {
+  const file = gatewayGlobalStateFile();
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      http?: unknown;
+      pid?: unknown;
+      startedAt?: unknown;
+    };
+    const url = String(parsed.http ?? '').trim();
+    const pid = Number(parsed.pid);
+    const startedAt = String(parsed.startedAt ?? '').trim();
+    if (!url || !Number.isFinite(pid) || pid <= 0 || !startedAt) return null;
+    const parsedUrl = new URL(url);
+    const port = Number(parsedUrl.port);
+    if (!Number.isFinite(port) || port <= 0) return null;
+    return {
+      url,
+      uiUrl: url,
+      port: Math.floor(port),
+      pid: Math.floor(pid),
+      startedAt,
+      status: 'running',
+      authToken: undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function readGatewaySupervisorState(
   projectDir: string,
 ): GatewaySupervisorState | null {
@@ -488,11 +544,13 @@ function resolveGatewaySupervisorNodeBin(): string | null {
     String(process.env.MIYA_GATEWAY_NODE_BIN ?? '').trim(),
     'node',
     'bun',
-    process.execPath,
+    /(node|bun)(\.exe)?$/i.test(path.basename(process.execPath))
+      ? process.execPath
+      : '',
   ].filter(Boolean);
   for (const candidate of candidates) {
     try {
-      const probe = spawnSync(candidate, ['--version'], {
+      const probe = spawnSync(candidate, ['-e', 'process.exit(0)'], {
         stdio: 'ignore',
         windowsHide: true,
       });
@@ -505,7 +563,13 @@ function resolveGatewaySupervisorNodeBin(): string | null {
 function startGatewaySupervisorDetached(projectDir: string): boolean {
   const script = resolveGatewaySupervisorScript(projectDir);
   const nodeBin = resolveGatewaySupervisorNodeBin();
-  if (!script || !nodeBin) return false;
+  if (!script || !nodeBin) {
+    appendGatewayBootstrapLog(
+      projectDir,
+      `detached_start_skipped script=${Boolean(script)} node=${nodeBin ?? 'missing'}`,
+    );
+    return false;
+  }
   try {
     fs.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
   } catch {}
@@ -516,6 +580,10 @@ function startGatewaySupervisorDetached(projectDir: string): boolean {
     windowsHide: true,
   });
   child.unref();
+  appendGatewayBootstrapLog(
+    projectDir,
+    `detached_start pid=${child.pid ?? 0} cmd=${nodeBin} ${script} --workspace ${projectDir}`,
+  );
   return true;
 }
 
@@ -531,28 +599,46 @@ function startGatewaySupervisorVisibleConsole(projectDir: string): boolean {
   if (!shouldUseVisibleGatewayConsole()) return false;
   const script = resolveGatewaySupervisorScript(projectDir);
   const nodeBin = resolveGatewaySupervisorNodeBin();
-  if (!script || !nodeBin) return false;
+  if (!script || !nodeBin) {
+    appendGatewayBootstrapLog(
+      projectDir,
+      `visible_console_skipped script=${Boolean(script)} node=${nodeBin ?? 'missing'}`,
+    );
+    return false;
+  }
 
   const now = Date.now();
   const lastAt = gatewayConsoleLaunchAtByDir.get(projectDir) ?? 0;
-  if (now - lastAt < 15_000) return true;
+  if (now - lastAt < 15_000) return false;
 
   try {
     fs.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
   } catch {}
 
   try {
-    const command = `title miya-gateway && "${nodeBin}" "${script}" --workspace "${projectDir}" --verbose`;
-    const child = spawn('cmd.exe', ['/d', '/k', command], {
-      cwd: projectDir,
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false,
-    });
+    const inner = `title miya-gateway && "${nodeBin}" "${script}" --workspace "${projectDir}" --verbose`;
+    const child = spawn(
+      'cmd.exe',
+      ['/d', '/c', 'start', '"miya-gateway"', 'cmd.exe', '/d', '/k', inner],
+      {
+        cwd: projectDir,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      },
+    );
     child.unref();
     gatewayConsoleLaunchAtByDir.set(projectDir, now);
+    appendGatewayBootstrapLog(
+      projectDir,
+      `visible_console_start pid=${child.pid ?? 0} cmd=${nodeBin} ${script} --workspace ${projectDir} --verbose`,
+    );
     return true;
-  } catch {
+  } catch (error) {
+    appendGatewayBootstrapLog(
+      projectDir,
+      `visible_console_failed error=${error instanceof Error ? error.message : String(error)}`,
+    );
     return false;
   }
 }
@@ -568,9 +654,34 @@ async function waitGatewayRuntimeHealthy(
       const healthy = await probeGatewayAlive(state.url, 1_000);
       if (healthy) return state;
     }
+    const globalState = readGlobalGatewayState();
+    if (globalState && isPidAlive(globalState.pid)) {
+      const healthy = await probeGatewayAlive(globalState.url, 1_000);
+      if (healthy) return globalState;
+    }
     await sleep(400);
   }
   return null;
+}
+
+function terminatePid(pid: number): void {
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  try {
+    process.kill(pid, 'SIGTERM');
+    return;
+  } catch {}
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      return;
+    } catch {}
+  }
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {}
 }
 
 async function ensureGatewayBackgroundSupervisor(
@@ -581,11 +692,25 @@ async function ensureGatewayBackgroundSupervisor(
   if (existing) return existing;
 
   const supervisor = readGatewaySupervisorState(projectDir);
-  if (!supervisor || !isPidAlive(supervisor.pid)) {
+  let restartSupervisor = false;
+  if (supervisor && isPidAlive(supervisor.pid)) {
+    const lateHealthy = await waitGatewayRuntimeHealthy(projectDir, 3_000);
+    if (lateHealthy) return lateHealthy;
+    appendGatewayBootstrapLog(
+      projectDir,
+      `stale_supervisor_detected pid=${supervisor.pid} status=${supervisor.status}`,
+    );
+    terminatePid(supervisor.pid);
+    restartSupervisor = true;
+  }
+  if (restartSupervisor || !supervisor || !isPidAlive(supervisor.pid)) {
     const started =
       startGatewaySupervisorVisibleConsole(projectDir) ||
       startGatewaySupervisorDetached(projectDir);
-    if (!started) return null;
+    if (!started) {
+      appendGatewayBootstrapLog(projectDir, 'supervisor_start_failed');
+      return null;
+    }
   }
 
   return await waitGatewayRuntimeHealthy(projectDir, 15_000);

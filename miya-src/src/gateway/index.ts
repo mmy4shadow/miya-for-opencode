@@ -1748,8 +1748,22 @@ function syncGatewayState(
   runtime: GatewayRuntime,
 ): GatewayState {
   const state = toGatewayState(projectDir, runtime);
-  writeGatewayState(projectDir, state);
-  writeGlobalGatewayState(projectDir, state);
+  try {
+    writeGatewayState(projectDir, state);
+  } catch (error) {
+    log('[gateway] write local gateway state failed', {
+      projectDir,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  try {
+    writeGlobalGatewayState(projectDir, state);
+  } catch (error) {
+    log('[gateway] write global gateway state failed', {
+      projectDir,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return state;
 }
 

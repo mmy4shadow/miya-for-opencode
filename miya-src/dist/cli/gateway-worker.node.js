@@ -3195,12 +3195,21 @@ function ensureBunNodeCompat() {
     spawnSync: createBunSpawnSyncCompat,
     file: createBunFileCompat
   };
-  const merged = {
-    ...existing ? existing : {},
-    ...compat
-  };
-  runtime.Bun = merged;
-  globalThis.Bun = merged;
+  if (existing && typeof existing === "object") {
+    Object.assign(existing, compat);
+    return;
+  }
+  const merged = { ...compat };
+  try {
+    Object.defineProperty(globalThis, "Bun", {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: merged
+    });
+  } catch {
+    runtime.__miyaBunCompat = merged;
+  }
 }
 
 // src/gateway/index.ts
@@ -50871,6 +50880,36 @@ function gatewayFile(projectDir) {
 function gatewayAuthFile(projectDir) {
   return path61.join(getMiyaRuntimeDir(projectDir), "gateway-auth.json");
 }
+function gatewayGlobalStateFile() {
+  if (process.platform === "win32") {
+    const appData = String(process.env.APPDATA ?? "").trim() || path61.join(os5.homedir(), "AppData", "Roaming");
+    return path61.join(appData, "miya", "gateway.json");
+  }
+  return path61.join(os5.homedir(), ".config", "miya", "gateway.json");
+}
+function toWsUrl(httpUrl3) {
+  const parsed = new URL(httpUrl3);
+  parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+  parsed.pathname = `${parsed.pathname.replace(/\/+$/, "")}/ws`;
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+function writeGlobalGatewayState(projectDir, state) {
+  const globalFile = gatewayGlobalStateFile();
+  const payload = {
+    version: "1",
+    http: state.url,
+    ws: toWsUrl(state.url),
+    auth: {
+      mode: "token",
+      tokenRef: `file:${gatewayAuthFile(projectDir)}`
+    },
+    pid: state.pid,
+    startedAt: state.startedAt
+  };
+  writeJsonAtomic(globalFile, payload);
+}
 function buildGatewayChallengeSignature(input) {
   return createHmac2("sha256", input.secret).update(`${input.clientID}|${input.protocolVersion}|${input.nonce}|${String(input.ts)}`).digest("hex");
 }
@@ -51394,6 +51433,14 @@ function clearGatewayStateFile(projectDir) {
   try {
     fs62.unlinkSync(gatewayFile(projectDir));
   } catch {}
+  try {
+    const globalFile = gatewayGlobalStateFile();
+    const raw = safeReadJsonObject(globalFile);
+    const pid = Number(raw?.pid);
+    if (Number.isFinite(pid) && pid === process.pid) {
+      fs62.unlinkSync(globalFile);
+    }
+  } catch {}
 }
 async function probeGatewayAlive(url3, timeoutMs = 800) {
   const controller = new AbortController;
@@ -51422,7 +51469,8 @@ function resolveGatewayListenOptions(projectDir) {
   const rawHost = String(gateway.bindHost ?? "").trim();
   const rawPort = Number(gateway.port);
   const hostname5 = rawHost || "127.0.0.1";
-  const port = Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? Math.floor(rawPort) : 0;
+  const DEFAULT_GATEWAY_PORT = 18790;
+  const port = Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? Math.floor(rawPort) : DEFAULT_GATEWAY_PORT;
   return { hostname: hostname5, port };
 }
 function isAddressInUseError(error92) {
@@ -51464,9 +51512,11 @@ function logStatusSnapshotFailure(projectDir, error92) {
 function toGatewayState(projectDir, runtime) {
   const host = String(runtime.server.hostname ?? "127.0.0.1") || "127.0.0.1";
   const url3 = `http://${host}:${gatewayPort(runtime)}`;
+  const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
+  const uiUrl = uiBasePath ? `${url3}${uiBasePath}/` : url3;
   return {
     url: url3,
-    uiUrl: url3,
+    uiUrl,
     port: gatewayPort(runtime),
     pid: process.pid,
     startedAt: runtime.startedAt,
@@ -51480,13 +51530,28 @@ function writeGatewayState(projectDir, state) {
 }
 function syncGatewayState(projectDir, runtime) {
   const state = toGatewayState(projectDir, runtime);
-  writeGatewayState(projectDir, state);
+  try {
+    writeGatewayState(projectDir, state);
+  } catch (error92) {
+    log("[gateway] write local gateway state failed", {
+      projectDir,
+      error: error92 instanceof Error ? error92.message : String(error92)
+    });
+  }
+  try {
+    writeGlobalGatewayState(projectDir, state);
+  } catch (error92) {
+    log("[gateway] write global gateway state failed", {
+      projectDir,
+      error: error92 instanceof Error ? error92.message : String(error92)
+    });
+  }
   return state;
 }
 function toPublicGatewayState(state) {
   return {
     ...state,
-    uiUrl: state.url,
+    uiUrl: state.uiUrl.replace(/\?.*$/, ""),
     authToken: undefined
   };
 }
@@ -54196,9 +54261,21 @@ function renderConsoleHtml(snapshot) {
         });
       }
 
+      function detectBasePath() {
+        const knownSuffixes = ['/legacy-console', '/webchat', '/'];
+        for (const suffix of knownSuffixes) {
+          if (location.pathname.endsWith(suffix)) {
+            const next = location.pathname.slice(0, -suffix.length);
+            return next && next !== '/' ? next : '';
+          }
+        }
+        return '';
+      }
+
       async function loadStatus() {
         try {
-          const res = await fetch('/api/status', { cache: 'no-store' });
+          const basePath = detectBasePath();
+          const res = await fetch(basePath + '/api/status', { cache: 'no-store' });
           const data = await res.json();
           render(data);
         } catch {}
@@ -54206,6 +54283,7 @@ function renderConsoleHtml(snapshot) {
 
       function openWs() {
         const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        const basePath = detectBasePath();
         const params = new URLSearchParams(location.search);
         const token = params.get('token') || localStorage.getItem('miya_gateway_token') || '';
         if (token) {
@@ -54217,7 +54295,7 @@ function renderConsoleHtml(snapshot) {
           }
         }
 
-        ws = new WebSocket(proto + '://' + location.host + '/ws');
+        ws = new WebSocket(proto + '://' + location.host + basePath + '/ws');
         ws.onopen = function () {
           ws.send(
             JSON.stringify({
@@ -54307,7 +54385,8 @@ function renderWebChatHtml() {
 </main>
 <script>
   const logEl=document.getElementById('log'); const msgEl=document.getElementById('msg'); const sendBtn=document.getElementById('send');
-  const p=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(p+'://'+location.host+'/ws');
+  const detectBasePath=()=>{const suffix='/webchat';if(location.pathname.endsWith(suffix)){const next=location.pathname.slice(0,-suffix.length);return next&&next!=='/'?next:'';}return '';};
+  const p=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(p+'://'+location.host+detectBasePath()+'/ws');
   const log=(t)=>{logEl.textContent+=t+'\\n'; logEl.scrollTop=logEl.scrollHeight;};
   const send=()=>{const text=msgEl.value.trim(); if(!text)return; const id='send-'+Date.now(); ws.send(JSON.stringify({type:'request',id,method:'sessions.send',params:{sessionID:'webchat:main',text,source:'webchat'},idempotencyKey:id})); log('[you] '+text); msgEl.value='';};
   sendBtn.onclick=send; msgEl.addEventListener('keydown',(e)=>{if(e.key==='Enter')send();});
@@ -57364,13 +57443,17 @@ function ensureGatewayRunning(projectDir) {
     port,
     fetch(request, currentServer) {
       const url3 = new URL(request.url);
-      if (url3.pathname === "/ws") {
+      const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
+      const pathWithBase = (suffix) => uiBasePath ? `${uiBasePath}${suffix}` : suffix;
+      const isWsPath = url3.pathname === "/ws" || url3.pathname === pathWithBase("/ws");
+      if (isWsPath) {
         const upgraded = currentServer.upgrade(request, { data: {} });
         if (upgraded)
           return;
         return new Response("websocket upgrade failed", { status: 400 });
       }
-      if (url3.pathname === "/api/status") {
+      const isStatusPath = url3.pathname === "/api/status" || url3.pathname === pathWithBase("/api/status");
+      if (isStatusPath) {
         try {
           return Response.json(buildSnapshot(projectDir, runtime), {
             headers: { "cache-control": "no-store" }
@@ -57386,7 +57469,38 @@ function ensureGatewayRunning(projectDir) {
           });
         }
       }
-      if (url3.pathname === "/api/evidence/image") {
+      const isHealthPath = url3.pathname === "/health" || url3.pathname === pathWithBase("/health");
+      if (isHealthPath) {
+        return Response.json({
+          ok: true,
+          version: "1",
+          pid: process.pid,
+          startedAt: runtime.startedAt,
+          uptimeMs: Date.now() - Date.parse(runtime.startedAt)
+        }, {
+          status: 200,
+          headers: { "cache-control": "no-store" }
+        });
+      }
+      const isSimpleStatusPath = url3.pathname === "/status" || url3.pathname === pathWithBase("/status");
+      if (isSimpleStatusPath) {
+        try {
+          return Response.json(buildSnapshot(projectDir, runtime), {
+            headers: { "cache-control": "no-store" }
+          });
+        } catch (error92) {
+          logStatusSnapshotFailure(projectDir, error92);
+          return Response.json(buildStatusFallbackPayload(projectDir, runtime, error92), {
+            status: 200,
+            headers: {
+              "cache-control": "no-store",
+              "x-miya-status": "degraded"
+            }
+          });
+        }
+      }
+      const isEvidenceImagePath = url3.pathname === "/api/evidence/image" || url3.pathname === pathWithBase("/api/evidence/image");
+      if (isEvidenceImagePath) {
         const auditID = String(url3.searchParams.get("auditID") ?? "").trim();
         const slot = String(url3.searchParams.get("slot") ?? "").trim().toLowerCase();
         const file3 = resolveEvidenceImageFile(projectDir, auditID, slot);
@@ -57415,7 +57529,8 @@ function ensureGatewayRunning(projectDir) {
         }
         return controlUiResponse;
       }
-      if (url3.pathname === "/webchat") {
+      const isWebchatPath = url3.pathname === "/webchat" || url3.pathname === pathWithBase("/webchat");
+      if (isWebchatPath) {
         return new Response(renderWebChatHtml(), {
           headers: {
             "content-type": "text/html; charset=utf-8",
@@ -57423,7 +57538,8 @@ function ensureGatewayRunning(projectDir) {
           }
         });
       }
-      if (url3.pathname.startsWith("/api/webhooks/")) {
+      const isWebhookPath = url3.pathname.startsWith("/api/webhooks/") || url3.pathname.startsWith(pathWithBase("/api/webhooks/"));
+      if (isWebhookPath) {
         return new Response("HTTP control API disabled; use WebSocket RPC (/ws).", {
           status: 410,
           headers: {
@@ -57432,7 +57548,8 @@ function ensureGatewayRunning(projectDir) {
           }
         });
       }
-      if (url3.pathname === "/legacy-console") {
+      const isLegacyConsolePath = url3.pathname === "/legacy-console" || url3.pathname === pathWithBase("/legacy-console");
+      if (isLegacyConsolePath) {
         return new Response(renderConsoleHtml(buildSnapshot(projectDir, runtime)), {
           headers: {
             "content-type": "text/html; charset=utf-8",

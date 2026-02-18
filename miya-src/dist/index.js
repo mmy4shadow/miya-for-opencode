@@ -3278,9 +3278,11 @@ var require_main = __commonJS((exports) => {
 });
 
 // src/index.ts
-import { spawn as spawn9 } from "child_process";
+import { spawn as spawn9, spawnSync as spawnSync12 } from "child_process";
 import * as fs73 from "fs";
+import * as os10 from "os";
 import * as path72 from "path";
+import { fileURLToPath as fileURLToPath5 } from "url";
 
 // src/cli/custom-skills.ts
 var CUSTOM_SKILLS = [
@@ -55230,6 +55232,36 @@ function gatewayFile(projectDir) {
 function gatewayAuthFile(projectDir) {
   return path67.join(getMiyaRuntimeDir(projectDir), "gateway-auth.json");
 }
+function gatewayGlobalStateFile() {
+  if (process.platform === "win32") {
+    const appData = String(process.env.APPDATA ?? "").trim() || path67.join(os9.homedir(), "AppData", "Roaming");
+    return path67.join(appData, "miya", "gateway.json");
+  }
+  return path67.join(os9.homedir(), ".config", "miya", "gateway.json");
+}
+function toWsUrl(httpUrl3) {
+  const parsed = new URL(httpUrl3);
+  parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+  parsed.pathname = `${parsed.pathname.replace(/\/+$/, "")}/ws`;
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+function writeGlobalGatewayState(projectDir, state) {
+  const globalFile = gatewayGlobalStateFile();
+  const payload = {
+    version: "1",
+    http: state.url,
+    ws: toWsUrl(state.url),
+    auth: {
+      mode: "token",
+      tokenRef: `file:${gatewayAuthFile(projectDir)}`
+    },
+    pid: state.pid,
+    startedAt: state.startedAt
+  };
+  writeJsonAtomic(globalFile, payload);
+}
 function gatewayUiUrl(baseUrl, token) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   if (!token)
@@ -55763,6 +55795,14 @@ function clearGatewayStateFile(projectDir) {
   try {
     fs68.unlinkSync(gatewayFile(projectDir));
   } catch {}
+  try {
+    const globalFile = gatewayGlobalStateFile();
+    const raw = safeReadJsonObject(globalFile);
+    const pid = Number(raw?.pid);
+    if (Number.isFinite(pid) && pid === process.pid) {
+      fs68.unlinkSync(globalFile);
+    }
+  } catch {}
 }
 function isGatewayOwner(projectDir) {
   const token = ownerTokens.get(projectDir);
@@ -55798,7 +55838,8 @@ function resolveGatewayListenOptions(projectDir) {
   const rawHost = String(gateway.bindHost ?? "").trim();
   const rawPort = Number(gateway.port);
   const hostname6 = rawHost || "127.0.0.1";
-  const port = Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? Math.floor(rawPort) : 0;
+  const DEFAULT_GATEWAY_PORT = 18790;
+  const port = Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? Math.floor(rawPort) : DEFAULT_GATEWAY_PORT;
   return { hostname: hostname6, port };
 }
 function isAddressInUseError(error92) {
@@ -55840,9 +55881,11 @@ function logStatusSnapshotFailure(projectDir, error92) {
 function toGatewayState(projectDir, runtime) {
   const host = String(runtime.server.hostname ?? "127.0.0.1") || "127.0.0.1";
   const url3 = `http://${host}:${gatewayPort(runtime)}`;
+  const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
+  const uiUrl = uiBasePath ? `${url3}${uiBasePath}/` : url3;
   return {
     url: url3,
-    uiUrl: url3,
+    uiUrl,
     port: gatewayPort(runtime),
     pid: process.pid,
     startedAt: runtime.startedAt,
@@ -55856,13 +55899,28 @@ function writeGatewayState(projectDir, state) {
 }
 function syncGatewayState(projectDir, runtime) {
   const state = toGatewayState(projectDir, runtime);
-  writeGatewayState(projectDir, state);
+  try {
+    writeGatewayState(projectDir, state);
+  } catch (error92) {
+    log("[gateway] write local gateway state failed", {
+      projectDir,
+      error: error92 instanceof Error ? error92.message : String(error92)
+    });
+  }
+  try {
+    writeGlobalGatewayState(projectDir, state);
+  } catch (error92) {
+    log("[gateway] write global gateway state failed", {
+      projectDir,
+      error: error92 instanceof Error ? error92.message : String(error92)
+    });
+  }
   return state;
 }
 function toPublicGatewayState(state) {
   return {
     ...state,
-    uiUrl: state.url,
+    uiUrl: state.uiUrl.replace(/\?.*$/, ""),
     authToken: undefined
   };
 }
@@ -58572,9 +58630,21 @@ function renderConsoleHtml(snapshot) {
         });
       }
 
+      function detectBasePath() {
+        const knownSuffixes = ['/legacy-console', '/webchat', '/'];
+        for (const suffix of knownSuffixes) {
+          if (location.pathname.endsWith(suffix)) {
+            const next = location.pathname.slice(0, -suffix.length);
+            return next && next !== '/' ? next : '';
+          }
+        }
+        return '';
+      }
+
       async function loadStatus() {
         try {
-          const res = await fetch('/api/status', { cache: 'no-store' });
+          const basePath = detectBasePath();
+          const res = await fetch(basePath + '/api/status', { cache: 'no-store' });
           const data = await res.json();
           render(data);
         } catch {}
@@ -58582,6 +58652,7 @@ function renderConsoleHtml(snapshot) {
 
       function openWs() {
         const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        const basePath = detectBasePath();
         const params = new URLSearchParams(location.search);
         const token = params.get('token') || localStorage.getItem('miya_gateway_token') || '';
         if (token) {
@@ -58593,7 +58664,7 @@ function renderConsoleHtml(snapshot) {
           }
         }
 
-        ws = new WebSocket(proto + '://' + location.host + '/ws');
+        ws = new WebSocket(proto + '://' + location.host + basePath + '/ws');
         ws.onopen = function () {
           ws.send(
             JSON.stringify({
@@ -58683,7 +58754,8 @@ function renderWebChatHtml() {
 </main>
 <script>
   const logEl=document.getElementById('log'); const msgEl=document.getElementById('msg'); const sendBtn=document.getElementById('send');
-  const p=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(p+'://'+location.host+'/ws');
+  const detectBasePath=()=>{const suffix='/webchat';if(location.pathname.endsWith(suffix)){const next=location.pathname.slice(0,-suffix.length);return next&&next!=='/'?next:'';}return '';};
+  const p=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(p+'://'+location.host+detectBasePath()+'/ws');
   const log=(t)=>{logEl.textContent+=t+'\\n'; logEl.scrollTop=logEl.scrollHeight;};
   const send=()=>{const text=msgEl.value.trim(); if(!text)return; const id='send-'+Date.now(); ws.send(JSON.stringify({type:'request',id,method:'sessions.send',params:{sessionID:'webchat:main',text,source:'webchat'},idempotencyKey:id})); log('[you] '+text); msgEl.value='';};
   sendBtn.onclick=send; msgEl.addEventListener('keydown',(e)=>{if(e.key==='Enter')send();});
@@ -61756,13 +61828,17 @@ function ensureGatewayRunning(projectDir) {
     port,
     fetch(request, currentServer) {
       const url3 = new URL(request.url);
-      if (url3.pathname === "/ws") {
+      const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
+      const pathWithBase = (suffix) => uiBasePath ? `${uiBasePath}${suffix}` : suffix;
+      const isWsPath = url3.pathname === "/ws" || url3.pathname === pathWithBase("/ws");
+      if (isWsPath) {
         const upgraded = currentServer.upgrade(request, { data: {} });
         if (upgraded)
           return;
         return new Response("websocket upgrade failed", { status: 400 });
       }
-      if (url3.pathname === "/api/status") {
+      const isStatusPath = url3.pathname === "/api/status" || url3.pathname === pathWithBase("/api/status");
+      if (isStatusPath) {
         try {
           return Response.json(buildSnapshot(projectDir, runtime), {
             headers: { "cache-control": "no-store" }
@@ -61778,7 +61854,38 @@ function ensureGatewayRunning(projectDir) {
           });
         }
       }
-      if (url3.pathname === "/api/evidence/image") {
+      const isHealthPath = url3.pathname === "/health" || url3.pathname === pathWithBase("/health");
+      if (isHealthPath) {
+        return Response.json({
+          ok: true,
+          version: "1",
+          pid: process.pid,
+          startedAt: runtime.startedAt,
+          uptimeMs: Date.now() - Date.parse(runtime.startedAt)
+        }, {
+          status: 200,
+          headers: { "cache-control": "no-store" }
+        });
+      }
+      const isSimpleStatusPath = url3.pathname === "/status" || url3.pathname === pathWithBase("/status");
+      if (isSimpleStatusPath) {
+        try {
+          return Response.json(buildSnapshot(projectDir, runtime), {
+            headers: { "cache-control": "no-store" }
+          });
+        } catch (error92) {
+          logStatusSnapshotFailure(projectDir, error92);
+          return Response.json(buildStatusFallbackPayload(projectDir, runtime, error92), {
+            status: 200,
+            headers: {
+              "cache-control": "no-store",
+              "x-miya-status": "degraded"
+            }
+          });
+        }
+      }
+      const isEvidenceImagePath = url3.pathname === "/api/evidence/image" || url3.pathname === pathWithBase("/api/evidence/image");
+      if (isEvidenceImagePath) {
         const auditID = String(url3.searchParams.get("auditID") ?? "").trim();
         const slot = String(url3.searchParams.get("slot") ?? "").trim().toLowerCase();
         const file3 = resolveEvidenceImageFile(projectDir, auditID, slot);
@@ -61807,7 +61914,8 @@ function ensureGatewayRunning(projectDir) {
         }
         return controlUiResponse;
       }
-      if (url3.pathname === "/webchat") {
+      const isWebchatPath = url3.pathname === "/webchat" || url3.pathname === pathWithBase("/webchat");
+      if (isWebchatPath) {
         return new Response(renderWebChatHtml(), {
           headers: {
             "content-type": "text/html; charset=utf-8",
@@ -61815,7 +61923,8 @@ function ensureGatewayRunning(projectDir) {
           }
         });
       }
-      if (url3.pathname.startsWith("/api/webhooks/")) {
+      const isWebhookPath = url3.pathname.startsWith("/api/webhooks/") || url3.pathname.startsWith(pathWithBase("/api/webhooks/"));
+      if (isWebhookPath) {
         return new Response("HTTP control API disabled; use WebSocket RPC (/ws).", {
           status: 410,
           headers: {
@@ -61824,7 +61933,8 @@ function ensureGatewayRunning(projectDir) {
           }
         });
       }
-      if (url3.pathname === "/legacy-console") {
+      const isLegacyConsolePath = url3.pathname === "/legacy-console" || url3.pathname === pathWithBase("/legacy-console");
+      if (isLegacyConsolePath) {
         return new Response(renderConsoleHtml(buildSnapshot(projectDir, runtime)), {
           headers: {
             "content-type": "text/html; charset=utf-8",
@@ -62808,7 +62918,7 @@ reason=gateway_unhealthy
 url=${state.uiUrl}`;
       }
       const launchUrl = buildGatewayLaunchUrl({
-        url: state.url,
+        url: state.uiUrl,
         authToken: state.authToken
       });
       openUrl(launchUrl);
@@ -69766,6 +69876,7 @@ function deepMergeObject(base, override) {
 }
 var autoUiOpenAtByDir = new Map;
 var dockLaunchAtByDir = new Map;
+var gatewayConsoleLaunchAtByDir = new Map;
 function autoUiOpenGuardFile(projectDir) {
   return path72.join(getMiyaRuntimeDir(projectDir), "ui-auto-open.guard.json");
 }
@@ -69952,7 +70063,7 @@ function scheduleAutoUiOpenFromRuntimeState(projectDir, cooldownMs, dockAutoLaun
       const healthy = await probeGatewayAlive(state2.url, 1200);
       if (healthy && shouldAutoOpenUi(projectDir, cooldownMs)) {
         const launchUrl = buildGatewayLaunchUrl({
-          url: state2.url,
+          url: state2.uiUrl,
           authToken: state2.authToken
         });
         scheduleAutoUiOpen(projectDir, launchUrl, state2.uiUrl, state2.url, cooldownMs, dockAutoLaunch);
@@ -70019,7 +70130,237 @@ function readRuntimeGatewayState(projectDir) {
     return null;
   }
 }
+function runtimeGatewaySupervisorFile(projectDir) {
+  return path72.join(getMiyaRuntimeDir(projectDir), "gateway-supervisor.json");
+}
+function runtimeGatewaySupervisorStopFile(projectDir) {
+  return path72.join(getMiyaRuntimeDir(projectDir), "gateway-supervisor.stop");
+}
+function runtimeGatewayBootstrapLogFile(projectDir) {
+  return path72.join(getMiyaRuntimeDir(projectDir), "gateway-bootstrap.log");
+}
+function appendGatewayBootstrapLog(projectDir, message) {
+  try {
+    fs73.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+    fs73.appendFileSync(runtimeGatewayBootstrapLogFile(projectDir), `[${new Date().toISOString()}] ${message}
+`, "utf-8");
+  } catch {}
+}
+function gatewayGlobalStateFile2() {
+  if (process.platform === "win32") {
+    const appData = String(process.env.APPDATA ?? "").trim() || path72.join(os10.homedir(), "AppData", "Roaming");
+    return path72.join(appData, "miya", "gateway.json");
+  }
+  return path72.join(os10.homedir(), ".config", "miya", "gateway.json");
+}
+function readGlobalGatewayState() {
+  const file3 = gatewayGlobalStateFile2();
+  if (!fs73.existsSync(file3))
+    return null;
+  try {
+    const parsed = JSON.parse(fs73.readFileSync(file3, "utf-8"));
+    const url3 = String(parsed.http ?? "").trim();
+    const pid = Number(parsed.pid);
+    const startedAt = String(parsed.startedAt ?? "").trim();
+    if (!url3 || !Number.isFinite(pid) || pid <= 0 || !startedAt)
+      return null;
+    const parsedUrl = new URL(url3);
+    const port = Number(parsedUrl.port);
+    if (!Number.isFinite(port) || port <= 0)
+      return null;
+    return {
+      url: url3,
+      uiUrl: url3,
+      port: Math.floor(port),
+      pid: Math.floor(pid),
+      startedAt,
+      status: "running",
+      authToken: undefined
+    };
+  } catch {
+    return null;
+  }
+}
+function readGatewaySupervisorState(projectDir) {
+  const file3 = runtimeGatewaySupervisorFile(projectDir);
+  if (!fs73.existsSync(file3))
+    return null;
+  try {
+    const parsed = JSON.parse(fs73.readFileSync(file3, "utf-8"));
+    const pid = Number(parsed.pid);
+    const status = String(parsed.status ?? "").trim().toLowerCase();
+    if (!Number.isFinite(pid) || pid <= 0 || !status)
+      return null;
+    return { pid: Math.floor(pid), status };
+  } catch {
+    return null;
+  }
+}
+function resolveGatewaySupervisorScript(projectDir) {
+  const bundled = fileURLToPath5(new URL("./cli/gateway-supervisor.node.js", import.meta.url));
+  if (fs73.existsSync(bundled))
+    return bundled;
+  const candidates = [
+    path72.join(projectDir, "miya-src", "dist", "cli", "gateway-supervisor.node.js"),
+    path72.join(projectDir, "dist", "cli", "gateway-supervisor.node.js")
+  ];
+  for (const candidate of candidates) {
+    if (fs73.existsSync(candidate))
+      return candidate;
+  }
+  return null;
+}
+function resolveGatewaySupervisorNodeBin() {
+  const candidates = [
+    String(process.env.MIYA_GATEWAY_NODE_BIN ?? "").trim(),
+    "node",
+    "bun",
+    /(node|bun)(\.exe)?$/i.test(path72.basename(process.execPath)) ? process.execPath : ""
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync12(candidate, ["-e", "process.exit(0)"], {
+        stdio: "ignore",
+        windowsHide: true
+      });
+      if (!probe.error && probe.status === 0)
+        return candidate;
+    } catch {}
+  }
+  return null;
+}
+function startGatewaySupervisorDetached(projectDir) {
+  const script = resolveGatewaySupervisorScript(projectDir);
+  const nodeBin = resolveGatewaySupervisorNodeBin();
+  if (!script || !nodeBin) {
+    appendGatewayBootstrapLog(projectDir, `detached_start_skipped script=${Boolean(script)} node=${nodeBin ?? "missing"}`);
+    return false;
+  }
+  try {
+    fs73.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
+  } catch {}
+  const child = spawn9(nodeBin, [script, "--workspace", projectDir], {
+    cwd: projectDir,
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
+  appendGatewayBootstrapLog(projectDir, `detached_start pid=${child.pid ?? 0} cmd=${nodeBin} ${script} --workspace ${projectDir}`);
+  return true;
+}
+function shouldUseVisibleGatewayConsole() {
+  if (process.platform !== "win32")
+    return false;
+  const raw = String(process.env.MIYA_GATEWAY_CONSOLE_VISIBLE ?? "1").trim().toLowerCase();
+  return raw !== "0" && raw !== "false" && raw !== "no";
+}
+function startGatewaySupervisorVisibleConsole(projectDir) {
+  if (!shouldUseVisibleGatewayConsole())
+    return false;
+  const script = resolveGatewaySupervisorScript(projectDir);
+  const nodeBin = resolveGatewaySupervisorNodeBin();
+  if (!script || !nodeBin) {
+    appendGatewayBootstrapLog(projectDir, `visible_console_skipped script=${Boolean(script)} node=${nodeBin ?? "missing"}`);
+    return false;
+  }
+  const now = Date.now();
+  const lastAt = gatewayConsoleLaunchAtByDir.get(projectDir) ?? 0;
+  if (now - lastAt < 15000)
+    return false;
+  try {
+    fs73.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
+  } catch {}
+  try {
+    const inner = `title miya-gateway && "${nodeBin}" "${script}" --workspace "${projectDir}" --verbose`;
+    const child = spawn9("cmd.exe", ["/d", "/c", "start", '"miya-gateway"', "cmd.exe", "/d", "/k", inner], {
+      cwd: projectDir,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false
+    });
+    child.unref();
+    gatewayConsoleLaunchAtByDir.set(projectDir, now);
+    appendGatewayBootstrapLog(projectDir, `visible_console_start pid=${child.pid ?? 0} cmd=${nodeBin} ${script} --workspace ${projectDir} --verbose`);
+    return true;
+  } catch (error92) {
+    appendGatewayBootstrapLog(projectDir, `visible_console_failed error=${error92 instanceof Error ? error92.message : String(error92)}`);
+    return false;
+  }
+}
+async function waitGatewayRuntimeHealthy(projectDir, timeoutMs = 12000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state2 = readRuntimeGatewayState(projectDir);
+    if (state2 && isPidAlive2(state2.pid)) {
+      const healthy = await probeGatewayAlive(state2.url, 1000);
+      if (healthy)
+        return state2;
+    }
+    const globalState = readGlobalGatewayState();
+    if (globalState && isPidAlive2(globalState.pid)) {
+      const healthy = await probeGatewayAlive(globalState.url, 1000);
+      if (healthy)
+        return globalState;
+    }
+    await sleep(400);
+  }
+  return null;
+}
+function terminatePid(pid) {
+  if (!Number.isFinite(pid) || pid <= 0)
+    return;
+  try {
+    process.kill(pid, "SIGTERM");
+    return;
+  } catch {}
+  if (process.platform === "win32") {
+    try {
+      spawnSync12("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true
+      });
+      return;
+    } catch {}
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {}
+}
+async function ensureGatewayBackgroundSupervisor(projectDir) {
+  if (process.env.MIYA_GATEWAY_BACKGROUND_ENABLE === "0")
+    return null;
+  const existing = await waitGatewayRuntimeHealthy(projectDir, 1000);
+  if (existing)
+    return existing;
+  const supervisor = readGatewaySupervisorState(projectDir);
+  let restartSupervisor = false;
+  if (supervisor && isPidAlive2(supervisor.pid)) {
+    const lateHealthy = await waitGatewayRuntimeHealthy(projectDir, 3000);
+    if (lateHealthy)
+      return lateHealthy;
+    appendGatewayBootstrapLog(projectDir, `stale_supervisor_detected pid=${supervisor.pid} status=${supervisor.status}`);
+    terminatePid(supervisor.pid);
+    restartSupervisor = true;
+  }
+  if (restartSupervisor || !supervisor || !isPidAlive2(supervisor.pid)) {
+    const started = startGatewaySupervisorVisibleConsole(projectDir) || startGatewaySupervisorDetached(projectDir);
+    if (!started) {
+      appendGatewayBootstrapLog(projectDir, "supervisor_start_failed");
+      return null;
+    }
+  }
+  return await waitGatewayRuntimeHealthy(projectDir, 15000);
+}
 async function attachGatewayWithRetry(projectDir) {
+  const externalState = await ensureGatewayBackgroundSupervisor(projectDir);
+  if (externalState) {
+    return {
+      attached: true,
+      owner: false,
+      state: externalState
+    };
+  }
   const maxAttempts = 6;
   for (let attempt = 1;attempt <= maxAttempts; attempt += 1) {
     try {
@@ -70133,12 +70474,12 @@ var MiyaPlugin = async (ctx) => {
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
   const autoOpenEnabledResolved = autoOpenEnabled;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === "0";
-  const autoOpenCooldownMs = typeof dashboardConfig.autoOpenCooldownMs === "number" ? Math.max(1e4, Math.min(24 * 60000, Math.floor(Number(dashboardConfig.autoOpenCooldownMs)))) : 10 * 60000;
+  const autoOpenCooldownMs = typeof dashboardConfig.autoOpenCooldownMs === "number" ? Math.max(1e4, Math.min(24 * 60000, Math.floor(Number(dashboardConfig.autoOpenCooldownMs)))) : 15000;
   const dockAutoLaunch = process.env.MIYA_DOCK_AUTO_LAUNCH === "1" || process.env.MIYA_DOCK_AUTO_LAUNCH !== "0" && dashboardConfig.dockAutoLaunch !== false;
   const interactiveSession = isInteractiveSession();
   if (autoOpenEnabled && autoOpenEnabledResolved && !autoOpenBlockedByEnv && shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs) && gatewayState) {
     const launchUrl = buildGatewayLaunchUrl({
-      url: gatewayState.url,
+      url: gatewayState.uiUrl,
       authToken: gatewayState.authToken
     });
     scheduleAutoUiOpen(ctx.directory, launchUrl, gatewayState.uiUrl, gatewayState.url, autoOpenCooldownMs, dockAutoLaunch);
