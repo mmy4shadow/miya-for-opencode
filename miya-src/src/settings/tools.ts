@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import type { PluginInput } from '@opencode-ai/plugin';
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import {
+  buildGatewayLaunchUrl,
   ensureGatewayRunning,
   probeGatewayAlive,
   stopGateway,
@@ -264,7 +265,11 @@ export function createConfigTools(
       if (!healthy) {
         return `opened=false\nreason=gateway_unhealthy\nurl=${state.uiUrl}`;
       }
-      openUrl(state.uiUrl);
+      const launchUrl = buildGatewayLaunchUrl({
+        url: state.url,
+        authToken: state.authToken,
+      });
+      openUrl(launchUrl);
       return `opened=${state.uiUrl}`;
     },
   });

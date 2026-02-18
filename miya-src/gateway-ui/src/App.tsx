@@ -206,6 +206,17 @@ function clearGatewayTokenInUrl(): void {
   } catch {}
 }
 
+function sanitizedLocationSearch(): string {
+  try {
+    const params = new URLSearchParams(location.search);
+    params.delete('token');
+    const serialized = params.toString();
+    return serialized ? `?${serialized}` : '';
+  } catch {
+    return '';
+  }
+}
+
 function resolveGatewayToken(): string {
   const fromQuery = readGatewayTokenFromQuery();
   if (fromQuery) {
@@ -572,6 +583,7 @@ export default function App() {
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [hasRefreshedOnce, setHasRefreshedOnce] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [successText, setSuccessText] = useState('');
   const [copyHintText, setCopyHintText] = useState('');
@@ -761,6 +773,8 @@ export default function App() {
     } catch (error) {
       setConnected(false);
       setErrorText(normalizeStatusFetchError(error));
+    } finally {
+      setHasRefreshedOnce(true);
     }
   }, [identityMode, view]);
 
@@ -787,7 +801,7 @@ export default function App() {
   const navigate = useCallback(
     (nextView: ControlView, id?: string) => {
       const nextPath = buildRoute(basePath, nextView, id);
-      const nextUrl = `${nextPath}${location.hash || ''}`;
+      const nextUrl = `${nextPath}${sanitizedLocationSearch()}${location.hash || ''}`;
       if (
         nextUrl !== `${location.pathname}${location.hash}`
       ) {
@@ -1110,7 +1124,7 @@ export default function App() {
             错误：{errorText}
           </div>
         ) : null}
-        {!connected ? (
+        {!connected && hasRefreshedOnce ? (
           <div className="pointer-events-auto rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm">
             <p>
               本地网关连接异常。请确保 localhost/127.0.0.1/::1 走直连（NO_PROXY

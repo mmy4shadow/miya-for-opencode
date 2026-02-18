@@ -547,31 +547,34 @@ function spawnDaemon(runtime: LauncherRuntime): SpawnResult {
   const hostScript = resolveHostScriptPath();
   const hostStdout = fs.openSync(daemonLogFile(runtime.projectDir, 'stdout'), 'a');
   const hostStderr = fs.openSync(daemonLogFile(runtime.projectDir, 'stderr'), 'a');
-  const child = spawn(
-    bunBinary,
-    [
-      hostScript,
-      '--project-dir',
-      runtime.projectDir,
-      '--parent-lock-file',
-      runtime.parentLockFile,
-      '--token',
-      runtime.daemonToken,
-    ],
-    {
-      cwd: runtime.projectDir,
-      detached: true,
-      stdio: ['ignore', hostStdout, hostStderr],
-      windowsHide: true,
-    },
-  );
-  child.unref();
   try {
-    fs.closeSync(hostStdout);
-  } catch {}
-  try {
-    fs.closeSync(hostStderr);
-  } catch {}
+    const child = spawn(
+      bunBinary,
+      [
+        hostScript,
+        '--project-dir',
+        runtime.projectDir,
+        '--parent-lock-file',
+        runtime.parentLockFile,
+        '--token',
+        runtime.daemonToken,
+      ],
+      {
+        cwd: runtime.projectDir,
+        detached: true,
+        stdio: ['ignore', hostStdout, hostStderr],
+        windowsHide: true,
+      },
+    );
+    child.unref();
+  } finally {
+    try {
+      fs.closeSync(hostStdout);
+    } catch {}
+    try {
+      fs.closeSync(hostStderr);
+    } catch {}
+  }
   setLifecycleState(runtime, 'STARTING', 'Miya Daemon Booting');
   return 'spawned';
 }

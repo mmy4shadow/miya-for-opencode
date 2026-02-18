@@ -29,6 +29,7 @@ import {
   subscribeLauncherEvents,
 } from './daemon';
 import {
+  buildGatewayLaunchUrl,
   createGatewayTools,
   ensureGatewayRunning,
   isGatewayOwner,
@@ -271,7 +272,8 @@ function markAutoUiOpened(projectDir: string, atMs = Date.now()): void {
 
 function scheduleAutoUiOpen(
   projectDir: string,
-  uiUrl: string,
+  launchUrl: string,
+  publicUrl: string,
   url: string,
   cooldownMs: number,
   dockAutoLaunch: boolean,
@@ -303,10 +305,10 @@ function scheduleAutoUiOpen(
     if (dockAutoLaunch) {
       launchDockSilently(projectDir);
     }
-    openUrlSilently(uiUrl);
+    openUrlSilently(launchUrl);
     markAutoUiOpened(projectDir);
     log('[miya] auto ui open triggered', {
-      url: uiUrl,
+      url: publicUrl,
       dockAutoLaunch,
       cooldownMs,
       attempt,
@@ -441,8 +443,13 @@ const MiyaPlugin: Plugin = async (ctx) => {
       shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
     ) {
       const state = ensureGatewayRunning(ctx.directory);
+      const launchUrl = buildGatewayLaunchUrl({
+        url: state.url,
+        authToken: state.authToken,
+      });
       scheduleAutoUiOpen(
         ctx.directory,
+        launchUrl,
         state.uiUrl,
         state.url,
         autoOpenCooldownMs,

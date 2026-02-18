@@ -755,6 +755,13 @@ function gatewayUiUrl(baseUrl: string, token?: string): string {
   return `${trimmed}${separator}token=${encodeURIComponent(token)}`;
 }
 
+export function buildGatewayLaunchUrl(input: {
+  url: string;
+  authToken?: string;
+}): string {
+  return gatewayUiUrl(input.url, input.authToken);
+}
+
 function buildGatewayChallengeSignature(input: {
   secret: string;
   clientID: string;
@@ -1618,7 +1625,7 @@ function toGatewayState(
   const url = `http://${host}:${gatewayPort(runtime)}`;
   return {
     url,
-    uiUrl: gatewayUiUrl(url, runtime.auth.token),
+    uiUrl: url,
     port: gatewayPort(runtime),
     pid: process.pid,
     startedAt: runtime.startedAt,

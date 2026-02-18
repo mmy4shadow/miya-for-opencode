@@ -86,6 +86,15 @@ function appendHostCrashLog(projectDir: string | undefined, message: string): vo
   } catch {}
 }
 
+function shouldExitOnUnhandledRejection(): boolean {
+  const raw = String(
+    process.env.MIYA_DAEMON_EXIT_ON_UNHANDLED_REJECTION ?? '',
+  )
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 function readJsonObject(filePath: string): Record<string, unknown> | null {
   if (!fs.existsSync(filePath)) return null;
   try {
@@ -178,7 +187,9 @@ process.on('unhandledRejection', (reason) => {
       reason instanceof Error ? reason.stack || reason.message : String(reason)
     }`,
   );
-  process.exit(1);
+  if (shouldExitOnUnhandledRejection()) {
+    process.exit(1);
+  }
 });
 const sockets = new Set<Bun.ServerWebSocket<unknown>>();
 const daemonService = new MiyaDaemonService(args.projectDir, {
