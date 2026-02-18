@@ -161,6 +161,7 @@ import {
   upsertWorldPreset,
 } from '../companion/persona-world';
 import {
+  archiveCompanionMemoryVector,
   auditCompanionMemoryDrift,
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
@@ -171,6 +172,7 @@ import {
   listPendingCompanionMemoryVectors,
   recycleCompanionMemoryDrift,
   searchCompanionMemoryVectors,
+  updateCompanionMemoryVector,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
 import { readCompanionLearningMetrics } from '../companion/learning-metrics';
@@ -7687,6 +7689,44 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       },
       profile,
     };
+  });
+  methods.register('companion.memory.update', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const memoryID = parseText(params.memoryID);
+    const text = parseText(params.text);
+    if (!memoryID) throw new Error('invalid_memory_id');
+    if (!text) throw new Error('invalid_memory_text');
+    const domain = parseMemoryDomain(params.domain);
+    const memoryKindRaw = parseText(params.memoryKind);
+    const memoryKind =
+      memoryKindRaw === 'Fact' || memoryKindRaw === 'Insight' || memoryKindRaw === 'UserPreference'
+        ? memoryKindRaw
+        : undefined;
+    const updated = updateCompanionMemoryVector(projectDir, {
+      memoryID,
+      text,
+      domain,
+      memoryKind,
+    });
+    if (!updated) throw new Error('memory_not_found');
+    const profile = syncCompanionProfileMemoryFacts(projectDir);
+    return { memory: updated, profile };
+  });
+  methods.register('companion.memory.archive', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_delete');
+    const memoryID = parseText(params.memoryID);
+    if (!memoryID) throw new Error('invalid_memory_id');
+    const archived = typeof params.archived === 'boolean' ? Boolean(params.archived) : true;
+    const updated = archiveCompanionMemoryVector(projectDir, { memoryID, archived });
+    if (!updated) throw new Error('memory_not_found');
+    const profile = syncCompanionProfileMemoryFacts(projectDir);
+    return { memory: updated, profile };
   });
   methods.register('companion.memory.search', async (params) => {
     requireOwnerMode(projectDir);

@@ -108,6 +108,7 @@ function deepMergeObject(
 }
 
 const autoUiOpenAtByDir = new Map<string, number>();
+const dockLaunchAtByDir = new Map<string, number>();
 
 function autoUiOpenGuardFile(projectDir: string): string {
   return path.join(projectDir, '.opencode', 'miya', 'ui-auto-open.guard.json');
@@ -172,6 +173,9 @@ function openUrlSilently(url: string): void {
 
 function launchDockSilently(projectDir: string): void {
   if (process.platform !== 'win32') return;
+  const now = Date.now();
+  const lastAt = dockLaunchAtByDir.get(projectDir) ?? 0;
+  if (now - lastAt < 30_000) return;
   const pidFile = path.join(
     projectDir,
     'miya-src',
@@ -193,6 +197,7 @@ function launchDockSilently(projectDir: string): void {
     stdio: 'ignore',
     windowsHide: true,
   });
+  dockLaunchAtByDir.set(projectDir, now);
   child.unref();
 }
 

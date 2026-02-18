@@ -1145,3 +1145,59 @@ export function getCompanionMemoryVector(
 ): CompanionMemoryVector | null {
   return readStore(projectDir).items.find((item) => item.id === memoryID) ?? null;
 }
+
+export function updateCompanionMemoryVector(
+  projectDir: string,
+  input: {
+    memoryID: string;
+    text: string;
+    domain?: MemoryDomain;
+    memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
+  },
+): CompanionMemoryVector | null {
+  const store = readStore(projectDir);
+  const target = store.items.find((item) => item.id === input.memoryID);
+  if (!target) return null;
+  const text = normalizeText(input.text);
+  if (!text) throw new Error('invalid_memory_text');
+  const embedded = embedTextWithProvider(projectDir, text);
+  const now = nowIso();
+  target.text = text;
+  target.embedding = embedded.embedding;
+  target.embeddingProvider = embedded.provider;
+  target.confidence = Number(
+    Math.max(0.35, Math.min(0.98, target.confidence + 0.02)).toFixed(3),
+  );
+  target.score = Number(Math.max(0.2, target.score).toFixed(3));
+  target.conflictKey = extractConflictKey(text).key;
+  if (input.domain === 'work' || input.domain === 'relationship') {
+    target.domain = input.domain;
+  }
+  if (
+    input.memoryKind === 'Fact' ||
+    input.memoryKind === 'Insight' ||
+    input.memoryKind === 'UserPreference'
+  ) {
+    target.memoryKind = input.memoryKind;
+  }
+  target.updatedAt = now;
+  target.lastAccessedAt = now;
+  writeStore(projectDir, store);
+  return target;
+}
+
+export function archiveCompanionMemoryVector(
+  projectDir: string,
+  input: {
+    memoryID: string;
+    archived: boolean;
+  },
+): CompanionMemoryVector | null {
+  const store = readStore(projectDir);
+  const target = store.items.find((item) => item.id === input.memoryID);
+  if (!target) return null;
+  target.isArchived = input.archived;
+  target.updatedAt = nowIso();
+  writeStore(projectDir, store);
+  return target;
+}

@@ -30,8 +30,10 @@ interface PsycheModeConfig {
 }
 
 type KillSwitchMode = 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
-type ControlView = 'modules' | 'tasks-list' | 'tasks-detail';
+type ControlView = 'modules' | 'tasks-list' | 'tasks-detail' | 'memory-list' | 'memory-detail' | 'gateway';
 type TaskStatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'stopped';
+type MemoryStatusFilter = 'all' | 'active' | 'pending' | 'superseded' | 'archived';
+type MemoryDomainFilter = 'all' | 'work' | 'relationship';
 
 interface GatewaySnapshot {
   updatedAt?: string;
@@ -203,7 +205,24 @@ interface TaskRecord {
   timedOut?: boolean;
 }
 
-function parseRoute(pathname: string): { view: ControlView; taskId?: string; basePath: string } {
+interface MemoryRecord {
+  id: string;
+  text: string;
+  domain: 'work' | 'relationship';
+  status: 'pending' | 'active' | 'superseded';
+  isArchived: boolean;
+  memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
+  semanticLayer?: 'episodic' | 'semantic' | 'preference' | 'tool_trace';
+  learningStage?: 'ephemeral' | 'candidate' | 'persistent';
+  confidence?: number;
+  score?: number;
+  sourceType?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastAccessedAt?: string;
+}
+
+function parseRoute(pathname: string): { view: ControlView; taskId?: string; memoryId?: string; basePath: string } {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   const matched = normalized.match(/^(.*)\/tasks(?:\/([^/]+))?$/);
   if (matched) {
@@ -211,6 +230,21 @@ function parseRoute(pathname: string): { view: ControlView; taskId?: string; bas
       view: matched[2] ? 'tasks-detail' : 'tasks-list',
       taskId: matched[2] ? decodeURIComponent(matched[2]) : undefined,
       basePath: matched[1] || '',
+    };
+  }
+  const memoryMatched = normalized.match(/^(.*)\/memory(?:\/([^/]+))?$/);
+  if (memoryMatched) {
+    return {
+      view: memoryMatched[2] ? 'memory-detail' : 'memory-list',
+      memoryId: memoryMatched[2] ? decodeURIComponent(memoryMatched[2]) : undefined,
+      basePath: memoryMatched[1] || '',
+    };
+  }
+  const gatewayMatched = normalized.match(/^(.*)\/gateway$/);
+  if (gatewayMatched) {
+    return {
+      view: 'gateway',
+      basePath: gatewayMatched[1] || '',
     };
   }
   return {
@@ -223,7 +257,10 @@ function buildRoute(basePath: string, view: ControlView, taskId?: string): strin
   const base = basePath || '';
   if (view === 'modules') return base || '/';
   if (view === 'tasks-list') return `${base}/tasks`;
-  return `${base}/tasks/${encodeURIComponent(taskId || '')}`;
+  if (view === 'tasks-detail') return `${base}/tasks/${encodeURIComponent(taskId || '')}`;
+  if (view === 'memory-list') return `${base}/memory`;
+  if (view === 'memory-detail') return `${base}/memory/${encodeURIComponent(taskId || '')}`;
+  return `${base}/gateway`;
 }
 
 function killSwitchLabel(mode: KillSwitchMode): string {
@@ -244,6 +281,17 @@ function domainLabel(domain: string): string {
   if (domain === 'desktop_control') return '桌面控制';
   if (domain === 'memory_read') return '记忆读取';
   return domain;
+}
+
+function memoryDomainLabel(domain: MemoryRecord['domain']): string {
+  return domain === 'work' ? '工作记忆' : '关系记忆';
+}
+
+function memoryStatusLabel(item: MemoryRecord): string {
+  if (item.isArchived) return '已归档';
+  if (item.status === 'active') return '生效中';
+  if (item.status === 'pending') return '待确认';
+  return '已替代';
 }
 
 function statusTone(status?: string): string {
@@ -389,6 +437,7 @@ export default function App() {
   const [domains, setDomains] = useState<PolicyDomainRow[]>([]);
   const [jobs, setJobs] = useState<MiyaJob[]>([]);
   const [taskRuns, setTaskRuns] = useState<MiyaJobRun[]>([]);
+  const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
   const [errorText, setErrorText] = useState('');
@@ -396,8 +445,12 @@ export default function App() {
   const [insightText, setInsightText] = useState('');
   const [view, setView] = useState<ControlView>(routeState.view);
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(routeState.taskId);
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | undefined>(routeState.memoryId);
   const [basePath, setBasePath] = useState(routeState.basePath);
   const [taskFilter, setTaskFilter] = useState<TaskStatusFilter>('all');
+  const [memoryStatusFilter, setMemoryStatusFilter] = useState<MemoryStatusFilter>('all');
+  const [memoryDomainFilter, setMemoryDomainFilter] = useState<MemoryDomainFilter>('all');
+  const [memoryEditText, setMemoryEditText] = useState('');
   const [expandedTaskLogs, setExpandedTaskLogs] = useState<Record<string, boolean>>({});
   const [trustModeForm, setTrustModeForm] = useState<TrustModeConfig>({
     silentMin: 90,
@@ -424,10 +477,11 @@ export default function App() {
       const status = (await statusRes.json()) as GatewaySnapshot;
       setSnapshot(status);
       const rpcErrors: string[] = [];
-      const [domainsResult, jobsResult, runsResult] = await Promise.allSettled([
+      const [domainsResult, jobsResult, runsResult, memoryResult] = await Promise.allSettled([
         invokeGateway('policy.domains.list'),
         invokeGateway('cron.list'),
         invokeGateway('cron.runs.list', { limit: 80 }),
+        invokeGateway('companion.memory.vector.list'),
       ]);
 
       if (domainsResult.status === 'fulfilled') {
@@ -456,6 +510,15 @@ export default function App() {
           runsResult.reason instanceof Error
             ? runsResult.reason.message
             : String(runsResult.reason),
+        );
+      }
+      if (memoryResult.status === 'fulfilled') {
+        setMemories(Array.isArray(memoryResult.value) ? (memoryResult.value as MemoryRecord[]) : []);
+      } else {
+        rpcErrors.push(
+          memoryResult.reason instanceof Error
+            ? memoryResult.reason.message
+            : String(memoryResult.reason),
         );
       }
       const tokenError = rpcErrors.find((item) => item.includes('invalid_gateway_token'));
@@ -492,6 +555,7 @@ export default function App() {
       const route = parseRoute(location.pathname);
       setView(route.view);
       setSelectedTaskId(route.taskId);
+      setSelectedMemoryId(route.memoryId);
       setBasePath(route.basePath);
     };
     window.addEventListener('popstate', onPopState);
@@ -499,14 +563,21 @@ export default function App() {
   }, []);
 
   const navigate = useCallback(
-    (nextView: ControlView, taskId?: string) => {
-      const nextPath = buildRoute(basePath, nextView, taskId);
+    (nextView: ControlView, id?: string) => {
+      const nextPath = buildRoute(basePath, nextView, id);
       const nextUrl = `${nextPath}${location.search || ''}${location.hash || ''}`;
       if (nextUrl !== `${location.pathname}${location.search}${location.hash}`) {
         history.pushState({}, '', nextUrl);
       }
       setView(nextView);
-      setSelectedTaskId(taskId);
+      if (nextView === 'tasks-detail') {
+        setSelectedTaskId(id);
+      } else if (nextView === 'memory-detail') {
+        setSelectedMemoryId(id);
+      } else {
+        setSelectedTaskId(undefined);
+        setSelectedMemoryId(undefined);
+      }
     },
     [basePath],
   );
@@ -600,6 +671,30 @@ export default function App() {
     return 45;
   }, [selectedTask, snapshot.daemon?.activeJobProgress]);
 
+  const memoryRecords = useMemo(
+    () =>
+      memories.filter((item) => {
+        const domainOk = memoryDomainFilter === 'all' ? true : item.domain === memoryDomainFilter;
+        const statusOk =
+          memoryStatusFilter === 'all'
+            ? true
+            : memoryStatusFilter === 'archived'
+              ? item.isArchived
+              : item.status === memoryStatusFilter && !item.isArchived;
+        return domainOk && statusOk;
+      }),
+    [memories, memoryDomainFilter, memoryStatusFilter],
+  );
+
+  const selectedMemory = useMemo(
+    () => memories.find((item) => item.id === selectedMemoryId) ?? null,
+    [memories, selectedMemoryId],
+  );
+
+  useEffect(() => {
+    setMemoryEditText(selectedMemory?.text ?? '');
+  }, [selectedMemory?.id, selectedMemory?.text]);
+
   const runAction = async (task: () => Promise<unknown>, successMessage: string) => {
     setLoading(true);
     setSuccessText('');
@@ -682,6 +777,62 @@ export default function App() {
     setSuccessText(`已导出任务日志：${task.id}`);
   };
 
+  const saveMemoryEdit = async () => {
+    if (!selectedMemory) return;
+    const policyHash = snapshot.policyHash;
+    if (!policyHash) {
+      setErrorText('缺少策略哈希，无法修改记忆，请刷新后重试。');
+      return;
+    }
+    const text = memoryEditText.trim();
+    if (!text) {
+      setErrorText('记忆内容不能为空。');
+      return;
+    }
+    await runAction(async () => {
+      await invokeGateway('companion.memory.update', {
+        policyHash,
+        memoryID: selectedMemory.id,
+        text,
+        domain: selectedMemory.domain,
+        memoryKind: selectedMemory.memoryKind,
+      });
+    }, '记忆已更新');
+  };
+
+  const archiveMemory = async (archived: boolean) => {
+    if (!selectedMemory) return;
+    const policyHash = snapshot.policyHash;
+    if (!policyHash) {
+      setErrorText('缺少策略哈希，无法归档记忆，请刷新后重试。');
+      return;
+    }
+    await runAction(async () => {
+      await invokeGateway('companion.memory.archive', {
+        policyHash,
+        memoryID: selectedMemory.id,
+        archived,
+      });
+    }, archived ? '记忆已归档' : '记忆已恢复');
+  };
+
+  const confirmPendingMemory = async () => {
+    if (!selectedMemory) return;
+    const policyHash = snapshot.policyHash;
+    if (!policyHash) {
+      setErrorText('缺少策略哈希，无法确认记忆，请刷新后重试。');
+      return;
+    }
+    await runAction(async () => {
+      await invokeGateway('companion.memory.confirm', {
+        policyHash,
+        memoryID: selectedMemory.id,
+        confirm: true,
+        evidence: ['ui_manual_confirmation=1'],
+      });
+    }, '待确认记忆已转为生效');
+  };
+
   const panelClass = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
 
   return (
@@ -697,8 +848,14 @@ export default function App() {
             {[
               { key: 'modules', label: '控制中心' },
               { key: 'tasks', label: '任务' },
+              { key: 'memory', label: '记忆' },
+              { key: 'gateway', label: '网关' },
             ].map((item) => {
-              const active = (view === 'modules' && item.key === 'modules') || (view !== 'modules' && item.key === 'tasks');
+              const active =
+                (view === 'modules' && item.key === 'modules') ||
+                ((view === 'tasks-list' || view === 'tasks-detail') && item.key === 'tasks') ||
+                ((view === 'memory-list' || view === 'memory-detail') && item.key === 'memory') ||
+                (view === 'gateway' && item.key === 'gateway');
               return (
                 <button
                   key={item.key}
@@ -706,6 +863,8 @@ export default function App() {
                   onClick={() => {
                     if (item.key === 'tasks') navigate('tasks-list');
                     if (item.key === 'modules') navigate('modules');
+                    if (item.key === 'memory') navigate('memory-list');
+                    if (item.key === 'gateway') navigate('gateway');
                   }}
                   className={`flex w-full items-center rounded-xl px-4 py-3 text-left ${active ? 'border border-sky-200 bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'}`}
                 >
@@ -754,8 +913,14 @@ export default function App() {
             {[
               { key: 'modules', label: '控制中心' },
               { key: 'tasks', label: '任务' },
+              { key: 'memory', label: '记忆' },
+              { key: 'gateway', label: '网关' },
             ].map((item) => {
-              const active = (view === 'modules' && item.key === 'modules') || (view !== 'modules' && item.key === 'tasks');
+              const active =
+                (view === 'modules' && item.key === 'modules') ||
+                ((view === 'tasks-list' || view === 'tasks-detail') && item.key === 'tasks') ||
+                ((view === 'memory-list' || view === 'memory-detail') && item.key === 'memory') ||
+                (view === 'gateway' && item.key === 'gateway');
               return (
                 <button
                   key={`mobile-${item.key}`}
@@ -763,6 +928,8 @@ export default function App() {
                   onClick={() => {
                     if (item.key === 'tasks') navigate('tasks-list');
                     if (item.key === 'modules') navigate('modules');
+                    if (item.key === 'memory') navigate('memory-list');
+                    if (item.key === 'gateway') navigate('gateway');
                   }}
                   className={`rounded-lg border px-3 py-1.5 text-sm ${active ? 'border-sky-200 bg-sky-100 text-sky-700' : 'border-slate-300 bg-white text-slate-600'}`}
                 >
@@ -949,6 +1116,181 @@ export default function App() {
                   </article>
                 </>
               )}
+            </section>
+          ) : null}
+
+          {view === 'memory-list' ? (
+            <section className={panelClass}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-3xl font-semibold text-slate-800">记忆中心</h2>
+                  <p className="mt-2 text-sm text-slate-500">查看、分类与检索已写入记忆，支持跳转到详情编辑。</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={memoryDomainFilter}
+                    onChange={(event) => setMemoryDomainFilter(event.target.value as MemoryDomainFilter)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                  >
+                    <option value="all">全部域</option>
+                    <option value="work">工作记忆</option>
+                    <option value="relationship">关系记忆</option>
+                  </select>
+                  <select
+                    value={memoryStatusFilter}
+                    onChange={(event) => setMemoryStatusFilter(event.target.value as MemoryStatusFilter)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                  >
+                    <option value="all">全部状态</option>
+                    <option value="active">生效中</option>
+                    <option value="pending">待确认</option>
+                    <option value="superseded">已替代</option>
+                    <option value="archived">已归档</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+                {[
+                  { key: 'all', label: '全部', count: memories.length },
+                  { key: 'active', label: '生效中', count: memories.filter((m) => m.status === 'active' && !m.isArchived).length },
+                  { key: 'pending', label: '待确认', count: memories.filter((m) => m.status === 'pending' && !m.isArchived).length },
+                  { key: 'archived', label: '已归档', count: memories.filter((m) => m.isArchived).length },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setMemoryStatusFilter(item.key as MemoryStatusFilter)}
+                    className={`rounded-xl border px-3 py-2 text-left text-xs ${memoryStatusFilter === item.key ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600'}`}
+                  >
+                    <p>{item.label}</p>
+                    <p className="mt-1 text-base font-semibold">{item.count}</p>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 space-y-2">
+                {memoryRecords.length === 0 ? (
+                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">当前筛选下暂无记忆。</p>
+                ) : (
+                  memoryRecords.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => navigate('memory-detail', item.id)}
+                      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left hover:border-sky-200 hover:bg-sky-50"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{memoryDomainLabel(item.domain)}</span>
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{memoryStatusLabel(item)}</span>
+                        {item.semanticLayer ? <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">{item.semanticLayer}</span> : null}
+                        {item.memoryKind ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700">{item.memoryKind}</span> : null}
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-sm text-slate-700">{item.text}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">更新时间：{formatDateTime(item.updatedAt)}</p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {view === 'memory-detail' ? (
+            <section className="space-y-4">
+              <article className={panelClass}>
+                <button
+                  type="button"
+                  onClick={() => navigate('memory-list')}
+                  className="text-sm text-sky-700 hover:text-sky-800"
+                >
+                  {'< 返回记忆列表'}
+                </button>
+                {!selectedMemory ? (
+                  <p className="mt-3 text-sm text-slate-500">该记忆不存在或已被清理，请返回刷新。</p>
+                ) : (
+                  <>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <h2 className="text-2xl font-semibold text-slate-800">记忆详情</h2>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{memoryDomainLabel(selectedMemory.domain)}</span>
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{memoryStatusLabel(selectedMemory)}</span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      ID: {selectedMemory.id} · 创建：{formatDateTime(selectedMemory.createdAt)} · 最近访问：{formatDateTime(selectedMemory.lastAccessedAt)}
+                    </p>
+                    <textarea
+                      value={memoryEditText}
+                      onChange={(event) => setMemoryEditText(event.target.value)}
+                      className="mt-3 min-h-[140px] w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700"
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void saveMemoryEdit()}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                      >
+                        保存修改
+                      </button>
+                      {selectedMemory.status === 'pending' ? (
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() => void confirmPendingMemory()}
+                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 hover:bg-emerald-100"
+                        >
+                          确认入库
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void archiveMemory(!selectedMemory.isArchived)}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                      >
+                        {selectedMemory.isArchived ? '取消归档' : '归档'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </article>
+            </section>
+          ) : null}
+
+          {view === 'gateway' ? (
+            <section className="space-y-4">
+              <article className={panelClass}>
+                <h2 className="text-3xl font-semibold text-slate-800">网关与运行态</h2>
+                <p className="mt-2 text-sm text-slate-500">集中查看 Gateway/Daemon/节点与证据，减少控制中心信息拥挤。</p>
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                    <p>Gateway 状态：{snapshot.gateway?.status ?? 'unknown'}</p>
+                    <p className="mt-1">URL：{snapshot.gateway?.url ?? '-'}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                    <p>Daemon：{snapshot.daemon?.connected ? 'connected' : 'disconnected'}</p>
+                    <p className="mt-1">CPU：{(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}%</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                    <p>节点：{snapshot.nodes?.connected ?? 0}/{snapshot.nodes?.total ?? 0}</p>
+                    <p className="mt-1">策略哈希：{snapshot.policyHash ?? '-'}</p>
+                  </div>
+                </div>
+              </article>
+              <article className={panelClass}>
+                <h3 className="text-base font-semibold text-slate-800">节点状态</h3>
+                <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
+                  {(snapshot.nodes?.list ?? []).map((node, index) => (
+                    <div
+                      key={node.id ?? `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      <p className="font-medium">{node.label || node.id || '未命名节点'}</p>
+                      <p className={node.connected ? 'text-emerald-700' : 'text-rose-700'}>
+                        {node.connected ? '在线' : '离线'}
+                      </p>
+                      <p className="text-slate-500">平台：{node.platform || '未知'}</p>
+                    </div>
+                  ))}
+                </div>
+              </article>
             </section>
           ) : null}
 
@@ -1215,7 +1557,7 @@ export default function App() {
           </article>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <section className="hidden grid grid-cols-1 gap-4 xl:grid-cols-2">
           <article className={panelClass}>
             <h2 className="text-sm font-semibold">能力域状态</h2>
             <p className="mt-1 text-xs text-slate-500">可直接暂停/恢复单个能力域。</p>
@@ -1318,7 +1660,7 @@ export default function App() {
           </article>
         </section>
 
-        <section className="grid grid-cols-1 gap-4">
+        <section className="hidden grid grid-cols-1 gap-4">
           <article className={panelClass}>
             <h2 className="text-sm font-semibold">Evidence Pack V5（外发证据预览）</h2>
             <p className="mt-1 text-xs text-slate-500">用于审批前快速核验：目标、发送状态、截图、限制项。</p>
