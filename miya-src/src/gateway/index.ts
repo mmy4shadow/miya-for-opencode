@@ -10202,6 +10202,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     'gateway.health.broadcast',
     2_500,
     () => {
+      if (runtime.wsConnectionCount <= 0) return;
       publishGatewayEvent(runtime, 'gateway.health', buildGatewayHealthPayload(runtime));
     },
     {

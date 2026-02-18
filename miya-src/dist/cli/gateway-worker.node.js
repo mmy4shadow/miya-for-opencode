@@ -57903,6 +57903,8 @@ function ensureGatewayRunning(projectDir) {
     onError: (error92) => periodicTaskError(projectDir, error92)
   });
   runtime.healthTickTimer = safeInterval("gateway.health.broadcast", 2500, () => {
+    if (runtime.wsConnectionCount <= 0)
+      return;
     publishGatewayEvent(runtime, "gateway.health", buildGatewayHealthPayload(runtime));
   }, {
     maxConsecutiveErrors: 3,

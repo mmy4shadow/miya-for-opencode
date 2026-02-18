@@ -46,6 +46,7 @@ export class GatewayRpcClient {
   private openPromise: Promise<void> | null = null;
   private seq = 0;
   private activeUrl = '';
+  private connectEpoch = 0;
   private readonly options: Required<
     Pick<GatewayRpcClientOptions, 'connectTimeoutMs' | 'requestTimeoutMs'>
   > &
@@ -99,6 +100,7 @@ export class GatewayRpcClient {
   }
 
   dispose(): void {
+    this.connectEpoch += 1;
     this.rejectPending('gateway_ws_disposed');
     if (this.ws) {
       try {
@@ -118,7 +120,8 @@ export class GatewayRpcClient {
       await this.openPromise;
       return;
     }
-    this.openPromise = this.connectWithFallback();
+    const epoch = this.connectEpoch;
+    this.openPromise = this.connectWithFallback(epoch);
     try {
       await this.openPromise;
     } finally {
@@ -126,11 +129,14 @@ export class GatewayRpcClient {
     }
   }
 
-  private async connectWithFallback(): Promise<void> {
+  private async connectWithFallback(epoch: number): Promise<void> {
     const errors: string[] = [];
     for (const candidate of buildWsCandidates(this.options.wsPath)) {
+      if (epoch !== this.connectEpoch) {
+        throw new Error('gateway_ws_connect_cancelled');
+      }
       try {
-        await this.connectOne(candidate);
+        await this.connectOne(candidate, epoch);
         this.activeUrl = candidate;
         return;
       } catch (error) {
@@ -144,7 +150,7 @@ export class GatewayRpcClient {
     );
   }
 
-  private async connectOne(url: string): Promise<void> {
+  private async connectOne(url: string, epoch: number): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(url);
       let settled = false;
@@ -154,6 +160,13 @@ export class GatewayRpcClient {
         settled = true;
         clearTimeout(timer);
         if (ok) {
+          if (epoch !== this.connectEpoch) {
+            try {
+              ws.close();
+            } catch {}
+            reject(new Error('gateway_ws_connect_cancelled'));
+            return;
+          }
           this.bindSocket(ws);
           resolve();
           return;
@@ -260,4 +273,3 @@ export class GatewayRpcClient {
     }
   }
 }
-
