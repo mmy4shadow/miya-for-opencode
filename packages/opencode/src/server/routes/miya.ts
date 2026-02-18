@@ -474,7 +474,7 @@ function readGatewayTokenFromAuthFile(file: string): string | undefined {
     return undefined
   }
 }
-function parseGatewayEndpoint(input: unknown): GatewayEndpoint | null {
+function parseGatewayEndpoint(input: unknown, sourceFile?: string): GatewayEndpoint | null {
   if (!isRecord(input)) return null
   const httpRaw = (() => {
     if (typeof input.http === "string") return input.http.trim()
@@ -485,7 +485,13 @@ function parseGatewayEndpoint(input: unknown): GatewayEndpoint | null {
     const auth = isRecord(input.auth) ? input.auth : null
     const tokenRef = auth && typeof auth.tokenRef === "string" ? auth.tokenRef.trim() : ""
     if (!tokenRef) return undefined
-    if (tokenRef.startsWith("file:")) return tokenRef.slice("file:".length)
+    if (tokenRef.startsWith("file:")) {
+      const filePath = tokenRef.slice("file:".length)
+      if (!filePath) return undefined
+      if (path.isAbsolute(filePath)) return filePath
+      if (sourceFile) return path.resolve(path.dirname(sourceFile), filePath)
+      return undefined
+    }
     return undefined
   })()
   if (!httpRaw) return null
@@ -514,7 +520,7 @@ async function resolveGatewayEndpoint(dir: string): Promise<GatewayEndpoint> {
   let endpoint: GatewayEndpoint | null = null
   for (const file of candidates) {
     const parsed = await readJson<Record<string, unknown> | null>(file, null)
-    endpoint = parseGatewayEndpoint(parsed)
+    endpoint = parseGatewayEndpoint(parsed, file)
     if (endpoint) break
   }
   if (!endpoint) {
