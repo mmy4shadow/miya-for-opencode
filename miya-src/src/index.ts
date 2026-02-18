@@ -367,7 +367,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       : 10 * 60_000;
   const dockAutoLaunch =
     process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
-    dashboardConfig.dockAutoLaunch === true;
+    (process.env.MIYA_DOCK_AUTO_LAUNCH !== '0' && dashboardConfig.dockAutoLaunch !== false);
   const interactiveSession = isInteractiveSession();
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);

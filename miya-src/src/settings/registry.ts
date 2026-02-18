@@ -106,9 +106,9 @@ export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
   entry({
     key: 'ui.dashboard.dockAutoLaunch',
     type: 'boolean',
-    defaultValue: false,
+    defaultValue: true,
     risk: 'LOW',
-    description: '启动时自动拉起 Windows Dock（默认关闭，避免反复拉起）。',
+    description: '启动时自动拉起 Windows Dock（默认开启，可通过设置关闭）。',
   }),
   entry({
     key: 'ui.dashboard.autoOpenCooldownMs',

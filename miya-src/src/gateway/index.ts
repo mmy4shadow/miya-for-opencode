@@ -5168,7 +5168,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       uiFollowsOpenCode: dashboardConfig.openOnStart !== false,
       dockAutoLaunch:
         process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
-        dashboardConfig.dockAutoLaunch === true,
+        (process.env.MIYA_DOCK_AUTO_LAUNCH !== '0' && dashboardConfig.dockAutoLaunch !== false),
       autoUiBlockedByEnv: process.env.MIYA_AUTO_UI_OPEN === '0',
     };
     return {

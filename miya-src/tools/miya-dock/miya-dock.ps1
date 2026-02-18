@@ -68,20 +68,35 @@ function Try-StartGatewayViaOpenCode {
     return $false
   }
 
-  $escapedExe = '"' + $opencode.Source.Replace('"', '""') + '"'
-  $commandLine = 'set "MIYA_AUTO_UI_OPEN=0" && set "MIYA_DOCK_AUTO_LAUNCH=0" && ' + $escapedExe + ' run --command "miya-gateway-start"'
-  $proc = Start-Process `
-    -FilePath $Env:ComSpec `
-    -ArgumentList @("/d", "/c", $commandLine) `
-    -WorkingDirectory $WorkingDirectory `
-    -PassThru `
-    -WindowStyle Hidden
-  $completed = Wait-Process -Id $proc.Id -Timeout 20 -ErrorAction SilentlyContinue
-  if (-not $completed) {
-    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-    return $false
+  $prevAutoUi = $Env:MIYA_AUTO_UI_OPEN
+  $prevDockAuto = $Env:MIYA_DOCK_AUTO_LAUNCH
+  try {
+    $Env:MIYA_AUTO_UI_OPEN = "0"
+    $Env:MIYA_DOCK_AUTO_LAUNCH = "0"
+    $proc = Start-Process `
+      -FilePath $opencode.Source `
+      -ArgumentList @("run", "--command", "miya-gateway-start") `
+      -WorkingDirectory $WorkingDirectory `
+      -PassThru `
+      -WindowStyle Hidden
+    $completed = Wait-Process -Id $proc.Id -Timeout 20 -ErrorAction SilentlyContinue
+    if (-not $completed) {
+      # Do not kill long-running bootstrap aggressively; caller will re-check gateway health/state.
+      return $true
+    }
+    return ($proc.ExitCode -eq 0)
+  } finally {
+    if ($null -eq $prevAutoUi) {
+      Remove-Item Env:MIYA_AUTO_UI_OPEN -ErrorAction SilentlyContinue
+    } else {
+      $Env:MIYA_AUTO_UI_OPEN = $prevAutoUi
+    }
+    if ($null -eq $prevDockAuto) {
+      Remove-Item Env:MIYA_DOCK_AUTO_LAUNCH -ErrorAction SilentlyContinue
+    } else {
+      $Env:MIYA_DOCK_AUTO_LAUNCH = $prevDockAuto
+    }
   }
-  return ($proc.ExitCode -eq 0)
 }
 
 function Resolve-AhkExecutable {

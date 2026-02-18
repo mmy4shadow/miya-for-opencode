@@ -138,6 +138,35 @@ interface GatewayResponseFrame {
   };
 }
 
+function readGatewayTokenFromQuery(): string {
+  const token = new URLSearchParams(location.search).get('token');
+  return token ? token.trim() : '';
+}
+
+function readGatewayTokenFromStorage(): string {
+  try {
+    return String(localStorage.getItem('miya_gateway_token') ?? '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function writeGatewayTokenToStorage(token: string): void {
+  if (!token) return;
+  try {
+    localStorage.setItem('miya_gateway_token', token);
+  } catch {}
+}
+
+function resolveGatewayToken(): string {
+  const fromQuery = readGatewayTokenFromQuery();
+  if (fromQuery) {
+    writeGatewayTokenToStorage(fromQuery);
+    return fromQuery;
+  }
+  return readGatewayTokenFromStorage();
+}
+
 interface MiyaJob {
   id: string;
   name: string;
@@ -286,6 +315,7 @@ async function invokeGateway(method: string, params: Record<string, unknown> = {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
   const reqId = `ui-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const token = resolveGatewayToken();
 
   return await new Promise<unknown>((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -294,7 +324,15 @@ async function invokeGateway(method: string, params: Record<string, unknown> = {
     }, 10000);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'hello', role: 'ui', clientID: 'gateway-ui' }));
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          role: 'ui',
+          clientID: 'gateway-ui',
+          protocolVersion: '1.1',
+          auth: token ? { token } : undefined,
+        }),
+      );
     };
 
     ws.onerror = () => {
@@ -314,7 +352,13 @@ async function invokeGateway(method: string, params: Record<string, unknown> = {
         if (!frame.ok) {
           clearTimeout(timeout);
           ws.close();
-          reject(new Error(frame.error?.message || 'gateway_hello_failed'));
+          reject(
+            new Error(
+              frame.error?.message === 'invalid_gateway_token'
+                ? 'invalid_gateway_token: 请使用带 token 的控制台链接重新打开'
+                : frame.error?.message || 'gateway_hello_failed',
+            ),
+          );
           return;
         }
         ws.send(
@@ -372,12 +416,7 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [statusRes, domainsResult, jobsResult, runsResult] = await Promise.all([
-        fetch('/api/status', { cache: 'no-store' }),
-        invokeGateway('policy.domains.list'),
-        invokeGateway('cron.list'),
-        invokeGateway('cron.runs.list', { limit: 80 }),
-      ]);
+      const statusRes = await fetch('/api/status', { cache: 'no-store' });
       if (!statusRes.ok) {
         setConnected(false);
         return;
@@ -385,10 +424,22 @@ export default function App() {
       const status = (await statusRes.json()) as GatewaySnapshot;
       setSnapshot(status);
       setConnected(Boolean(status.daemon?.connected));
-      const rows = (domainsResult as { domains?: PolicyDomainRow[] }).domains ?? [];
-      setDomains(rows);
-      setJobs(Array.isArray(jobsResult) ? (jobsResult as MiyaJob[]) : []);
-      setTaskRuns(Array.isArray(runsResult) ? (runsResult as MiyaJobRun[]) : []);
+      const [domainsResult, jobsResult, runsResult] = await Promise.allSettled([
+        invokeGateway('policy.domains.list'),
+        invokeGateway('cron.list'),
+        invokeGateway('cron.runs.list', { limit: 80 }),
+      ]);
+
+      if (domainsResult.status === 'fulfilled') {
+        const rows = (domainsResult.value as { domains?: PolicyDomainRow[] }).domains ?? [];
+        setDomains(rows);
+      }
+      if (jobsResult.status === 'fulfilled') {
+        setJobs(Array.isArray(jobsResult.value) ? (jobsResult.value as MiyaJob[]) : []);
+      }
+      if (runsResult.status === 'fulfilled') {
+        setTaskRuns(Array.isArray(runsResult.value) ? (runsResult.value as MiyaJobRun[]) : []);
+      }
       const incomingMode = status.nexus?.trustMode;
       if (incomingMode) {
         setTrustModeForm(incomingMode);
@@ -426,8 +477,9 @@ export default function App() {
   const navigate = useCallback(
     (nextView: ControlView, taskId?: string) => {
       const nextPath = buildRoute(basePath, nextView, taskId);
-      if (nextPath !== location.pathname) {
-        history.pushState({}, '', nextPath);
+      const nextUrl = `${nextPath}${location.search || ''}${location.hash || ''}`;
+      if (nextUrl !== `${location.pathname}${location.search}${location.hash}`) {
+        history.pushState({}, '', nextUrl);
       }
       setView(nextView);
       setSelectedTaskId(taskId);
@@ -619,12 +671,8 @@ export default function App() {
           </div>
           <nav className="space-y-1 px-3 py-4 text-base">
             {[
-              { key: 'chat', label: '聊天' },
-              { key: 'im', label: 'IM 通道' },
-              { key: 'skills', label: '技能' },
+              { key: 'modules', label: '控制中心' },
               { key: 'tasks', label: '任务' },
-              { key: 'modules', label: '模块' },
-              { key: 'status', label: '状态' },
             ].map((item) => {
               const active = (view === 'modules' && item.key === 'modules') || (view !== 'modules' && item.key === 'tasks');
               return (
@@ -680,12 +728,8 @@ export default function App() {
 
           <nav className="flex flex-wrap gap-2 lg:hidden">
             {[
-              { key: 'chat', label: '聊天' },
-              { key: 'im', label: 'IM 通道' },
-              { key: 'skills', label: '技能' },
+              { key: 'modules', label: '控制中心' },
               { key: 'tasks', label: '任务' },
-              { key: 'modules', label: '模块' },
-              { key: 'status', label: '状态' },
             ].map((item) => {
               const active = (view === 'modules' && item.key === 'modules') || (view !== 'modules' && item.key === 'tasks');
               return (

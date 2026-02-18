@@ -30,6 +30,14 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 
 本章为“兼容优先 + 能力增强”最高优先级口径，若与旧段落冲突，以本章为准。
 
+### 2026-02-18 控制台与网关启动链路修复（本轮）
+
+- `Gateway UI` 鉴权闭环已修复：WebSocket `hello` 增加 token 透传，路由切换保留 `?token=`，避免出现 `invalid_gateway_token` 后任务/模块空白。
+- 控制台导航已收敛：移除无效 `chat/im/skills/status` 导航项，仅保留可用且接通后端的 `控制中心`、`任务` 页面。
+- 启动行为默认值已对齐：`ui.dashboard.dockAutoLaunch` 默认启用；Windows 启动 OpenCode 时，控制面板可按配置自动跟随打开。
+- 网关拉起链路已减闪烁：`miya-dock.ps1` 改为直接调用 `opencode` 可执行文件启动网关，不再走 `cmd /c` 拼接命令；超时不再强杀子进程，避免终端反复弹窗与误杀启动。
+- 生命周期状态口径已统一：`lifecycle.status.get` 中 `dockAutoLaunch` 的判定逻辑与主启动逻辑保持一致，避免“实际已启用但面板显示未启用”的错位。
+
 - 不删减现有功能：保持既有桌控、陪伴、多代理自主流、模型路由、学习复用主链路可用。
 - 不破坏现有接口：旧 `gateway method`、`daemon ws method`、配置键与工具入口保持可调用。
 - 仅做增量增强：新增能力默认采用兼容层与别名路由，避免替代式重写。
