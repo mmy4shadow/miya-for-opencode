@@ -342,6 +342,18 @@ function buildRoute(
   return `${base}/gateway`;
 }
 
+function resolveGatewayBasePath(pathname: string = location.pathname): string {
+  return parseRoute(pathname).basePath;
+}
+
+function withGatewayBasePath(
+  suffix: `/${string}`,
+  pathname?: string,
+): string {
+  const basePath = resolveGatewayBasePath(pathname ?? location.pathname);
+  return basePath ? `${basePath}${suffix}` : suffix;
+}
+
 const NAV_ITEMS: NavItem[] = [
   { key: 'modules', label: '控制中枢', subtitle: '总览与安全联锁' },
   { key: 'tasks', label: '作业中心', subtitle: '任务执行与回放' },
@@ -438,7 +450,7 @@ function evidenceImageUrl(
     auditID,
     slot,
   });
-  return `/api/evidence/image?${params.toString()}`;
+  return `${withGatewayBasePath('/api/evidence/image')}?${params.toString()}`;
 }
 
 function formatDateTime(input?: string): string {
@@ -487,7 +499,7 @@ function normalizeStatusFetchError(error: unknown): string {
     normalized.includes('networkerror') ||
     normalized.includes('fetch')
   ) {
-    return '无法连接本地网关。请在代理中直连 localhost/127.0.0.1/::1，并检查网关与 daemon 是否在运行。';
+    return '无法连接网关。请检查同源反代路径是否可用，或确认 localhost/127.0.0.1/::1 已设置直连并且网关与 daemon 正在运行。';
   }
   return raw;
 }
@@ -504,7 +516,8 @@ async function invokeGateway(
   params: Record<string, unknown> = {},
 ): Promise<unknown> {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  const wsPath = withGatewayBasePath('/ws');
+  const ws = new WebSocket(`${proto}://${location.host}${wsPath}`);
   const reqId = `ui-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const token = resolveGatewayToken();
 
@@ -641,7 +654,9 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const statusRes = await fetch('/api/status', { cache: 'no-store' });
+      const statusRes = await fetch(withGatewayBasePath('/api/status'), {
+        cache: 'no-store',
+      });
       if (!statusRes.ok) {
         let detail = '';
         try {
@@ -1125,8 +1140,8 @@ export default function App() {
         {!connected && hasRefreshedOnce ? (
           <div className="pointer-events-auto rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm">
             <p>
-              本地网关连接异常。请确保 localhost/127.0.0.1/::1 走直连（NO_PROXY
-              / 系统代理绕过）。
+              网关连接异常。若通过 OpenCode 同源反代访问，请检查 `/miya/*`
+              路由；若直连本地网关，请确保 localhost/127.0.0.1/::1 走直连。
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <code className="rounded bg-amber-100 px-2 py-1 text-[11px]">
@@ -2141,7 +2156,7 @@ export default function App() {
               <article className={panelClass}>
                 <h2 className="text-sm font-semibold">代理兼容设置</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  常开代理时，请让本地回环直连，外网流量走代理。
+                  直连网关模式下，请让本地回环直连；同源反代模式下可优先使用 `/miya/*`。
                 </p>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-600">
                   <li>`NO_PROXY=localhost,127.0.0.1,::1`</li>

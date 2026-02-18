@@ -298,6 +298,7 @@ import {
   createControlUiRequestOptions,
   handleControlUiHttpRequest,
 } from './control-ui';
+import { normalizeControlUiBasePath } from './control-ui-shared';
 import {
   arbitrateCortex,
   buildLeftBrainActionPlan,
@@ -1665,9 +1666,11 @@ function toGatewayState(
 ): GatewayState {
   const host = String(runtime.server.hostname ?? '127.0.0.1') || '127.0.0.1';
   const url = `http://${host}:${gatewayPort(runtime)}`;
+  const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
+  const uiUrl = uiBasePath ? `${url}${uiBasePath}/` : url;
   return {
     url,
-    uiUrl: url,
+    uiUrl,
     port: gatewayPort(runtime),
     pid: process.pid,
     startedAt: runtime.startedAt,
@@ -5205,9 +5208,21 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
         });
       }
 
+      function detectBasePath() {
+        const knownSuffixes = ['/legacy-console', '/webchat', '/'];
+        for (const suffix of knownSuffixes) {
+          if (location.pathname.endsWith(suffix)) {
+            const next = location.pathname.slice(0, -suffix.length);
+            return next && next !== '/' ? next : '';
+          }
+        }
+        return '';
+      }
+
       async function loadStatus() {
         try {
-          const res = await fetch('/api/status', { cache: 'no-store' });
+          const basePath = detectBasePath();
+          const res = await fetch(basePath + '/api/status', { cache: 'no-store' });
           const data = await res.json();
           render(data);
         } catch {}
@@ -5215,6 +5230,7 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
 
       function openWs() {
         const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        const basePath = detectBasePath();
         const params = new URLSearchParams(location.search);
         const token = params.get('token') || localStorage.getItem('miya_gateway_token') || '';
         if (token) {
@@ -5226,7 +5242,7 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
           }
         }
 
-        ws = new WebSocket(proto + '://' + location.host + '/ws');
+        ws = new WebSocket(proto + '://' + location.host + basePath + '/ws');
         ws.onopen = function () {
           ws.send(
             JSON.stringify({
@@ -5317,7 +5333,8 @@ function renderWebChatHtml(): string {
 </main>
 <script>
   const logEl=document.getElementById('log'); const msgEl=document.getElementById('msg'); const sendBtn=document.getElementById('send');
-  const p=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(p+'://'+location.host+'/ws');
+  const detectBasePath=()=>{const suffix='/webchat';if(location.pathname.endsWith(suffix)){const next=location.pathname.slice(0,-suffix.length);return next&&next!=='/'?next:'';}return '';};
+  const p=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(p+'://'+location.host+detectBasePath()+'/ws');
   const log=(t)=>{logEl.textContent+=t+'\\n'; logEl.scrollTop=logEl.scrollHeight;};
   const send=()=>{const text=msgEl.value.trim(); if(!text)return; const id='send-'+Date.now(); ws.send(JSON.stringify({type:'request',id,method:'sessions.send',params:{sessionID:'webchat:main',text,source:'webchat'},idempotencyKey:id})); log('[you] '+text); msgEl.value='';};
   sendBtn.onclick=send; msgEl.addEventListener('keydown',(e)=>{if(e.key==='Enter')send();});
@@ -9477,13 +9494,21 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       port,
       fetch(request, currentServer) {
         const url = new URL(request.url);
-        if (url.pathname === '/ws') {
+        const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
+        const pathWithBase = (suffix: `/${string}`): string =>
+          uiBasePath ? `${uiBasePath}${suffix}` : suffix;
+        const isWsPath =
+          url.pathname === '/ws' || url.pathname === pathWithBase('/ws');
+        if (isWsPath) {
           const upgraded = currentServer.upgrade(request, { data: {} });
           if (upgraded) return;
           return new Response('websocket upgrade failed', { status: 400 });
         }
 
-        if (url.pathname === '/api/status') {
+        const isStatusPath =
+          url.pathname === '/api/status' ||
+          url.pathname === pathWithBase('/api/status');
+        if (isStatusPath) {
           try {
             return Response.json(buildSnapshot(projectDir, runtime), {
               headers: { 'cache-control': 'no-store' },
@@ -9502,7 +9527,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
             );
           }
         }
-        if (url.pathname === '/api/evidence/image') {
+        const isEvidenceImagePath =
+          url.pathname === '/api/evidence/image' ||
+          url.pathname === pathWithBase('/api/evidence/image');
+        if (isEvidenceImagePath) {
           const auditID = String(url.searchParams.get('auditID') ?? '').trim();
           const slot = String(url.searchParams.get('slot') ?? '')
             .trim()
@@ -9552,7 +9580,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
           return controlUiResponse;
         }
 
-        if (url.pathname === '/webchat') {
+        const isWebchatPath =
+          url.pathname === '/webchat' ||
+          url.pathname === pathWithBase('/webchat');
+        if (isWebchatPath) {
           return new Response(renderWebChatHtml(), {
             headers: {
               'content-type': 'text/html; charset=utf-8',
@@ -9561,7 +9592,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
           });
         }
 
-        if (url.pathname.startsWith('/api/webhooks/')) {
+        const isWebhookPath =
+          url.pathname.startsWith('/api/webhooks/') ||
+          url.pathname.startsWith(pathWithBase('/api/webhooks/'));
+        if (isWebhookPath) {
           return new Response(
             'HTTP control API disabled; use WebSocket RPC (/ws).',
             {
@@ -9574,7 +9608,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
           );
         }
 
-        if (url.pathname === '/legacy-console') {
+        const isLegacyConsolePath =
+          url.pathname === '/legacy-console' ||
+          url.pathname === pathWithBase('/legacy-console');
+        if (isLegacyConsolePath) {
           return new Response(
             renderConsoleHtml(buildSnapshot(projectDir, runtime)),
             {
