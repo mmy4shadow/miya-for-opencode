@@ -156,6 +156,23 @@ interface GatewayResponseFrame {
   };
 }
 
+interface EmptyStateProps {
+  title: string;
+  description: string;
+}
+
+function EmptyState({ title, description }: EmptyStateProps) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-lg text-slate-600">
+        ···
+      </div>
+      <p className="mt-3 text-sm font-medium text-slate-700">{title}</p>
+      <p className="mt-1 text-xs text-slate-500">{description}</p>
+    </div>
+  );
+}
+
 function readGatewayTokenFromQuery(): string {
   const token = new URLSearchParams(location.search).get('token');
   return token ? token.trim() : '';
@@ -176,10 +193,24 @@ function writeGatewayTokenToStorage(token: string): void {
   } catch {}
 }
 
+function clearGatewayTokenInUrl(): void {
+  try {
+    const url = new URL(location.href);
+    if (!url.searchParams.has('token')) return;
+    url.searchParams.delete('token');
+    const next =
+      url.pathname +
+      (url.searchParams.size > 0 ? `?${url.searchParams.toString()}` : '') +
+      url.hash;
+    history.replaceState({}, '', next);
+  } catch {}
+}
+
 function resolveGatewayToken(): string {
   const fromQuery = readGatewayTokenFromQuery();
   if (fromQuery) {
     writeGatewayTokenToStorage(fromQuery);
+    clearGatewayTokenInUrl();
     return fromQuery;
   }
   return readGatewayTokenFromStorage();
@@ -450,6 +481,13 @@ function normalizeStatusFetchError(error: unknown): string {
   return raw;
 }
 
+const LOOPBACK_NO_PROXY = 'localhost,127.0.0.1,::1';
+const POWERSHELL_PROXY_FIX_COMMAND =
+  `$env:NO_PROXY='${LOOPBACK_NO_PROXY}'; ` +
+  `$env:no_proxy='${LOOPBACK_NO_PROXY}'; ` +
+  `[Environment]::SetEnvironmentVariable('NO_PROXY','${LOOPBACK_NO_PROXY}','User'); ` +
+  `[Environment]::SetEnvironmentVariable('no_proxy','${LOOPBACK_NO_PROXY}','User')`;
+
 async function invokeGateway(
   method: string,
   params: Record<string, unknown> = {},
@@ -536,6 +574,7 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [successText, setSuccessText] = useState('');
+  const [copyHintText, setCopyHintText] = useState('');
   const [insightText, setInsightText] = useState('');
   const [view, setView] = useState<ControlView>(routeState.view);
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(
@@ -571,6 +610,22 @@ export default function App() {
     quietHoursStart: '23:00',
     quietHoursEnd: '08:00',
   });
+
+  useEffect(() => {
+    clearGatewayTokenInUrl();
+  }, []);
+
+  useEffect(() => {
+    if (!successText) return;
+    const timer = setTimeout(() => setSuccessText(''), 3200);
+    return () => clearTimeout(timer);
+  }, [successText]);
+
+  useEffect(() => {
+    if (!copyHintText) return;
+    const timer = setTimeout(() => setCopyHintText(''), 2400);
+    return () => clearTimeout(timer);
+  }, [copyHintText]);
 
   const refresh = useCallback(async () => {
     try {
@@ -732,9 +787,9 @@ export default function App() {
   const navigate = useCallback(
     (nextView: ControlView, id?: string) => {
       const nextPath = buildRoute(basePath, nextView, id);
-      const nextUrl = `${nextPath}${location.search || ''}${location.hash || ''}`;
+      const nextUrl = `${nextPath}${location.hash || ''}`;
       if (
-        nextUrl !== `${location.pathname}${location.search}${location.hash}`
+        nextUrl !== `${location.pathname}${location.hash}`
       ) {
         history.pushState({}, '', nextUrl);
       }
@@ -760,22 +815,30 @@ export default function App() {
       {
         title: '连接状态',
         value: connected ? '在线' : '离线',
-        desc: `守门员 CPU ${(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}%`,
+        desc: `守门员 CPU 占用率 ${(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}%`,
+        toneClass: connected ? 'text-emerald-700' : 'text-rose-700',
+        dotClass: connected ? 'bg-emerald-500' : 'bg-rose-500',
       },
       {
         title: '会话',
         value: `${snapshot.sessions?.active ?? 0}/${snapshot.sessions?.total ?? 0}`,
         desc: `排队 ${snapshot.sessions?.queued ?? 0}，静音 ${snapshot.sessions?.muted ?? 0}`,
+        toneClass: 'text-slate-800',
+        dotClass: 'bg-slate-300',
       },
       {
         title: '任务',
         value: `${snapshot.jobs?.enabled ?? 0}/${snapshot.jobs?.total ?? 0}`,
         desc: `待审批 ${snapshot.jobs?.pendingApprovals ?? 0}`,
+        toneClass: 'text-slate-800',
+        dotClass: 'bg-slate-300',
       },
       {
         title: '风险票据',
         value: String(snapshot.nexus?.pendingTickets ?? 0),
         desc: `守门员：${guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}`,
+        toneClass: 'text-slate-800',
+        dotClass: 'bg-slate-300',
       },
     ],
     [connected, snapshot],
@@ -892,6 +955,15 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  const copyProxyFixCommand = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(POWERSHELL_PROXY_FIX_COMMAND);
+      setCopyHintText('已复制 PowerShell 修复命令');
+    } catch {
+      setCopyHintText('复制失败，请手动复制命令');
+    }
+  }, []);
 
   const setKillSwitchMode = async (mode: KillSwitchMode) => {
     if (mode === 'all_stop') {
@@ -1032,6 +1104,44 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#dfe7ec] text-slate-700">
+      <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-[min(560px,92vw)] flex-col gap-2">
+        {errorText ? (
+          <div className="pointer-events-auto rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 shadow-sm">
+            错误：{errorText}
+          </div>
+        ) : null}
+        {!connected ? (
+          <div className="pointer-events-auto rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm">
+            <p>
+              本地网关连接异常。请确保 localhost/127.0.0.1/::1 走直连（NO_PROXY
+              / 系统代理绕过）。
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <code className="rounded bg-amber-100 px-2 py-1 text-[11px]">
+                NO_PROXY={LOOPBACK_NO_PROXY}
+              </code>
+              <button
+                type="button"
+                onClick={() => void copyProxyFixCommand()}
+                className="rounded border border-amber-300 bg-white px-2 py-1 text-[11px] text-amber-800 hover:bg-amber-100"
+              >
+                复制 PowerShell 修复命令
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {successText ? (
+          <div className="pointer-events-auto rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-sm">
+            成功：{successText}
+          </div>
+        ) : null}
+        {copyHintText ? (
+          <div className="pointer-events-auto rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 shadow-sm">
+            {copyHintText}
+          </div>
+        ) : null}
+      </div>
+
       <div className="mx-auto flex max-w-[1520px] gap-4 p-3 md:p-5">
         <aside className="hidden w-[300px] shrink-0 flex-col rounded-3xl border border-slate-200 bg-[#f4f8fb] shadow-sm lg:flex">
           <div className="border-b border-slate-200 p-6">
@@ -1099,22 +1209,6 @@ export default function App() {
                 </span>
               </div>
             </div>
-            {errorText ? (
-              <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                错误：{errorText}
-              </p>
-            ) : null}
-            {successText ? (
-              <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                成功：{successText}
-              </p>
-            ) : null}
-            {!connected ? (
-              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                诊断提示：若长期启用代理，请确保 `localhost/127.0.0.1/::1`
-                走直连（NO_PROXY / 系统代理绕过）。
-              </p>
-            ) : null}
           </header>
 
           <nav className="flex flex-wrap gap-2 lg:hidden">
@@ -1167,44 +1261,54 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className="mt-4 space-y-3">
+              <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div className="grid grid-cols-[2.2fr_1fr_1fr_120px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                  <span>任务</span>
+                  <span>开始时间</span>
+                  <span>状态</span>
+                  <span className="text-right">操作</span>
+                </div>
                 {filteredTaskRecords.length === 0 ? (
-                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
-                    暂无任务记录
-                  </p>
+                  <div className="px-3 py-5">
+                    <EmptyState
+                      title="暂无任务记录"
+                      description="作业中心已加载完成，当前筛选条件下没有可展示的任务。"
+                    />
+                  </div>
                 ) : (
-                  filteredTaskRecords.map((task) => {
-                    const statusMeta = taskStatusMeta(task.status);
-                    return (
-                      <button
-                        type="button"
-                        key={task.id}
-                        onClick={() => navigate('tasks-detail', task.id)}
-                        className="flex w-full cursor-pointer flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50 md:flex-row md:items-center"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-lg font-semibold text-slate-800">
-                            {task.title}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-600">
-                            {formatDateTime(task.startedAt)} · 耗时{' '}
-                            {task.durationText}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {task.sourceText}
-                          </p>
-                        </div>
-                        <span
-                          className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${statusMeta.className}`}
+                  <div className="divide-y divide-slate-100">
+                    {filteredTaskRecords.map((task) => {
+                      const statusMeta = taskStatusMeta(task.status);
+                      return (
+                        <button
+                          type="button"
+                          key={task.id}
+                          onClick={() => navigate('tasks-detail', task.id)}
+                          className="grid w-full grid-cols-[2.2fr_1fr_1fr_120px] items-center px-3 py-2 text-left hover:bg-sky-50"
                         >
-                          {statusMeta.text}
-                        </span>
-                        <span className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">
-                          查看详情
-                        </span>
-                      </button>
-                    );
-                  })
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-slate-800">
+                              {task.title}
+                            </span>
+                            <span className="block truncate text-xs text-slate-500">
+                              {task.sourceText}
+                            </span>
+                          </span>
+                          <span className="text-xs text-slate-600">
+                            {formatDateTime(task.startedAt)}
+                          </span>
+                          <span
+                            className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium ${statusMeta.className}`}
+                          >
+                            {statusMeta.text}
+                          </span>
+                          <span className="text-right text-xs text-sky-700">
+                            查看详情
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </section>
@@ -1608,12 +1712,11 @@ export default function App() {
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
                     <p>
                       Daemon：
-                      {snapshot.daemon?.connected
-                        ? 'connected'
-                        : 'disconnected'}
+                      {snapshot.daemon?.connected ? '已连接' : '未连接'}
                     </p>
                     <p className="mt-1">
-                      CPU：{(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}%
+                      CPU 占用率：{(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}
+                      %
                     </p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
@@ -1675,8 +1778,9 @@ export default function App() {
                     className="rounded-xl border border-sky-200 bg-sky-50 p-3"
                   >
                     <p className="text-xs text-slate-500">{item.title}</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-800">
-                      {item.value}
+                    <p className={`mt-1 flex items-center gap-2 text-lg font-semibold ${item.toneClass}`}>
+                      <span className={`h-2 w-2 rounded-full ${item.dotClass}`} />
+                      <span>{item.value}</span>
                     </p>
                     <p className="mt-1 text-xs text-slate-600">{item.desc}</p>
                   </article>
@@ -1713,17 +1817,15 @@ export default function App() {
             <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <article className={panelClass}>
                 <h2 className="text-base font-semibold text-slate-800">
-                  Psyche Signal Hub
+                  守门员信号中心（Psyche Signal Hub）
                 </h2>
                 {signalHub ? (
                   <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                      <p>
-                        运行状态：{signalHub.running ? 'running' : 'stopped'}
-                      </p>
+                      <p>运行状态：{signalHub.running ? '运行中' : '已停止'}</p>
                       <p>序号：{signalHub.sequence ?? '-'}</p>
                       <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
-                      <p>过期：{signalHub.stale ? 'yes' : 'no'}</p>
+                      <p>过期：{signalHub.stale ? '是' : '否'}</p>
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
                       <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
@@ -1738,14 +1840,17 @@ export default function App() {
                     ) : null}
                   </div>
                 ) : (
-                  <p className="mt-2 text-xs text-amber-700">
-                    未收到 daemon signal hub 指标。
-                  </p>
+                  <div className="mt-2">
+                    <EmptyState
+                      title="等待守门员信号接入"
+                      description="尚未收到 daemon signal hub 指标，通常发生在 daemon 未连接或刚启动阶段。"
+                    />
+                  </div>
                 )}
               </article>
             </section>
 
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <article className={panelClass}>
                 <h2 className="text-sm font-semibold">安全总开关（紧急）</h2>
                 <p className="mt-1 text-xs text-slate-500">
@@ -1785,10 +1890,10 @@ export default function App() {
                       type="button"
                       disabled={loading}
                       onClick={() => void setKillSwitchMode(item.mode)}
-                      className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}
-                    >
+                    className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}
+                  >
                       <p className="font-medium">{item.text}</p>
-                      <p className="mt-1 text-[11px] text-slate-500">
+                      <p className="mt-1 text-xs text-slate-600">
                         {item.hint}
                       </p>
                     </button>
@@ -1802,7 +1907,7 @@ export default function App() {
                   分数高于静默阈值可自动放行，低于阻断阈值必须人工确认。
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <label className="flex flex-col gap-1">
+                  <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 p-2">
                     <span>静默阈值（推荐 90）</span>
                     <input
                       type="number"
@@ -1818,7 +1923,7 @@ export default function App() {
                       className="rounded border border-slate-300 bg-white px-2 py-1"
                     />
                   </label>
-                  <label className="flex flex-col gap-1">
+                  <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 p-2">
                     <span>阻断阈值（推荐 50）</span>
                     <input
                       type="number"
@@ -1835,7 +1940,7 @@ export default function App() {
                     />
                   </label>
                 </div>
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex items-center justify-end gap-2">
                   <button
                     type="button"
                     disabled={loading}
@@ -1871,7 +1976,7 @@ export default function App() {
                 ) : null}
               </article>
 
-              <article className={panelClass}>
+              <article className={`${panelClass} xl:col-span-2`}>
                 <h2 className="text-sm font-semibold">守门员策略</h2>
                 <p className="mt-1 text-xs text-slate-500">
                   关闭共鸣层后，自动触达将进入静默等待；关闭截图核验后，系统不再做截图/VLM探测。
@@ -1904,7 +2009,7 @@ export default function App() {
                     />
                   </label>
                   <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>proactive_ping（主动问候）</span>
+                    <span>主动问候（proactive_ping）</span>
                     <input
                       type="checkbox"
                       checked={Boolean(psycheModeForm.proactivePingEnabled)}
@@ -1917,7 +2022,7 @@ export default function App() {
                     />
                   </label>
                   <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>quiet_hours（静默时段）</span>
+                    <span>静默时段（quiet_hours）</span>
                     <input
                       type="checkbox"
                       checked={Boolean(psycheModeForm.quietHoursEnabled)}
@@ -2031,6 +2136,18 @@ export default function App() {
                   <li>系统代理绕过：`localhost;127.0.0.1;::1`</li>
                   <li>Clash/TUN 请放行 loopback 后再刷新控制台</li>
                 </ul>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => void copyProxyFixCommand()}
+                    className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
+                  >
+                    复制 PowerShell 修复命令
+                  </button>
+                  <code className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600">
+                    {`$env:NO_PROXY='${LOOPBACK_NO_PROXY}'`}
+                  </code>
+                </div>
               </article>
 
               <article className={panelClass}>

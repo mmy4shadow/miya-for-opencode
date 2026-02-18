@@ -257,6 +257,10 @@ function daemonLauncherStoreFile(projectDir: string): string {
   return path.join(daemonDir(projectDir), 'launcher.runtime.json');
 }
 
+function daemonLogFile(projectDir: string, kind: 'stdout' | 'stderr'): string {
+  return path.join(daemonDir(projectDir), kind === 'stdout' ? 'host.stdout.log' : 'host.stderr.log');
+}
+
 function ensureDaemonDir(projectDir: string): void {
   fs.mkdirSync(daemonDir(projectDir), { recursive: true });
 }
@@ -541,7 +545,9 @@ function spawnDaemon(runtime: LauncherRuntime): SpawnResult {
     return 'failed';
   }
   const hostScript = resolveHostScriptPath();
-  spawn(
+  const hostStdout = fs.openSync(daemonLogFile(runtime.projectDir, 'stdout'), 'a');
+  const hostStderr = fs.openSync(daemonLogFile(runtime.projectDir, 'stderr'), 'a');
+  const child = spawn(
     bunBinary,
     [
       hostScript,
@@ -555,10 +561,17 @@ function spawnDaemon(runtime: LauncherRuntime): SpawnResult {
     {
       cwd: runtime.projectDir,
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', hostStdout, hostStderr],
       windowsHide: true,
     },
-  ).unref();
+  );
+  child.unref();
+  try {
+    fs.closeSync(hostStdout);
+  } catch {}
+  try {
+    fs.closeSync(hostStderr);
+  } catch {}
   setLifecycleState(runtime, 'STARTING', 'Miya Daemon Booting');
   return 'spawned';
 }

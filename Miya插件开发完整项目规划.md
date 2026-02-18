@@ -32,7 +32,7 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 
 ### 2026-02-18 控制台与网关启动链路修复（本轮）
 
-- `Gateway UI` 鉴权闭环已修复：WebSocket `hello` 增加 token 透传，路由切换保留 `?token=`，避免出现 `invalid_gateway_token` 后任务/模块空白。
+- `Gateway UI` 鉴权闭环已修复：WebSocket `hello` 透传 token，首次加载后将 token 写入 `localStorage` 并自动清理地址栏 `?token=`，避免 `invalid_gateway_token` 与 URL 明文泄露并存问题。
 - 控制台导航已收敛：移除无效 `chat/im/skills/status` 导航项，当前保留并接通后端的主栏目为 `控制中枢`、`作业中心`、`记忆库`、`网关诊断`。
 - 启动行为默认值已对齐：`ui.dashboard.dockAutoLaunch` 默认启用；Windows 启动 OpenCode 时，控制面板可按配置自动跟随打开。
 - 网关拉起链路已减闪烁：`miya-dock.ps1` 改为直接调用 `opencode` 可执行文件启动网关，不再走 `cmd /c` 拼接命令；超时不再强杀子进程，避免终端反复弹窗与误杀启动。
@@ -46,6 +46,9 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - 网关状态接口容错已补齐：`/api/status` 增加快照异常兜底，异常时返回降级 JSON（含 `statusError`）而非直接断链，降低前端 `Failed to fetch` 概率（`miya-src/src/gateway/index.ts`）。
 - 控制台栏目重构已落地：侧栏改为 `控制中枢/作业中心/记忆库/网关诊断`，并将任务/时间线等重复信息从控制中枢分流，减少主页面拥挤（`miya-src/gateway-ui/src/App.tsx`）。
 - 代理兼容提示已内置：控制中枢新增 `NO_PROXY` / loopback 直连提示与能力域联动入口，支持“常开代理 + 本地直连”并行使用（`miya-src/gateway-ui/src/App.tsx`）。
+- 控制台告警交互已收口：原页内重复黄条改为全局 toast，避免切页时正文跳动；新增“复制 PowerShell 修复命令”按钮，支持一键拷贝 `NO_PROXY` 修复命令（`miya-src/gateway-ui/src/App.tsx`）。
+- 控制台空状态与文案已优化：作业中心改为“表头常驻 + 空状态组件”，守门员信号中心补全空状态占位；`proactive_ping/quiet_hours` 调整为中文优先标签（`miya-src/gateway-ui/src/App.tsx`）。
+- Daemon 闪退可观测性已增强：launcher 将 host stdout/stderr 落盘到 `daemon/host.stdout.log` 与 `daemon/host.stderr.log`，host 进程新增 `host.crash.log`（未捕获异常/拒绝）以支撑闪退定位（`miya-src/src/daemon/launcher.ts`、`miya-src/src/daemon/host.ts`）。
 - Daemon 子进程环境已补 loopback 豁免：统一注入 `NO_PROXY/no_proxy=localhost,127.0.0.1,::1`，降低“开代理时本地链路被误代理”导致的终端/网关断联风险（`miya-src/src/daemon/service.ts`）。
 
 ### 2026-02-18 代码实读复核（逻辑闭环/触发链路）

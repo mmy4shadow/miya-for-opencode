@@ -5166,11 +5166,16 @@ function renderConsoleHtml(snapshot: GatewaySnapshot): string {
 
       function openWs() {
         const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-        const token =
-          new URLSearchParams(location.search).get('token') ||
-          localStorage.getItem('miya_gateway_token') ||
-          '';
-        if (token) localStorage.setItem('miya_gateway_token', token);
+        const params = new URLSearchParams(location.search);
+        const token = params.get('token') || localStorage.getItem('miya_gateway_token') || '';
+        if (token) {
+          localStorage.setItem('miya_gateway_token', token);
+          if (params.has('token')) {
+            params.delete('token');
+            const next = location.pathname + (params.toString() ? '?' + params.toString() : '') + location.hash;
+            history.replaceState({}, '', next);
+          }
+        }
 
         ws = new WebSocket(proto + '://' + location.host + '/ws');
         ws.onopen = function () {
@@ -5267,7 +5272,7 @@ function renderWebChatHtml(): string {
   const log=(t)=>{logEl.textContent+=t+'\\n'; logEl.scrollTop=logEl.scrollHeight;};
   const send=()=>{const text=msgEl.value.trim(); if(!text)return; const id='send-'+Date.now(); ws.send(JSON.stringify({type:'request',id,method:'sessions.send',params:{sessionID:'webchat:main',text,source:'webchat'},idempotencyKey:id})); log('[you] '+text); msgEl.value='';};
   sendBtn.onclick=send; msgEl.addEventListener('keydown',(e)=>{if(e.key==='Enter')send();});
-  ws.onopen=()=>{const qs=new URLSearchParams(location.search);const token=qs.get('token')||localStorage.getItem('miya_gateway_token')||'';if(token)localStorage.setItem('miya_gateway_token',token);ws.send(JSON.stringify({type:'hello',role:'ui',protocolVersion:'1.1',auth:token?{token}:undefined})); ws.send(JSON.stringify({type:'request',id:'sub',method:'gateway.subscribe',params:{events:['*']},idempotencyKey:'sub'})); log('[system] connected');};
+  ws.onopen=()=>{const qs=new URLSearchParams(location.search);const token=qs.get('token')||localStorage.getItem('miya_gateway_token')||'';if(token){localStorage.setItem('miya_gateway_token',token);if(qs.has('token')){qs.delete('token');const next=location.pathname+(qs.toString()?'?'+qs.toString():'')+location.hash;history.replaceState({},'',next);}}ws.send(JSON.stringify({type:'hello',role:'ui',protocolVersion:'1.1',auth:token?{token}:undefined})); ws.send(JSON.stringify({type:'request',id:'sub',method:'gateway.subscribe',params:{events:['*']},idempotencyKey:'sub'})); log('[system] connected');};
   ws.onmessage=(event)=>{try{const frame=JSON.parse(event.data); if(frame.type==='response'&&!frame.ok)log('[error] '+(frame.error?.message||'request_failed'));}catch{}};
 </script>
 </body>

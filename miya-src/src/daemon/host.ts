@@ -71,6 +71,21 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function hostCrashLogFile(projectDir?: string): string {
+  if (projectDir && projectDir.trim().length > 0) {
+    return path.join(daemonDir(projectDir), 'host.crash.log');
+  }
+  return path.join(process.cwd(), '.opencode', 'miya', 'daemon', 'host.crash.log');
+}
+
+function appendHostCrashLog(projectDir: string | undefined, message: string): void {
+  try {
+    const file = hostCrashLogFile(projectDir);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, `[${nowIso()}] ${message}\n`, 'utf-8');
+  } catch {}
+}
+
 function readJsonObject(filePath: string): Record<string, unknown> | null {
   if (!fs.existsSync(filePath)) return null;
   try {
@@ -134,8 +149,37 @@ function resolvePsycheConsultDelayMs(): number {
   return Math.max(0, Math.min(30_000, Math.floor(raw)));
 }
 
-const args = parseArgs(process.argv);
+let args: HostArgs;
+try {
+  args = parseArgs(process.argv);
+} catch (error) {
+  appendHostCrashLog(
+    undefined,
+    `startup_parse_args_failed:${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  );
+  throw error;
+}
 ensureRuntimeDir(args.projectDir);
+process.on('uncaughtException', (error) => {
+  appendHostCrashLog(
+    args.projectDir,
+    `uncaught_exception:${
+      error instanceof Error ? error.stack || error.message : String(error)
+    }`,
+  );
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  appendHostCrashLog(
+    args.projectDir,
+    `unhandled_rejection:${
+      reason instanceof Error ? reason.stack || reason.message : String(reason)
+    }`,
+  );
+  process.exit(1);
+});
 const sockets = new Set<Bun.ServerWebSocket<unknown>>();
 const daemonService = new MiyaDaemonService(args.projectDir, {
   onProgress: (event) => {
