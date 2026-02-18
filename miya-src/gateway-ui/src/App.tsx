@@ -423,7 +423,7 @@ export default function App() {
       }
       const status = (await statusRes.json()) as GatewaySnapshot;
       setSnapshot(status);
-      setConnected(Boolean(status.daemon?.connected));
+      const rpcErrors: string[] = [];
       const [domainsResult, jobsResult, runsResult] = await Promise.allSettled([
         invokeGateway('policy.domains.list'),
         invokeGateway('cron.list'),
@@ -433,13 +433,33 @@ export default function App() {
       if (domainsResult.status === 'fulfilled') {
         const rows = (domainsResult.value as { domains?: PolicyDomainRow[] }).domains ?? [];
         setDomains(rows);
+      } else {
+        rpcErrors.push(
+          domainsResult.reason instanceof Error
+            ? domainsResult.reason.message
+            : String(domainsResult.reason),
+        );
       }
       if (jobsResult.status === 'fulfilled') {
         setJobs(Array.isArray(jobsResult.value) ? (jobsResult.value as MiyaJob[]) : []);
+      } else {
+        rpcErrors.push(
+          jobsResult.reason instanceof Error
+            ? jobsResult.reason.message
+            : String(jobsResult.reason),
+        );
       }
       if (runsResult.status === 'fulfilled') {
         setTaskRuns(Array.isArray(runsResult.value) ? (runsResult.value as MiyaJobRun[]) : []);
+      } else {
+        rpcErrors.push(
+          runsResult.reason instanceof Error
+            ? runsResult.reason.message
+            : String(runsResult.reason),
+        );
       }
+      const tokenError = rpcErrors.find((item) => item.includes('invalid_gateway_token'));
+      setConnected(Boolean(status.daemon?.connected) && !tokenError);
       const incomingMode = status.nexus?.trustMode;
       if (incomingMode) {
         setTrustModeForm(incomingMode);
@@ -448,7 +468,11 @@ export default function App() {
       if (incomingPsycheMode) {
         setPsycheModeForm((prev) => ({ ...prev, ...incomingPsycheMode }));
       }
-      setErrorText('');
+      if (rpcErrors.length > 0) {
+        setErrorText(tokenError ?? rpcErrors[0]);
+      } else {
+        setErrorText('');
+      }
     } catch (error) {
       setConnected(false);
       setErrorText(error instanceof Error ? error.message : String(error));

@@ -37,6 +37,8 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - 启动行为默认值已对齐：`ui.dashboard.dockAutoLaunch` 默认启用；Windows 启动 OpenCode 时，控制面板可按配置自动跟随打开。
 - 网关拉起链路已减闪烁：`miya-dock.ps1` 改为直接调用 `opencode` 可执行文件启动网关，不再走 `cmd /c` 拼接命令；超时不再强杀子进程，避免终端反复弹窗与误杀启动。
 - 生命周期状态口径已统一：`lifecycle.status.get` 中 `dockAutoLaunch` 的判定逻辑与主启动逻辑保持一致，避免“实际已启用但面板显示未启用”的错位。
+- 控制台“伪在线”缺陷已修复：当 WS RPC 鉴权失败（如 token 失效）时，UI 不再静默吞错；将明确显示错误并将连接状态降级，避免“页面看似在线但任务/模块全空白”的误判。
+- Windows Dock 静默拉起命令已收敛为 `powershell.exe`，减少 shell 解析差异导致的偶发拉起失败。
 
 - 不删减现有功能：保持既有桌控、陪伴、多代理自主流、模型路由、学习复用主链路可用。
 - 不破坏现有接口：旧 `gateway method`、`daemon ws method`、配置键与工具入口保持可调用。

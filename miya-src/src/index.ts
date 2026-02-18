@@ -187,7 +187,7 @@ function launchDockSilently(projectDir: string): void {
   }
   const ps1 = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-dock.ps1');
   if (!fs.existsSync(ps1)) return;
-  const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1], {
+  const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1], {
     cwd: projectDir,
     detached: true,
     stdio: 'ignore',
