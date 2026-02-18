@@ -475,6 +475,18 @@ interface GatewayRequestIdempotencyRecord {
   errorDetails?: unknown;
 }
 
+interface GatewayStatusFileV1 {
+  version: '1';
+  http: string;
+  ws: string;
+  auth: {
+    mode: 'token';
+    tokenRef: string;
+  };
+  pid: number;
+  startedAt: string;
+}
+
 interface DoctorIssue {
   code: string;
   severity: 'info' | 'warn' | 'error';
@@ -751,6 +763,44 @@ function gatewayFile(projectDir: string): string {
 
 function gatewayAuthFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-auth.json');
+}
+
+function gatewayGlobalStateFile(): string {
+  if (process.platform === 'win32') {
+    const appData =
+      String(process.env.APPDATA ?? '').trim() ||
+      path.join(os.homedir(), 'AppData', 'Roaming');
+    return path.join(appData, 'miya', 'gateway.json');
+  }
+  return path.join(os.homedir(), '.config', 'miya', 'gateway.json');
+}
+
+function toWsUrl(httpUrl: string): string {
+  const parsed = new URL(httpUrl);
+  parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+  parsed.pathname = `${parsed.pathname.replace(/\/+$/, '')}/ws`;
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString();
+}
+
+function writeGlobalGatewayState(
+  projectDir: string,
+  state: GatewayState,
+): void {
+  const globalFile = gatewayGlobalStateFile();
+  const payload: GatewayStatusFileV1 = {
+    version: '1',
+    http: state.url,
+    ws: toWsUrl(state.url),
+    auth: {
+      mode: 'token',
+      tokenRef: `file:${gatewayAuthFile(projectDir)}`,
+    },
+    pid: state.pid,
+    startedAt: state.startedAt,
+  };
+  writeJsonAtomic(globalFile, payload);
 }
 
 function gatewayUiUrl(baseUrl: string, token?: string): string {
@@ -1557,6 +1607,9 @@ function clearGatewayStateFile(projectDir: string): void {
   try {
     fs.unlinkSync(gatewayFile(projectDir));
   } catch {}
+  try {
+    fs.unlinkSync(gatewayGlobalStateFile());
+  } catch {}
 }
 
 export function isGatewayOwner(projectDir: string): boolean {
@@ -1604,10 +1657,11 @@ function resolveGatewayListenOptions(projectDir: string): {
   const rawHost = String(gateway.bindHost ?? '').trim();
   const rawPort = Number(gateway.port);
   const hostname = rawHost || '127.0.0.1';
+  const DEFAULT_GATEWAY_PORT = 18_790;
   const port =
     Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535
       ? Math.floor(rawPort)
-      : 0;
+      : DEFAULT_GATEWAY_PORT;
   return { hostname, port };
 }
 
@@ -1690,6 +1744,7 @@ function syncGatewayState(
 ): GatewayState {
   const state = toGatewayState(projectDir, runtime);
   writeGatewayState(projectDir, state);
+  writeGlobalGatewayState(projectDir, state);
   return state;
 }
 
@@ -9509,6 +9564,44 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
           url.pathname === '/api/status' ||
           url.pathname === pathWithBase('/api/status');
         if (isStatusPath) {
+          try {
+            return Response.json(buildSnapshot(projectDir, runtime), {
+              headers: { 'cache-control': 'no-store' },
+            });
+          } catch (error) {
+            logStatusSnapshotFailure(projectDir, error);
+            return Response.json(
+              buildStatusFallbackPayload(projectDir, runtime, error),
+              {
+                status: 200,
+                headers: {
+                  'cache-control': 'no-store',
+                  'x-miya-status': 'degraded',
+                },
+              },
+            );
+          }
+        }
+        const isHealthPath =
+          url.pathname === '/health' || url.pathname === pathWithBase('/health');
+        if (isHealthPath) {
+          return Response.json(
+            {
+              ok: true,
+              version: '1',
+              pid: process.pid,
+              startedAt: runtime.startedAt,
+              uptimeMs: Date.now() - Date.parse(runtime.startedAt),
+            },
+            {
+              status: 200,
+              headers: { 'cache-control': 'no-store' },
+            },
+          );
+        }
+        const isSimpleStatusPath =
+          url.pathname === '/status' || url.pathname === pathWithBase('/status');
+        if (isSimpleStatusPath) {
           try {
             return Response.json(buildSnapshot(projectDir, runtime), {
               headers: { 'cache-control': 'no-store' },
