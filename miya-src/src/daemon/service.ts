@@ -102,6 +102,20 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function withLoopbackNoProxy(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const required = ['localhost', '127.0.0.1', '::1'];
+  const existing = `${String(env.NO_PROXY ?? '')},${String(env.no_proxy ?? '')}`
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  const merged = Array.from(new Set([...existing, ...required])).join(',');
+  return {
+    ...env,
+    NO_PROXY: merged,
+    no_proxy: merged,
+  };
+}
+
 function useAsrTestMode(): boolean {
   const fromMultimodal = String(process.env[MULTIMODAL_TEST_MODE_ENV] ?? '')
     .trim()
@@ -708,7 +722,7 @@ export class MiyaDaemonService {
         }>((resolve) => {
           const child = spawn(input.command, input.args ?? [], {
             cwd: input.cwd,
-            env: { ...process.env, ...(input.env ?? {}) },
+            env: withLoopbackNoProxy({ ...process.env, ...(input.env ?? {}) }),
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
           });

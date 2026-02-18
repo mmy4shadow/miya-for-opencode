@@ -46,6 +46,7 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - 网关状态接口容错已补齐：`/api/status` 增加快照异常兜底，异常时返回降级 JSON（含 `statusError`）而非直接断链，降低前端 `Failed to fetch` 概率（`miya-src/src/gateway/index.ts`）。
 - 控制台栏目重构已落地：侧栏改为 `控制中枢/作业中心/记忆库/网关诊断`，并将任务/时间线等重复信息从控制中枢分流，减少主页面拥挤（`miya-src/gateway-ui/src/App.tsx`）。
 - 代理兼容提示已内置：控制中枢新增 `NO_PROXY` / loopback 直连提示与能力域联动入口，支持“常开代理 + 本地直连”并行使用（`miya-src/gateway-ui/src/App.tsx`）。
+- Daemon 子进程环境已补 loopback 豁免：统一注入 `NO_PROXY/no_proxy=localhost,127.0.0.1,::1`，降低“开代理时本地链路被误代理”导致的终端/网关断联风险（`miya-src/src/daemon/service.ts`）。
 
 ### 2026-02-18 代码实读复核（逻辑闭环/触发链路）
 
