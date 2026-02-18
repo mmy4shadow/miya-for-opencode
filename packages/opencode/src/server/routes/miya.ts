@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { lazy } from "@/util/lazy"
 import { Instance } from "@/project/instance"
+import { Global } from "@/global"
 import { Agent } from "@/agent/agent"
 import { Plugin } from "@/plugin"
 import { Session } from "@/session"
@@ -14,7 +15,8 @@ import { SecretStore } from "@/server/secret-store"
 import { MiyaAutomationService } from "@opencode-ai/miya/automation"
 import { getMiyaRuntimeDir } from "@opencode-ai/miya/workflow"
 import { applyEdits, modify, parse as parseJsonc } from "jsonc-parser"
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 
@@ -407,6 +409,128 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 function runtimeFile(dir: string, file: string) {
   return path.join(getMiyaRuntimeDir(dir), file)
+}
+function gatewayAuthFile(dir: string) {
+  return runtimeFile(dir, "gateway-auth.json")
+}
+function gatewayGlobalStateFile() {
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA?.trim()
+    const base = appData && appData.length > 0 ? appData : path.join(os.homedir(), "AppData", "Roaming")
+    return path.join(base, "miya", "gateway.json")
+  }
+  return path.join(os.homedir(), ".config", "miya", "gateway.json")
+}
+function isLoopbackHost(host: string): boolean {
+  const value = host.trim().toLowerCase()
+  return value === "127.0.0.1" || value === "::1" || value === "localhost"
+}
+function deriveWsUrl(httpUrl: string): string {
+  const parsed = new URL(httpUrl)
+  parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:"
+  parsed.pathname = `${parsed.pathname.replace(/\/+$/, "")}/ws`
+  parsed.search = ""
+  parsed.hash = ""
+  return parsed.toString()
+}
+function contentTypeFromFile(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase()
+  if (ext === ".html") return "text/html; charset=utf-8"
+  if (ext === ".js") return "application/javascript; charset=utf-8"
+  if (ext === ".css") return "text/css; charset=utf-8"
+  if (ext === ".json" || ext === ".map") return "application/json; charset=utf-8"
+  if (ext === ".svg") return "image/svg+xml"
+  if (ext === ".png") return "image/png"
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg"
+  if (ext === ".webp") return "image/webp"
+  if (ext === ".ico") return "image/x-icon"
+  if (ext === ".txt") return "text/plain; charset=utf-8"
+  return "application/octet-stream"
+}
+type GatewayEndpoint = {
+  http: string
+  ws: string
+  token?: string
+}
+function resolveUiDistRoots(dir: string) {
+  const envRoot = String(process.env.MIYA_UI_DIST_ROOT ?? "").trim()
+  const roots = [
+    envRoot,
+    path.join(Global.Path.state, "miya", "ui-dist"),
+    path.join(getMiyaRuntimeDir(dir), "ui-dist"),
+  ].filter(Boolean)
+  return Array.from(new Set(roots))
+}
+function readGatewayToken(dir: string): string | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(gatewayAuthFile(dir), "utf-8")) as { token?: unknown }
+    const token = typeof raw.token === "string" ? raw.token.trim() : ""
+    return token || undefined
+  } catch {
+    return undefined
+  }
+}
+function parseGatewayEndpoint(input: unknown): GatewayEndpoint | null {
+  if (!isRecord(input)) return null
+  const httpRaw = (() => {
+    if (typeof input.http === "string") return input.http.trim()
+    if (typeof input.url === "string") return input.url.trim()
+    return ""
+  })()
+  if (!httpRaw) return null
+  const wsRaw =
+    typeof input.ws === "string" && input.ws.trim().length > 0
+      ? input.ws.trim()
+      : deriveWsUrl(httpRaw)
+  try {
+    const http = new URL(httpRaw)
+    const ws = new URL(wsRaw)
+    if (!isLoopbackHost(http.hostname) || !isLoopbackHost(ws.hostname)) return null
+    return {
+      http: http.toString(),
+      ws: ws.toString(),
+    }
+  } catch {
+    return null
+  }
+}
+async function resolveGatewayEndpoint(dir: string): Promise<GatewayEndpoint> {
+  const candidates = [
+    runtimeFile(dir, "gateway.json"),
+    gatewayGlobalStateFile(),
+  ]
+  let endpoint: GatewayEndpoint | null = null
+  for (const file of candidates) {
+    const parsed = await readJson<Record<string, unknown> | null>(file, null)
+    endpoint = parseGatewayEndpoint(parsed)
+    if (endpoint) break
+  }
+  if (!endpoint) {
+    throw new Error("gateway_endpoint_unavailable")
+  }
+  return {
+    ...endpoint,
+    token: readGatewayToken(dir),
+  }
+}
+async function serveMiyaUiFile(dir: string, relPath: string): Promise<Response | null> {
+  const normalized = path.posix.normalize(relPath)
+  if (normalized.startsWith("../") || normalized === ".." || normalized.includes("\0")) return null
+  for (const root of resolveUiDistRoots(dir)) {
+    const filePath = path.join(root, normalized)
+    if (!filePath.startsWith(root)) continue
+    if (!existsSync(filePath)) continue
+    const file = Bun.file(filePath)
+    if (!(await file.exists())) continue
+    return new Response(file, {
+      status: 200,
+      headers: {
+        "content-type": contentTypeFromFile(filePath),
+        "cache-control": normalized.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+      },
+    })
+  }
+  return null
 }
 async function readJson<T>(file: string, fallback: T): Promise<T> {
   const raw = await Bun.file(file).text().catch(() => "")
@@ -1362,6 +1486,146 @@ async function buildSessionRouteContext(sessionID: string, limit: number) {
 
 export const MiyaRoutes = lazy(() =>
   new Hono()
+    .get("/", async () => {
+      const response = await serveMiyaUiFile(Instance.directory, "index.html")
+      if (response) return response
+      return new Response("Miya UI assets not found. Build and place files under ~/.opencode/state/miya/ui-dist", {
+        status: 503,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      })
+    })
+    .get("/assets/*", async (c) => {
+      const rel = String(c.req.param("*") ?? "").trim()
+      const response = await serveMiyaUiFile(Instance.directory, `assets/${rel}`)
+      if (response) return response
+      return c.json({ error: "asset_not_found" }, 404)
+    })
+    .all("/api/*", async (c) => {
+      let endpoint: GatewayEndpoint
+      try {
+        endpoint = await resolveGatewayEndpoint(Instance.directory)
+      } catch (error) {
+        return c.json(
+          {
+            error: "gateway_unavailable",
+            detail: error instanceof Error ? error.message : String(error),
+          },
+          503,
+        )
+      }
+      const suffix = String(c.req.param("*") ?? "").replace(/^\/+/, "")
+      const upstream = new URL(endpoint.http)
+      upstream.pathname = `${upstream.pathname.replace(/\/+$/, "")}/${suffix}`.replace(/\/{2,}/g, "/")
+      upstream.search = new URL(c.req.url).search
+
+      const headers = new Headers(c.req.raw.headers)
+      headers.delete("host")
+      if (endpoint.token) {
+        headers.set("x-miya-token", endpoint.token)
+        headers.set("authorization", `Bearer ${endpoint.token}`)
+      }
+
+      const init: RequestInit = {
+        method: c.req.method,
+        headers,
+        redirect: "manual",
+      }
+      if (!["GET", "HEAD"].includes(c.req.method.toUpperCase())) {
+        init.body = await c.req.raw.arrayBuffer()
+      }
+
+      try {
+        const response = await fetch(upstream.toString(), init)
+        return new Response(response.body, {
+          status: response.status,
+          headers: response.headers,
+        })
+      } catch (error) {
+        return c.json(
+          {
+            error: "gateway_proxy_failed",
+            detail: error instanceof Error ? error.message : String(error),
+            upstream: upstream.toString(),
+          },
+          502,
+        )
+      }
+    })
+    .get("/ws", upgradeWebSocket(() => {
+      let upstream: WebSocket | null = null
+      let gatewayToken = ""
+      const pendingClientFrames: string[] = []
+
+      const patchHelloFrame = (raw: string): string => {
+        let parsed: Record<string, unknown> | null = null
+        try {
+          const candidate = JSON.parse(raw) as unknown
+          if (isRecord(candidate)) parsed = candidate
+        } catch {
+          return raw
+        }
+        if (!parsed || parsed.type !== "hello") return raw
+        const currentAuth = isRecord(parsed.auth) ? parsed.auth : {}
+        return JSON.stringify({
+          ...parsed,
+          protocolVersion: typeof parsed.protocolVersion === "string" ? parsed.protocolVersion : "1.1",
+          auth: {
+            ...currentAuth,
+            ...(gatewayToken ? { token: gatewayToken } : {}),
+          },
+        })
+      }
+
+      const flushPending = () => {
+        if (!upstream || upstream.readyState !== WebSocket.OPEN) return
+        while (pendingClientFrames.length > 0) {
+          const raw = pendingClientFrames.shift()
+          if (!raw) continue
+          upstream.send(patchHelloFrame(raw))
+        }
+      }
+
+      return {
+        async onOpen(_event, ws) {
+          let endpoint: GatewayEndpoint
+          try {
+            endpoint = await resolveGatewayEndpoint(Instance.directory)
+          } catch {
+            ws.close(1011, "gateway_unavailable")
+            return
+          }
+          gatewayToken = endpoint.token ?? ""
+          upstream = new WebSocket(endpoint.ws)
+          upstream.onopen = () => flushPending()
+          upstream.onmessage = (event) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(typeof event.data === "string" ? event.data : String(event.data))
+            }
+          }
+          upstream.onerror = () => {
+            if (ws.readyState === WebSocket.OPEN) ws.close(1011, "gateway_ws_error")
+          }
+          upstream.onclose = (event) => {
+            if (ws.readyState === WebSocket.OPEN) ws.close(event.code || 1011, event.reason || "gateway_closed")
+          }
+        },
+        onMessage(event) {
+          const raw = String(event.data ?? "")
+          if (!raw) return
+          if (!upstream || upstream.readyState !== WebSocket.OPEN) {
+            pendingClientFrames.push(raw)
+            return
+          }
+          upstream.send(patchHelloFrame(raw))
+        },
+        onClose() {
+          if (upstream && upstream.readyState < WebSocket.CLOSING) {
+            upstream.close(1000, "client_closed")
+          }
+          upstream = null
+        },
+      }
+    }))
     .use("*", async (_c, next) => {
       await ensureLegacySecretsMigrated(Instance.directory)
       await next()
