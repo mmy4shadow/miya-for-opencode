@@ -32,6 +32,7 @@ import {
   buildGatewayLaunchUrl,
   createGatewayTools,
   ensureGatewayRunning,
+  type GatewayState,
   isGatewayOwner,
   probeGatewayAlive,
   registerGatewayDependencies,
@@ -335,6 +336,108 @@ function isInteractiveSession(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readRuntimeGatewayState(projectDir: string): GatewayState | null {
+  const file = path.join(getMiyaRuntimeDir(projectDir), 'gateway.json');
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      url?: unknown;
+      uiUrl?: unknown;
+      port?: unknown;
+      pid?: unknown;
+      startedAt?: unknown;
+      status?: unknown;
+      authToken?: unknown;
+    };
+    const url = String(parsed.url ?? '').trim();
+    if (!url) return null;
+    const uiUrl = String(parsed.uiUrl ?? url).trim() || url;
+    const port = Number(parsed.port);
+    const pid = Number(parsed.pid);
+    const startedAt = String(parsed.startedAt ?? '').trim();
+    const status = String(parsed.status ?? '').trim().toLowerCase();
+    const authToken =
+      typeof parsed.authToken === 'string' && parsed.authToken.trim().length > 0
+        ? parsed.authToken.trim()
+        : undefined;
+    if (
+      !Number.isFinite(port) ||
+      !Number.isFinite(pid) ||
+      !startedAt ||
+      (status !== 'running' && status !== 'killswitch')
+    ) {
+      return null;
+    }
+    return {
+      url,
+      uiUrl,
+      port: Math.floor(port),
+      pid: Math.floor(pid),
+      startedAt,
+      status: status === 'killswitch' ? 'killswitch' : 'running',
+      authToken,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function attachGatewayWithRetry(projectDir: string): Promise<{
+  attached: boolean;
+  owner: boolean;
+  state?: GatewayState;
+  error?: string;
+}> {
+  const maxAttempts = 6;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const state = ensureGatewayRunning(projectDir);
+      return {
+        attached: true,
+        owner: isGatewayOwner(projectDir),
+        state,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const ownerRace =
+        message === 'gateway_owned_by_other_process' ||
+        message.includes('gateway-owner.json.tmp') ||
+        message.includes('EPERM: operation not permitted');
+
+      if (!ownerRace || attempt >= maxAttempts) {
+        return {
+          attached: false,
+          owner: false,
+          error: message,
+        };
+      }
+
+      const fallbackState = readRuntimeGatewayState(projectDir);
+      if (fallbackState) {
+        const healthy = await probeGatewayAlive(fallbackState.url, 1_000);
+        if (healthy) {
+          return {
+            attached: true,
+            owner: false,
+            state: fallbackState,
+          };
+        }
+      }
+
+      await sleep(800);
+    }
+  }
+  return {
+    attached: false,
+    owner: false,
+    error: 'gateway_attach_retry_exhausted',
+  };
+}
+
 function parseToolMode(args: unknown): string {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
   const value = (args as Record<string, unknown>).mode;
@@ -400,18 +503,19 @@ const MiyaPlugin: Plugin = async (ctx) => {
   }
 
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
-  let gatewayOwner = false;
-  try {
-    ensureGatewayRunning(ctx.directory);
-    gatewayOwner = isGatewayOwner(ctx.directory);
+  const gatewayAttach = await attachGatewayWithRetry(ctx.directory);
+  const gatewayOwner = gatewayAttach.owner;
+  const gatewayState = gatewayAttach.state;
+  if (gatewayAttach.attached && gatewayState) {
     log('[gateway] startup attached', {
       directory: ctx.directory,
       gatewayOwner,
+      gatewayUrl: gatewayState.url,
     });
-  } catch (error) {
+  } else {
     log('[gateway] startup attach failed', {
       directory: ctx.directory,
-      error: error instanceof Error ? error.message : String(error),
+      error: gatewayAttach.error ?? 'gateway_attach_unknown_failure',
     });
   }
   const dashboardConfig =
@@ -436,37 +540,41 @@ const MiyaPlugin: Plugin = async (ctx) => {
     (process.env.MIYA_DOCK_AUTO_LAUNCH !== '0' &&
       dashboardConfig.dockAutoLaunch !== false);
   const interactiveSession = isInteractiveSession();
+
+  if (
+    autoOpenEnabled &&
+    autoOpenEnabledResolved &&
+    !autoOpenBlockedByEnv &&
+    shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs) &&
+    gatewayState
+  ) {
+    const launchUrl = buildGatewayLaunchUrl({
+      url: gatewayState.url,
+      authToken: gatewayState.authToken,
+    });
+    scheduleAutoUiOpen(
+      ctx.directory,
+      launchUrl,
+      gatewayState.uiUrl,
+      gatewayState.url,
+      autoOpenCooldownMs,
+      dockAutoLaunch,
+    );
+  } else {
+    log('[miya] auto ui open skipped', {
+      autoOpenEnabled,
+      autoOpenEnabledResolved,
+      autoOpenBlockedByEnv,
+      interactiveSession,
+      cooldownMs: autoOpenCooldownMs,
+      hasGatewayState: Boolean(gatewayState),
+      gatewayOwner,
+    });
+  }
+
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);
     log('[miya-launcher] daemon bootstrap', daemonLaunch);
-    if (
-      autoOpenEnabled &&
-      autoOpenEnabledResolved &&
-      !autoOpenBlockedByEnv &&
-      shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
-    ) {
-      const state = ensureGatewayRunning(ctx.directory);
-      const launchUrl = buildGatewayLaunchUrl({
-        url: state.url,
-        authToken: state.authToken,
-      });
-      scheduleAutoUiOpen(
-        ctx.directory,
-        launchUrl,
-        state.uiUrl,
-        state.url,
-        autoOpenCooldownMs,
-        dockAutoLaunch,
-      );
-    } else {
-      log('[miya] auto ui open skipped', {
-        autoOpenEnabled,
-        autoOpenEnabledResolved,
-        autoOpenBlockedByEnv,
-        interactiveSession,
-        cooldownMs: autoOpenCooldownMs,
-      });
-    }
     setTimeout(async () => {
       try {
         const daemon = getLauncherDaemonSnapshot(ctx.directory);
