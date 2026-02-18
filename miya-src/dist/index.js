@@ -53256,6 +53256,7 @@ import { spawnSync as spawnSync10 } from "child_process";
 import * as fs64 from "fs";
 import * as path63 from "path";
 var TEST_MODE_ENV = "MIYA_AUTOSTART_TEST_MODE";
+var TEST_TASKS_ENV = "MIYA_AUTOSTART_TEST_TASKS_JSON";
 var DEFAULT_TASK_NAME = "MiyaOpenCodeGatewayAutostart";
 function nowIso45() {
   return new Date().toISOString();
@@ -53346,17 +53347,206 @@ function writeState7(projectDir, state) {
   writeJson3(stateFile3(projectDir), state);
 }
 function runSchtasks(args) {
+  const decodeConsoleBuffer = (value) => {
+    const buffer = Buffer.isBuffer(value) ? value : value instanceof Uint8Array ? Buffer.from(value) : Buffer.from(String(value ?? ""), "utf-8");
+    if (buffer.length === 0)
+      return "";
+    const utf8 = buffer.toString("utf-8");
+    const utf8Broken = (utf8.match(/\uFFFD/g) ?? []).length;
+    if (utf8Broken === 0)
+      return utf8;
+    try {
+      const gbk = new TextDecoder("gb18030").decode(buffer);
+      const gbkBroken = (gbk.match(/\uFFFD/g) ?? []).length;
+      if (gbkBroken < utf8Broken)
+        return gbk;
+    } catch {}
+    return utf8;
+  };
   const proc = spawnSync10("schtasks", args, {
     windowsHide: true,
-    encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 15000
   });
   return {
     ok: proc.status === 0,
-    stdout: String(proc.stdout ?? ""),
-    stderr: String(proc.stderr ?? "")
+    stdout: decodeConsoleBuffer(proc.stdout),
+    stderr: decodeConsoleBuffer(proc.stderr)
   };
+}
+function parseTaskNames(raw) {
+  const names = [];
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line)
+      continue;
+    const lower = line.toLowerCase();
+    if (!lower.startsWith("taskname:") && !lower.startsWith("\u4EFB\u52A1\u540D\u79F0:") && !lower.startsWith("\u4EFB\u52A1\u540D:")) {
+      continue;
+    }
+    const idx = line.indexOf(":");
+    if (idx < 0)
+      continue;
+    const name = line.slice(idx + 1).trim();
+    if (!name)
+      continue;
+    names.push(name);
+  }
+  return names;
+}
+function parseScheduledTaskList(raw) {
+  const lines = raw.split(/\r?\n/);
+  const rows = [];
+  let current = {};
+  let currentKey = "";
+  const flush = () => {
+    if (Object.keys(current).length === 0)
+      return;
+    rows.push(current);
+    current = {};
+    currentKey = "";
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\s+$/g, "");
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    const sep = line.indexOf(":");
+    if (sep > 0) {
+      const key = line.slice(0, sep).trim().toLowerCase();
+      const value = line.slice(sep + 1).trim();
+      current[key] = value;
+      currentKey = key;
+      continue;
+    }
+    if (!currentKey)
+      continue;
+    const prev = current[currentKey] ?? "";
+    current[currentKey] = `${prev} ${line.trim()}`.trim();
+  }
+  flush();
+  const pick3 = (row, keys) => {
+    for (const key of keys) {
+      const value = row[key];
+      if (typeof value === "string" && value.trim())
+        return value.trim();
+    }
+    return "";
+  };
+  const list = [];
+  for (const row of rows) {
+    const taskName = pick3(row, ["taskname", "\u4EFB\u52A1\u540D\u79F0", "\u4EFB\u52A1\u540D"]);
+    const command = pick3(row, ["task to run", "\u8981\u8FD0\u884C\u7684\u4EFB\u52A1", "actions"]);
+    const state = pick3(row, [
+      "scheduled task state",
+      "\u8BA1\u5212\u4EFB\u52A1\u72B6\u6001",
+      "\u72B6\u6001",
+      "status",
+      "\u4EFB\u52A1\u72B6\u6001"
+    ]);
+    if (!taskName || !command)
+      continue;
+    list.push({ taskName, command, state });
+  }
+  return list;
+}
+function readTestModeTasks() {
+  const raw = String(process.env[TEST_TASKS_ENV] ?? "").trim();
+  if (!raw)
+    return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed))
+      return [];
+    const tasks = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object")
+        continue;
+      const row = item;
+      const taskName = String(row.taskName ?? "").trim();
+      const command = String(row.command ?? "").trim();
+      const stateRaw = String(row.state ?? "").trim();
+      if (!taskName || !command)
+        continue;
+      tasks.push({
+        taskName,
+        command,
+        state: stateRaw || undefined
+      });
+    }
+    return tasks;
+  } catch {
+    return [];
+  }
+}
+function listScheduledTasks(projectDir) {
+  if (process.platform !== "win32")
+    return [];
+  if (isTestMode())
+    return readTestModeTasks();
+  const state = readState4(projectDir);
+  const namesQuery = runSchtasks(["/Query", "/FO", "LIST"]);
+  if (!namesQuery.ok || !namesQuery.stdout.trim())
+    return [];
+  const names = parseTaskNames(namesQuery.stdout);
+  const shouldInspectName = (name) => {
+    const normalized = name.toLowerCase();
+    return normalized.includes("miya") || normalized.includes("gateway") || normalized.includes("openclaw");
+  };
+  const tasks = [];
+  for (const taskName of names) {
+    if (!shouldInspectName(taskName))
+      continue;
+    const detail = runSchtasks(["/Query", "/TN", taskName, "/FO", "LIST", "/V"]);
+    if (!detail.ok || !detail.stdout.trim())
+      continue;
+    const parsed = parseScheduledTaskList(detail.stdout);
+    if (parsed.length === 0)
+      continue;
+    const task = parsed[0];
+    if (task.taskName.toLowerCase() === state.taskName.toLowerCase())
+      continue;
+    tasks.push(task);
+  }
+  return tasks;
+}
+function isTaskDisabled(state) {
+  const normalized = String(state ?? "").trim().toLowerCase();
+  if (!normalized)
+    return false;
+  return normalized.includes("disabled") || normalized.includes("\u5DF2\u7981\u7528");
+}
+function classifyAutostartConflict(task) {
+  if (isTaskDisabled(task.state))
+    return null;
+  const name = task.taskName.toLowerCase();
+  const command = task.command.toLowerCase();
+  const legacyStart = command.includes("miya-gateway-start") || command.includes("bunx") && command.includes("miya") && command.includes("gateway") && command.includes("start") || command.includes("opencode") && command.includes("miya") && command.includes("gateway") && command.includes("start");
+  if (legacyStart)
+    return "legacy_miya_start_command";
+  const duplicateMiyaTask = command.includes("gateway-supervisor.node.js") && (command.includes("\\miya-src\\") || command.includes("/miya-src/"));
+  if (duplicateMiyaTask)
+    return "duplicate_miya_gateway_task";
+  const externalGateway = name.includes("openclaw") || command.includes("\\openclaw\\gateway.cmd") || command.includes("/openclaw/gateway.cmd") || command.includes("openclaw") && command.includes(" gateway");
+  if (externalGateway)
+    return "external_gateway_task";
+  return null;
+}
+function listAutostartConflicts(projectDir) {
+  const conflicts = [];
+  for (const task of listScheduledTasks(projectDir)) {
+    const kind = classifyAutostartConflict(task);
+    if (!kind)
+      continue;
+    conflicts.push({
+      taskName: task.taskName,
+      command: task.command,
+      state: task.state,
+      kind
+    });
+  }
+  return conflicts;
 }
 function queryInstalled(taskName) {
   const query = runSchtasks(["/Query", "/TN", taskName]);
@@ -53386,14 +53576,51 @@ function uninstallTask(taskName) {
     return { ok: true };
   const text = `${result.stdout}
 ${result.stderr}`.toLowerCase();
-  if (text.includes("cannot find") || text.includes("not found")) {
+  if (text.includes("cannot find") || text.includes("not found") || text.includes("\u627E\u4E0D\u5230")) {
     return { ok: true };
   }
   const reason = result.stderr.trim() || result.stdout.trim() || "autostart_uninstall_failed";
   return { ok: false, reason };
 }
+function disableTask(taskName) {
+  const result = runSchtasks(["/Change", "/TN", taskName, "/DISABLE"]);
+  if (result.ok)
+    return { ok: true };
+  const reason = result.stderr.trim() || result.stdout.trim() || "autostart_disable_failed";
+  return { ok: false, reason };
+}
+function reconcileAutostartConflicts(projectDir, input = {}) {
+  const disableConflicts = input.disableConflicts === true;
+  const conflicts = listAutostartConflicts(projectDir);
+  const result = {
+    scanned: listScheduledTasks(projectDir).length,
+    conflictCount: conflicts.length,
+    conflicts,
+    disabled: [],
+    failed: []
+  };
+  if (!disableConflicts || conflicts.length === 0)
+    return result;
+  if (process.platform !== "win32" || isTestMode()) {
+    result.disabled = conflicts.map((item) => item.taskName);
+    return result;
+  }
+  for (const conflict of conflicts) {
+    const disabled = disableTask(conflict.taskName);
+    if (disabled.ok) {
+      result.disabled.push(conflict.taskName);
+      continue;
+    }
+    result.failed.push({
+      taskName: conflict.taskName,
+      reason: disabled.reason ?? "unknown"
+    });
+  }
+  return result;
+}
 function getAutostartStatus(projectDir) {
   const state = readState4(projectDir);
+  const conflicts = listAutostartConflicts(projectDir);
   const supported = process.platform === "win32";
   if (!supported || isTestMode()) {
     const raw = readJson2(stateFile3(projectDir));
@@ -53405,6 +53632,8 @@ function getAutostartStatus(projectDir) {
       installed: supported ? installed : false,
       taskName: state.taskName,
       command: state.command,
+      conflictDetected: conflicts.length > 0,
+      conflicts,
       updatedAt: state.updatedAt,
       reason: supported ? undefined : "platform_not_supported"
     };
@@ -53416,6 +53645,8 @@ function getAutostartStatus(projectDir) {
     installed: queryInstalled(state.taskName),
     taskName: state.taskName,
     command: state.command,
+    conflictDetected: conflicts.length > 0,
+    conflicts,
     updatedAt: state.updatedAt
   };
 }
@@ -53429,33 +53660,22 @@ function setAutostartEnabled(projectDir, input) {
   };
   if (process.platform !== "win32") {
     writeState7(projectDir, next);
-    return {
-      platform: process.platform,
-      supported: false,
-      enabled: next.enabled,
-      installed: false,
-      taskName: next.taskName,
-      command: next.command,
-      updatedAt: next.updatedAt,
-      reason: "platform_not_supported"
-    };
+    return getAutostartStatus(projectDir);
   }
   if (isTestMode()) {
+    if (next.enabled && input.resolveConflicts === true) {
+      reconcileAutostartConflicts(projectDir, { disableConflicts: true });
+    }
     writeJson3(stateFile3(projectDir), {
       ...next,
       installed: next.enabled
     });
-    return {
-      platform: process.platform,
-      supported: true,
-      enabled: next.enabled,
-      installed: next.enabled,
-      taskName: next.taskName,
-      command: next.command,
-      updatedAt: next.updatedAt
-    };
+    return getAutostartStatus(projectDir);
   }
   if (next.enabled) {
+    if (input.resolveConflicts === true) {
+      reconcileAutostartConflicts(projectDir, { disableConflicts: true });
+    }
     const installed = installTask(next.taskName, next.command);
     if (!installed.ok) {
       throw new Error(`autostart_enable_failed:${installed.reason ?? "unknown"}`);
@@ -58920,8 +59140,31 @@ function createMethods(projectDir, runtime) {
     return setAutostartEnabled(projectDir, {
       enabled: Boolean(params.enabled),
       taskName: typeof params.taskName === "string" ? params.taskName : undefined,
-      command: typeof params.command === "string" ? params.command : undefined
+      command: typeof params.command === "string" ? params.command : undefined,
+      resolveConflicts: params.resolveConflicts === true
     });
+  });
+  methods.register("startup.autostart.conflicts.get", async () => {
+    const status = getAutostartStatus(projectDir);
+    return {
+      generatedAt: nowIso48(),
+      conflictDetected: status.conflictDetected,
+      conflictCount: status.conflicts.length,
+      conflicts: status.conflicts
+    };
+  });
+  methods.register("startup.autostart.conflicts.resolve", async (params) => {
+    const policyHash = parseText2(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, "fs_write");
+    const resolution = reconcileAutostartConflicts(projectDir, {
+      disableConflicts: params.disableConflicts !== false
+    });
+    return {
+      generatedAt: nowIso48(),
+      ...resolution,
+      status: getAutostartStatus(projectDir)
+    };
   });
   methods.register("lifecycle.status.get", async () => {
     const snapshot = buildLifecycleStatusSnapshot();

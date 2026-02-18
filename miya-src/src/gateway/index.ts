@@ -280,7 +280,11 @@ import {
   resolveStrategyVariant,
   writeStrategyExperimentConfig,
 } from '../strategy';
-import { getAutostartStatus, setAutostartEnabled } from '../system/autostart';
+import {
+  getAutostartStatus,
+  reconcileAutostartConflicts,
+  setAutostartEnabled,
+} from '../system/autostart';
 import { log } from '../utils/logger';
 import { safeInterval } from '../utils/safe-interval';
 import {
@@ -5932,7 +5936,30 @@ function createMethods(
       taskName:
         typeof params.taskName === 'string' ? params.taskName : undefined,
       command: typeof params.command === 'string' ? params.command : undefined,
+      resolveConflicts: params.resolveConflicts === true,
     });
+  });
+  methods.register('startup.autostart.conflicts.get', async () => {
+    const status = getAutostartStatus(projectDir);
+    return {
+      generatedAt: nowIso(),
+      conflictDetected: status.conflictDetected,
+      conflictCount: status.conflicts.length,
+      conflicts: status.conflicts,
+    };
+  });
+  methods.register('startup.autostart.conflicts.resolve', async (params) => {
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'fs_write');
+    const resolution = reconcileAutostartConflicts(projectDir, {
+      disableConflicts: params.disableConflicts !== false,
+    });
+    return {
+      generatedAt: nowIso(),
+      ...resolution,
+      status: getAutostartStatus(projectDir),
+    };
   });
   methods.register('lifecycle.status.get', async () => {
     const snapshot = buildLifecycleStatusSnapshot();
