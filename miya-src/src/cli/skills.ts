@@ -98,7 +98,8 @@ export function getSkillPermissionsForAgent(
   agentName: string,
   skillList?: string[],
 ): Record<string, 'allow' | 'ask' | 'deny'> {
-  const isManager = agentName === '1-task-manager' || agentName === 'orchestrator';
+  const isManager =
+    agentName === '1-task-manager' || agentName === 'orchestrator';
 
   // Manager gets all skills by default, others are restricted
   const permissions: Record<string, 'allow' | 'ask' | 'deny'> = {

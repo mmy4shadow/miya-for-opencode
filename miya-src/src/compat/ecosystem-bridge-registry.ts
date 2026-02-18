@@ -225,7 +225,8 @@ const ECOSYSTEM_BRIDGE_ENTRIES: EcosystemBridgeEntry[] = [
   {
     id: 'openclaw-girl-agent',
     name: 'OpenClaw AI Girlfriend by Clawra',
-    repository: 'https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git',
+    repository:
+      'https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git',
     integrationMode: 'reference',
     versionPolicy: { pinRequired: true, updateCadence: 'manual' },
     compatibilityMatrix: {
@@ -319,9 +320,9 @@ const ECOSYSTEM_BRIDGE_ENTRIES: EcosystemBridgeEntry[] = [
   },
 ];
 
-export const ECOSYSTEM_BRIDGE_REGISTRY: EcosystemBridgeEntry[] = [...ECOSYSTEM_BRIDGE_ENTRIES].sort(
-  (a, b) => a.id.localeCompare(b.id),
-);
+export const ECOSYSTEM_BRIDGE_REGISTRY: EcosystemBridgeEntry[] = [
+  ...ECOSYSTEM_BRIDGE_ENTRIES,
+].sort((a, b) => a.id.localeCompare(b.id));
 
 export function listEcosystemBridgeRegistry(): EcosystemBridgeEntry[] {
   return ECOSYSTEM_BRIDGE_REGISTRY.map((entry) => ({
@@ -345,10 +346,19 @@ export function listEcosystemBridgeRegistry(): EcosystemBridgeEntry[] {
   }));
 }
 
-export function getEcosystemBridgeEntry(id: string): EcosystemBridgeEntry | null {
-  const normalized = String(id ?? '').trim().toLowerCase();
+export function getEcosystemBridgeEntry(
+  id: string,
+): EcosystemBridgeEntry | null {
+  const normalized = String(id ?? '')
+    .trim()
+    .toLowerCase();
   if (!normalized) return null;
-  const hit = ECOSYSTEM_BRIDGE_REGISTRY.find((entry) => entry.id === normalized);
+  const hit = ECOSYSTEM_BRIDGE_REGISTRY.find(
+    (entry) => entry.id === normalized,
+  );
   if (!hit) return null;
-  return listEcosystemBridgeRegistry().find((entry) => entry.id === normalized) ?? null;
+  return (
+    listEcosystemBridgeRegistry().find((entry) => entry.id === normalized) ??
+    null
+  );
 }

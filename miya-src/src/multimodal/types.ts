@@ -53,4 +53,3 @@ export interface VisionAnalyzeResult {
   summary: string;
   details: Record<string, unknown>;
 }
-

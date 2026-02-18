@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  isSideEffectPermission,
-  requiredTierForRequest,
-} from './risk';
+import { isSideEffectPermission, requiredTierForRequest } from './risk';
 
 describe('safety risk tiers', () => {
   test('treats gateway side effects as side-effect permissions', () => {

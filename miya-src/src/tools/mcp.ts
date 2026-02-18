@@ -1,5 +1,9 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
-import { buildMcpServiceManifest, createBuiltinMcps, summarizeMcpEcosystem } from '../mcp';
+import {
+  buildMcpServiceManifest,
+  createBuiltinMcps,
+  summarizeMcpEcosystem,
+} from '../mcp';
 
 const z = tool.schema;
 
@@ -47,7 +51,9 @@ export function createMcpTools(): Record<string, ToolDefinition> {
     async execute(args) {
       return JSON.stringify(
         buildMcpServiceManifest(
-          Array.isArray(args.disabled_mcps) ? args.disabled_mcps.map(String) : [],
+          Array.isArray(args.disabled_mcps)
+            ? args.disabled_mcps.map(String)
+            : [],
         ),
         null,
         2,

@@ -99,4 +99,3 @@ describe('learning skill drafts', () => {
     expect(stats.hitRate).toBe(0.5);
   });
 });
-

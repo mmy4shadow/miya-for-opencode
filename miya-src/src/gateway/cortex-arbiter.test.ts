@@ -36,7 +36,9 @@ describe('cortex arbiter', () => {
       rightBrain: right,
     });
     expect(result.executeWork).toBe(false);
-    expect(result.why.some((item) => item.includes('safety_blocked'))).toBe(true);
+    expect(result.why.some((item) => item.includes('safety_blocked'))).toBe(
+      true,
+    );
   });
 
   test('user explicit defer overrides work plan', () => {
@@ -124,8 +126,10 @@ describe('cortex arbiter', () => {
       }),
     });
     expect(result.mode).toBe('work');
-    expect(result.why.some((item) => item.includes('low_confidence_safe_work_fallback'))).toBe(
-      true,
-    );
+    expect(
+      result.why.some((item) =>
+        item.includes('low_confidence_safe_work_fallback'),
+      ),
+    ).toBe(true);
   });
 });

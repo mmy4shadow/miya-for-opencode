@@ -1,9 +1,9 @@
+import { readModeObservability } from '../gateway/mode-observability';
+import { getLearningStats } from '../learning';
 import {
   listCompanionMemoryCorrections,
   listCompanionMemoryVectors,
 } from './memory-vector';
-import { getLearningStats } from '../learning';
-import { readModeObservability } from '../gateway/mode-observability';
 
 export interface CompanionLearningMetricsTargets {
   maxModeMisclassificationRate: number;
@@ -59,9 +59,15 @@ function safeRate(numerator: number, denominator: number): number {
   return Number((numerator / denominator).toFixed(4));
 }
 
-function resolveTargets(input?: CompanionLearningMetricsInput): CompanionLearningMetricsTargets {
-  const misclassificationEnv = Number(process.env.MIYA_MODE_MISCLASSIFICATION_MAX_RATE ?? '');
-  const correctionEnv = Number(process.env.MIYA_CORRECTION_CONVERGENCE_MIN_RATE ?? '');
+function resolveTargets(
+  input?: CompanionLearningMetricsInput,
+): CompanionLearningMetricsTargets {
+  const misclassificationEnv = Number(
+    process.env.MIYA_MODE_MISCLASSIFICATION_MAX_RATE ?? '',
+  );
+  const correctionEnv = Number(
+    process.env.MIYA_CORRECTION_CONVERGENCE_MIN_RATE ?? '',
+  );
   const memoryHitEnv = Number(process.env.MIYA_MEMORY_HIT_MIN_RATE ?? '');
   const maxModeMisclassificationRate = clampRate(
     Number.isFinite(input?.maxModeMisclassificationRate as number)
@@ -105,12 +111,22 @@ export function readCompanionLearningMetrics(
   const corrections = listCompanionMemoryCorrections(projectDir);
   const mode = readModeObservability(projectDir);
   const drafts = getLearningStats(projectDir);
-  const activeMemories = memories.filter((item) => item.status === 'active' && !item.isArchived);
+  const activeMemories = memories.filter(
+    (item) => item.status === 'active' && !item.isArchived,
+  );
   const pendingMemories = memories.filter((item) => item.status === 'pending');
-  const preferenceMemories = activeMemories.filter((item) => item.semanticLayer === 'preference');
-  const correctionResolved = corrections.filter((item) => item.status === 'resolved').length;
-  const correctionRejected = corrections.filter((item) => item.status === 'rejected').length;
-  const correctionPending = corrections.filter((item) => item.status === 'pending').length;
+  const preferenceMemories = activeMemories.filter(
+    (item) => item.semanticLayer === 'preference',
+  );
+  const correctionResolved = corrections.filter(
+    (item) => item.status === 'resolved',
+  ).length;
+  const correctionRejected = corrections.filter(
+    (item) => item.status === 'rejected',
+  ).length;
+  const correctionPending = corrections.filter(
+    (item) => item.status === 'pending',
+  ).length;
   const correctionConvergenceRate = safeRate(
     correctionResolved,
     correctionResolved + correctionRejected,
@@ -124,7 +140,11 @@ export function readCompanionLearningMetrics(
     0,
     1,
   );
-  const negativeFeedbackRate = clampRate(mode.metrics.userNegativeFeedbackRate, 0, 1);
+  const negativeFeedbackRate = clampRate(
+    mode.metrics.userNegativeFeedbackRate,
+    0,
+    1,
+  );
   const targets = resolveTargets(input);
   const checks = {
     modeMisclassificationRate:

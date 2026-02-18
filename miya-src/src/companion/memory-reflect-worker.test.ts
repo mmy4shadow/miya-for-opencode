@@ -11,7 +11,9 @@ import {
 } from './memory-reflect-worker';
 
 function tempProjectDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-memory-reflect-worker-test-'));
+  return fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-memory-reflect-worker-test-'),
+  );
 }
 
 describe('memory reflect worker queue', () => {

@@ -17,7 +17,9 @@ interface LocalVlmCommandSpec {
   shell: boolean;
 }
 
-function parseCommandSpec(raw: string): { command: string; args: string[] } | null {
+function parseCommandSpec(
+  raw: string,
+): { command: string; args: string[] } | null {
   const input = raw.trim();
   if (!input) return null;
   const tokens: string[] = [];
@@ -42,7 +44,9 @@ function parseCommandSpec(raw: string): { command: string; args: string[] } | nu
 }
 
 function parseLocalCommand(): LocalVlmCommandSpec | null {
-  const dedicated = String(process.env.MIYA_SCREEN_PROBE_LOCAL_VLM_CMD ?? '').trim();
+  const dedicated = String(
+    process.env.MIYA_SCREEN_PROBE_LOCAL_VLM_CMD ?? '',
+  ).trim();
   if (dedicated) {
     const parsed = parseCommandSpec(dedicated);
     if (!parsed) return null;
@@ -56,7 +60,12 @@ function parseLocalCommand(): LocalVlmCommandSpec | null {
   }
 
   const projectDir = process.cwd();
-  const scriptPath = path.join(projectDir, 'miya-src', 'python', 'infer_qwen3_vl.py');
+  const scriptPath = path.join(
+    projectDir,
+    'miya-src',
+    'python',
+    'infer_qwen3_vl.py',
+  );
   if (!fs.existsSync(scriptPath)) return null;
   const backendCmd = String(process.env.MIYA_QWEN3VL_CMD ?? '').trim();
   const modelRoot =
@@ -66,7 +75,8 @@ function parseLocalCommand(): LocalVlmCommandSpec | null {
   const modelDir =
     String(process.env.MIYA_QWEN3VL_MODEL_DIR ?? '').trim() ||
     path.join(modelRoot, 'shi jue', 'Qwen3VL-4B-Instruct-Q4_K_M');
-  const python = String(process.env.MIYA_VISION_PYTHON ?? '').trim() || 'python';
+  const python =
+    String(process.env.MIYA_VISION_PYTHON ?? '').trim() || 'python';
   const args = [scriptPath, '--mode', 'screen_probe', '--model-dir', modelDir];
   if (backendCmd) args.push('--backend-cmd', backendCmd);
   return {
@@ -86,25 +96,43 @@ function parseJson<T>(text: string): T | null {
 
 function normalizeTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return [];
-  return [...new Set(tags.map((item) => String(item ?? '').trim()).filter(Boolean))]
+  return [
+    ...new Set(tags.map((item) => String(item ?? '').trim()).filter(Boolean)),
+  ]
     .map((item) => item.toLowerCase())
     .slice(0, 12);
 }
 
-function inferSignalsFromTags(tags: string[], appHint?: string): ProbeVlmResult['inferredSignals'] {
-  const normalizedHint = String(appHint ?? '').trim().toLowerCase();
+function inferSignalsFromTags(
+  tags: string[],
+  appHint?: string,
+): ProbeVlmResult['inferredSignals'] {
+  const normalizedHint = String(appHint ?? '')
+    .trim()
+    .toLowerCase();
   const inferred: ProbeVlmResult['inferredSignals'] = {};
-  if (tags.some((item) => item.includes('playing_game') || item.includes('game'))) {
+  if (
+    tags.some((item) => item.includes('playing_game') || item.includes('game'))
+  ) {
     inferred.foreground = 'game';
     inferred.gamepadActive = true;
   } else if (
-    tags.some((item) => item.includes('watching_video') || item.includes('media') || item.includes('player'))
+    tags.some(
+      (item) =>
+        item.includes('watching_video') ||
+        item.includes('media') ||
+        item.includes('player'),
+    )
   ) {
     inferred.foreground = 'player';
     inferred.audioActive = true;
     inferred.fullscreen = true;
-  } else if (tags.some((item) => item.includes('coding') || item.includes('terminal'))) {
-    inferred.foreground = normalizedHint.includes('terminal') ? 'terminal' : 'ide';
+  } else if (
+    tags.some((item) => item.includes('coding') || item.includes('terminal'))
+  ) {
+    inferred.foreground = normalizedHint.includes('terminal')
+      ? 'terminal'
+      : 'ide';
   }
   if (normalizedHint.includes('player')) inferred.foreground = 'player';
   if (normalizedHint.includes('game')) inferred.foreground = 'game';

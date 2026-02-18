@@ -14,14 +14,22 @@ describe('daemon lifecycle guards', () => {
     expect(launcher.includes("'parent.lock.json'")).toBe(true);
     expect(launcher.includes('cleanupExistingDaemon')).toBe(true);
     expect(launcher.includes('writeParentLock(runtime);')).toBe(true);
-    expect(launcher.includes("safeInterval('launcher.parent.beat', 10_000")).toBe(true);
-    expect(launcher.includes('if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) return;')).toBe(true);
+    expect(
+      launcher.includes("safeInterval('launcher.parent.beat', 10_000"),
+    ).toBe(true);
+    expect(
+      launcher.includes(
+        'if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) return;',
+      ),
+    ).toBe(true);
   });
 
   test('host enforces parent-lock and heartbeat self-termination', () => {
     const host = read('daemon/host.ts');
     expect(host.includes('const parentWatchTimer = setInterval')).toBe(true);
-    expect(host.includes('Date.now() - missingParentSince >= 30_000')).toBe(true);
+    expect(host.includes('Date.now() - missingParentSince >= 30_000')).toBe(
+      true,
+    );
     expect(host.includes('const heartbeatWatchTimer = setInterval')).toBe(true);
     expect(host.includes('Date.now() - lastSeenMs >= 30_000')).toBe(true);
   });

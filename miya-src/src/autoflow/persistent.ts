@@ -91,17 +91,34 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function normalizeConfig(raw?: Partial<AutoflowPersistentConfig>): AutoflowPersistentConfig {
+function normalizeConfig(
+  raw?: Partial<AutoflowPersistentConfig>,
+): AutoflowPersistentConfig {
   return {
     enabled: raw?.enabled !== false,
-    resumeCooldownMs: clamp(Number(raw?.resumeCooldownMs ?? DEFAULT_CONFIG.resumeCooldownMs), 500, 120_000),
-    maxAutoResumes: clamp(Number(raw?.maxAutoResumes ?? DEFAULT_CONFIG.maxAutoResumes), 1, 50),
+    resumeCooldownMs: clamp(
+      Number(raw?.resumeCooldownMs ?? DEFAULT_CONFIG.resumeCooldownMs),
+      500,
+      120_000,
+    ),
+    maxAutoResumes: clamp(
+      Number(raw?.maxAutoResumes ?? DEFAULT_CONFIG.maxAutoResumes),
+      1,
+      50,
+    ),
     maxConsecutiveResumeFailures: clamp(
-      Number(raw?.maxConsecutiveResumeFailures ?? DEFAULT_CONFIG.maxConsecutiveResumeFailures),
+      Number(
+        raw?.maxConsecutiveResumeFailures ??
+          DEFAULT_CONFIG.maxConsecutiveResumeFailures,
+      ),
       1,
       20,
     ),
-    resumeTimeoutMs: clamp(Number(raw?.resumeTimeoutMs ?? DEFAULT_CONFIG.resumeTimeoutMs), 3_000, 10 * 60_000),
+    resumeTimeoutMs: clamp(
+      Number(raw?.resumeTimeoutMs ?? DEFAULT_CONFIG.resumeTimeoutMs),
+      3_000,
+      10 * 60_000,
+    ),
   };
 }
 
@@ -114,19 +131,31 @@ function normalizeRuntime(
     resumeAttempts: clamp(Number(raw?.resumeAttempts ?? 0), 0, 1_000),
     resumeFailures: clamp(Number(raw?.resumeFailures ?? 0), 0, 1_000),
     userStopped: Boolean(raw?.userStopped),
-    stopIntentToken: raw?.stopIntentToken ? String(raw.stopIntentToken) : undefined,
+    stopIntentToken: raw?.stopIntentToken
+      ? String(raw.stopIntentToken)
+      : undefined,
     stopIntentSource:
       raw?.stopIntentSource === 'system' || raw?.stopIntentSource === 'user'
         ? raw.stopIntentSource
         : undefined,
-    stopIntentRequestedAt: raw?.stopIntentRequestedAt ? String(raw.stopIntentRequestedAt) : undefined,
-    stopIntentAckedAt: raw?.stopIntentAckedAt ? String(raw.stopIntentAckedAt) : undefined,
+    stopIntentRequestedAt: raw?.stopIntentRequestedAt
+      ? String(raw.stopIntentRequestedAt)
+      : undefined,
+    stopIntentAckedAt: raw?.stopIntentAckedAt
+      ? String(raw.stopIntentAckedAt)
+      : undefined,
     lastStopAt: raw?.lastStopAt ? String(raw.lastStopAt) : undefined,
     lastStopType: raw?.lastStopType ? String(raw.lastStopType) : undefined,
-    lastStopReason: raw?.lastStopReason ? String(raw.lastStopReason) : undefined,
+    lastStopReason: raw?.lastStopReason
+      ? String(raw.lastStopReason)
+      : undefined,
     lastResumeAt: raw?.lastResumeAt ? String(raw.lastResumeAt) : undefined,
-    lastOutcomePhase: raw?.lastOutcomePhase ? String(raw.lastOutcomePhase) : undefined,
-    lastOutcomeSummary: raw?.lastOutcomeSummary ? String(raw.lastOutcomeSummary) : undefined,
+    lastOutcomePhase: raw?.lastOutcomePhase
+      ? String(raw.lastOutcomePhase)
+      : undefined,
+    lastOutcomeSummary: raw?.lastOutcomeSummary
+      ? String(raw.lastOutcomeSummary)
+      : undefined,
   };
 }
 
@@ -134,10 +163,15 @@ function readStore(projectDir: string): AutoflowPersistentStore {
   const file = storeFile(projectDir);
   if (!fs.existsSync(file)) return { config: DEFAULT_CONFIG, sessions: {} };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AutoflowPersistentStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<AutoflowPersistentStore>;
     const sessionsRaw =
       parsed.sessions && typeof parsed.sessions === 'object'
-        ? (parsed.sessions as Record<string, Partial<AutoflowPersistentSessionRuntime>>)
+        ? (parsed.sessions as Record<
+            string,
+            Partial<AutoflowPersistentSessionRuntime>
+          >)
         : {};
     const sessions = Object.fromEntries(
       Object.entries(sessionsRaw).map(([sessionID, runtime]) => [
@@ -154,7 +188,10 @@ function readStore(projectDir: string): AutoflowPersistentStore {
   }
 }
 
-function writeStore(projectDir: string, store: AutoflowPersistentStore): AutoflowPersistentStore {
+function writeStore(
+  projectDir: string,
+  store: AutoflowPersistentStore,
+): AutoflowPersistentStore {
   fs.mkdirSync(path.dirname(storeFile(projectDir)), { recursive: true });
   const normalized: AutoflowPersistentStore = {
     config: normalizeConfig(store.config),
@@ -165,11 +202,18 @@ function writeStore(projectDir: string, store: AutoflowPersistentStore): Autoflo
       ]),
     ),
   };
-  fs.writeFileSync(storeFile(projectDir), `${JSON.stringify(normalized, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    storeFile(projectDir),
+    `${JSON.stringify(normalized, null, 2)}\n`,
+    'utf-8',
+  );
   return normalized;
 }
 
-function getSessionRuntime(projectDir: string, sessionID: string): AutoflowPersistentSessionRuntime {
+function getSessionRuntime(
+  projectDir: string,
+  sessionID: string,
+): AutoflowPersistentSessionRuntime {
   const store = readStore(projectDir);
   return store.sessions[sessionID] ?? normalizeRuntime(sessionID);
 }
@@ -179,8 +223,13 @@ function saveSessionRuntime(
   runtime: AutoflowPersistentSessionRuntime,
 ): AutoflowPersistentSessionRuntime {
   const store = readStore(projectDir);
-  store.sessions[runtime.sessionID] = normalizeRuntime(runtime.sessionID, runtime);
-  return writeStore(projectDir, store).sessions[runtime.sessionID] as AutoflowPersistentSessionRuntime;
+  store.sessions[runtime.sessionID] = normalizeRuntime(
+    runtime.sessionID,
+    runtime,
+  );
+  return writeStore(projectDir, store).sessions[
+    runtime.sessionID
+  ] as AutoflowPersistentSessionRuntime;
 }
 
 function parseStopReason(event: AutoflowPersistentEventInput): string {
@@ -195,14 +244,26 @@ function parseStopReason(event: AutoflowPersistentEventInput): string {
 }
 
 function parseStopIntentSource(raw: unknown): 'user' | 'system' {
-  if (String(raw ?? '').trim().toLowerCase() === 'system') return 'system';
+  if (
+    String(raw ?? '')
+      .trim()
+      .toLowerCase() === 'system'
+  )
+    return 'system';
   return STOP_INTENT_SOURCE_FALLBACK;
 }
 
 function isStopStatus(statusType: string): boolean {
-  return ['stopped', 'stop', 'error', 'failed', 'terminated', 'aborted', 'cancelled', 'canceled'].some((item) =>
-    statusType.includes(item),
-  );
+  return [
+    'stopped',
+    'stop',
+    'error',
+    'failed',
+    'terminated',
+    'aborted',
+    'cancelled',
+    'canceled',
+  ].some((item) => statusType.includes(item));
 }
 
 function issueStopIntent(
@@ -221,7 +282,8 @@ function issueStopIntent(
     runtime.stopIntentAckedAt = now;
   }
   runtime.userStopped = source === 'user';
-  runtime.lastOutcomePhase = source === 'user' ? 'stopped' : runtime.lastOutcomePhase;
+  runtime.lastOutcomePhase =
+    source === 'user' ? 'stopped' : runtime.lastOutcomePhase;
   runtime.lastOutcomeSummary =
     source === 'user'
       ? input?.acked === true
@@ -238,10 +300,19 @@ function hasUserStopIntent(runtime: AutoflowPersistentSessionRuntime): boolean {
 }
 
 function isActiveAutoflowPhase(phase: string): boolean {
-  return phase === 'planning' || phase === 'execution' || phase === 'verification' || phase === 'fixing';
+  return (
+    phase === 'planning' ||
+    phase === 'execution' ||
+    phase === 'verification' ||
+    phase === 'fixing'
+  );
 }
 
-function markPersistentExhausted(projectDir: string, sessionID: string, reason: string): void {
+function markPersistentExhausted(
+  projectDir: string,
+  sessionID: string,
+  reason: string,
+): void {
   const state = getAutoflowSession(projectDir, sessionID);
   state.phase = 'failed';
   state.lastError = reason;
@@ -249,7 +320,9 @@ function markPersistentExhausted(projectDir: string, sessionID: string, reason: 
   saveAutoflowSession(projectDir, state);
 }
 
-export function readAutoflowPersistentConfig(projectDir: string): AutoflowPersistentConfig {
+export function readAutoflowPersistentConfig(
+  projectDir: string,
+): AutoflowPersistentConfig {
   return readStore(projectDir).config;
 }
 
@@ -307,7 +380,11 @@ export function getAutoflowPersistentRuntimeSnapshot(
 ): AutoflowPersistentSessionRuntime[] {
   const store = readStore(projectDir);
   return Object.values(store.sessions)
-    .sort((a, b) => Date.parse(b.lastStopAt ?? b.lastResumeAt ?? '') - Date.parse(a.lastStopAt ?? a.lastResumeAt ?? ''))
+    .sort(
+      (a, b) =>
+        Date.parse(b.lastStopAt ?? b.lastResumeAt ?? '') -
+        Date.parse(a.lastStopAt ?? a.lastResumeAt ?? ''),
+    )
     .slice(0, Math.max(1, Math.min(200, limit)));
 }
 
@@ -322,9 +399,12 @@ export async function handleAutoflowPersistentEvent(input: {
     const runtime = markAutoflowStopRequested(input.projectDir, {
       sessionID,
       source: parseStopIntentSource(
-        input.event.properties?.stopIntent?.source ?? input.event.properties?.source,
+        input.event.properties?.stopIntent?.source ??
+          input.event.properties?.source,
       ),
-      token: String(input.event.properties?.stopIntent?.token ?? '').trim() || undefined,
+      token:
+        String(input.event.properties?.stopIntent?.token ?? '').trim() ||
+        undefined,
     });
     if (runtime.userStopped) {
       stopAutoflowSession(input.projectDir, sessionID);
@@ -332,9 +412,13 @@ export async function handleAutoflowPersistentEvent(input: {
     return {
       handled: true,
       resumed: false,
-      reason: runtime.userStopped ? 'user_stop_requested' : 'system_stop_requested',
+      reason: runtime.userStopped
+        ? 'user_stop_requested'
+        : 'system_stop_requested',
       phase: 'stopped',
-      summary: runtime.userStopped ? 'autoflow_stop_requested_by_user' : 'autoflow_stop_requested',
+      summary: runtime.userStopped
+        ? 'autoflow_stop_requested_by_user'
+        : 'autoflow_stop_requested',
     };
   }
 
@@ -343,7 +427,9 @@ export async function handleAutoflowPersistentEvent(input: {
     if (!sessionID) return { handled: false, resumed: false };
     markAutoflowStopAcked(input.projectDir, {
       sessionID,
-      token: String(input.event.properties?.stopIntent?.token ?? '').trim() || undefined,
+      token:
+        String(input.event.properties?.stopIntent?.token ?? '').trim() ||
+        undefined,
     });
     stopAutoflowSession(input.projectDir, sessionID);
     return {
@@ -355,11 +441,15 @@ export async function handleAutoflowPersistentEvent(input: {
     };
   }
 
-  if (input.event.type !== 'session.status') return { handled: false, resumed: false };
+  if (input.event.type !== 'session.status')
+    return { handled: false, resumed: false };
   const sessionID = String(input.event.properties?.sessionID ?? '').trim();
   if (!sessionID) return { handled: false, resumed: false };
-  const statusType = String(input.event.properties?.status?.type ?? '').trim().toLowerCase();
-  if (!statusType || !isStopStatus(statusType)) return { handled: false, resumed: false };
+  const statusType = String(input.event.properties?.status?.type ?? '')
+    .trim()
+    .toLowerCase();
+  if (!statusType || !isStopStatus(statusType))
+    return { handled: false, resumed: false };
 
   const current = loadAutoflowSession(input.projectDir, sessionID);
   if (!current || !isActiveAutoflowPhase(current.phase)) {
@@ -401,7 +491,12 @@ export async function handleAutoflowPersistentEvent(input: {
     runtime.lastOutcomePhase = 'failed';
     runtime.lastOutcomeSummary = exhaustedReason;
     saveSessionRuntime(input.projectDir, runtime);
-    return { handled: true, resumed: false, reason: exhaustedReason, phase: 'failed' };
+    return {
+      handled: true,
+      resumed: false,
+      reason: exhaustedReason,
+      phase: 'failed',
+    };
   }
   if (runtime.resumeFailures >= config.maxConsecutiveResumeFailures) {
     const exhaustedReason = 'persistent_resume_failure_limit_reached';
@@ -409,7 +504,12 @@ export async function handleAutoflowPersistentEvent(input: {
     runtime.lastOutcomePhase = 'failed';
     runtime.lastOutcomeSummary = exhaustedReason;
     saveSessionRuntime(input.projectDir, runtime);
-    return { handled: true, resumed: false, reason: exhaustedReason, phase: 'failed' };
+    return {
+      handled: true,
+      resumed: false,
+      reason: exhaustedReason,
+      phase: 'failed',
+    };
   }
 
   if (runtime.lastResumeAt) {

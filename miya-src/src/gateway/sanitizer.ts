@@ -13,7 +13,8 @@ export interface SanitizedGatewayContext {
 }
 
 const WORK_INSTRUCTION = 'You are a technical coding assistant. No small talk.';
-const CHAT_INSTRUCTION = 'You are Miya, a girlfriend assistant. Be gentle and cute.';
+const CHAT_INSTRUCTION =
+  'You are Miya, a girlfriend assistant. Be gentle and cute.';
 const MIXED_INSTRUCTION =
   'You are Miya. Execute work rigorously and respond with concise emotional warmth in the same turn.';
 
@@ -39,7 +40,7 @@ const CODE_CONTEXT_LINE = new RegExp(
     '^\\s*(src|apps?|packages?)[/\\\\]',
     '^\\s*[A-Za-z]:[/\\\\]',
     '^\\s*at\\s+\\S+\\s*\\(',
-    '^\\s*File\\s+\".*\",\\s+line\\s+\\d+',
+    '^\\s*File\\s+".*",\\s+line\\s+\\d+',
     '\\.(ts|tsx|js|jsx|py|java|go|rs|cpp|c|h|json|yaml|yml|toml|md)\\b',
     '\\b(package\\.json|tsconfig|requirements\\.txt|pnpm-lock|bun\\.lock)\\b',
   ].join('|'),
@@ -67,7 +68,10 @@ export function inferContextMode(text: string): ContextMode {
   return workScore > chatScore ? 'work' : 'chat';
 }
 
-function sanitizeWorkContext(text: string): { text: string; removed: string[] } {
+function sanitizeWorkContext(text: string): {
+  text: string;
+  removed: string[];
+} {
   const removed: string[] = [];
   let body = normalizeWhitespace(text);
   const strippedPrefix = stripWorkAffectionatePrefix(body);
@@ -79,14 +83,22 @@ function sanitizeWorkContext(text: string): { text: string; removed: string[] } 
     removed.push('persona_words');
     body = body.replace(WORK_BLOCKED_WORDS, '');
   }
-  body = body.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  body = body
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return {
-    text: ['[Context Mode: WORK]', WORK_INSTRUCTION, body].filter(Boolean).join('\n'),
+    text: ['[Context Mode: WORK]', WORK_INSTRUCTION, body]
+      .filter(Boolean)
+      .join('\n'),
     removed,
   };
 }
 
-function sanitizeChatContext(text: string): { text: string; removed: string[] } {
+function sanitizeChatContext(text: string): {
+  text: string;
+  removed: string[];
+} {
   const removed: string[] = [];
   const lines = normalizeWhitespace(text).split('\n');
   const kept: string[] = [];
@@ -97,9 +109,14 @@ function sanitizeChatContext(text: string): { text: string; removed: string[] } 
     }
     kept.push(line);
   }
-  const body = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const body = kept
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return {
-    text: ['[Context Mode: CHAT]', CHAT_INSTRUCTION, body].filter(Boolean).join('\n'),
+    text: ['[Context Mode: CHAT]', CHAT_INSTRUCTION, body]
+      .filter(Boolean)
+      .join('\n'),
     removed,
   };
 }

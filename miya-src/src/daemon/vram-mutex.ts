@@ -13,7 +13,8 @@ export interface VramTaskControl {
 
 function laneForKind(kind: ResourceTaskKind): VramTrafficLane {
   if (kind === 'vision.analyze' || kind === 'shell.exec') return 'critical';
-  if (kind === 'image.generate' || kind === 'voice.tts' || kind === 'voice.asr') return 'high';
+  if (kind === 'image.generate' || kind === 'voice.tts' || kind === 'voice.asr')
+    return 'high';
   if (kind === 'training.image' || kind === 'training.voice') return 'low';
   return 'normal';
 }
@@ -29,7 +30,11 @@ export function shouldPreemptLowLane(incoming: VramTrafficLane): boolean {
 export class VramMutex {
   private readonly active = new Map<string, VramTaskControl>();
 
-  register(input: { daemonJobID: string; kind: ResourceTaskKind; trainingJobID?: string }): void {
+  register(input: {
+    daemonJobID: string;
+    kind: ResourceTaskKind;
+    trainingJobID?: string;
+  }): void {
     this.active.set(input.daemonJobID, {
       daemonJobID: input.daemonJobID,
       kind: input.kind,
@@ -63,4 +68,3 @@ export class VramMutex {
     return this.active.has(daemonJobID);
   }
 }
-

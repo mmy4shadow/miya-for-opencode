@@ -1,9 +1,9 @@
 export {
   analyzeRouteSemantics,
   classifyIntent,
-  recommendedAgent,
-  type RouteSemanticSignal,
   type RouteIntent,
+  type RouteSemanticSignal,
+  recommendedAgent,
 } from './classifier';
 export { resolveAgentWithFeedback, resolveFallbackAgent } from './fallback';
 export {
@@ -20,11 +20,11 @@ export {
   getRouterSessionState,
   listRouteCostRecords,
   prepareRoutePayload,
+  type RouteComplexity,
+  type RouteExecutionPlan,
+  type RouterModeConfig,
+  type RouteStage,
   readRouterModeConfig,
   recordRouteExecutionOutcome,
   writeRouterModeConfig,
-  type RouteComplexity,
-  type RouteStage,
-  type RouterModeConfig,
-  type RouteExecutionPlan,
 } from './runtime';

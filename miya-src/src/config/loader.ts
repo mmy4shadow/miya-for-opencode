@@ -154,7 +154,7 @@ export function loadPluginConfig(directory: string): PluginConfig {
   const projectRootConfig = projectRootConfigPath
     ? loadConfigFromPath(projectRootConfigPath)
     : null;
-    
+
   if (projectRootConfig) {
     config = {
       ...config,

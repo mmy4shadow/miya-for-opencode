@@ -4,8 +4,10 @@ import { deriveDesktopFailureDetail } from './shared';
 describe('desktop outbound error detail parsing', () => {
   test('prefers structured error from script signal', () => {
     const detail = deriveDesktopFailureDetail({
-      signal: 'desktop_send_fail|step=send.text_commit|error=input_mutex_timeout:user_active',
-      stdout: 'desktop_send_fail|step=send.text_commit|error=input_mutex_timeout:user_active',
+      signal:
+        'desktop_send_fail|step=send.text_commit|error=input_mutex_timeout:user_active',
+      stdout:
+        'desktop_send_fail|step=send.text_commit|error=input_mutex_timeout:user_active',
       stderr: '',
       timedOut: false,
       exitCode: 2,

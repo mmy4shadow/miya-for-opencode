@@ -10,7 +10,9 @@ import {
 } from './plan-bundle-binding';
 
 function tempProjectDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-plan-bundle-binding-test-'));
+  return fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-plan-bundle-binding-test-'),
+  );
 }
 
 describe('plan bundle binding', () => {
@@ -48,4 +50,3 @@ describe('plan bundle binding', () => {
     expect(readPlanBundleBinding(projectDir, 'main')).toBeNull();
   });
 });
-

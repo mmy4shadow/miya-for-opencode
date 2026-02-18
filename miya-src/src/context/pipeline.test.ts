@@ -19,11 +19,15 @@ describe('context pipeline', () => {
     );
     expect(result.lowConfidenceSafeFallback).toBe(true);
     expect(result.modeKernel.mode).toBe('work');
-    expect(result.modeKernel.why).toContain('low_confidence_safe_work_fallback');
+    expect(result.modeKernel.why).toContain(
+      'low_confidence_safe_work_fallback',
+    );
   });
 
   test('shares memory domain plan by mode', () => {
-    expect(buildMemoryDomainPlan('work')).toEqual([{ domain: 'work', limit: 3, threshold: 0.22 }]);
+    expect(buildMemoryDomainPlan('work')).toEqual([
+      { domain: 'work', limit: 3, threshold: 0.22 },
+    ]);
     expect(buildMemoryDomainPlan('chat')).toEqual([
       { domain: 'relationship', limit: 6, threshold: 0.16 },
     ]);

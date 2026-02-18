@@ -2,13 +2,16 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { evaluateOutboundDecisionFusion } from '../policy/decision-fusion';
-import { buildRouteExecutionPlan, recordRouteExecutionOutcome } from '../router';
-import { evaluateModeKernel } from '../gateway/mode-kernel';
 import {
   confirmCompanionMemoryVector,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
+import { evaluateModeKernel } from '../gateway/mode-kernel';
+import { evaluateOutboundDecisionFusion } from '../policy/decision-fusion';
+import {
+  buildRouteExecutionPlan,
+  recordRouteExecutionOutcome,
+} from '../router';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-regression-'));

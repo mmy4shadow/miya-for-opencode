@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { getEcosystemBridgeEntry, listEcosystemBridgeRegistry } from './ecosystem-bridge-registry';
+import {
+  getEcosystemBridgeEntry,
+  listEcosystemBridgeRegistry,
+} from './ecosystem-bridge-registry';
 
 describe('ecosystem bridge registry', () => {
   test('lists pinned entries with required governance fields', () => {

@@ -2,13 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import { getMiyaVisionTempDir } from '../../model/paths';
 import {
+  type AutomationRisk,
   buildDesktopActionPlan,
+  type DesktopActionPlan,
+  type DesktopAutomationAcceptanceSnapshot,
+  type DesktopPerceptionRoute,
   readDesktopAutomationKpi,
   recordDesktopActionOutcome,
-  type DesktopAutomationAcceptanceSnapshot,
-  type AutomationRisk,
-  type DesktopActionPlan,
-  type DesktopPerceptionRoute,
 } from './vision-action-bridge';
 
 export interface DesktopOutboundResult {
@@ -74,7 +74,10 @@ export function deriveDesktopFailureDetail(input: {
   );
 }
 
-function buildEvidenceDir(projectDir: string, channel: 'qq' | 'wechat'): string {
+function buildEvidenceDir(
+  projectDir: string,
+  channel: 'qq' | 'wechat',
+): string {
   const root = getMiyaVisionTempDir(projectDir, channel);
   fs.mkdirSync(root, { recursive: true });
   return root;
@@ -102,7 +105,9 @@ export async function sendDesktopOutbound(input: {
   const destination = input.destination.trim();
   const text = (input.text ?? '').trim();
   const mediaPath = (input.mediaPath ?? '').trim();
-  const payloadHash = createHash('sha256').update(`${text}||${mediaPath}`).digest('hex');
+  const payloadHash = createHash('sha256')
+    .update(`${text}||${mediaPath}`)
+    .digest('hex');
   const traceID = `desktop_${randomUUID()}`;
   const evidenceDir = buildEvidenceDir(input.projectDir, input.channel);
 
@@ -147,13 +152,28 @@ export async function sendDesktopOutbound(input: {
     });
   }
 
-  const rawDisplayWidth = Number(process.env.MIYA_DESKTOP_DISPLAY_WIDTH ?? 1920);
-  const rawDisplayHeight = Number(process.env.MIYA_DESKTOP_DISPLAY_HEIGHT ?? 1080);
-  const displayWidth = Number.isFinite(rawDisplayWidth) ? Math.max(640, Math.min(16_384, Math.floor(rawDisplayWidth))) : 1920;
-  const displayHeight = Number.isFinite(rawDisplayHeight) ? Math.max(480, Math.min(16_384, Math.floor(rawDisplayHeight))) : 1080;
+  const rawDisplayWidth = Number(
+    process.env.MIYA_DESKTOP_DISPLAY_WIDTH ?? 1920,
+  );
+  const rawDisplayHeight = Number(
+    process.env.MIYA_DESKTOP_DISPLAY_HEIGHT ?? 1080,
+  );
+  const displayWidth = Number.isFinite(rawDisplayWidth)
+    ? Math.max(640, Math.min(16_384, Math.floor(rawDisplayWidth)))
+    : 1920;
+  const displayHeight = Number.isFinite(rawDisplayHeight)
+    ? Math.max(480, Math.min(16_384, Math.floor(rawDisplayHeight)))
+    : 1080;
   const ocrText = String(process.env.MIYA_DESKTOP_OCR_TEXT ?? '').trim();
   const ocrBoxes = parseJsonFromEnv<
-    Array<{ x: number; y: number; width: number; height: number; text: string; confidence?: number }>
+    Array<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      text: string;
+      confidence?: number;
+    }>
   >(process.env.MIYA_DESKTOP_OCR_BOXES_JSON);
   const somCandidates = parseJsonFromEnv<
     Array<{
@@ -919,7 +939,15 @@ try {
 
   const startedAt = Date.now();
   const proc = Bun.spawn(
-    ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    [
+      'powershell',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script,
+    ],
     {
       env: {
         ...process.env,
@@ -951,7 +979,10 @@ try {
   const signal = stdout || stderr;
   const precheck = safeValueFromSignal(signal, 'pre') ?? 'failed';
   const postcheck = safeValueFromSignal(signal, 'post') ?? 'failed';
-  const receipt = safeValueFromSignal(signal, 'receipt') === 'confirmed' ? 'confirmed' : 'uncertain';
+  const receipt =
+    safeValueFromSignal(signal, 'receipt') === 'confirmed'
+      ? 'confirmed'
+      : 'uncertain';
   const failureStep = safeValueFromSignal(signal, 'step') ?? 'send.unknown';
   const windowFingerprint = safeValueFromSignal(signal, 'window_fp');
   const targetHwnd = safeValueFromSignal(signal, 'target_hwnd');
@@ -959,7 +990,9 @@ try {
   const foregroundAfter = safeValueFromSignal(signal, 'foreground_after');
   const uiaPathRaw = safeValueFromSignal(signal, 'uia_path');
   const uiaPath =
-    uiaPathRaw === 'valuepattern' || uiaPathRaw === 'clipboard_sendkeys' || uiaPathRaw === 'none'
+    uiaPathRaw === 'valuepattern' ||
+    uiaPathRaw === 'clipboard_sendkeys' ||
+    uiaPathRaw === 'none'
       ? uiaPathRaw
       : undefined;
   const fallbackReason = safeValueFromSignal(signal, 'fallback_reason');
@@ -970,14 +1003,18 @@ try {
       : 'uncertain';
   const preSendScreenshotPath = safeValueFromSignal(signal, 'pre_shot');
   const postSendScreenshotPath = safeValueFromSignal(signal, 'post_shot');
-  const payloadFromSignal = safeValueFromSignal(signal, 'payload') ?? payloadHash;
+  const payloadFromSignal =
+    safeValueFromSignal(signal, 'payload') ?? payloadHash;
   const automationRaw = safeValueFromSignal(signal, 'automation');
   const automationPath =
-    automationRaw === 'uia' || automationRaw === 'mixed' || automationRaw === 'sendkeys'
+    automationRaw === 'uia' ||
+    automationRaw === 'mixed' ||
+    automationRaw === 'sendkeys'
       ? automationRaw
       : 'sendkeys';
   const simulationRaw = safeValueFromSignal(signal, 'simulation');
-  const simulationStatus = simulationRaw === 'captured' ? 'captured' : 'not_available';
+  const simulationStatus =
+    simulationRaw === 'captured' ? 'captured' : 'not_available';
   const simulationRiskHints = (safeValueFromSignal(signal, 'risk') ?? '')
     .split(',')
     .map((item) => item.trim())
@@ -998,11 +1035,15 @@ try {
     somSelectionSourceRaw === 'none'
       ? somSelectionSourceRaw
       : actionPlan.action_plan.som.selectionSource;
-  const somSelectedCandidateRaw = Number(safeValueFromSignal(signal, 'som_candidate') ?? Number.NaN);
+  const somSelectedCandidateRaw = Number(
+    safeValueFromSignal(signal, 'som_candidate') ?? Number.NaN,
+  );
   const somSelectedCandidateId = Number.isFinite(somSelectedCandidateRaw)
     ? Math.max(1, Math.floor(somSelectedCandidateRaw))
     : actionPlan.action_plan.som.selectedCandidateId;
-  const vlmCallsRaw = Number(safeValueFromSignal(signal, 'vlm_calls') ?? Number.NaN);
+  const vlmCallsRaw = Number(
+    safeValueFromSignal(signal, 'vlm_calls') ?? Number.NaN,
+  );
   const vlmCallsUsed = Number.isFinite(vlmCallsRaw)
     ? Math.max(0, Math.min(2, Math.floor(vlmCallsRaw)))
     : Math.max(0, Math.min(2, actionPlan.action_plan.som.vlmCallsPlanned ?? 0));
@@ -1016,13 +1057,15 @@ try {
         intent: actionPlan.intent,
         screenState: {
           ...actionPlan.screen_state,
-          windowFingerprint: windowFingerprint ?? actionPlan.screen_state.windowFingerprint,
+          windowFingerprint:
+            windowFingerprint ?? actionPlan.screen_state.windowFingerprint,
         },
         actionPlan,
         sent,
         latencyMs,
         vlmCallsUsed,
-        somSucceeded: routeLevel === 'L2_OCR' || routeLevel === 'L3_SOM_VLM' ? sent : false,
+        somSucceeded:
+          routeLevel === 'L2_OCR' || routeLevel === 'L3_SOM_VLM' ? sent : false,
         highRiskMisfire:
           (input.riskLevel ?? 'LOW') === 'HIGH' &&
           sent &&

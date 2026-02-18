@@ -28,13 +28,19 @@ const PROVIDER_ENV_MAP: Record<string, string[]> = {
 
 function getAuthFileCandidates(): string[] {
   const home = os.homedir();
-  const candidates = [path.join(home, '.local', 'share', 'opencode', 'auth.json')];
+  const candidates = [
+    path.join(home, '.local', 'share', 'opencode', 'auth.json'),
+  ];
   if (process.env.XDG_DATA_HOME) {
-    candidates.unshift(path.join(process.env.XDG_DATA_HOME, 'opencode', 'auth.json'));
+    candidates.unshift(
+      path.join(process.env.XDG_DATA_HOME, 'opencode', 'auth.json'),
+    );
   }
 
   if (process.env.LOCALAPPDATA) {
-    candidates.push(path.join(process.env.LOCALAPPDATA, 'opencode', 'auth.json'));
+    candidates.push(
+      path.join(process.env.LOCALAPPDATA, 'opencode', 'auth.json'),
+    );
   }
 
   if (process.env.APPDATA) {
@@ -96,9 +102,13 @@ export function isModelLikelyAvailable(model: string): boolean {
   return true;
 }
 
-export function pickBestAvailableModel(candidates: readonly string[]): string | null {
+export function pickBestAvailableModel(
+  candidates: readonly string[],
+): string | null {
   const deduped = Array.from(
-    new Set(candidates.map((item) => item.trim()).filter((item) => item.length > 0)),
+    new Set(
+      candidates.map((item) => item.trim()).filter((item) => item.length > 0),
+    ),
   );
 
   if (deduped.length === 0) return null;

@@ -61,7 +61,9 @@ export function adaptPermissionLifecycle(
       ...base,
       event: PERMISSION_CANONICAL_EVENTS.replied,
       status:
-        output.status === 'allow' || output.status === 'ask' || output.status === 'deny'
+        output.status === 'allow' ||
+        output.status === 'ask' ||
+        output.status === 'deny'
           ? output.status
           : undefined,
     },

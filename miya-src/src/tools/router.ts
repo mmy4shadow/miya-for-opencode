@@ -4,9 +4,9 @@ import {
   buildRouteExecutionPlan,
   classifyIntent,
   getRouteCostSummary,
-  readRouteLearningWeights,
   getRouterSessionState,
   listRouteCostRecords,
+  readRouteLearningWeights,
   readRouterModeConfig,
   summarizeRouteHistory,
   writeRouteLearningWeights,
@@ -27,10 +27,14 @@ export function createRouterTools(
   projectDir: string,
 ): Record<string, ToolDefinition> {
   const miya_route_intent = tool({
-    description: 'Classify intent, estimate complexity, and produce runtime routing plan.',
+    description:
+      'Classify intent, estimate complexity, and produce runtime routing plan.',
     args: {
       text: z.string().describe('User request text'),
-      session_id: z.string().optional().describe('Target session id for escalation tracking'),
+      session_id: z
+        .string()
+        .optional()
+        .describe('Target session id for escalation tracking'),
       available_agents: z
         .array(z.string())
         .optional()
@@ -51,7 +55,8 @@ export function createRouterTools(
         sessionID,
         text,
         availableAgents,
-        pinnedAgent: typeof args.pinned_agent === 'string' ? args.pinned_agent : undefined,
+        pinnedAgent:
+          typeof args.pinned_agent === 'string' ? args.pinned_agent : undefined,
       });
       const mode = readRouterModeConfig(projectDir);
       const session = getRouterSessionState(projectDir, sessionID);
@@ -97,12 +102,19 @@ export function createRouterTools(
         intent,
         suggestedAgent: String(args.suggested_agent),
         accepted: Boolean(args.accepted),
-        success: typeof args.success === 'boolean' ? Boolean(args.success) : undefined,
-        costUsdEstimate: typeof args.cost_usd === 'number' ? Number(args.cost_usd) : undefined,
-        riskScore: typeof args.risk_score === 'number' ? Number(args.risk_score) : undefined,
+        success:
+          typeof args.success === 'boolean' ? Boolean(args.success) : undefined,
+        costUsdEstimate:
+          typeof args.cost_usd === 'number' ? Number(args.cost_usd) : undefined,
+        riskScore:
+          typeof args.risk_score === 'number'
+            ? Number(args.risk_score)
+            : undefined,
         stage: typeof args.stage === 'string' ? args.stage : undefined,
         failureReason:
-          typeof args.failure_reason === 'string' ? String(args.failure_reason) : undefined,
+          typeof args.failure_reason === 'string'
+            ? String(args.failure_reason)
+            : undefined,
       });
       return [
         `saved=true`,
@@ -117,7 +129,8 @@ export function createRouterTools(
   });
 
   const miya_route_stats = tool({
-    description: 'Show routing acceptance stats and runtime token/cost summary.',
+    description:
+      'Show routing acceptance stats and runtime token/cost summary.',
     args: {},
     async execute() {
       const summary = summarizeRouteHistory(projectDir);
@@ -157,7 +170,10 @@ export function createRouterTools(
     async execute(args) {
       if (args.mode === 'set') {
         const next = writeRouterModeConfig(projectDir, {
-          ecoMode: typeof args.eco_mode === 'boolean' ? Boolean(args.eco_mode) : undefined,
+          ecoMode:
+            typeof args.eco_mode === 'boolean'
+              ? Boolean(args.eco_mode)
+              : undefined,
           forcedStage:
             args.clear_forced_stage === true
               ? undefined
@@ -223,7 +239,10 @@ export function createRouterTools(
     },
     async execute(args) {
       const limit = typeof args.limit === 'number' ? Number(args.limit) : 20;
-      const rows = listRouteCostRecords(projectDir, Math.max(1, Math.min(100, limit)));
+      const rows = listRouteCostRecords(
+        projectDir,
+        Math.max(1, Math.min(100, limit)),
+      );
       if (rows.length === 0) return 'route_cost=empty';
       return rows
         .slice(-Math.max(1, Math.min(100, limit)))

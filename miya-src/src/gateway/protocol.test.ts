@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
   GATEWAY_PROTOCOL_VERSION,
+  GatewayMethodRegistry,
   LEGACY_GATEWAY_PROTOCOL_VERSION,
   PlanBundleSchema,
-  SUPPORTED_GATEWAY_PROTOCOL_VERSIONS,
-  GatewayMethodRegistry,
   parseIncomingFrame,
+  SUPPORTED_GATEWAY_PROTOCOL_VERSIONS,
   toEventFrame,
   toPongFrame,
   toResponseFrame,
@@ -105,10 +105,14 @@ describe('gateway protocol', () => {
     const registry = new GatewayMethodRegistry();
     registry.register('echo', async (params) => ({ echoed: params.value }));
 
-    const result = await registry.invoke('echo', { value: 'x' }, {
-      clientID: 'c1',
-      role: 'ui',
-    });
+    const result = await registry.invoke(
+      'echo',
+      { value: 'x' },
+      {
+        clientID: 'c1',
+        role: 'ui',
+      },
+    );
 
     expect(result).toEqual({ echoed: 'x' });
     expect(registry.list()).toEqual(['echo']);
@@ -127,9 +131,21 @@ describe('gateway protocol', () => {
       return { order };
     });
 
-    const first = registry.invoke('slow', { order: 1 }, { clientID: 'c1', role: 'ui' });
-    const second = registry.invoke('slow', { order: 2 }, { clientID: 'c1', role: 'ui' });
-    const third = registry.invoke('slow', { order: 3 }, { clientID: 'c1', role: 'ui' });
+    const first = registry.invoke(
+      'slow',
+      { order: 1 },
+      { clientID: 'c1', role: 'ui' },
+    );
+    const second = registry.invoke(
+      'slow',
+      { order: 2 },
+      { clientID: 'c1', role: 'ui' },
+    );
+    const third = registry.invoke(
+      'slow',
+      { order: 3 },
+      { clientID: 'c1', role: 'ui' },
+    );
 
     expect(registry.stats().inFlight).toBe(1);
     expect(registry.stats().queued).toBe(2);

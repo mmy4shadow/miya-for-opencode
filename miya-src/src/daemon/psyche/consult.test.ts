@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { PsycheConsultService } from './consult';
 import { getMiyaRuntimeDir } from '../../workflow';
+import { PsycheConsultService } from './consult';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-psyche-test-'));
@@ -52,7 +52,10 @@ describe('psyche consult service', () => {
   });
 
   test('defers non-user initiated outbound when state is focus', () => {
-    const service = buildService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
+    const service = buildService(tempProjectDir(), {
+      epsilon: 0,
+      shadowModeDays: 0,
+    });
     const result = service.consult({
       intent: 'outbound.send.wechat',
       urgency: 'low',
@@ -69,7 +72,10 @@ describe('psyche consult service', () => {
   });
 
   test('holds non-user initiated action when screen probe is required', () => {
-    const service = buildService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
+    const service = buildService(tempProjectDir(), {
+      epsilon: 0,
+      shadowModeDays: 0,
+    });
     const result = service.consult({
       intent: 'outbound.send.wechat',
       urgency: 'medium',
@@ -91,7 +97,10 @@ describe('psyche consult service', () => {
   });
 
   test('enforces interruption budget for non-user initiated focus', () => {
-    const service = buildService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
+    const service = buildService(tempProjectDir(), {
+      epsilon: 0,
+      shadowModeDays: 0,
+    });
     const first = service.consult({
       intent: 'daily.checkin',
       urgency: 'critical',
@@ -138,7 +147,10 @@ describe('psyche consult service', () => {
   });
 
   test('returns fixability and zero budget for low-trust deny', () => {
-    const service = buildService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
+    const service = buildService(tempProjectDir(), {
+      epsilon: 0,
+      shadowModeDays: 0,
+    });
     service.registerOutcome({
       consultAuditID: 'seed-low-trust',
       intent: 'outbound.send.wechat',
@@ -198,7 +210,11 @@ describe('psyche consult service', () => {
       blockedReason: 'outbound_blocked:psyche_deferred',
     });
     expect(outcome.reward).toBe('positive');
-    const psycheDir = path.join(getMiyaRuntimeDir(projectDir), 'daemon', 'psyche');
+    const psycheDir = path.join(
+      getMiyaRuntimeDir(projectDir),
+      'daemon',
+      'psyche',
+    );
     const trainingDataPath = path.join(psycheDir, 'training-data.jsonl');
     expect(fs.existsSync(trainingDataPath)).toBe(true);
     const rows = fs
@@ -216,7 +232,10 @@ describe('psyche consult service', () => {
     process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY = '1';
     process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC = '3600';
     try {
-      const service = buildService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
+      const service = buildService(tempProjectDir(), {
+        epsilon: 0,
+        shadowModeDays: 0,
+      });
       const first = service.consult({
         intent: 'outbound.send.wechat',
         urgency: 'medium',
@@ -245,9 +264,11 @@ describe('psyche consult service', () => {
       expect(second.decision).toBe('defer');
       expect(second.reasons).toContain('probe_rate_limited');
     } finally {
-      if (prevCapacity === undefined) delete process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY;
+      if (prevCapacity === undefined)
+        delete process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY;
       else process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY = prevCapacity;
-      if (prevWindow === undefined) delete process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC;
+      if (prevWindow === undefined)
+        delete process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC;
       else process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC = prevWindow;
     }
   });
@@ -269,7 +290,10 @@ describe('psyche consult service', () => {
   });
 
   test('surfaces risk summary when probe is blocked by protected capture limits', () => {
-    const service = buildService(tempProjectDir(), { epsilon: 0, shadowModeDays: 0 });
+    const service = buildService(tempProjectDir(), {
+      epsilon: 0,
+      shadowModeDays: 0,
+    });
     const result = service.consult({
       intent: 'outbound.send.wechat',
       urgency: 'medium',

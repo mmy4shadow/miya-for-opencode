@@ -1,4 +1,4 @@
-import { sendDesktopOutbound, type DesktopOutboundResult } from './shared';
+import { type DesktopOutboundResult, sendDesktopOutbound } from './shared';
 
 export async function sendWechatDesktopMessage(input: {
   projectDir: string;

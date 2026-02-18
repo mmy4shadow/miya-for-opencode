@@ -13,27 +13,27 @@ describe('session store encryption', () => {
     'encrypts session summary fields at rest and keeps read API plain',
     { timeout: 15_000 },
     () => {
-    const projectDir = tempProjectDir();
-    upsertSession(projectDir, {
-      id: 's-1',
-      groupId: 'channel:alice',
-      title: 'Alice DM',
-      routingSessionID: 'opencode-session-1',
-    });
-    enqueueSessionMessage(projectDir, 's-1', {
-      text: 'summary: latest context',
-      source: 'unit',
-    });
+      const projectDir = tempProjectDir();
+      upsertSession(projectDir, {
+        id: 's-1',
+        groupId: 'channel:alice',
+        title: 'Alice DM',
+        routingSessionID: 'opencode-session-1',
+      });
+      enqueueSessionMessage(projectDir, 's-1', {
+        text: 'summary: latest context',
+        source: 'unit',
+      });
 
-    const file = path.join(projectDir, '.opencode', 'miya', 'sessions.json');
-    const raw = fs.readFileSync(file, 'utf-8');
-    expect(raw.includes('channel:alice')).toBe(false);
-    expect(raw.includes('latest context')).toBe(false);
-    expect(raw.includes('miya-sec:')).toBe(true);
+      const file = path.join(projectDir, '.opencode', 'miya', 'sessions.json');
+      const raw = fs.readFileSync(file, 'utf-8');
+      expect(raw.includes('channel:alice')).toBe(false);
+      expect(raw.includes('latest context')).toBe(false);
+      expect(raw.includes('miya-sec:')).toBe(true);
 
-    const session = getSession(projectDir, 's-1');
-    expect(session?.groupId).toBe('channel:alice');
-    expect(session?.queue[0]?.text).toContain('latest context');
+      const session = getSession(projectDir, 's-1');
+      expect(session?.groupId).toBe('channel:alice');
+      expect(session?.queue[0]?.text).toContain('latest context');
     },
   );
 });

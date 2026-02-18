@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { buildMcpServiceManifest, createBuiltinMcps, summarizeMcpEcosystem } from './index';
+import {
+  buildMcpServiceManifest,
+  createBuiltinMcps,
+  summarizeMcpEcosystem,
+} from './index';
 
 describe('createBuiltinMcps', () => {
   test('returns all MCPs when no disabled list provided', () => {

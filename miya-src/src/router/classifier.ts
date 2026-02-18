@@ -24,12 +24,43 @@ export interface RouteSemanticSignal {
 }
 
 const INTENT_RULES: IntentRule[] = [
-  { intent: 'code_fix', pattern: /(报错|修复|bug|错误|test fail|failing|compile|panic|stack trace|回归)/i, weight: 1.4, evidence: 'fix_error_signal' },
-  { intent: 'code_fix', pattern: /(rollback|hotfix|patch|修一下|修复一下)/i, weight: 0.8, evidence: 'fix_action_signal' },
-  { intent: 'code_search', pattern: /(查找|定位|where|find|grep|search|索引|引用在哪)/i, weight: 1.3, evidence: 'search_signal' },
-  { intent: 'docs_research', pattern: /(文档|api|docs|reference|手册|规范|citation|引用来源)/i, weight: 1.3, evidence: 'docs_signal' },
-  { intent: 'architecture', pattern: /(架构|设计方案|tradeoff|risk|风控|扩展性|可维护|migration|迁移)/i, weight: 1.2, evidence: 'architecture_signal' },
-  { intent: 'ui_design', pattern: /(ui|样式|页面|交互|设计|视觉|layout|css|动效|排版)/i, weight: 1.2, evidence: 'ui_signal' },
+  {
+    intent: 'code_fix',
+    pattern:
+      /(报错|修复|bug|错误|test fail|failing|compile|panic|stack trace|回归)/i,
+    weight: 1.4,
+    evidence: 'fix_error_signal',
+  },
+  {
+    intent: 'code_fix',
+    pattern: /(rollback|hotfix|patch|修一下|修复一下)/i,
+    weight: 0.8,
+    evidence: 'fix_action_signal',
+  },
+  {
+    intent: 'code_search',
+    pattern: /(查找|定位|where|find|grep|search|索引|引用在哪)/i,
+    weight: 1.3,
+    evidence: 'search_signal',
+  },
+  {
+    intent: 'docs_research',
+    pattern: /(文档|api|docs|reference|手册|规范|citation|引用来源)/i,
+    weight: 1.3,
+    evidence: 'docs_signal',
+  },
+  {
+    intent: 'architecture',
+    pattern: /(架构|设计方案|tradeoff|risk|风控|扩展性|可维护|migration|迁移)/i,
+    weight: 1.2,
+    evidence: 'architecture_signal',
+  },
+  {
+    intent: 'ui_design',
+    pattern: /(ui|样式|页面|交互|设计|视觉|layout|css|动效|排版)/i,
+    weight: 1.2,
+    evidence: 'ui_signal',
+  },
 ];
 
 function seedScores(): Record<RouteIntent, number> {
@@ -78,10 +109,15 @@ export function analyzeRouteSemantics(text: string): RouteSemanticSignal {
   const combinedScores = seedScores();
   for (const intent of Object.keys(combinedScores) as RouteIntent[]) {
     combinedScores[intent] =
-      (ruleScores[intent] ?? 0) + (model.probabilities[intent] ?? 0) * modelScale * modelWeight;
+      (ruleScores[intent] ?? 0) +
+      (model.probabilities[intent] ?? 0) * modelScale * modelWeight;
   }
   evidence.push(...model.evidence.map((item) => `light_model:${item}`));
-  if (/(报错|修复|failing|compile|panic|stack trace|bug|error|hotfix|patch)/i.test(lower)) {
+  if (
+    /(报错|修复|failing|compile|panic|stack trace|bug|error|hotfix|patch)/i.test(
+      lower,
+    )
+  ) {
     combinedScores.code_fix += 0.2;
     evidence.push('fix_critical_boost');
   }
@@ -94,7 +130,9 @@ export function analyzeRouteSemantics(text: string): RouteSemanticSignal {
   let intent: RouteIntent = !top || top[1] <= 0.25 ? 'general' : top[0];
   if (
     intent === 'code_search' &&
-    /(报错|修复|failing|compile|panic|stack trace|bug|error|hotfix|patch)/i.test(lower) &&
+    /(报错|修复|failing|compile|panic|stack trace|bug|error|hotfix|patch)/i.test(
+      lower,
+    ) &&
     combinedScores.code_fix >= combinedScores.code_search - 0.08
   ) {
     intent = 'code_fix';
@@ -102,8 +140,16 @@ export function analyzeRouteSemantics(text: string): RouteSemanticSignal {
   }
   const confidence = !top
     ? 0
-    : Number(Math.max(0, Math.min(1, top[1] / Math.max(1, top[1] + (second?.[1] ?? 0.2)))).toFixed(4));
-  const ambiguity = second && top ? Number(Math.max(0, second[1] / Math.max(top[1], 0.0001)).toFixed(4)) : 0;
+    : Number(
+        Math.max(
+          0,
+          Math.min(1, top[1] / Math.max(1, top[1] + (second?.[1] ?? 0.2))),
+        ).toFixed(4),
+      );
+  const ambiguity =
+    second && top
+      ? Number(Math.max(0, second[1] / Math.max(top[1], 0.0001)).toFixed(4))
+      : 0;
 
   return {
     intent,

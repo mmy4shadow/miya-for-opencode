@@ -37,7 +37,10 @@ try {
   } | ConvertTo-Json -Compress
 }
 `.trim();
-  const shell = runWindowsPowerShellJson<AudioRaw & { error?: string }>(script, 1_200);
+  const shell = runWindowsPowerShellJson<AudioRaw & { error?: string }>(
+    script,
+    1_200,
+  );
   if (!shell.ok || !shell.value) {
     return {
       signals: {},
@@ -45,15 +48,20 @@ try {
     };
   }
   const sessionCountRaw = Number(shell.value.audioSessionCount ?? Number.NaN);
-  const audioSessionCount = Number.isFinite(sessionCountRaw) ? Math.max(0, Math.floor(sessionCountRaw)) : 0;
+  const audioSessionCount = Number.isFinite(sessionCountRaw)
+    ? Math.max(0, Math.floor(sessionCountRaw))
+    : 0;
   return {
     signals: {
       audioSessionCount,
-      audioSessionActive: Boolean(shell.value.audioSessionActive) || audioSessionCount > 0,
-      audioActive: Boolean(shell.value.audioSessionActive) || audioSessionCount > 0,
+      audioSessionActive:
+        Boolean(shell.value.audioSessionActive) || audioSessionCount > 0,
+      audioActive:
+        Boolean(shell.value.audioSessionActive) || audioSessionCount > 0,
     },
     limitations:
-      typeof shell.value.error === 'string' && shell.value.error.trim().length > 0
+      typeof shell.value.error === 'string' &&
+      shell.value.error.trim().length > 0
         ? [shell.value.error.trim()]
         : [],
   };

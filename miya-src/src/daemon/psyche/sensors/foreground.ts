@@ -1,4 +1,7 @@
-import type { SentinelForegroundCategory, SentinelSignals } from '../state-machine';
+import type {
+  SentinelForegroundCategory,
+  SentinelSignals,
+} from '../state-machine';
 import { runWindowsPowerShellJson } from './windows-shell';
 
 interface ForegroundRaw {
@@ -10,7 +13,10 @@ interface ForegroundRaw {
 let lastWindowKey = '';
 const switchEventsMs: number[] = [];
 
-function normalizeForegroundCategory(processName: string, title: string): SentinelForegroundCategory {
+function normalizeForegroundCategory(
+  processName: string,
+  title: string,
+): SentinelForegroundCategory {
   const processText = processName.toLowerCase();
   const titleText = title.toLowerCase();
   const text = `${processText} ${titleText}`;
@@ -22,8 +28,8 @@ function normalizeForegroundCategory(processName: string, title: string): Sentin
     return 'ide';
   }
   if (
-    ['cmd', 'powershell', 'pwsh', 'windowsterminal', 'bash', 'wt'].some((item) =>
-      processText.includes(item),
+    ['cmd', 'powershell', 'pwsh', 'windowsterminal', 'bash', 'wt'].some(
+      (item) => processText.includes(item),
     )
   ) {
     return 'terminal';
@@ -36,16 +42,26 @@ function normalizeForegroundCategory(processName: string, title: string): Sentin
     return 'chat';
   }
   if (
-    ['steam', 'epicgameslauncher', 'riotclientservices', 'battle.net', 'game'].some((item) =>
-      text.includes(item),
-    )
+    [
+      'steam',
+      'epicgameslauncher',
+      'riotclientservices',
+      'battle.net',
+      'game',
+    ].some((item) => text.includes(item))
   ) {
     return 'game';
   }
   if (
-    ['vlc', 'potplayer', 'mpv', 'movies', 'media player', 'netflix', 'youtube'].some((item) =>
-      text.includes(item),
-    )
+    [
+      'vlc',
+      'potplayer',
+      'mpv',
+      'movies',
+      'media player',
+      'netflix',
+      'youtube',
+    ].some((item) => text.includes(item))
   ) {
     return 'player';
   }

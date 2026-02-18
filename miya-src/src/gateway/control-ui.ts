@@ -69,7 +69,10 @@ function isSafeRelativePath(relPath: string): boolean {
   return true;
 }
 
-function resolveRequestedFile(pathname: string, basePath: string): string | null {
+function resolveRequestedFile(
+  pathname: string,
+  basePath: string,
+): string | null {
   if (basePath) {
     if (pathname === basePath) return 'index.html';
     if (!pathname.startsWith(`${basePath}/`)) return null;
@@ -80,7 +83,8 @@ function resolveRequestedFile(pathname: string, basePath: string): string | null
   if (pathname === '/' || pathname === '') return 'index.html';
 
   const assetsIndex = pathname.indexOf('/assets/');
-  const rel = assetsIndex >= 0 ? pathname.slice(assetsIndex + 1) : pathname.slice(1);
+  const rel =
+    assetsIndex >= 0 ? pathname.slice(assetsIndex + 1) : pathname.slice(1);
   const requested = rel && !rel.endsWith('/') ? rel : `${rel}index.html`;
   return requested || 'index.html';
 }
@@ -105,7 +109,9 @@ function resolveRootState(projectDir: string): ControlUiRootState {
   return { kind: 'missing' };
 }
 
-export function createControlUiRequestOptions(projectDir: string): ControlUiRequestOptions {
+export function createControlUiRequestOptions(
+  projectDir: string,
+): ControlUiRequestOptions {
   return {
     basePath: normalizeControlUiBasePath(process.env.MIYA_GATEWAY_UI_BASE_PATH),
     root: resolveRootState(projectDir),
@@ -148,12 +154,16 @@ export function handleControlUiHttpRequest(
 
   const indexPath = path.join(root.path, 'index.html');
   const resolvedPath =
-    fs.existsSync(filePath) && fs.statSync(filePath).isFile() ? filePath : indexPath;
+    fs.existsSync(filePath) && fs.statSync(filePath).isFile()
+      ? filePath
+      : indexPath;
   if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
     return textResponse(404, 'Not Found');
   }
 
-  const headers = securityHeaders(contentTypeForExt(path.extname(resolvedPath).toLowerCase()));
+  const headers = securityHeaders(
+    contentTypeForExt(path.extname(resolvedPath).toLowerCase()),
+  );
   if (request.method === 'HEAD') {
     return new Response(null, { status: 200, headers });
   }

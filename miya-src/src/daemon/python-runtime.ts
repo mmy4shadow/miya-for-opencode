@@ -68,14 +68,20 @@ function statusFile(projectDir: string): string {
 
 function writeStatus(projectDir: string, status: PythonRuntimeStatus): void {
   fs.mkdirSync(path.dirname(statusFile(projectDir)), { recursive: true });
-  fs.writeFileSync(statusFile(projectDir), `${JSON.stringify(status, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    statusFile(projectDir),
+    `${JSON.stringify(status, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 function readStatus(projectDir: string): PythonRuntimeStatus | null {
   const file = statusFile(projectDir);
   if (!fs.existsSync(file)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as PythonRuntimeStatus;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as PythonRuntimeStatus;
     if (!parsed || typeof parsed !== 'object') return null;
     return parsed;
   } catch {
@@ -93,7 +99,10 @@ export function venvPythonPath(projectDir: string): string {
     : path.join(venvDir(projectDir), 'bin', 'python');
 }
 
-function pythonBootstrapCandidates(): Array<{ command: string; args: string[] }> {
+function pythonBootstrapCandidates(): Array<{
+  command: string;
+  args: string[];
+}> {
   const candidates: Array<{ command: string; args: string[] }> = [];
   if (process.platform === 'win32') {
     candidates.push({ command: 'py', args: ['-3.11'] });
@@ -104,7 +113,12 @@ function pythonBootstrapCandidates(): Array<{ command: string; args: string[] }>
   return candidates;
 }
 
-function run(command: string, args: string[], cwd: string, timeoutMs = 300_000): {
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  timeoutMs = 300_000,
+): {
   ok: boolean;
   stdout: string;
   stderr: string;
@@ -140,14 +154,29 @@ function ensureVenv(projectDir: string): { ok: boolean; message?: string } {
   return { ok: false, message: 'venv_create_failed:no_python_interpreter' };
 }
 
-function installRequirements(projectDir: string, pythonPath: string): { ok: boolean; message?: string } {
-  const requirements = path.join(projectDir, 'miya-src', 'python', 'requirements.txt');
+function installRequirements(
+  projectDir: string,
+  pythonPath: string,
+): { ok: boolean; message?: string } {
+  const requirements = path.join(
+    projectDir,
+    'miya-src',
+    'python',
+    'requirements.txt',
+  );
   if (!fs.existsSync(requirements)) {
     return { ok: false, message: 'requirements_missing' };
   }
-  const upgradePip = run(pythonPath, ['-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel'], projectDir);
+  const upgradePip = run(
+    pythonPath,
+    ['-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel'],
+    projectDir,
+  );
   if (!upgradePip.ok) {
-    return { ok: false, message: `pip_upgrade_failed:${upgradePip.stderr.trim() || upgradePip.stdout.trim()}` };
+    return {
+      ok: false,
+      message: `pip_upgrade_failed:${upgradePip.stderr.trim() || upgradePip.stdout.trim()}`,
+    };
   }
   const install = run(
     pythonPath,
@@ -156,12 +185,18 @@ function installRequirements(projectDir: string, pythonPath: string): { ok: bool
     900_000,
   );
   if (!install.ok) {
-    return { ok: false, message: `pip_install_failed:${install.stderr.trim() || install.stdout.trim()}` };
+    return {
+      ok: false,
+      message: `pip_install_failed:${install.stderr.trim() || install.stdout.trim()}`,
+    };
   }
   return { ok: true };
 }
 
-function runCheckEnv(projectDir: string, pythonPath: string): PythonRuntimeDiagnostics {
+function runCheckEnv(
+  projectDir: string,
+  pythonPath: string,
+): PythonRuntimeDiagnostics {
   const script = path.join(projectDir, 'miya-src', 'python', 'check_env.py');
   if (!fs.existsSync(script)) {
     return { ok: false, issues: ['check_env_script_missing'] };
@@ -177,8 +212,11 @@ function runCheckEnv(projectDir: string, pythonPath: string): PythonRuntimeDiagn
   }
 }
 
-function classifyTrainingCapability(diagnostics: PythonRuntimeDiagnostics): PythonRuntimeStatus['trainingDisabledReason'] {
-  if (!Array.isArray(diagnostics.issues) || diagnostics.issues.length === 0) return undefined;
+function classifyTrainingCapability(
+  diagnostics: PythonRuntimeDiagnostics,
+): PythonRuntimeStatus['trainingDisabledReason'] {
+  if (!Array.isArray(diagnostics.issues) || diagnostics.issues.length === 0)
+    return undefined;
   const hasDependencyIssue = diagnostics.issues.some((issue) =>
     /torch_not_installed|pip_|requirements_missing|check_env_|parse_failed|run_failed|metadata_invalid/i.test(
       issue,
@@ -195,8 +233,10 @@ function recommendationMap(issue: string): PythonDependencyRecommendation[] {
       {
         package: 'torch',
         recommendedVersion: '>=2.2.0',
-        reason: 'PyTorch is required by FLUX/GPT-SoVITS runtime and CUDA probing.',
-        command: 'pip install "torch>=2.2.0" "torchvision>=0.17.0" "torchaudio>=2.2.0"',
+        reason:
+          'PyTorch is required by FLUX/GPT-SoVITS runtime and CUDA probing.',
+        command:
+          'pip install "torch>=2.2.0" "torchvision>=0.17.0" "torchaudio>=2.2.0"',
       },
     ];
   }
@@ -224,7 +264,9 @@ function recommendationMap(issue: string): PythonDependencyRecommendation[] {
   return [];
 }
 
-function dedupeRecommendations(items: PythonDependencyRecommendation[]): PythonDependencyRecommendation[] {
+function dedupeRecommendations(
+  items: PythonDependencyRecommendation[],
+): PythonDependencyRecommendation[] {
   const seen = new Set<string>();
   const out: PythonDependencyRecommendation[] = [];
   for (const item of items) {
@@ -251,14 +293,21 @@ function buildRepairPlan(input: {
   reason?: PythonRuntimeStatus['trainingDisabledReason'];
   pythonPath: string;
 }): PythonRuntimeRepairPlan {
-  const issues = Array.isArray(input.diagnostics.issues) ? input.diagnostics.issues : [];
+  const issues = Array.isArray(input.diagnostics.issues)
+    ? input.diagnostics.issues
+    : [];
   const issueType: PythonRuntimeRepairPlan['issueType'] = input.reason
     ? input.reason
     : issues.length > 0
       ? 'dependency_fault'
       : 'ok';
   if (issueType === 'ok') {
-    return { issueType: 'ok', warnings: [], recommendations: [], conflicts: [] };
+    return {
+      issueType: 'ok',
+      warnings: [],
+      recommendations: [],
+      conflicts: [],
+    };
   }
   if (issueType === 'no_gpu') {
     return {
@@ -270,19 +319,28 @@ function buildRepairPlan(input: {
         'Miya detected no GPU. Keep training disabled and guide user to install a compatible GPU driver or run on a GPU machine.',
     };
   }
-  const recommendations = dedupeRecommendations(issues.flatMap((issue) => recommendationMap(issue)));
-  const oneShotCommand = recommendations.map((item) => item.command).join(' && ');
+  const recommendations = dedupeRecommendations(
+    issues.flatMap((issue) => recommendationMap(issue)),
+  );
+  const oneShotCommand = recommendations
+    .map((item) => item.command)
+    .join(' && ');
   const conflicts = extractConflicts(issues);
   const recSummary = recommendations.length
     ? recommendations
-        .map((item) => `- ${item.package} ${item.recommendedVersion}: ${item.reason}\n  cmd: ${item.command}`)
+        .map(
+          (item) =>
+            `- ${item.package} ${item.recommendedVersion}: ${item.reason}\n  cmd: ${item.command}`,
+        )
         .join('\n')
     : '- Re-run requirements installation and inspect pip stderr.';
   const prompt = [
     'You are assisting Miya local Python environment recovery.',
     `Interpreter: ${input.pythonPath}`,
     `Issues: ${issues.join(', ') || 'none'}`,
-    conflicts.length ? `Conflicts: ${conflicts.join(' | ')}` : 'Conflicts: none',
+    conflicts.length
+      ? `Conflicts: ${conflicts.join(' | ')}`
+      : 'Conflicts: none',
     'Please produce a minimal repair plan with exact commands and explain why each dependency version is recommended.',
     'Current deterministic recommendations:',
     recSummary,
@@ -297,7 +355,9 @@ function buildRepairPlan(input: {
   };
 }
 
-export function readPythonRuntimeStatus(projectDir: string): PythonRuntimeStatus | null {
+export function readPythonRuntimeStatus(
+  projectDir: string,
+): PythonRuntimeStatus | null {
   return readStatus(projectDir);
 }
 
@@ -357,10 +417,16 @@ export function ensurePythonRuntime(projectDir: string): PythonRuntimeStatus {
       pythonPath,
       updatedAt: nowIso(),
       bootstrap,
-      diagnostics: { ok: false, issues: [venv.message ?? 'venv_create_failed'] },
+      diagnostics: {
+        ok: false,
+        issues: [venv.message ?? 'venv_create_failed'],
+      },
       trainingDisabledReason: 'dependency_fault',
       repairPlan: buildRepairPlan({
-        diagnostics: { ok: false, issues: [venv.message ?? 'venv_create_failed'] },
+        diagnostics: {
+          ok: false,
+          issues: [venv.message ?? 'venv_create_failed'],
+        },
         reason: 'dependency_fault',
         pythonPath,
       }),
@@ -382,10 +448,16 @@ export function ensurePythonRuntime(projectDir: string): PythonRuntimeStatus {
       pythonPath,
       updatedAt: nowIso(),
       bootstrap,
-      diagnostics: { ok: false, issues: [deps.message ?? 'pip_install_failed'] },
+      diagnostics: {
+        ok: false,
+        issues: [deps.message ?? 'pip_install_failed'],
+      },
       trainingDisabledReason: 'dependency_fault',
       repairPlan: buildRepairPlan({
-        diagnostics: { ok: false, issues: [deps.message ?? 'pip_install_failed'] },
+        diagnostics: {
+          ok: false,
+          issues: [deps.message ?? 'pip_install_failed'],
+        },
         reason: 'dependency_fault',
         pythonPath,
       }),

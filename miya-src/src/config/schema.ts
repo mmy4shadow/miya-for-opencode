@@ -92,7 +92,11 @@ export const UiConfigSchema = z.object({
     .object({
       openOnStart: z.boolean().optional(),
       dockAutoLaunch: z.boolean().optional(),
-      autoOpenCooldownMs: z.number().min(10_000).max(24 * 60_000).optional(),
+      autoOpenCooldownMs: z
+        .number()
+        .min(10_000)
+        .max(24 * 60_000)
+        .optional(),
     })
     .optional(),
 });
@@ -113,13 +117,19 @@ export const ContextGovernanceConfigSchema = z.object({
   toolOutputMaxChars: z.number().min(1200).max(200000).default(12000),
   toolOutputHeadChars: z.number().min(200).max(100000).default(4200),
   toolOutputTailChars: z.number().min(100).max(100000).default(2800),
-  recordTtlMs: z.number().min(10000).max(86_400_000).default(12 * 60 * 1000),
+  recordTtlMs: z
+    .number()
+    .min(10000)
+    .max(86_400_000)
+    .default(12 * 60 * 1000),
   maxRecordsPerSession: z.number().min(5).max(200).default(30),
   maxInjectedRecords: z.number().min(1).max(20).default(3),
   maxInjectedChars: z.number().min(400).max(20_000).default(2400),
 });
 
-export type ContextGovernanceConfig = z.infer<typeof ContextGovernanceConfigSchema>;
+export type ContextGovernanceConfig = z.infer<
+  typeof ContextGovernanceConfigSchema
+>;
 
 export const FailoverConfigSchema = z.object({
   enabled: z.boolean().default(true),

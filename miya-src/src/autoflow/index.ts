@@ -1,3 +1,15 @@
+export { runAutoflow } from './engine';
+export {
+  type AutoflowPersistentConfig,
+  type AutoflowPersistentSessionRuntime,
+  clearAutoflowStopIntent,
+  getAutoflowPersistentRuntimeSnapshot,
+  handleAutoflowPersistentEvent,
+  markAutoflowStopAcked,
+  markAutoflowStopRequested,
+  readAutoflowPersistentConfig,
+  writeAutoflowPersistentConfig,
+} from './persistent';
 export {
   appendAutoflowHistory,
   configureAutoflowSession,
@@ -7,28 +19,16 @@ export {
   saveAutoflowSession,
   stopAutoflowSession,
 } from './state';
-export { runAutoflow } from './engine';
-export {
-  clearAutoflowStopIntent,
-  getAutoflowPersistentRuntimeSnapshot,
-  handleAutoflowPersistentEvent,
-  markAutoflowStopAcked,
-  markAutoflowStopRequested,
-  readAutoflowPersistentConfig,
-  writeAutoflowPersistentConfig,
-  type AutoflowPersistentConfig,
-  type AutoflowPersistentSessionRuntime,
-} from './persistent';
 export type {
   AutoflowCommandResult,
   AutoflowDagSummary,
+  AutoflowFailureSummary,
+  AutoflowFixability,
   AutoflowHistoryRecord,
   AutoflowManager,
-  AutoflowFixability,
-  AutoflowFailureSummary,
+  AutoflowPhase,
   AutoflowPipelineSnapshot,
   AutoflowPipelineStage,
-  AutoflowPhase,
   AutoflowRunInput,
   AutoflowRunResult,
   AutoflowSessionState,

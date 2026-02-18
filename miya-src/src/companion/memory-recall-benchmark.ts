@@ -2,10 +2,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  searchCompanionMemoryVectors,
-  upsertCompanionMemoryVector,
   type MemoryDomain,
   type MemorySemanticLayer,
+  searchCompanionMemoryVectors,
+  upsertCompanionMemoryVector,
 } from './memory-vector';
 
 export interface MemoryRecallFixture {
@@ -52,13 +52,21 @@ const DEFAULT_DATASET_PATH = path.join(
   'recall-default.json',
 );
 
-function normalizeDataset(raw: Partial<MemoryRecallDataset>): MemoryRecallDataset {
+function normalizeDataset(
+  raw: Partial<MemoryRecallDataset>,
+): MemoryRecallDataset {
   return {
-    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'memory-recall-default',
+    name:
+      typeof raw.name === 'string' && raw.name.trim()
+        ? raw.name.trim()
+        : 'memory-recall-default',
     fixtures: Array.isArray(raw.fixtures)
       ? raw.fixtures
           .map((item) => ({
-            id: typeof item.id === 'string' ? item.id.trim() || undefined : undefined,
+            id:
+              typeof item.id === 'string'
+                ? item.id.trim() || undefined
+                : undefined,
             text: String(item.text ?? '').trim(),
             domain:
               item.domain === 'work' || item.domain === 'relationship'
@@ -83,7 +91,9 @@ function normalizeDataset(raw: Partial<MemoryRecallDataset>): MemoryRecallDatase
                 : `case_${index + 1}`,
             query: String(item.query ?? '').trim(),
             expected: Array.isArray(item.expected)
-              ? item.expected.map((entry) => String(entry).trim()).filter(Boolean)
+              ? item.expected
+                  .map((entry) => String(entry).trim())
+                  .filter(Boolean)
               : [],
             domain:
               item.domain === 'work' || item.domain === 'relationship'
@@ -108,12 +118,17 @@ function normalizeDataset(raw: Partial<MemoryRecallDataset>): MemoryRecallDatase
   };
 }
 
-export function loadMemoryRecallDataset(datasetPath?: string): MemoryRecallDataset {
-  const file = datasetPath && datasetPath.trim() ? datasetPath : DEFAULT_DATASET_PATH;
+export function loadMemoryRecallDataset(
+  datasetPath?: string,
+): MemoryRecallDataset {
+  const file =
+    datasetPath && datasetPath.trim() ? datasetPath : DEFAULT_DATASET_PATH;
   if (!fs.existsSync(file)) {
     throw new Error(`dataset_not_found:${file}`);
   }
-  const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MemoryRecallDataset>;
+  const raw = JSON.parse(
+    fs.readFileSync(file, 'utf-8'),
+  ) as Partial<MemoryRecallDataset>;
   return normalizeDataset(raw);
 }
 
@@ -132,7 +147,9 @@ export function runMemoryRecallBenchmark(input?: {
   kValues?: number[];
 }): MemoryRecallBenchmarkResult {
   const dataset = input?.dataset ?? loadMemoryRecallDataset(input?.datasetPath);
-  const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-memory-benchmark-'));
+  const workdir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-memory-benchmark-'),
+  );
   const fixtureIDMap = new Map<string, string>();
   for (const fixture of dataset.fixtures) {
     const created = upsertCompanionMemoryVector(workdir, {
@@ -148,7 +165,9 @@ export function runMemoryRecallBenchmark(input?: {
 
   const ks =
     Array.isArray(input?.kValues) && input.kValues.length > 0
-      ? input.kValues.map((value) => Math.max(1, Math.min(20, Math.floor(value))))
+      ? input.kValues.map((value) =>
+          Math.max(1, Math.min(20, Math.floor(value))),
+        )
       : [1, 3, 5, 8];
 
   const perK: Record<number, { hit: number; total: number }> = {};
@@ -156,7 +175,9 @@ export function runMemoryRecallBenchmark(input?: {
 
   const caseResults: MemoryRecallCaseResult[] = [];
   for (const item of dataset.cases) {
-    const expected = item.expected.map((entry) => fixtureIDMap.get(entry) ?? entry);
+    const expected = item.expected.map(
+      (entry) => fixtureIDMap.get(entry) ?? entry,
+    );
     const maxK = Math.max(item.k ?? 0, ...ks);
     const hits = searchCompanionMemoryVectors(workdir, item.query, maxK, {
       threshold: 0,

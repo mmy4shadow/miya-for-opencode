@@ -36,5 +36,9 @@ export function appendSchedulerEvent(
   event: Record<string, unknown>,
 ): void {
   ensureDir(projectDir);
-  fs.appendFileSync(eventsPath(projectDir), `${JSON.stringify(event)}\n`, 'utf-8');
+  fs.appendFileSync(
+    eventsPath(projectDir),
+    `${JSON.stringify(event)}\n`,
+    'utf-8',
+  );
 }

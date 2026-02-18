@@ -3,10 +3,10 @@ export {
   recordStrategyObservation,
   replayStrategyOffline,
   resolveStrategyVariant,
-  summarizeStrategyObservations,
-  writeStrategyExperimentConfig,
   type StrategyExperimentConfig,
   type StrategyExperimentKey,
   type StrategyObservation,
   type StrategyVariant,
+  summarizeStrategyObservations,
+  writeStrategyExperimentConfig,
 } from './experiments';

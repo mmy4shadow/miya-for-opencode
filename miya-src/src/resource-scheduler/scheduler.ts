@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { appendSchedulerEvent, writeSchedulerSnapshot } from './store';
-import { calculateVramBudget, decideModelSwapAction } from './vram';
 import type {
   ModelSwapAction,
   ResourceLease,
@@ -9,6 +8,7 @@ import type {
   ResourceSchedulerSnapshot,
   VramBudgetPlan,
 } from './types';
+import { calculateVramBudget, decideModelSwapAction } from './vram';
 
 interface PendingRequest {
   id: string;
@@ -64,7 +64,10 @@ export class ResourceScheduler {
   private readonly active = new Map<string, ActiveLease>();
   private readonly loadedModels = new Map<string, LoadedModel>();
   private readonly offloadedModels = new Map<string, OffloadedModel>();
-  private readonly currentModelByKind = new Map<ResourceRequest['kind'], string>();
+  private readonly currentModelByKind = new Map<
+    ResourceRequest['kind'],
+    string
+  >();
   private usedVramMB = 0;
   private draining = false;
 
@@ -107,7 +110,10 @@ export class ResourceScheduler {
                 ),
               ),
             );
-    this.maxOffloadedModels = Math.max(8, toNumber(process.env.MIYA_RESOURCE_OFFLOAD_MAX, 64));
+    this.maxOffloadedModels = Math.max(
+      8,
+      toNumber(process.env.MIYA_RESOURCE_OFFLOAD_MAX, 64),
+    );
     this.recordSnapshot();
   }
 
@@ -162,7 +168,9 @@ export class ResourceScheduler {
   }
 
   snapshot(): ResourceSchedulerSnapshot {
-    const loadedModels = [...this.loadedModels.values()].sort((a, b) => b.lastUsedAtMs - a.lastUsedAtMs);
+    const loadedModels = [...this.loadedModels.values()].sort(
+      (a, b) => b.lastUsedAtMs - a.lastUsedAtMs,
+    );
     const hotsetUsedMB = loadedModels
       .filter((model) => model.residency === 'hot')
       .reduce((sum, model) => sum + model.vramMB, 0);
@@ -176,14 +184,13 @@ export class ResourceScheduler {
       usedVramMB: this.usedVramMB,
       activeTasks: this.active.size,
       queueDepth: this.queue.length,
-      loadedModels: loadedModels
-        .map((model) => ({
-          modelID: model.modelID,
-          vramMB: model.vramMB,
-          pins: model.pins,
-          lastUsedAt: new Date(model.lastUsedAtMs).toISOString(),
-          residency: model.residency,
-        })),
+      loadedModels: loadedModels.map((model) => ({
+        modelID: model.modelID,
+        vramMB: model.vramMB,
+        pins: model.pins,
+        lastUsedAt: new Date(model.lastUsedAtMs).toISOString(),
+        residency: model.residency,
+      })),
       hydraulics: {
         hotsetLimitMB: this.hotsetLimitMB,
         warmPoolLimitMB: this.warmPoolLimitMB,
@@ -246,7 +253,10 @@ export class ResourceScheduler {
       if (!this.canGrant(pending.request)) return;
       this.queue.shift();
       const grantedAt = nowIso();
-      const requestVramMB = Math.max(0, Math.floor(pending.request.vramMB ?? 0));
+      const requestVramMB = Math.max(
+        0,
+        Math.floor(pending.request.vramMB ?? 0),
+      );
       const lease: ActiveLease = {
         id: pending.id,
         kind: pending.request.kind,
@@ -272,7 +282,10 @@ export class ResourceScheduler {
         }
         this.ensureModelLoaded(pending.request.modelID, modelVramMB);
         this.pinModel(pending.request.modelID);
-        this.currentModelByKind.set(pending.request.kind, pending.request.modelID);
+        this.currentModelByKind.set(
+          pending.request.kind,
+          pending.request.modelID,
+        );
         appendSchedulerEvent(this.projectDir, {
           at: nowIso(),
           type: 'model_swap',
@@ -332,10 +345,7 @@ export class ResourceScheduler {
     if (this.active.size >= this.maxConcurrentTasks) return false;
 
     const modelVramMB = request.modelID
-      ? Math.max(
-          0,
-          Math.floor(request.modelVramMB ?? request.vramMB ?? 0),
-        )
+      ? Math.max(0, Math.floor(request.modelVramMB ?? request.vramMB ?? 0))
       : 0;
     const neededVramMB = Math.max(0, Math.floor(request.vramMB ?? 0));
     if (neededVramMB + modelVramMB <= 0) return true;
@@ -360,7 +370,10 @@ export class ResourceScheduler {
   private availableVramMB(): number {
     return Math.max(
       0,
-      this.totalVramMB - this.safetyMarginMB - this.usedVramMB - this.loadedModelsVramMB(),
+      this.totalVramMB -
+        this.safetyMarginMB -
+        this.usedVramMB -
+        this.loadedModelsVramMB(),
     );
   }
 
@@ -450,8 +463,13 @@ export class ResourceScheduler {
       reason,
     });
     if (this.offloadedModels.size > this.maxOffloadedModels) {
-      const stale = [...this.offloadedModels.values()].sort((a, b) => a.offloadedAtMs - b.offloadedAtMs);
-      const trim = stale.slice(0, Math.max(0, this.offloadedModels.size - this.maxOffloadedModels));
+      const stale = [...this.offloadedModels.values()].sort(
+        (a, b) => a.offloadedAtMs - b.offloadedAtMs,
+      );
+      const trim = stale.slice(
+        0,
+        Math.max(0, this.offloadedModels.size - this.maxOffloadedModels),
+      );
       for (const item of trim) {
         this.offloadedModels.delete(item.modelID);
       }
@@ -490,7 +508,9 @@ export class ResourceScheduler {
     if (this.loadedModels.size === 0) return;
     let hotUsed = 0;
     let warmUsed = 0;
-    const candidates = [...this.loadedModels.values()].sort((a, b) => b.lastUsedAtMs - a.lastUsedAtMs);
+    const candidates = [...this.loadedModels.values()].sort(
+      (a, b) => b.lastUsedAtMs - a.lastUsedAtMs,
+    );
     const toOffload: LoadedModel[] = [];
     for (const model of candidates) {
       const previous = model.residency;

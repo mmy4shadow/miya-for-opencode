@@ -64,7 +64,10 @@ export function createSaveRecord(
   };
 
   ensureDir(getSavesDir(projectDir));
-  fs.writeFileSync(savePath(projectDir, id), `${JSON.stringify(record, null, 2)}\n`);
+  fs.writeFileSync(
+    savePath(projectDir, id),
+    `${JSON.stringify(record, null, 2)}\n`,
+  );
   return record;
 }
 

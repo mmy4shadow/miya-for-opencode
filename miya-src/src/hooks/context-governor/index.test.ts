@@ -44,7 +44,9 @@ describe('context governor hook', () => {
       messages: [
         {
           info: { role: 'user', sessionID: 'main' },
-          parts: [{ type: 'text', text: 'please fix router and task manager issues' }],
+          parts: [
+            { type: 'text', text: 'please fix router and task manager issues' },
+          ],
         },
       ],
     };
@@ -73,6 +75,8 @@ describe('context governor hook', () => {
     };
 
     await hook['experimental.chat.messages.transform']({}, payload);
-    expect(payload.messages[0]?.parts[0]?.text).toBe('[MIYA COMMAND BRIDGE]\ncall tool');
+    expect(payload.messages[0]?.parts[0]?.text).toBe(
+      '[MIYA COMMAND BRIDGE]\ncall tool',
+    );
   });
 });

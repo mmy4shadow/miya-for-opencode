@@ -92,9 +92,7 @@ describe('daemon service', () => {
     }
   });
 
-  test(
-    'preempts running low-lane training process for high-priority interaction',
-    async () => {
+  test('preempts running low-lane training process for high-priority interaction', async () => {
     const daemon = new MiyaDaemonService(tempProjectDir());
     daemon.start();
     try {
@@ -122,14 +120,14 @@ describe('daemon service', () => {
           stdout: string;
           stderr: string;
           timedOut: boolean;
-        }>((_, reject) => setTimeout(() => reject(new Error('preempt_timeout')), 12_000)),
+        }>((_, reject) =>
+          setTimeout(() => reject(new Error('preempt_timeout')), 12_000),
+        ),
       ]);
       expect(lowResult.timedOut).toBe(false);
       expect(lowResult.exitCode === 0).toBe(false);
     } finally {
       daemon.stop();
     }
-    },
-    20_000,
-  );
+  }, 20_000);
 });

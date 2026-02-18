@@ -1,8 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import {
+  decryptSensitiveValue,
+  encryptSensitiveValue,
+} from '../security/system-keyring';
 import { getMiyaRuntimeDir } from '../workflow';
-import { decryptSensitiveValue, encryptSensitiveValue } from '../security/system-keyring';
 
 export interface MediaItem {
   id: string;
@@ -62,13 +65,18 @@ function readStore(projectDir: string): MediaStore {
     return { items: {} };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MediaStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<MediaStore>;
     const items: Record<string, MediaItem> = {};
     for (const [id, item] of Object.entries(parsed.items ?? {})) {
       items[id] = {
         ...item,
         source: decryptSensitiveValue(projectDir, String(item.source ?? '')),
-        fileName: decryptSensitiveValue(projectDir, String(item.fileName ?? '')),
+        fileName: decryptSensitiveValue(
+          projectDir,
+          String(item.fileName ?? ''),
+        ),
         localPath:
           typeof item.localPath === 'string'
             ? decryptSensitiveValue(projectDir, item.localPath)
@@ -95,7 +103,10 @@ function writeStore(projectDir: string, store: MediaStore): void {
         : item.localPath,
       metadata: item.metadata
         ? {
-            secure: encryptSensitiveValue(projectDir, JSON.stringify(item.metadata)),
+            secure: encryptSensitiveValue(
+              projectDir,
+              JSON.stringify(item.metadata),
+            ),
           }
         : item.metadata,
     };
@@ -156,7 +167,10 @@ export function ingestMedia(
   return item;
 }
 
-export function getMediaItem(projectDir: string, mediaID: string): MediaItem | null {
+export function getMediaItem(
+  projectDir: string,
+  mediaID: string,
+): MediaItem | null {
   const store = readStore(projectDir);
   return store.items[mediaID] ?? null;
 }
@@ -188,7 +202,10 @@ export function listMediaItems(projectDir: string, limit = 100): MediaItem[] {
     .slice(0, Math.max(1, limit));
 }
 
-export function runMediaGc(projectDir: string): { removed: number; kept: number } {
+export function runMediaGc(projectDir: string): {
+  removed: number;
+  kept: number;
+} {
   const store = readStore(projectDir);
   const now = Date.now();
   let removed = 0;

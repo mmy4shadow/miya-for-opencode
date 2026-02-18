@@ -9,12 +9,21 @@ interface InputRaw {
 const inputEventsMs: number[] = [];
 let previousIdleSec: number | undefined;
 
-function updateApm(input: { idleSec?: number; rawInputActive?: boolean }, nowMs: number): number {
-  const idle = Number.isFinite(input.idleSec) ? Number(input.idleSec) : undefined;
+function updateApm(
+  input: { idleSec?: number; rawInputActive?: boolean },
+  nowMs: number,
+): number {
+  const idle = Number.isFinite(input.idleSec)
+    ? Number(input.idleSec)
+    : undefined;
   if (input.rawInputActive) {
     inputEventsMs.push(nowMs);
   }
-  if (idle !== undefined && previousIdleSec !== undefined && idle + 0.2 < previousIdleSec) {
+  if (
+    idle !== undefined &&
+    previousIdleSec !== undefined &&
+    idle + 0.2 < previousIdleSec
+  ) {
     inputEventsMs.push(nowMs);
   }
   previousIdleSec = idle;
@@ -84,7 +93,9 @@ foreach ($vk in $keys) {
   );
   return {
     signals: {
-      idleSec: Number.isFinite(idleSec) ? Number(idleSec.toFixed(2)) : undefined,
+      idleSec: Number.isFinite(idleSec)
+        ? Number(idleSec.toFixed(2))
+        : undefined,
       rawInputActive,
       apm,
     },

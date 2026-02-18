@@ -1,6 +1,6 @@
+import { Database } from 'bun:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Database } from 'bun:sqlite';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export interface CompanionMemoryGraphEdge {
@@ -43,10 +43,14 @@ function openGraphDb(projectDir: string): Database {
     );
   `);
   try {
-    db.exec(`ALTER TABLE long_term_graph ADD COLUMN semantic_layer TEXT DEFAULT 'episodic'`);
+    db.exec(
+      `ALTER TABLE long_term_graph ADD COLUMN semantic_layer TEXT DEFAULT 'episodic'`,
+    );
   } catch {}
   try {
-    db.exec(`ALTER TABLE long_term_graph ADD COLUMN domain TEXT DEFAULT 'relationship'`);
+    db.exec(
+      `ALTER TABLE long_term_graph ADD COLUMN domain TEXT DEFAULT 'relationship'`,
+    );
   } catch {}
   return db;
 }
@@ -87,8 +91,12 @@ export function searchCompanionMemoryGraph(
   try {
     db = openGraphDb(projectDir);
     const like = `%${text.replace(/[%_]/g, '')}%`;
-    const layer = typeof options?.semanticLayer === 'string' ? options.semanticLayer.trim() : '';
-    const domain = typeof options?.domain === 'string' ? options.domain.trim() : '';
+    const layer =
+      typeof options?.semanticLayer === 'string'
+        ? options.semanticLayer.trim()
+        : '';
+    const domain =
+      typeof options?.domain === 'string' ? options.domain.trim() : '';
     const rows = db
       .query(
         `
@@ -124,7 +132,10 @@ export function searchCompanionMemoryGraph(
     return rows
       .map((row) => {
         const confidence = Number(row.confidence ?? 0.5);
-        const lexical = overlapScore(tokens, `${row.subject} ${row.predicate} ${row.object}`);
+        const lexical = overlapScore(
+          tokens,
+          `${row.subject} ${row.predicate} ${row.object}`,
+        );
         const score = Number((0.55 * lexical + 0.45 * confidence).toFixed(4));
         return {
           ...row,
@@ -210,7 +221,11 @@ export function getCompanionMemoryGraphStats(projectDir: string): {
           FROM long_term_graph
         `,
       )
-      .get() as { edgeCount?: number; avgConfidence?: number; updatedAt?: string } | null;
+      .get() as {
+      edgeCount?: number;
+      avgConfidence?: number;
+      updatedAt?: string;
+    } | null;
     const layerRows = db
       .query(
         `

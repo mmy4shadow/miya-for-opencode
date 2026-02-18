@@ -9,7 +9,14 @@ export const SUPPORTED_GATEWAY_PROTOCOL_VERSIONS = [
 ] as const;
 
 const JsonValue: z.ZodType<unknown> = z.lazy(() =>
-  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(JsonValue), z.record(z.string(), JsonValue)]),
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValue),
+    z.record(z.string(), JsonValue),
+  ]),
 );
 
 const JsonObject = z.record(z.string(), JsonValue);
@@ -17,7 +24,14 @@ const JsonObject = z.record(z.string(), JsonValue);
 export const PlanBundleAuditEventSchema = z.object({
   id: z.string().min(1),
   at: z.string().min(1),
-  stage: z.enum(['plan', 'approval', 'execution', 'rollback', 'audit', 'finalize']),
+  stage: z.enum([
+    'plan',
+    'approval',
+    'execution',
+    'rollback',
+    'audit',
+    'finalize',
+  ]),
   action: z.string().min(1),
   inputSummary: z.string().min(1),
   inputHash: z.string().min(16),
@@ -122,7 +136,9 @@ export const PlanBundleSchema = z.object({
 
 export const HelloFrameSchema = z.object({
   type: z.literal('hello'),
-  role: z.enum(['ui', 'admin', 'node', 'channel', 'unknown']).default('unknown'),
+  role: z
+    .enum(['ui', 'admin', 'node', 'channel', 'unknown'])
+    .default('unknown'),
   clientID: z.string().optional(),
   protocolVersion: z.string().optional(),
   auth: z
@@ -185,13 +201,23 @@ export type ResponseFrame = z.infer<typeof ResponseFrameSchema>;
 export type EventFrame = z.infer<typeof EventFrameSchema>;
 export type PingFrame = z.infer<typeof PingFrameSchema>;
 export type PongFrame = z.infer<typeof PongFrameSchema>;
-export type PlanBundleAuditEventFrame = z.infer<typeof PlanBundleAuditEventSchema>;
+export type PlanBundleAuditEventFrame = z.infer<
+  typeof PlanBundleAuditEventSchema
+>;
 export type PlanBundleApprovalFrame = z.infer<typeof PlanBundleApprovalSchema>;
 export type PlanBundleRollbackFrame = z.infer<typeof PlanBundleRollbackSchema>;
 export type PlanBundleFrame = z.infer<typeof PlanBundleSchema>;
 
-export const GatewayIncomingFrameSchema = z.union([HelloFrameSchema, RequestFrameSchema, PingFrameSchema]);
-export const GatewayOutgoingFrameSchema = z.union([ResponseFrameSchema, EventFrameSchema, PongFrameSchema]);
+export const GatewayIncomingFrameSchema = z.union([
+  HelloFrameSchema,
+  RequestFrameSchema,
+  PingFrameSchema,
+]);
+export const GatewayOutgoingFrameSchema = z.union([
+  ResponseFrameSchema,
+  EventFrameSchema,
+  PongFrameSchema,
+]);
 
 export type GatewayIncomingFrame = z.infer<typeof GatewayIncomingFrameSchema>;
 export type GatewayOutgoingFrame = z.infer<typeof GatewayOutgoingFrameSchema>;
@@ -244,8 +270,7 @@ export class GatewayMethodRegistry {
     this.maxQueued = Math.max(
       1,
       Math.floor(
-        options.maxQueued ??
-          Number(process.env.MIYA_GATEWAY_MAX_QUEUED ?? 64),
+        options.maxQueued ?? Number(process.env.MIYA_GATEWAY_MAX_QUEUED ?? 64),
       ),
     );
     this.queueTimeoutMs = Math.max(
@@ -276,7 +301,9 @@ export class GatewayMethodRegistry {
     if (!target) {
       throw new Error(`alias_target_not_found:${targetMethod}`);
     }
-    this.handlers.set(aliasMethod, async (params, context) => target(params, context));
+    this.handlers.set(aliasMethod, async (params, context) =>
+      target(params, context),
+    );
     return true;
   }
 
@@ -406,7 +433,12 @@ export function parseIncomingFrame(message: unknown): {
     const raw = message.trim();
     if (!raw) return { error: 'empty_message' };
     if (raw === 'status') {
-      payload = { type: 'request', id: 'legacy-status', method: 'gateway.status.get', params: {} };
+      payload = {
+        type: 'request',
+        id: 'legacy-status',
+        method: 'gateway.status.get',
+        params: {},
+      };
     } else {
       try {
         payload = JSON.parse(raw) as unknown;
@@ -478,7 +510,11 @@ export function toPongFrame(ts: number): PongFrame {
 function toJsonCompatible(input: unknown): unknown {
   if (input === undefined) return null;
   if (input === null) return null;
-  if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') {
+  if (
+    typeof input === 'string' ||
+    typeof input === 'number' ||
+    typeof input === 'boolean'
+  ) {
     return input;
   }
   if (Array.isArray(input)) {

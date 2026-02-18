@@ -18,8 +18,10 @@ function normalizeUnique(values: string[]): string[] {
 function inferSideEffects(capabilityID: string): string[] {
   const id = capabilityID.toLowerCase();
   const effects: string[] = [];
-  if (id.includes('send') || id.includes('outbound') || id.includes('invoke')) effects.push('network');
-  if (id.includes('desktop') || id.includes('voice') || id.includes('media')) effects.push('desktop');
+  if (id.includes('send') || id.includes('outbound') || id.includes('invoke'))
+    effects.push('network');
+  if (id.includes('desktop') || id.includes('voice') || id.includes('media'))
+    effects.push('desktop');
   if (
     id.includes('config') ||
     id.includes('write') ||
@@ -31,7 +33,8 @@ function inferSideEffects(capabilityID: string): string[] {
   ) {
     effects.push('filesystem');
   }
-  if (id.includes('process') || id.includes('daemon') || id.includes('run')) effects.push('process');
+  if (id.includes('process') || id.includes('daemon') || id.includes('run'))
+    effects.push('process');
   if (id.includes('memory') || id.includes('learning')) effects.push('memory');
   if (effects.length === 0) effects.push('none');
   return normalizeUnique(effects);
@@ -40,9 +43,11 @@ function inferSideEffects(capabilityID: string): string[] {
 function inferPermissions(capabilityID: string): string[] {
   const id = capabilityID.toLowerCase();
   const permissions: string[] = [];
-  if (id.includes('channels.message.send') || id.includes('outbound')) permissions.push('external_message');
+  if (id.includes('channels.message.send') || id.includes('outbound'))
+    permissions.push('external_message');
   if (id.includes('desktop')) permissions.push('desktop_control');
-  if (id.includes('config') || id.includes('patch') || id.includes('write')) permissions.push('fs_write');
+  if (id.includes('config') || id.includes('patch') || id.includes('write'))
+    permissions.push('fs_write');
   if (id.includes('memory')) permissions.push('memory_write');
   if (id.includes('security')) permissions.push('security_sensitive');
   if (permissions.length === 0) permissions.push('read_only');
@@ -67,18 +72,14 @@ function buildSchema(
   return {
     id,
     version: input?.version ?? '1.0.0',
-    inputs:
-      input?.inputs ??
-      {
-        type: 'object',
-        additionalProperties: true,
-      },
-    outputs:
-      input?.outputs ??
-      {
-        type: 'object',
-        additionalProperties: true,
-      },
+    inputs: input?.inputs ?? {
+      type: 'object',
+      additionalProperties: true,
+    },
+    outputs: input?.outputs ?? {
+      type: 'object',
+      additionalProperties: true,
+    },
     sideEffects: normalizeUnique(input?.sideEffects ?? inferSideEffects(id)),
     permissions: normalizeUnique(input?.permissions ?? inferPermissions(id)),
     auditFields: normalizeUnique(input?.auditFields ?? defaultAuditFields(id)),
@@ -88,19 +89,24 @@ function buildSchema(
   };
 }
 
-export function buildGatewayCapabilitySchemas(methods: string[]): CapabilitySchema[] {
+export function buildGatewayCapabilitySchemas(
+  methods: string[],
+): CapabilitySchema[] {
   return methods
     .slice()
     .sort((a, b) => a.localeCompare(b))
     .map((method) => buildSchema(`gateway.${method}`));
 }
 
-export function buildSkillCapabilitySchemas(skills: SkillDescriptor[]): CapabilitySchema[] {
+export function buildSkillCapabilitySchemas(
+  skills: SkillDescriptor[],
+): CapabilitySchema[] {
   return skills.map((skill) =>
     buildSchema(`skill.${skill.id}`, {
       version: skill.frontmatter.version || '1.0.0',
       permissions:
-        Array.isArray(skill.frontmatter.permissions) && skill.frontmatter.permissions.length > 0
+        Array.isArray(skill.frontmatter.permissions) &&
+        skill.frontmatter.permissions.length > 0
           ? skill.frontmatter.permissions
           : inferPermissions(skill.id),
       inputs: {
@@ -120,7 +126,9 @@ export function buildSkillCapabilitySchemas(skills: SkillDescriptor[]): Capabili
   );
 }
 
-export function buildToolCapabilitySchemas(toolNames: string[]): CapabilitySchema[] {
+export function buildToolCapabilitySchemas(
+  toolNames: string[],
+): CapabilitySchema[] {
   return toolNames
     .slice()
     .sort((a, b) => a.localeCompare(b))

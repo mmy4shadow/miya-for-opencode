@@ -1,5 +1,5 @@
-import type { BackgroundTaskManager } from '../../background';
 import { handleAutoflowPersistentEvent } from '../../autoflow';
+import type { BackgroundTaskManager } from '../../background';
 
 interface PersistentAutoflowEventInput {
   type?: string;

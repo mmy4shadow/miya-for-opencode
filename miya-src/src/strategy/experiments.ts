@@ -3,7 +3,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 
-export type StrategyExperimentKey = 'routing' | 'memory_write' | 'approval_threshold';
+export type StrategyExperimentKey =
+  | 'routing'
+  | 'memory_write'
+  | 'approval_threshold';
 export type StrategyVariant = 'control' | 'treatment' | 'disabled';
 
 export interface StrategyExperimentRule {
@@ -49,7 +52,10 @@ function configFile(projectDir: string): string {
 }
 
 function observationFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'strategy-observations.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'strategy-observations.jsonl',
+  );
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -60,11 +66,21 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function normalizeRule(input: unknown, fallback: StrategyExperimentRule): StrategyExperimentRule {
-  const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+function normalizeRule(
+  input: unknown,
+  fallback: StrategyExperimentRule,
+): StrategyExperimentRule {
+  const obj =
+    input && typeof input === 'object'
+      ? (input as Record<string, unknown>)
+      : {};
   return {
     enabled: obj.enabled === true,
-    rolloutPercent: clamp(Number(obj.rolloutPercent ?? fallback.rolloutPercent), 0, 100),
+    rolloutPercent: clamp(
+      Number(obj.rolloutPercent ?? fallback.rolloutPercent),
+      0,
+      100,
+    ),
   };
 }
 
@@ -72,10 +88,15 @@ function readConfig(projectDir: string): StrategyExperimentConfig {
   const file = configFile(projectDir);
   if (!fs.existsSync(file)) return { ...DEFAULT_CONFIG };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<StrategyExperimentConfig>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<StrategyExperimentConfig>;
     return {
       routing: normalizeRule(parsed.routing, DEFAULT_CONFIG.routing),
-      memory_write: normalizeRule(parsed.memory_write, DEFAULT_CONFIG.memory_write),
+      memory_write: normalizeRule(
+        parsed.memory_write,
+        DEFAULT_CONFIG.memory_write,
+      ),
       approval_threshold: normalizeRule(
         parsed.approval_threshold,
         DEFAULT_CONFIG.approval_threshold,
@@ -133,7 +154,9 @@ export function resolveStrategyVariant(
   const config = readConfig(projectDir);
   const rule = config[experiment];
   if (!rule.enabled || rule.rolloutPercent <= 0) return 'disabled';
-  return bucket(subjectID, experiment) < rule.rolloutPercent ? 'treatment' : 'control';
+  return bucket(subjectID, experiment) < rule.rolloutPercent
+    ? 'treatment'
+    : 'control';
 }
 
 export function recordStrategyObservation(
@@ -169,7 +192,10 @@ export function recordStrategyObservation(
   return row;
 }
 
-function readObservations(projectDir: string, limit = 2000): StrategyObservation[] {
+function readObservations(
+  projectDir: string,
+  limit = 2000,
+): StrategyObservation[] {
   const file = observationFile(projectDir);
   if (!fs.existsSync(file)) return [];
   const rows: StrategyObservation[] = [];
@@ -193,7 +219,12 @@ export function summarizeStrategyObservations(
     total: number;
     byVariant: Record<
       StrategyVariant,
-      { total: number; successRate: number; avgCostUsd: number; avgRisk: number }
+      {
+        total: number;
+        successRate: number;
+        avgCostUsd: number;
+        avgRisk: number;
+      }
     >;
   }
 > {
@@ -209,7 +240,12 @@ export function summarizeStrategyObservations(
       total: number;
       byVariant: Record<
         StrategyVariant,
-        { total: number; successRate: number; avgCostUsd: number; avgRisk: number }
+        {
+          total: number;
+          successRate: number;
+          avgCostUsd: number;
+          avgRisk: number;
+        }
       >;
     }
   > = {
@@ -227,10 +263,16 @@ export function summarizeStrategyObservations(
     bucket.avgRisk += Number(row.riskScore ?? 0);
   }
   for (const experiment of Object.keys(summary) as StrategyExperimentKey[]) {
-    for (const variant of ['disabled', 'control', 'treatment'] as StrategyVariant[]) {
+    for (const variant of [
+      'disabled',
+      'control',
+      'treatment',
+    ] as StrategyVariant[]) {
       const bucket = summary[experiment].byVariant[variant];
       if (bucket.total === 0) continue;
-      bucket.successRate = Number((bucket.successRate / bucket.total).toFixed(4));
+      bucket.successRate = Number(
+        (bucket.successRate / bucket.total).toFixed(4),
+      );
       bucket.avgCostUsd = Number((bucket.avgCostUsd / bucket.total).toFixed(6));
       bucket.avgRisk = Number((bucket.avgRisk / bucket.total).toFixed(4));
     }

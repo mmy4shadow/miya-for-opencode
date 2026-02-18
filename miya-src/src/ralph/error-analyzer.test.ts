@@ -17,4 +17,3 @@ describe('ralph error analyzer', () => {
     expect(result.kind).toBe('unknown');
   });
 });
-

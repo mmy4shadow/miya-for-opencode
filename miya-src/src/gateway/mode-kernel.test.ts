@@ -17,7 +17,9 @@ describe('mode kernel', () => {
   test('detects chat mode for companionship request', () => {
     const result = evaluateModeKernel({
       text: '宝贝我今天有点焦虑，先陪我聊聊天好吗',
-      routeComplexity: analyzeRouteComplexity('宝贝我今天有点焦虑，先陪我聊聊天好吗'),
+      routeComplexity: analyzeRouteComplexity(
+        '宝贝我今天有点焦虑，先陪我聊聊天好吗',
+      ),
     });
     expect(result.mode).toBe('chat');
   });
@@ -25,7 +27,9 @@ describe('mode kernel', () => {
   test('detects mixed mode for work + emotional request', () => {
     const result = evaluateModeKernel({
       text: '边做边聊，先帮我修这个 bug，再抱抱我',
-      routeComplexity: analyzeRouteComplexity('边做边聊，先帮我修这个 bug，再抱抱我'),
+      routeComplexity: analyzeRouteComplexity(
+        '边做边聊，先帮我修这个 bug，再抱抱我',
+      ),
       sessionState: {
         activation: 'active',
         reply: 'auto',
@@ -50,4 +54,3 @@ describe('mode kernel', () => {
     expect(result.why.includes('psyche=focus')).toBe(true);
   });
 });
-

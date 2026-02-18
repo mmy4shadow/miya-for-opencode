@@ -10,7 +10,12 @@ export type AutoflowPhase =
   | 'failed'
   | 'stopped';
 
-export type AutoflowPipelineStage = 'plan' | 'exec' | 'verify' | 'fix' | 'terminal';
+export type AutoflowPipelineStage =
+  | 'plan'
+  | 'exec'
+  | 'verify'
+  | 'fix'
+  | 'terminal';
 
 export type AutoflowFixability =
   | 'rewrite'
@@ -55,7 +60,10 @@ export interface AutoflowManager {
     description: string;
     parentSessionId: string;
   }): AutoflowRuntimeTask;
-  waitForCompletion(taskID: string, timeoutMs?: number): Promise<AutoflowRuntimeTask | null>;
+  waitForCompletion(
+    taskID: string,
+    timeoutMs?: number,
+  ): Promise<AutoflowRuntimeTask | null>;
   getResult(taskID: string): AutoflowRuntimeTask | null;
   cancel(taskID?: string): number;
 }

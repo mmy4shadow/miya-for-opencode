@@ -64,18 +64,31 @@ export function discoverSkills(
   extraDirs: string[] = [],
 ): SkillDescriptor[] {
   const workspaceRoot = path.join(projectDir, 'skills');
-  const globalRoot = path.join(os.homedir(), '.config', 'opencode', 'miya', 'skills');
+  const globalRoot = path.join(
+    os.homedir(),
+    '.config',
+    'opencode',
+    'miya',
+    'skills',
+  );
 
-  const scopedDirs: Array<{ source: SkillDescriptor['source']; dirs: string[] }> = [
+  const scopedDirs: Array<{
+    source: SkillDescriptor['source'];
+    dirs: string[];
+  }> = [
     { source: 'workspace', dirs: listSkillDirs(workspaceRoot) },
     { source: 'global', dirs: listSkillDirs(globalRoot) },
     {
       source: 'builtin',
-      dirs: builtinSkillRoots(projectDir).flatMap((root) => listSkillDirs(root)),
+      dirs: builtinSkillRoots(projectDir).flatMap((root) =>
+        listSkillDirs(root),
+      ),
     },
     {
       source: 'extra',
-      dirs: extraDirs.flatMap((root) => listSkillDirs(path.resolve(projectDir, root))),
+      dirs: extraDirs.flatMap((root) =>
+        listSkillDirs(path.resolve(projectDir, root)),
+      ),
     },
   ];
 
@@ -115,7 +128,10 @@ export function discoverSkills(
       };
 
       const existing = byName.get(name);
-      if (!existing || precedence[scope.source] >= precedence[existing.source]) {
+      if (
+        !existing ||
+        precedence[scope.source] >= precedence[existing.source]
+      ) {
         byName.set(name, descriptor);
       }
     }

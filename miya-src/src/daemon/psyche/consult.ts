@@ -2,9 +2,6 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../../workflow';
-import { inferSentinelState, type SentinelSignals, type SentinelState } from './state-machine';
-import { collectNativeSentinelSignals, type NativeSentinelSignalSample } from './sensors';
-import { runScreenProbe, type ScreenProbeResult } from './screen-probe';
 import {
   adjustFastBrain,
   fastBrainBucket,
@@ -13,13 +10,23 @@ import {
 } from './bandit';
 import { appendPsycheObservation, appendPsycheOutcome } from './logger';
 import { consumeProbeBudget } from './probe-budget';
+import { runScreenProbe, type ScreenProbeResult } from './screen-probe';
+import {
+  collectNativeSentinelSignals,
+  type NativeSentinelSignalSample,
+} from './sensors';
+import { getActiveSlowBrainPolicy, type SlowBrainPolicy } from './slow-brain';
+import {
+  inferSentinelState,
+  type SentinelSignals,
+  type SentinelState,
+} from './state-machine';
 import {
   getTrustScore,
+  type TrustTier,
   trustTierFromScore,
   updateTrustScore,
-  type TrustTier,
 } from './trust';
-import { getActiveSlowBrainPolicy, type SlowBrainPolicy } from './slow-brain';
 
 export type PsycheUrgency = 'low' | 'medium' | 'high' | 'critical';
 export type PsycheDecision = 'allow' | 'defer' | 'deny';
@@ -41,8 +48,16 @@ export interface PsycheConsultRequest {
   };
 }
 
-export type PsycheApprovalMode = 'silent_audit' | 'toast_gate' | 'modal_approval';
-export type PsycheFixability = 'impossible' | 'rewrite' | 'reduce_scope' | 'need_evidence' | 'retry_later';
+export type PsycheApprovalMode =
+  | 'silent_audit'
+  | 'toast_gate'
+  | 'modal_approval';
+export type PsycheFixability =
+  | 'impossible'
+  | 'rewrite'
+  | 'reduce_scope'
+  | 'need_evidence'
+  | 'retry_later';
 
 export interface PsycheRiskSummary {
   falseIdleUncertain: boolean;
@@ -178,7 +193,9 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function asUrgency(value: unknown): PsycheUrgency {
-  return value === 'low' || value === 'high' || value === 'critical' ? value : 'medium';
+  return value === 'low' || value === 'high' || value === 'critical'
+    ? value
+    : 'medium';
 }
 
 export class PsycheConsultService {
@@ -206,7 +223,11 @@ export class PsycheConsultService {
       screenProbeProvider?: ScreenProbeProvider;
     },
   ) {
-    const psycheDir = path.join(getMiyaRuntimeDir(projectDir), 'daemon', 'psyche');
+    const psycheDir = path.join(
+      getMiyaRuntimeDir(projectDir),
+      'daemon',
+      'psyche',
+    );
     fs.mkdirSync(psycheDir, { recursive: true });
     this.fastBrainPath = path.join(psycheDir, 'fast-brain.json');
     this.consultLogPath = path.join(psycheDir, 'consult.jsonl');
@@ -215,11 +236,17 @@ export class PsycheConsultService {
     this.trainingDataLogPath = path.join(psycheDir, 'training-data.jsonl');
     this.trustPath = path.join(psycheDir, 'trust-score.json');
     this.lifecyclePath = path.join(psycheDir, 'lifecycle.json');
-    this.epsilon = Math.max(0, Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()));
+    this.epsilon = Math.max(
+      0,
+      Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()),
+    );
     this.shadowModeDays = this.resolveShadowModeDays(options?.shadowModeDays);
     this.random = options?.random ?? defaultRandomSource;
-    this.nativeSignalsProvider = options?.nativeSignalsProvider ?? (() => collectNativeSentinelSignals());
-    this.screenProbeProvider = options?.screenProbeProvider ?? ((probeInput) => runScreenProbe(probeInput));
+    this.nativeSignalsProvider =
+      options?.nativeSignalsProvider ?? (() => collectNativeSentinelSignals());
+    this.screenProbeProvider =
+      options?.screenProbeProvider ??
+      ((probeInput) => runScreenProbe(probeInput));
     this.ensureLifecycleState();
   }
 
@@ -239,8 +266,12 @@ export class PsycheConsultService {
           ...nativeSample.signals,
         };
     let captureLimitations = this.normalizeCaptureLimitations([
-      ...(Array.isArray(input.captureLimitations) ? input.captureLimitations : []),
-      ...(Array.isArray(incomingSignals.captureLimitations) ? incomingSignals.captureLimitations : []),
+      ...(Array.isArray(input.captureLimitations)
+        ? input.captureLimitations
+        : []),
+      ...(Array.isArray(incomingSignals.captureLimitations)
+        ? incomingSignals.captureLimitations
+        : []),
       ...nativeSample.captureLimitations,
     ]);
     let sentinel = inferSentinelState({
@@ -294,9 +325,18 @@ export class PsycheConsultService {
       channel: input.channel,
       userInitiated,
     });
-    const trustTarget = getTrustScore(this.trustPath, { kind: 'target', value: input.trust?.target });
-    const trustSource = getTrustScore(this.trustPath, { kind: 'source', value: input.trust?.source });
-    const trustAction = getTrustScore(this.trustPath, { kind: 'action', value: input.trust?.action });
+    const trustTarget = getTrustScore(this.trustPath, {
+      kind: 'target',
+      value: input.trust?.target,
+    });
+    const trustSource = getTrustScore(this.trustPath, {
+      kind: 'source',
+      value: input.trust?.source,
+    });
+    const trustAction = getTrustScore(this.trustPath, {
+      kind: 'action',
+      value: input.trust?.action,
+    });
     const minTrust = Math.min(trustTarget, trustSource, trustAction);
     const trustTier = trustTierFromScore(minTrust);
     const slowBrain = getActiveSlowBrainPolicy(this.projectDir);
@@ -338,7 +378,12 @@ export class PsycheConsultService {
     }
 
     let explorationApplied = false;
-    if (!userInitiated && decision === 'defer' && !shadowModeApplied && this.shouldExplore()) {
+    if (
+      !userInitiated &&
+      decision === 'defer' &&
+      !shadowModeApplied &&
+      this.shouldExplore()
+    ) {
       decision = 'allow';
       explorationApplied = true;
     }
@@ -350,8 +395,12 @@ export class PsycheConsultService {
       sentinel.shouldProbeScreen && !probeEnabled ? 'probe_disabled' : '',
       needsProbe && !shouldProbeScreen ? 'probe_rate_limited' : '',
       probeMethod ? `probe_method:${probeMethod}` : '',
-      typeof probeConfidence === 'number' ? `probe_confidence=${probeConfidence.toFixed(2)}` : '',
-      probeSceneTags.length > 0 ? `probe_scene=${probeSceneTags.join('|')}` : '',
+      typeof probeConfidence === 'number'
+        ? `probe_confidence=${probeConfidence.toFixed(2)}`
+        : '',
+      probeSceneTags.length > 0
+        ? `probe_scene=${probeSceneTags.join('|')}`
+        : '',
       `fast_brain_score=${fastBrainScore.toFixed(2)}`,
       `resonance_score=${resonance.score.toFixed(2)}`,
       `slow_brain=${slowBrain.versionID}`,
@@ -534,7 +583,8 @@ export class PsycheConsultService {
     const approved = input.delivered && feedback !== 'negative';
     const confidence = Number.isFinite(input.trust?.evidenceConfidence)
       ? Number(input.trust?.evidenceConfidence)
-      : typeof input.userReplyWithinSec === 'number' && input.userReplyWithinSec > 0
+      : typeof input.userReplyWithinSec === 'number' &&
+          input.userReplyWithinSec > 0
         ? 0.9
         : 0.7;
     if (input.trust?.target) {
@@ -608,7 +658,8 @@ export class PsycheConsultService {
     if (shouldProbeScreen && urgency !== 'critical') return 'defer';
     if (trustTier === 'low' && urgency !== 'critical') return 'deny';
     if (urgency === 'critical') return 'allow';
-    if (state === 'FOCUS' || state === 'PLAY' || state === 'UNKNOWN') return 'defer';
+    if (state === 'FOCUS' || state === 'PLAY' || state === 'UNKNOWN')
+      return 'defer';
     if (state === 'CONSUME') {
       const threshold =
         urgency === 'high'
@@ -630,13 +681,18 @@ export class PsycheConsultService {
     userInitiated: boolean;
   }): PsycheFixability {
     if (input.decision === 'deny') {
-      if (input.trustTier === 'low' && !input.userInitiated) return 'impossible';
+      if (input.trustTier === 'low' && !input.userInitiated)
+        return 'impossible';
       return 'reduce_scope';
     }
     if (input.reasons.some((item) => item.includes('probe'))) {
       return 'need_evidence';
     }
-    if (input.state === 'FOCUS' || input.state === 'PLAY' || input.state === 'UNKNOWN') {
+    if (
+      input.state === 'FOCUS' ||
+      input.state === 'PLAY' ||
+      input.state === 'UNKNOWN'
+    ) {
       return 'retry_later';
     }
     return 'rewrite';
@@ -658,7 +714,9 @@ export class PsycheConsultService {
   } {
     const intent = input.intent.toLowerCase();
     const semanticFocus = clamp(
-      (intent.includes('remind') || intent.includes('checkin') || intent.includes('schedule')
+      (intent.includes('remind') ||
+      intent.includes('checkin') ||
+      intent.includes('schedule')
         ? 0.78
         : intent.includes('notify') || intent.includes('reply')
           ? 0.62
@@ -675,16 +733,27 @@ export class PsycheConsultService {
     );
     const momentum = clamp(
       input.fastBrainScore * 0.65 +
-        (input.state === 'AWAY' ? 0.2 : input.state === 'CONSUME' ? 0.08 : -0.08),
+        (input.state === 'AWAY'
+          ? 0.2
+          : input.state === 'CONSUME'
+            ? 0.08
+            : -0.08),
       0,
       1,
     );
-    const riskPenalty = input.riskReasons.some((item) => item.includes('probe') || item.includes('capture'))
+    const riskPenalty = input.riskReasons.some(
+      (item) => item.includes('probe') || item.includes('capture'),
+    )
       ? 0.14
       : 0;
-    const trustBoost = input.trustTier === 'high' ? 0.08 : input.trustTier === 'low' ? -0.12 : 0;
+    const trustBoost =
+      input.trustTier === 'high' ? 0.08 : input.trustTier === 'low' ? -0.12 : 0;
     const score = clamp(
-      semanticFocus * 0.45 + momentum * 0.45 + trustBoost - riskPenalty - (input.shouldProbeScreen ? 0.08 : 0),
+      semanticFocus * 0.45 +
+        momentum * 0.45 +
+        trustBoost -
+        riskPenalty -
+        (input.shouldProbeScreen ? 0.08 : 0),
       0,
       1,
     );
@@ -708,8 +777,13 @@ export class PsycheConsultService {
     trustTier: TrustTier;
   }): PsycheApprovalMode {
     if (input.decision !== 'allow') return 'modal_approval';
-    if (input.trustTier === 'high' && input.urgency === 'low') return 'silent_audit';
-    if (input.trustTier === 'low' || input.urgency === 'high' || input.urgency === 'critical') {
+    if (input.trustTier === 'high' && input.urgency === 'low')
+      return 'silent_audit';
+    if (
+      input.trustTier === 'low' ||
+      input.urgency === 'high' ||
+      input.urgency === 'critical'
+    ) {
       return 'modal_approval';
     }
     return 'toast_gate';
@@ -780,16 +854,23 @@ export class PsycheConsultService {
   }
 
   private appendConsultLog(result: PsycheConsultResult): void {
-    fs.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}\n`, 'utf-8');
+    fs.appendFileSync(
+      this.consultLogPath,
+      `${JSON.stringify(result)}\n`,
+      'utf-8',
+    );
   }
 
   private safeReadNativeSignals(): NativeSentinelSignalSample {
     try {
       const sample = this.nativeSignalsProvider();
       return {
-        sampledAt: typeof sample.sampledAt === 'string' ? sample.sampledAt : nowIso(),
+        sampledAt:
+          typeof sample.sampledAt === 'string' ? sample.sampledAt : nowIso(),
         signals: sample.signals ?? {},
-        captureLimitations: this.normalizeCaptureLimitations(sample.captureLimitations),
+        captureLimitations: this.normalizeCaptureLimitations(
+          sample.captureLimitations,
+        ),
       };
     } catch (error) {
       return {
@@ -812,11 +893,18 @@ export class PsycheConsultService {
       return {
         status: result.status,
         method: result.method,
-        captureLimitations: this.normalizeCaptureLimitations(result.captureLimitations),
+        captureLimitations: this.normalizeCaptureLimitations(
+          result.captureLimitations,
+        ),
         sceneTags: Array.isArray(result.sceneTags)
-          ? result.sceneTags.map((item) => String(item ?? '').trim()).filter(Boolean).slice(0, 8)
+          ? result.sceneTags
+              .map((item) => String(item ?? '').trim())
+              .filter(Boolean)
+              .slice(0, 8)
           : [],
-        confidence: Number.isFinite(result.confidence) ? Number(result.confidence) : 0,
+        confidence: Number.isFinite(result.confidence)
+          ? Number(result.confidence)
+          : 0,
         inferredSignals: result.inferredSignals ?? {},
       };
     } catch (error) {
@@ -839,10 +927,18 @@ export class PsycheConsultService {
   }
 
   private probeBudgetConfig(): { capacity: number; refillPerSec: number } {
-    const capacityRaw = Number(process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY ?? 2);
-    const windowSecRaw = Number(process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC ?? 60);
-    const capacity = Number.isFinite(capacityRaw) ? Math.max(1, Math.floor(capacityRaw)) : 2;
-    const windowSec = Number.isFinite(windowSecRaw) ? Math.max(1, windowSecRaw) : 60;
+    const capacityRaw = Number(
+      process.env.MIYA_PSYCHE_PROBE_BUCKET_CAPACITY ?? 2,
+    );
+    const windowSecRaw = Number(
+      process.env.MIYA_PSYCHE_PROBE_BUCKET_WINDOW_SEC ?? 60,
+    );
+    const capacity = Number.isFinite(capacityRaw)
+      ? Math.max(1, Math.floor(capacityRaw))
+      : 2;
+    const windowSec = Number.isFinite(windowSecRaw)
+      ? Math.max(1, windowSecRaw)
+      : 60;
     return {
       capacity,
       refillPerSec: capacity / windowSec,
@@ -862,7 +958,10 @@ export class PsycheConsultService {
 
   private resolveShadowModeDays(override?: number): number {
     const raw = Number(
-      override ?? process.env.MIYA_PSYCHE_SHADOW_MODE_DAYS ?? process.env.MIYA_PSYCHE_COLDSTART_DAYS ?? 7,
+      override ??
+        process.env.MIYA_PSYCHE_SHADOW_MODE_DAYS ??
+        process.env.MIYA_PSYCHE_COLDSTART_DAYS ??
+        7,
     );
     if (!Number.isFinite(raw)) return 7;
     return Math.max(0, Math.min(30, Math.floor(raw)));
@@ -871,17 +970,28 @@ export class PsycheConsultService {
   private ensureLifecycleState(): void {
     if (fs.existsSync(this.lifecyclePath)) return;
     const seed: PsycheLifecycleState = { firstSeenAt: nowIso() };
-    fs.writeFileSync(this.lifecyclePath, `${JSON.stringify(seed, null, 2)}\n`, 'utf-8');
+    fs.writeFileSync(
+      this.lifecyclePath,
+      `${JSON.stringify(seed, null, 2)}\n`,
+      'utf-8',
+    );
   }
 
   private readLifecycleState(): PsycheLifecycleState {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.lifecyclePath, 'utf-8')) as Partial<PsycheLifecycleState>;
-      const firstSeenAt = typeof parsed.firstSeenAt === 'string' ? parsed.firstSeenAt : nowIso();
+      const parsed = JSON.parse(
+        fs.readFileSync(this.lifecyclePath, 'utf-8'),
+      ) as Partial<PsycheLifecycleState>;
+      const firstSeenAt =
+        typeof parsed.firstSeenAt === 'string' ? parsed.firstSeenAt : nowIso();
       return { firstSeenAt };
     } catch {
       const fallback: PsycheLifecycleState = { firstSeenAt: nowIso() };
-      fs.writeFileSync(this.lifecyclePath, `${JSON.stringify(fallback, null, 2)}\n`, 'utf-8');
+      fs.writeFileSync(
+        this.lifecyclePath,
+        `${JSON.stringify(fallback, null, 2)}\n`,
+        'utf-8',
+      );
       return fallback;
     }
   }
@@ -897,7 +1007,11 @@ export class PsycheConsultService {
   private normalizeCaptureLimitations(value: unknown): string[] {
     if (!Array.isArray(value)) return [];
     return value
-      .map((item) => String(item ?? '').trim().toLowerCase())
+      .map((item) =>
+        String(item ?? '')
+          .trim()
+          .toLowerCase(),
+      )
       .filter((item) => item.length > 0)
       .slice(0, 12);
   }
@@ -940,7 +1054,8 @@ export class PsycheConsultService {
   }): number {
     if (input.decision === 'allow') return 0;
     if (input.shadowModeApplied) return 120;
-    if (input.urgency === 'critical') return input.risk.falseIdleUncertain ? 20 : 10;
+    if (input.urgency === 'critical')
+      return input.risk.falseIdleUncertain ? 20 : 10;
     let base = input.slowBrain.parameters.deferRetryBaseSec;
     if (input.state === 'FOCUS' || input.state === 'PLAY') base = 300;
     else if (input.state === 'UNKNOWN') base = 180;
@@ -1010,7 +1125,10 @@ export class PsycheConsultService {
   } | null {
     if (!fs.existsSync(this.consultLogPath)) return null;
     const nowMs = Date.parse(input.at);
-    const lines = fs.readFileSync(this.consultLogPath, 'utf-8').trim().split(/\r?\n/);
+    const lines = fs
+      .readFileSync(this.consultLogPath, 'utf-8')
+      .trim()
+      .split(/\r?\n/);
     const recentLines = lines.slice(-120).reverse();
     for (const line of recentLines) {
       try {
@@ -1018,9 +1136,16 @@ export class PsycheConsultService {
         if (!row || row.auditID === input.consultAuditID) continue;
         if (row.userInitiated !== false) continue;
         if (row.decision !== 'defer') continue;
-        if (row.state !== 'FOCUS' && row.state !== 'PLAY' && row.state !== 'UNKNOWN') continue;
-        const rowChannel = typeof row.channel === 'string' ? row.channel : undefined;
-        if (input.channel && rowChannel && input.channel !== rowChannel) continue;
+        if (
+          row.state !== 'FOCUS' &&
+          row.state !== 'PLAY' &&
+          row.state !== 'UNKNOWN'
+        )
+          continue;
+        const rowChannel =
+          typeof row.channel === 'string' ? row.channel : undefined;
+        if (input.channel && rowChannel && input.channel !== rowChannel)
+          continue;
         if (typeof row.at !== 'string') continue;
         const rowMs = Date.parse(row.at);
         if (!Number.isFinite(rowMs) || !Number.isFinite(nowMs)) continue;
@@ -1034,9 +1159,7 @@ export class PsycheConsultService {
           channel: rowChannel,
           state: row.state,
         };
-      } catch {
-        continue;
-      }
+      } catch {}
     }
     return null;
   }
@@ -1052,16 +1175,28 @@ export class PsycheConsultService {
     if (input.explicitFeedback === 'positive') return 1;
     if (!input.delivered) {
       const blockedReason = String(input.blockedReason ?? '').toLowerCase();
-      const userInitiatedWithinSec = Number(input.userInitiatedWithinSec ?? Number.NaN);
-      if (Number.isFinite(userInitiatedWithinSec) && userInitiatedWithinSec > 0 && userInitiatedWithinSec <= 300) {
+      const userInitiatedWithinSec = Number(
+        input.userInitiatedWithinSec ?? Number.NaN,
+      );
+      if (
+        Number.isFinite(userInitiatedWithinSec) &&
+        userInitiatedWithinSec > 0 &&
+        userInitiatedWithinSec <= 300
+      ) {
         return -0.25;
       }
-      if (blockedReason.includes('psyche_deferred') || blockedReason.includes('safe_hold')) {
+      if (
+        blockedReason.includes('psyche_deferred') ||
+        blockedReason.includes('safe_hold')
+      ) {
         return 0.2;
       }
       return blockedReason ? -0.5 : -0.3;
     }
-    if (typeof input.userReplyWithinSec === 'number' && input.userReplyWithinSec > 0) {
+    if (
+      typeof input.userReplyWithinSec === 'number' &&
+      input.userReplyWithinSec > 0
+    ) {
       if (input.userReplyWithinSec <= 180) return 0.8;
       if (input.userReplyWithinSec <= 600) return 0.4;
     }
@@ -1084,7 +1219,10 @@ export class PsycheConsultService {
       active = { windowStartedAt: nowIso(), used: 0 };
     } else {
       const startedAtMs = Date.parse(current.windowStartedAt);
-      if (!Number.isFinite(startedAtMs) || now - startedAtMs >= policy.windowSec * 1000) {
+      if (
+        !Number.isFinite(startedAtMs) ||
+        now - startedAtMs >= policy.windowSec * 1000
+      ) {
         active = { windowStartedAt: nowIso(), used: 0 };
       } else {
         active = {
@@ -1098,14 +1236,20 @@ export class PsycheConsultService {
       active.used += 1;
     }
     store.byState[state] = active;
-    fs.writeFileSync(this.budgetPath, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+    fs.writeFileSync(
+      this.budgetPath,
+      `${JSON.stringify(store, null, 2)}\n`,
+      'utf-8',
+    );
     return { blocked };
   }
 
   private readBudgetStore(): InterruptionBudgetStore {
     if (!fs.existsSync(this.budgetPath)) return { byState: {} };
     try {
-      return JSON.parse(fs.readFileSync(this.budgetPath, 'utf-8')) as InterruptionBudgetStore;
+      return JSON.parse(
+        fs.readFileSync(this.budgetPath, 'utf-8'),
+      ) as InterruptionBudgetStore;
     } catch {
       return { byState: {} };
     }

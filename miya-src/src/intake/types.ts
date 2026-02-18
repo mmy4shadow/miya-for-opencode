@@ -74,4 +74,3 @@ export interface IntakeState {
   blacklist: IntakeListEntry[];
   events: IntakeEvaluationEvent[];
 }
-

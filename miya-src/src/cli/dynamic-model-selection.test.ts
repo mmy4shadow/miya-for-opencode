@@ -87,8 +87,8 @@ describe('dynamic-model-selection', () => {
     expect(chains['4-architecture-advisor']).toContain('openai/gpt-5.3-codex');
     expect(chains['1-task-manager']).toContain('chutes/kimi-k2.5');
     expect(chains['2-code-search']).toContain('opencode/gpt-5-nano');
-    expect(
-      chains['5-code-fixer'][chains['5-code-fixer'].length - 1],
-    ).toBe('opencode/big-pickle');
+    expect(chains['5-code-fixer'][chains['5-code-fixer'].length - 1]).toBe(
+      'opencode/big-pickle',
+    );
   });
 });

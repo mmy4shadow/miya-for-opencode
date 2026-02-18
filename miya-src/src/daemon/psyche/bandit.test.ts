@@ -23,7 +23,9 @@ describe('psyche bandit store', () => {
       channel: 'QQ',
       userInitiated: true,
     });
-    expect(key).toBe('state=FOCUS|intent=outbound.send.qq|urgency=medium|channel=qq|user=1');
+    expect(key).toBe(
+      'state=FOCUS|intent=outbound.send.qq|urgency=medium|channel=qq|user=1',
+    );
   });
 
   test('updates approval and reward score', () => {

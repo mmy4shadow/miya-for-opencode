@@ -69,7 +69,9 @@ function readStore(projectDir: string): ModeObservabilityStore {
   const file = storePath(projectDir);
   if (!fs.existsSync(file)) return defaultStore();
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ModeObservabilityStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<ModeObservabilityStore>;
     return {
       ...defaultStore(),
       ...parsed,
@@ -83,9 +85,16 @@ function readStore(projectDir: string): ModeObservabilityStore {
   }
 }
 
-function writeStore(projectDir: string, store: ModeObservabilityStore): ModeObservabilityStore {
+function writeStore(
+  projectDir: string,
+  store: ModeObservabilityStore,
+): ModeObservabilityStore {
   fs.mkdirSync(path.dirname(storePath(projectDir)), { recursive: true });
-  fs.writeFileSync(storePath(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    storePath(projectDir),
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
   return store;
 }
 
@@ -94,16 +103,27 @@ function safeRate(numerator: number, denominator: number): number {
   return Number((numerator / denominator).toFixed(4));
 }
 
-export function readModeObservability(projectDir: string): ModeObservabilitySnapshot {
+export function readModeObservability(
+  projectDir: string,
+): ModeObservabilitySnapshot {
   const store = readStore(projectDir);
   const turns = Math.max(0, store.totals.turns);
-  const modeSwitchFrequency = safeRate(store.totals.modeSwitches, Math.max(1, turns - 1));
-  const misclassificationRollbackRate = safeRate(store.totals.misclassificationRollbacks, Math.max(1, turns));
+  const modeSwitchFrequency = safeRate(
+    store.totals.modeSwitches,
+    Math.max(1, turns - 1),
+  );
+  const misclassificationRollbackRate = safeRate(
+    store.totals.misclassificationRollbacks,
+    Math.max(1, turns),
+  );
   const autonomousTaskCompletionRate = safeRate(
     store.totals.autonomousCompletions,
     Math.max(1, store.totals.autonomousAttempts),
   );
-  const userNegativeFeedbackRate = safeRate(store.totals.negativeFeedbackTurns, Math.max(1, turns));
+  const userNegativeFeedbackRate = safeRate(
+    store.totals.negativeFeedbackTurns,
+    Math.max(1, turns),
+  );
   return {
     totals: store.totals,
     metrics: {
@@ -147,4 +167,3 @@ export function detectNegativeFeedbackText(text: string): boolean {
     String(text ?? '').trim(),
   );
 }
-

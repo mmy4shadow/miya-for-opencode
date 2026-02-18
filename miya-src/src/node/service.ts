@@ -61,15 +61,22 @@ export class NodeService {
     return describeNode(this.projectDir, nodeID);
   }
 
-  issueToken(nodeID: string): { nodeID: string; token: string; issuedAt: string } | null {
+  issueToken(
+    nodeID: string,
+  ): { nodeID: string; token: string; issuedAt: string } | null {
     return issueNodeToken(this.projectDir, nodeID);
   }
 
-  createPairRequest(input: { nodeID: string; deviceID: string }): NodePairRequest {
+  createPairRequest(input: {
+    nodeID: string;
+    deviceID: string;
+  }): NodePairRequest {
     return createNodePairRequest(this.projectDir, input);
   }
 
-  listPairRequests(status?: 'pending' | 'approved' | 'rejected'): NodePairRequest[] {
+  listPairRequests(
+    status?: 'pending' | 'approved' | 'rejected',
+  ): NodePairRequest[] {
     return listNodePairs(this.projectDir, status);
   }
 

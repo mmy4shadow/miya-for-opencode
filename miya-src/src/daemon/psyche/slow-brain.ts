@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../../workflow';
-import { readPsycheTrainingSummary, type PsycheTrainingSummary } from './training-summary';
+import {
+  type PsycheTrainingSummary,
+  readPsycheTrainingSummary,
+} from './training-summary';
 
 export interface SlowBrainPolicyParameters {
   consumeAllowThreshold: number;
@@ -40,7 +43,10 @@ export interface SlowBrainState {
 
 export interface SlowBrainRetrainResult {
   ok: boolean;
-  reason: 'trained' | 'skipped_insufficient_outcomes' | 'skipped_recently_trained';
+  reason:
+    | 'trained'
+    | 'skipped_insufficient_outcomes'
+    | 'skipped_recently_trained';
   state: SlowBrainState;
   policy?: SlowBrainPolicy;
 }
@@ -65,7 +71,12 @@ function clamp(input: number, min: number, max: number): number {
 }
 
 function slowBrainFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'daemon', 'psyche', 'slow-brain.json');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'daemon',
+    'psyche',
+    'slow-brain.json',
+  );
 }
 
 function defaultParameters(): SlowBrainPolicyParameters {
@@ -101,17 +112,22 @@ function normalizePolicy(raw: unknown): SlowBrainPolicy | null {
   const row = raw as Record<string, unknown>;
   const versionID = String(row.versionID ?? '').trim();
   if (!versionID) return null;
-  const createdAt = typeof row.createdAt === 'string' ? row.createdAt : nowIso();
+  const createdAt =
+    typeof row.createdAt === 'string' ? row.createdAt : nowIso();
   const sourceRaw =
     row.source && typeof row.source === 'object' && !Array.isArray(row.source)
       ? (row.source as Record<string, unknown>)
       : {};
   const metricsRaw =
-    row.metrics && typeof row.metrics === 'object' && !Array.isArray(row.metrics)
+    row.metrics &&
+    typeof row.metrics === 'object' &&
+    !Array.isArray(row.metrics)
       ? (row.metrics as Record<string, unknown>)
       : {};
   const paramsRaw =
-    row.parameters && typeof row.parameters === 'object' && !Array.isArray(row.parameters)
+    row.parameters &&
+    typeof row.parameters === 'object' &&
+    !Array.isArray(row.parameters)
       ? (row.parameters as Record<string, unknown>)
       : {};
   const source = {
@@ -122,8 +138,14 @@ function normalizePolicy(raw: unknown): SlowBrainPolicy | null {
     positiveRate: clamp(Number(metricsRaw.positiveRate ?? 0), 0, 1),
     avgScore: clamp(Number(metricsRaw.avgScore ?? 0), -1, 1),
     safeHoldDefers: Math.max(0, Number(metricsRaw.safeHoldDefers ?? 0) || 0),
-    falseIdleRiskSignals: Math.max(0, Number(metricsRaw.falseIdleRiskSignals ?? 0) || 0),
-    drmCaptureBlockedSignals: Math.max(0, Number(metricsRaw.drmCaptureBlockedSignals ?? 0) || 0),
+    falseIdleRiskSignals: Math.max(
+      0,
+      Number(metricsRaw.falseIdleRiskSignals ?? 0) || 0,
+    ),
+    drmCaptureBlockedSignals: Math.max(
+      0,
+      Number(metricsRaw.drmCaptureBlockedSignals ?? 0) || 0,
+    ),
   };
   const defaults = defaultParameters();
   const parameters = {
@@ -139,9 +161,19 @@ function normalizePolicy(raw: unknown): SlowBrainPolicy | null {
     ),
     deferRetryBaseSec: Math.max(
       15,
-      Math.min(900, Math.floor(Number(paramsRaw.deferRetryBaseSec ?? defaults.deferRetryBaseSec) || 0)),
+      Math.min(
+        900,
+        Math.floor(
+          Number(paramsRaw.deferRetryBaseSec ?? defaults.deferRetryBaseSec) ||
+            0,
+        ),
+      ),
     ),
-    confidenceBoost: clamp(Number(paramsRaw.confidenceBoost ?? defaults.confidenceBoost), 0.2, 0.95),
+    confidenceBoost: clamp(
+      Number(paramsRaw.confidenceBoost ?? defaults.confidenceBoost),
+      0.2,
+      0.95,
+    ),
   };
   return {
     versionID,
@@ -162,11 +194,14 @@ function normalizeState(raw: unknown): SlowBrainState {
   }
   const row = raw as Record<string, unknown>;
   const versions = Array.isArray(row.versions)
-    ? row.versions.map(normalizePolicy).filter((item): item is SlowBrainPolicy => Boolean(item))
+    ? row.versions
+        .map(normalizePolicy)
+        .filter((item): item is SlowBrainPolicy => Boolean(item))
     : [];
   return {
     activeVersionID:
-      typeof row.activeVersionID === 'string' && row.activeVersionID.trim().length > 0
+      typeof row.activeVersionID === 'string' &&
+      row.activeVersionID.trim().length > 0
         ? row.activeVersionID.trim()
         : undefined,
     versions,
@@ -178,9 +213,12 @@ function normalizeState(raw: unknown): SlowBrainState {
         ? row.status
         : 'idle',
     updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : nowIso(),
-    lastRetrainAt: typeof row.lastRetrainAt === 'string' ? row.lastRetrainAt : undefined,
-    lastRollbackAt: typeof row.lastRollbackAt === 'string' ? row.lastRollbackAt : undefined,
-    lastSkipReason: typeof row.lastSkipReason === 'string' ? row.lastSkipReason : undefined,
+    lastRetrainAt:
+      typeof row.lastRetrainAt === 'string' ? row.lastRetrainAt : undefined,
+    lastRollbackAt:
+      typeof row.lastRollbackAt === 'string' ? row.lastRollbackAt : undefined,
+    lastSkipReason:
+      typeof row.lastSkipReason === 'string' ? row.lastSkipReason : undefined,
   };
 }
 
@@ -193,20 +231,28 @@ function writeState(projectDir: string, state: SlowBrainState): void {
 function summarizeToPolicy(summary: PsycheTrainingSummary): SlowBrainPolicy {
   const positiveRate = clamp(summary.outcomesSummary.positiveRate, 0, 1);
   const avgScore = clamp(summary.outcomesSummary.avgScore, -1, 1);
-  const safeHoldPressure = clamp(summary.resonance.safeHoldDefers / Math.max(1, summary.observations), 0, 1);
+  const safeHoldPressure = clamp(
+    summary.resonance.safeHoldDefers / Math.max(1, summary.observations),
+    0,
+    1,
+  );
   const falseIdlePressure = clamp(
     summary.resonance.falseIdleRiskSignals / Math.max(1, summary.observations),
     0,
     1,
   );
   const drmPressure = clamp(
-    summary.resonance.drmCaptureBlockedSignals / Math.max(1, summary.observations),
+    summary.resonance.drmCaptureBlockedSignals /
+      Math.max(1, summary.observations),
     0,
     1,
   );
 
   const consumeAllowThreshold = clamp(
-    0.52 + (0.5 - positiveRate) * 0.25 + falseIdlePressure * 0.18 + drmPressure * 0.1,
+    0.52 +
+      (0.5 - positiveRate) * 0.25 +
+      falseIdlePressure * 0.18 +
+      drmPressure * 0.1,
     0.35,
     0.88,
   );
@@ -217,10 +263,19 @@ function summarizeToPolicy(summary: PsycheTrainingSummary): SlowBrainPolicy {
   );
   const deferRetryBaseSec = Math.max(
     30,
-    Math.min(900, Math.floor(90 + summary.resonance.safeHoldDefers * 3 + falseIdlePressure * 120)),
+    Math.min(
+      900,
+      Math.floor(
+        90 + summary.resonance.safeHoldDefers * 3 + falseIdlePressure * 120,
+      ),
+    ),
   );
   const confidenceBoost = clamp(
-    0.5 + positiveRate * 0.3 - falseIdlePressure * 0.15 - drmPressure * 0.08 + avgScore * 0.1,
+    0.5 +
+      positiveRate * 0.3 -
+      falseIdlePressure * 0.15 -
+      drmPressure * 0.08 +
+      avgScore * 0.1,
     0.2,
     0.92,
   );
@@ -291,10 +346,13 @@ export function readSlowBrainState(projectDir: string): SlowBrainState {
 export function getActiveSlowBrainPolicy(projectDir: string): SlowBrainPolicy {
   const state = readSlowBrainState(projectDir);
   if (state.activeVersionID) {
-    const active = state.versions.find((item) => item.versionID === state.activeVersionID);
+    const active = state.versions.find(
+      (item) => item.versionID === state.activeVersionID,
+    );
     if (active) return active;
   }
-  if (state.versions.length > 0) return state.versions[state.versions.length - 1] as SlowBrainPolicy;
+  if (state.versions.length > 0)
+    return state.versions[state.versions.length - 1] as SlowBrainPolicy;
   return defaultPolicy();
 }
 
@@ -308,7 +366,9 @@ export function retrainSlowBrainPolicy(
   },
 ): SlowBrainRetrainResult {
   const minOutcomes = Math.max(1, Math.floor(options?.minOutcomes ?? 20));
-  const summary = options?.summary ?? readPsycheTrainingSummary(projectDir, options?.trainingWindow ?? 600);
+  const summary =
+    options?.summary ??
+    readPsycheTrainingSummary(projectDir, options?.trainingWindow ?? 600);
   const state = readSlowBrainState(projectDir);
   if (!options?.force && summary.outcomes < minOutcomes) {
     const skipped: SlowBrainState = {
@@ -352,7 +412,10 @@ export function maybeAutoRetrainSlowBrain(
     trainingWindow?: number;
   },
 ): SlowBrainRetrainResult {
-  const minIntervalSec = Math.max(300, Math.floor(options?.minIntervalSec ?? 3600));
+  const minIntervalSec = Math.max(
+    300,
+    Math.floor(options?.minIntervalSec ?? 3600),
+  );
   const state = readSlowBrainState(projectDir);
   const lastMs = Date.parse(state.lastRetrainAt ?? '');
   if (Number.isFinite(lastMs) && Date.now() - lastMs < minIntervalSec * 1000) {
@@ -384,11 +447,15 @@ export function rollbackSlowBrainPolicy(
   const currentID = state.activeVersionID;
   const target = targetVersionID
     ? state.versions.find((item) => item.versionID === targetVersionID)
-    : [...state.versions].reverse().find((item) => item.versionID !== currentID);
+    : [...state.versions]
+        .reverse()
+        .find((item) => item.versionID !== currentID);
   if (!target) {
     return {
       ok: false,
-      reason: targetVersionID ? 'rollback_target_not_found' : 'rollback_history_insufficient',
+      reason: targetVersionID
+        ? 'rollback_target_not_found'
+        : 'rollback_history_insufficient',
       state,
     };
   }
@@ -413,4 +480,3 @@ export function rollbackSlowBrainPolicy(
     state: next,
   };
 }
-

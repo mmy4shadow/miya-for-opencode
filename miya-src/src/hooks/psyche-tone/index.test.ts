@@ -11,8 +11,7 @@ describe('psyche tone hook', () => {
           parts: [
             {
               type: 'text',
-              text:
-                '[MIYA_MODE_KERNEL v1]\nmode=chat\nconfidence=0.770\nwhy=text_signal=chat\n[/MIYA_MODE_KERNEL]\n\n---\n\n我今天很焦虑，想聊聊',
+              text: '[MIYA_MODE_KERNEL v1]\nmode=chat\nconfidence=0.770\nwhy=text_signal=chat\n[/MIYA_MODE_KERNEL]\n\n---\n\n我今天很焦虑，想聊聊',
             },
           ],
         },
@@ -35,8 +34,7 @@ describe('psyche tone hook', () => {
           parts: [
             {
               type: 'text',
-              text:
-                '[MIYA_MODE_KERNEL v1]\nmode=work\nconfidence=0.880\nwhy=text_signal=work\n[/MIYA_MODE_KERNEL]\n\n---\n\n修复 TypeError',
+              text: '[MIYA_MODE_KERNEL v1]\nmode=work\nconfidence=0.880\nwhy=text_signal=work\n[/MIYA_MODE_KERNEL]\n\n---\n\n修复 TypeError',
             },
           ],
         },

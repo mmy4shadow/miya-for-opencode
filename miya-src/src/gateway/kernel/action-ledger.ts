@@ -23,7 +23,11 @@ export interface ToolActionLedgerEvent {
 }
 
 function ledgerFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'audit', 'tool-action-ledger.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'audit',
+    'tool-action-ledger.jsonl',
+  );
 }
 
 function nowIso(): string {
@@ -62,7 +66,8 @@ function summarizeParams(params: Record<string, unknown>): string {
 function summarizeResult(result: unknown): string {
   if (result === null || result === undefined) return 'null';
   if (typeof result === 'string') return result.slice(0, 240);
-  if (typeof result === 'number' || typeof result === 'boolean') return String(result);
+  if (typeof result === 'number' || typeof result === 'boolean')
+    return String(result);
   try {
     return JSON.stringify(result).slice(0, 400);
   } catch {
@@ -70,9 +75,16 @@ function summarizeResult(result: unknown): string {
   }
 }
 
-function replayToken(eventID: string, method: string, inputHash: string): string {
-  const secret = process.env.MIYA_ACTION_LEDGER_SECRET?.trim() || 'miya-action-ledger-v1';
-  return createHmac('sha256', secret).update(`${eventID}:${method}:${inputHash}`).digest('hex');
+function replayToken(
+  eventID: string,
+  method: string,
+  inputHash: string,
+): string {
+  const secret =
+    process.env.MIYA_ACTION_LEDGER_SECRET?.trim() || 'miya-action-ledger-v1';
+  return createHmac('sha256', secret)
+    .update(`${eventID}:${method}:${inputHash}`)
+    .digest('hex');
 }
 
 function safeReadRows(file: string): ToolActionLedgerEvent[] {
@@ -125,10 +137,14 @@ export function appendToolActionLedgerEvent(
   const previousHash = rows[rows.length - 1]?.entryHash ?? 'GENESIS';
   const inputSummary = summarizeParams(input.params);
   const inputHash = digest(inputSummary);
-  const resultText = input.status === 'completed' ? summarizeResult(input.result) : summarizeResult(input.error);
+  const resultText =
+    input.status === 'completed'
+      ? summarizeResult(input.result)
+      : summarizeResult(input.error);
   const resultHash = digest(resultText);
   const id = `tae_${randomUUID()}`;
-  const approvalBasis = input.approvalBasis?.trim() || deriveApprovalBasis(input.params);
+  const approvalBasis =
+    input.approvalBasis?.trim() || deriveApprovalBasis(input.params);
   const at = nowIso();
   const entryHash = digest(
     [

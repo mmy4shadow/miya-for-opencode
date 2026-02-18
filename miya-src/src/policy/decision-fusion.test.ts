@@ -70,7 +70,9 @@ describe('outbound decision fusion', () => {
     });
     expect(result.action).toBe('allow');
     expect(result.zone).toBe('gray');
-    expect(result.reason).toBe('decision_fusion_low_evidence_confirmation_required');
+    expect(result.reason).toBe(
+      'decision_fusion_low_evidence_confirmation_required',
+    );
     expect(result.approvalMode).toBe('modal_approval');
   });
 

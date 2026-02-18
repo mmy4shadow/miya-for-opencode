@@ -1,10 +1,10 @@
-export { DEFAULT_SOUL_MARKDOWN } from './templates';
 export {
   loadSoulProfile,
+  type SoulLayerDepth,
+  type SoulLayerMode,
   saveSoulMarkdown,
   soulFilePath,
   soulPersonaLayer,
-  type SoulLayerDepth,
-  type SoulLayerMode,
 } from './loader';
+export { DEFAULT_SOUL_MARKDOWN } from './templates';
 export type { SoulProfile } from './types';

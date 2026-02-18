@@ -120,10 +120,15 @@ function readStore(projectDir: string): GovernanceStore {
   const file = governanceFile(projectDir);
   if (!fs.existsSync(file)) return { ...DEFAULT_STORE };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<GovernanceStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<GovernanceStore>;
     return {
       version: 1,
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date(0).toISOString(),
+      updatedAt:
+        typeof parsed.updatedAt === 'string'
+          ? parsed.updatedAt
+          : new Date(0).toISOString(),
       records:
         parsed.records && typeof parsed.records === 'object'
           ? (parsed.records as Record<string, SourcePackGovernanceRecord>)
@@ -134,7 +139,10 @@ function readStore(projectDir: string): GovernanceStore {
   }
 }
 
-function writeStore(projectDir: string, store: GovernanceStore): GovernanceStore {
+function writeStore(
+  projectDir: string,
+  store: GovernanceStore,
+): GovernanceStore {
   const file = governanceFile(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const next: GovernanceStore = {
@@ -181,8 +189,12 @@ function resolveCompatibility(localDir: string): SourcePackCompatibilityMatrix {
   const minVersion = compat.miya?.minVersion?.trim();
   const maxVersion = compat.miya?.maxVersion?.trim();
   const currentVersion = currentMiyaVersion();
-  const minOk = minVersion ? compareSemver(currentVersion, minVersion) >= 0 : true;
-  const maxOk = maxVersion ? compareSemver(currentVersion, maxVersion) <= 0 : true;
+  const minOk = minVersion
+    ? compareSemver(currentVersion, minVersion) >= 0
+    : true;
+  const maxOk = maxVersion
+    ? compareSemver(currentVersion, maxVersion) <= 0
+    : true;
   const ok = minOk && maxOk;
   return {
     ok,
@@ -197,14 +209,19 @@ function requiredFiles(localDir: string): string[] {
   const compat = readCompatConfig(localDir);
   const custom = compat.smoke?.requiredFiles;
   if (Array.isArray(custom) && custom.length > 0) {
-    return custom.map((item) => String(item)).filter(Boolean).slice(0, 30);
+    return custom
+      .map((item) => String(item))
+      .filter(Boolean)
+      .slice(0, 30);
   }
   return ['SKILL.md'];
 }
 
 function runSmoke(localDir: string): SourcePackSmokeRecord {
   const files = requiredFiles(localDir);
-  const missing = files.filter((entry) => !fs.existsSync(path.join(localDir, entry)));
+  const missing = files.filter(
+    (entry) => !fs.existsSync(path.join(localDir, entry)),
+  );
   return {
     ok: missing.length === 0,
     requiredFiles: files,
@@ -219,7 +236,9 @@ function normalizeRelativePath(relPath: string): string {
 
 function listRelativeFiles(localDir: string): string[] {
   const root = path.resolve(localDir);
-  const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  const queue: Array<{ dir: string; depth: number }> = [
+    { dir: root, depth: 0 },
+  ];
   const files: string[] = [];
   const depthLimit = 6;
   const fileLimit = 5000;
@@ -257,21 +276,36 @@ function listRelativeFiles(localDir: string): string[] {
   return files.sort((a, b) => a.localeCompare(b));
 }
 
-function runRegression(localDir: string, strict = false): SourcePackRegressionRecord {
+function runRegression(
+  localDir: string,
+  strict = false,
+): SourcePackRegressionRecord {
   const compat = readCompatConfig(localDir);
   const files = listRelativeFiles(localDir);
   const required =
-    Array.isArray(compat.regression?.requiredFiles) && compat.regression?.requiredFiles.length > 0
-      ? compat.regression.requiredFiles.map(String).map(normalizeRelativePath).slice(0, 80)
+    Array.isArray(compat.regression?.requiredFiles) &&
+    compat.regression?.requiredFiles.length > 0
+      ? compat.regression.requiredFiles
+          .map(String)
+          .map(normalizeRelativePath)
+          .slice(0, 80)
       : requiredFiles(localDir).map(normalizeRelativePath);
-  const missingFiles = required.filter((entry) => !fs.existsSync(path.join(localDir, entry)));
+  const missingFiles = required.filter(
+    (entry) => !fs.existsSync(path.join(localDir, entry)),
+  );
   const testArtifacts = files.filter((entry) =>
-    /(^|\/)(__tests__|tests|test)\b|\.test\.[cm]?[jt]sx?$|\.spec\.[cm]?[jt]sx?$/i.test(entry),
+    /(^|\/)(__tests__|tests|test)\b|\.test\.[cm]?[jt]sx?$|\.spec\.[cm]?[jt]sx?$/i.test(
+      entry,
+    ),
   );
   const requireTestArtifacts =
     strict ||
-    (typeof compat.regression?.requireTests === 'boolean' ? compat.regression.requireTests : false);
-  const ok = missingFiles.length === 0 && (!requireTestArtifacts || testArtifacts.length > 0);
+    (typeof compat.regression?.requireTests === 'boolean'
+      ? compat.regression.requireTests
+      : false);
+  const ok =
+    missingFiles.length === 0 &&
+    (!requireTestArtifacts || testArtifacts.length > 0);
   return {
     ok,
     requiredFiles: required,
@@ -299,10 +333,15 @@ function parsePermissionEnv(value: string | undefined): string[] {
     .slice(0, 100);
 }
 
-function resolveAllowedPermissions(compat: CompatConfig, strict: boolean): Set<string> | null {
+function resolveAllowedPermissions(
+  compat: CompatConfig,
+  strict: boolean,
+): Set<string> | null {
   const fromCompat = parsePermissionList(compat.security?.allowedPermissions);
   if (fromCompat.length > 0) return new Set(fromCompat);
-  const fromEnv = parsePermissionEnv(process.env.MIYA_ALLOWED_SKILL_PERMISSIONS);
+  const fromEnv = parsePermissionEnv(
+    process.env.MIYA_ALLOWED_SKILL_PERMISSIONS,
+  );
   if (fromEnv.length > 0) return new Set(fromEnv);
   if (!strict) return null;
   return new Set(DEFAULT_STRICT_ALLOWED_PERMISSIONS);
@@ -316,17 +355,25 @@ function resolveDeniedPermissions(compat: CompatConfig): Set<string> {
   return new Set(denied);
 }
 
-function runSecurity(localDir: string, strict = false): SourcePackSecurityRecord {
+function runSecurity(
+  localDir: string,
+  strict = false,
+): SourcePackSecurityRecord {
   const compat = readCompatConfig(localDir);
   const files = listRelativeFiles(localDir);
-  const skillFiles = files.filter((entry) => /(^|\/)SKILL\.md$/i.test(entry)).slice(0, 200);
+  const skillFiles = files
+    .filter((entry) => /(^|\/)SKILL\.md$/i.test(entry))
+    .slice(0, 200);
   const requirePermissionMetadata =
     strict ||
     (typeof compat.security?.requirePermissionMetadata === 'boolean'
       ? compat.security.requirePermissionMetadata
       : false);
   const missingPermissionMetadata: string[] = [];
-  const disallowedPermissions: Array<{ skillFile: string; permission: string }> = [];
+  const disallowedPermissions: Array<{
+    skillFile: string;
+    permission: string;
+  }> = [];
   const allowed = resolveAllowedPermissions(compat, strict);
   const denied = resolveDeniedPermissions(compat);
   for (const rel of skillFiles) {
@@ -358,7 +405,9 @@ function runSecurity(localDir: string, strict = false): SourcePackSecurityRecord
   if (requirePermissionMetadata && skillFiles.length === 0) {
     missingPermissionMetadata.push('SKILL.md');
   }
-  const ok = missingPermissionMetadata.length === 0 && disallowedPermissions.length === 0;
+  const ok =
+    missingPermissionMetadata.length === 0 &&
+    disallowedPermissions.length === 0;
   return {
     ok,
     strict,
@@ -384,11 +433,14 @@ function buildDigest(localDir: string, revision: string): string {
   return hasher.digest('hex');
 }
 
-export function refreshSourcePackGovernance(projectDir: string, input: {
-  sourcePackID: string;
-  localDir: string;
-  revision: string;
-}): SourcePackGovernanceRecord {
+export function refreshSourcePackGovernance(
+  projectDir: string,
+  input: {
+    sourcePackID: string;
+    localDir: string;
+    revision: string;
+  },
+): SourcePackGovernanceRecord {
   const store = readStore(projectDir);
   const now = nowIso();
   const record: SourcePackGovernanceRecord = {
@@ -424,7 +476,12 @@ export function getSourcePackGovernance(
 
 export function verifySourcePackGovernance(
   projectDir: string,
-  input: { sourcePackID: string; localDir: string; revision: string; strict?: boolean },
+  input: {
+    sourcePackID: string;
+    localDir: string;
+    revision: string;
+    strict?: boolean;
+  },
 ): {
   signatureValid: boolean;
   lockValid: boolean;

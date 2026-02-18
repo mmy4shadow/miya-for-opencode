@@ -1,6 +1,6 @@
-import type { SentinelSignals } from './state-machine';
 import { captureFrameForScreenProbe } from './probe-worker/capture';
 import { runScreenProbeVlm } from './probe-worker/vlm';
+import type { SentinelSignals } from './state-machine';
 
 export interface ScreenProbeResult {
   status: 'ok' | 'black' | 'error' | 'timeout';
@@ -18,15 +18,22 @@ export interface ScreenProbeInput {
 }
 
 function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values.map((item) => String(item ?? '').trim()).filter(Boolean))].slice(0, 24);
+  return [
+    ...new Set(values.map((item) => String(item ?? '').trim()).filter(Boolean)),
+  ].slice(0, 24);
 }
 
 export function runScreenProbe(input: ScreenProbeInput): ScreenProbeResult {
-  const timeoutMs = Math.max(800, Math.min(6_000, Math.floor(input.timeoutMs ?? 2_800)));
+  const timeoutMs = Math.max(
+    800,
+    Math.min(6_000, Math.floor(input.timeoutMs ?? 2_800)),
+  );
   const capture = captureFrameForScreenProbe(timeoutMs);
   const captureLimitations = uniqueStrings(capture.limitations);
   if (!capture.ok) {
-    const timedOut = capture.timedOut === true || captureLimitations.includes('capture_probe_timeout');
+    const timedOut =
+      capture.timedOut === true ||
+      captureLimitations.includes('capture_probe_timeout');
     return {
       status: timedOut ? 'timeout' : 'error',
       method: capture.method,

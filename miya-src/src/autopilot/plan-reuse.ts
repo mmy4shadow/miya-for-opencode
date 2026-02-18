@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
-import type { AutopilotPlan, AutopilotPlanStep, PlanBundleMode, PlanBundleRiskTier } from './types';
+import type {
+  AutopilotPlan,
+  AutopilotPlanStep,
+  PlanBundleMode,
+  PlanBundleRiskTier,
+} from './types';
 
 interface PlanReuseTemplate {
   signature: string;
@@ -48,7 +53,11 @@ function readStore(projectDir: string): PlanReuseStore {
 
 function writeStore(projectDir: string, store: PlanReuseStore): void {
   ensureDir(projectDir);
-  fs.writeFileSync(reuseFile(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    reuseFile(projectDir),
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 function hashText(text: string): string {
@@ -102,7 +111,11 @@ export function loadReusablePlanTemplate(input: {
 }): { plan: AutopilotPlan; templateId: string; hits: number } | null {
   const store = readStore(input.projectDir);
   const template = store.templates[input.signature];
-  if (!template || !Array.isArray(template.analysisStepTitles) || template.analysisStepTitles.length === 0) {
+  if (
+    !template ||
+    !Array.isArray(template.analysisStepTitles) ||
+    template.analysisStepTitles.length === 0
+  ) {
     return null;
   }
   const nextHits = Math.max(1, Number(template.hits ?? 0) + 1);
@@ -143,7 +156,11 @@ export function saveReusablePlanTemplate(input: {
   bundleId: string;
 }): void {
   const stepTitles = input.plan.steps
-    .filter((step) => step.kind === 'analysis' || (step.kind === 'execution' && !step.command))
+    .filter(
+      (step) =>
+        step.kind === 'analysis' ||
+        (step.kind === 'execution' && !step.command),
+    )
     .map((step) => String(step.title).trim())
     .filter(Boolean)
     .slice(0, 8);
@@ -151,7 +168,8 @@ export function saveReusablePlanTemplate(input: {
   const store = readStore(input.projectDir);
   const current = store.templates[input.signature];
   const createdAt = current?.createdAt || nowIso();
-  const templateId = current?.templateId || `tpl_${hashText(input.signature).slice(0, 12)}`;
+  const templateId =
+    current?.templateId || `tpl_${hashText(input.signature).slice(0, 12)}`;
   store.templates[input.signature] = {
     signature: input.signature,
     templateId,

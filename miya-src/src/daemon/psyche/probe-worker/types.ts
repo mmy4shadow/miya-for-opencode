@@ -1,6 +1,9 @@
 import type { SentinelSignals } from '../state-machine';
 
-export type ProbeCaptureMethod = 'dxgi_duplication' | 'wgc_hwnd' | 'print_window';
+export type ProbeCaptureMethod =
+  | 'dxgi_duplication'
+  | 'wgc_hwnd'
+  | 'print_window';
 
 export interface ProbeCaptureResult {
   ok: boolean;

@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { executeRalphLoop } from './loop';
 import type { RalphCommandResult } from './types';
 
-function result(input: Partial<RalphCommandResult> & { command: string }): RalphCommandResult {
+function result(
+  input: Partial<RalphCommandResult> & { command: string },
+): RalphCommandResult {
   return {
     command: input.command,
     ok: input.ok ?? false,
@@ -27,7 +29,8 @@ describe('ralph loop', () => {
       maxIterations: 5,
       timeoutMs: 1000,
       fixCommands: ['fix'],
-      runCommand: () => outputs.shift() ?? result({ command: 'verify', stderr: 'same' }),
+      runCommand: () =>
+        outputs.shift() ?? result({ command: 'verify', stderr: 'same' }),
       readDiff: () =>
         'diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b',
     });
@@ -53,7 +56,8 @@ describe('ralph loop', () => {
       stallWindow: 2,
       errorSimilarityThreshold: 0.8,
       fixCommands: ['fix-1', 'fix-2', 'fix-3'],
-      runCommand: () => outputs.shift() ?? result({ command: 'verify', stderr: 'same' }),
+      runCommand: () =>
+        outputs.shift() ?? result({ command: 'verify', stderr: 'same' }),
       readDiff: () =>
         'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b',
     });
@@ -78,7 +82,8 @@ describe('ralph loop', () => {
       timeoutMs: 1000,
       sameLineTouchLimit: 2,
       fixCommands: ['fix', 'fix'],
-      runCommand: () => outputs.shift() ?? result({ command: 'verify', stderr: 'same' }),
+      runCommand: () =>
+        outputs.shift() ?? result({ command: 'verify', stderr: 'same' }),
       readDiff: () =>
         'diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -20 +20 @@\n-a\n+b',
     });

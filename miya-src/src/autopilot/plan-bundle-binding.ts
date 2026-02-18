@@ -45,7 +45,9 @@ function readStore(projectDir: string): PlanBundleBindingStore {
   const file = storePath(projectDir);
   if (!fs.existsSync(file)) return defaultStore();
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<PlanBundleBindingStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<PlanBundleBindingStore>;
     if (!parsed || typeof parsed !== 'object') return defaultStore();
     const sessions =
       parsed.sessions && typeof parsed.sessions === 'object'
@@ -133,11 +135,13 @@ export function updatePlanBundleBindingStatus(
   return next;
 }
 
-export function clearPlanBundleBinding(projectDir: string, sessionID: string): void {
+export function clearPlanBundleBinding(
+  projectDir: string,
+  sessionID: string,
+): void {
   const store = readStore(projectDir);
   const key = normalizeSessionID(sessionID);
   if (!(key in store.sessions)) return;
   delete store.sessions[key];
   writeStore(projectDir, store);
 }
-

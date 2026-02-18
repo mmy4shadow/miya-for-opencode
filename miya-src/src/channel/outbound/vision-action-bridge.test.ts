@@ -4,11 +4,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildDesktopActionPlan,
+  type DesktopAutomationIntent,
+  type DesktopScreenState,
   listDesktopReplaySkills,
   readDesktopAutomationKpi,
   recordDesktopActionOutcome,
-  type DesktopAutomationIntent,
-  type DesktopScreenState,
 } from './vision-action-bridge';
 
 function makeProjectDir(): string {
@@ -315,7 +315,9 @@ process.stdout.write(JSON.stringify({ candidateId, confidence: 0.88 }));`,
       },
     });
     expect(plan.action_plan.memoryHit).toBe(false);
-    expect(plan.action_plan.brains.slowBrain.promoteReplaySkillOnSuccess).toBe(true);
+    expect(plan.action_plan.brains.slowBrain.promoteReplaySkillOnSuccess).toBe(
+      true,
+    );
     recordDesktopActionOutcome(projectDir, {
       intent: plan.intent,
       screenState: plan.screen_state,

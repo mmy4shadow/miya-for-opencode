@@ -1,6 +1,5 @@
-import type { ToolDefinition } from '@opencode-ai/plugin';
+import type { PluginInput, ToolDefinition } from '@opencode-ai/plugin';
 import { tool } from '@opencode-ai/plugin';
-import type { PluginInput } from '@opencode-ai/plugin';
 import {
   decideIntake,
   intakeStats,
@@ -23,7 +22,9 @@ function toText(value: unknown): string {
   }
 }
 
-function formatProposalOutput(result: ReturnType<typeof proposeIntake>): string {
+function formatProposalOutput(
+  result: ReturnType<typeof proposeIntake>,
+): string {
   const proposal = result.proposal;
   const lines: string[] = [`status=${result.status}`];
   if (proposal) {
@@ -118,7 +119,9 @@ export function createIntakeTools(
         summaryPoints: Array.isArray(args.summary_points)
           ? args.summary_points.map(String)
           : undefined,
-        originalPlan: args.original_plan ? String(args.original_plan) : undefined,
+        originalPlan: args.original_plan
+          ? String(args.original_plan)
+          : undefined,
         suggestedChange: args.suggested_change
           ? String(args.suggested_change)
           : undefined,
@@ -236,7 +239,10 @@ export function createIntakeTools(
           : 50;
 
       if (target === 'pending') {
-        return toText({ summary, pending: summary.pendingItems.slice(0, limit) });
+        return toText({
+          summary,
+          pending: summary.pendingItems.slice(0, limit),
+        });
       }
       if (target === 'whitelist') {
         return toText({ summary, whitelist: state.whitelist.slice(0, limit) });
@@ -265,8 +271,4 @@ export function createIntakeTools(
   };
 }
 
-export {
-  intakeSummary,
-  listIntakeData,
-};
-
+export { intakeSummary, listIntakeData };

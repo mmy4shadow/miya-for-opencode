@@ -35,8 +35,16 @@ describe('channel contact tier store', () => {
     setContactTier(projectDir, 'wechat', 'user-o', 'owner');
 
     const rows = listContactTiers(projectDir);
-    expect(rows).toContainEqual({ channel: 'qq', senderID: 'user-f', tier: 'friend' });
-    expect(rows).toContainEqual({ channel: 'wechat', senderID: 'user-o', tier: 'owner' });
+    expect(rows).toContainEqual({
+      channel: 'qq',
+      senderID: 'user-f',
+      tier: 'friend',
+    });
+    expect(rows).toContainEqual({
+      channel: 'wechat',
+      senderID: 'user-o',
+      tier: 'owner',
+    });
   });
 
   test('encrypts account identifiers at rest', () => {

@@ -1,4 +1,4 @@
-import { recommendedAgent, type RouteIntent } from './classifier';
+import { type RouteIntent, recommendedAgent } from './classifier';
 
 export function resolveFallbackAgent(
   intent: RouteIntent,

@@ -25,9 +25,7 @@ export function createBuiltinMcps(
   );
 }
 
-export function buildMcpServiceManifest(
-  disabledMcps: readonly string[] = [],
-): {
+export function buildMcpServiceManifest(disabledMcps: readonly string[] = []): {
   service: string;
   version: number;
   generatedAt: string;
@@ -57,13 +55,14 @@ export function buildMcpServiceManifest(
 } {
   const builtins = createBuiltinMcps(disabledMcps);
   const mcps = Object.entries(builtins).map(([name, config]) => {
-    const caps =
-      'capabilities' in config
-        ? config.capabilities
-        : undefined;
+    const caps = 'capabilities' in config ? config.capabilities : undefined;
     const headers =
-      'headers' in config && config.headers && typeof config.headers === 'object'
-        ? Object.values(config.headers).filter((value) => String(value ?? '').trim().length > 0)
+      'headers' in config &&
+      config.headers &&
+      typeof config.headers === 'object'
+        ? Object.values(config.headers).filter(
+            (value) => String(value ?? '').trim().length > 0,
+          )
         : [];
     return {
       name,
@@ -72,7 +71,8 @@ export function buildMcpServiceManifest(
       mcpUi: Boolean(caps?.mcpUi),
       serviceExpose: Boolean(caps?.serviceExpose),
       native: caps?.native !== false,
-      authMode: caps?.authMode ?? (config.type === 'remote' ? 'header' : 'none'),
+      authMode:
+        caps?.authMode ?? (config.type === 'remote' ? 'header' : 'none'),
       ecosystem: caps?.ecosystem ?? 'core',
       tags: Array.isArray(caps?.tags) ? caps?.tags.map(String) : [],
       authConfigured: headers.length > 0 || caps?.authMode === 'none',
@@ -105,7 +105,9 @@ export function buildMcpServiceManifest(
   };
 }
 
-export function summarizeMcpEcosystem(disabledMcps: readonly string[] = []): string {
+export function summarizeMcpEcosystem(
+  disabledMcps: readonly string[] = [],
+): string {
   const manifest = buildMcpServiceManifest(disabledMcps);
   const lines = [
     `mcp_total=${manifest.summary.total}`,

@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildChannelConfig,
+  parseDiscordInbound,
   parseGoogleChatInbound,
   parseIMessageInbound,
-  parseDiscordInbound,
   parseSignalInbound,
   parseSlackInbound,
-  parseTelegramInbound,
   parseTeamsInbound,
+  parseTelegramInbound,
   parseWhatsappInbound,
 } from './index';
 
@@ -77,7 +77,11 @@ describe('channel planning facade', () => {
     expect(gchat?.conversationID).toBe('spaces/abc/threads/1');
 
     const signal = parseSignalInbound({
-      envelope: { source: '+8613', sourceName: 'sig', dataMessage: { message: 'hey' } },
+      envelope: {
+        source: '+8613',
+        sourceName: 'sig',
+        dataMessage: { message: 'hey' },
+      },
     });
     expect(signal?.channel).toBe('signal');
     expect(signal?.senderID).toBe('+8613');

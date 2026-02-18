@@ -1,5 +1,5 @@
-import type { DiscoveredModel, DynamicModelPlan, InstallConfig } from './types';
 import { AGENT_ALIASES } from '../config/constants';
+import type { DiscoveredModel, DynamicModelPlan, InstallConfig } from './types';
 
 const AGENTS = [
   'orchestrator',

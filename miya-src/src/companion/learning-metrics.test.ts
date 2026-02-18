@@ -3,12 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { recordModeObservability } from '../gateway/mode-observability';
+import { readCompanionLearningMetrics } from './learning-metrics';
 import {
   confirmCompanionMemoryVector,
   searchCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from './memory-vector';
-import { readCompanionLearningMetrics } from './learning-metrics';
 
 function makeProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-learning-metrics-'));

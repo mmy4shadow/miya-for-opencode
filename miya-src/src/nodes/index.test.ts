@@ -113,7 +113,13 @@ describe('nodes store', () => {
       deviceID: 'device-governance',
       type: 'desktop',
       platform: 'win32',
-      capabilities: ['system.run', 'perm.screenRecording', 'perm.accessibility', 'perm.filesystem.full', 'perm.network'],
+      capabilities: [
+        'system.run',
+        'perm.screenRecording',
+        'perm.accessibility',
+        'perm.filesystem.full',
+        'perm.network',
+      ],
       permissions: {
         screenRecording: true,
         accessibility: true,
@@ -135,7 +141,14 @@ describe('nodes store', () => {
       deviceID: 'device-secure-1',
       type: 'desktop',
       platform: 'win32',
-      capabilities: ['system.info', 'system.run', 'perm.filesystem.full', 'perm.network', 'perm.screenRecording', 'perm.accessibility'],
+      capabilities: [
+        'system.info',
+        'system.run',
+        'perm.filesystem.full',
+        'perm.network',
+        'perm.screenRecording',
+        'perm.accessibility',
+      ],
       permissions: {
         screenRecording: true,
         accessibility: true,
@@ -168,14 +181,17 @@ describe('nodes store', () => {
     expect(groups.readOnly.includes('system.info')).toBe(true);
 
     const summary = summarizeNodeGovernance(
-      [registerNode(projectDir, {
-        nodeID: secure.nodeID,
-        deviceID: secure.deviceID,
-        type: 'desktop',
-        platform: 'win32',
-        capabilities: secure.capabilities,
-        permissions: secure.permissions,
-      }), passive],
+      [
+        registerNode(projectDir, {
+          nodeID: secure.nodeID,
+          deviceID: secure.deviceID,
+          type: 'desktop',
+          platform: 'win32',
+          capabilities: secure.capabilities,
+          permissions: secure.permissions,
+        }),
+        passive,
+      ],
       listNodePairs(projectDir, 'pending').length,
     );
     expect(summary.total).toBe(2);

@@ -69,4 +69,3 @@ export function writeIntakeState(projectDir: string, state: IntakeState): void {
   };
   fs.writeFileSync(file, `${JSON.stringify(normalized, null, 2)}\n`, 'utf-8');
 }
-

@@ -2,6 +2,12 @@ import type { PluginInput } from '@opencode-ai/plugin';
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import { collectSafetyEvidence } from './evidence';
 import {
+  buildRequestHash,
+  isSideEffectPermission,
+  requiredTierForRequest,
+  type SafetyPermissionRequest,
+} from './risk';
+import {
   activateKillSwitch,
   createTraceId,
   findApprovalToken,
@@ -11,12 +17,6 @@ import {
   saveApprovalToken,
   writeSelfApprovalRecord,
 } from './store';
-import {
-  buildRequestHash,
-  isSideEffectPermission,
-  requiredTierForRequest,
-  type SafetyPermissionRequest,
-} from './risk';
 import { normalizeTier, type SafetyTier, tierAtLeast } from './tier';
 import { runVerifier } from './verifier';
 
@@ -36,7 +36,9 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function toPermissionRequest(input: PermissionAskInput): SafetyPermissionRequest {
+function toPermissionRequest(
+  input: PermissionAskInput,
+): SafetyPermissionRequest {
   return {
     sessionID: input.sessionID,
     permission: input.permission,
@@ -68,7 +70,9 @@ function formatResult(input: {
     `tier=${input.tier}`,
     `reason=${input.reason}`,
     `checks=${input.checks.length}`,
-    input.issues.length > 0 ? `issues=${input.issues.join(' | ')}` : 'issues=none',
+    input.issues.length > 0
+      ? `issues=${input.issues.join(' | ')}`
+      : 'issues=none',
   ].join('\n');
 }
 
@@ -139,7 +143,9 @@ export async function handlePermissionAsk(
         verdict: 'deny',
         summary: 'Evidence token missing or expired.',
       },
-      rollback: { strategy: 'rerun miya_self_approve before side-effect actions' },
+      rollback: {
+        strategy: 'rerun miya_self_approve before side-effect actions',
+      },
     });
     return { status: 'deny', reason: 'missing_evidence' };
   }
@@ -168,7 +174,9 @@ export async function handlePermissionAsk(
       verdict: 'allow',
       summary: 'Token satisfied required tier and freshness constraints.',
     },
-    rollback: { strategy: 'use git checkpoint and kill-switch if execution fails' },
+    rollback: {
+      strategy: 'use git checkpoint and kill-switch if execution fails',
+    },
   });
   return { status: 'allow', reason: 'token_validated' };
 }
@@ -192,7 +200,9 @@ export function createSafetyTools(
     args: {
       permission: z
         .string()
-        .describe('Permission key for the intended side-effect (edit/bash/external_directory)'),
+        .describe(
+          'Permission key for the intended side-effect (edit/bash/external_directory)',
+        ),
       patterns: z
         .array(z.string())
         .optional()
@@ -201,10 +211,7 @@ export function createSafetyTools(
         .enum(['LIGHT', 'STANDARD', 'THOROUGH'])
         .optional()
         .describe('Requested verification tier'),
-      action: z
-        .string()
-        .optional()
-        .describe('Human-readable action summary'),
+      action: z.string().optional().describe('Human-readable action summary'),
       targets: z
         .array(z.string())
         .optional()
@@ -213,7 +220,9 @@ export function createSafetyTools(
     },
     async execute(args, toolContext) {
       const sessionID =
-        toolContext && typeof toolContext === 'object' && 'sessionID' in toolContext
+        toolContext &&
+        typeof toolContext === 'object' &&
+        'sessionID' in toolContext
           ? String((toolContext as { sessionID: string }).sessionID)
           : 'main';
 
@@ -290,7 +299,11 @@ export function createSafetyTools(
       });
 
       if (!allow) {
-        activateKillSwitch(ctx.directory, `self_approval_denied:${reason}`, traceID);
+        activateKillSwitch(
+          ctx.directory,
+          `self_approval_denied:${reason}`,
+          traceID,
+        );
       } else {
         saveApprovalToken(ctx.directory, sessionID, {
           trace_id: traceID,
@@ -313,7 +326,8 @@ export function createSafetyTools(
   });
 
   const miya_kill_activate = tool({
-    description: 'Activate fail-stop kill switch for all side-effect permissions.',
+    description:
+      'Activate fail-stop kill switch for all side-effect permissions.',
     args: {
       reason: z.string().optional().describe('Reason for emergency stop'),
     },

@@ -4,8 +4,8 @@ import {
   configureAutopilotSession,
   createAutopilotPlan,
   preparePlanBundleBinding,
-  readPlanBundleBinding,
   readAutopilotStats,
+  readPlanBundleBinding,
   runAutopilot,
   summarizeAutopilotPlan,
   summarizeVerification,
@@ -48,7 +48,10 @@ export function createAutopilotTools(
         .string()
         .optional()
         .describe('Optional verification command for mode=run'),
-      timeout_ms: z.number().optional().describe('Command timeout for mode=run'),
+      timeout_ms: z
+        .number()
+        .optional()
+        .describe('Command timeout for mode=run'),
       max_retries_per_command: z
         .number()
         .optional()
@@ -56,11 +59,15 @@ export function createAutopilotTools(
       plan_bundle_id: z
         .string()
         .optional()
-        .describe('PlanBundle id. Required for direct run when no prepared bundle exists.'),
+        .describe(
+          'PlanBundle id. Required for direct run when no prepared bundle exists.',
+        ),
       policy_hash: z
         .string()
         .optional()
-        .describe('Policy hash for this autonomous run (required for direct run without prepared bundle).'),
+        .describe(
+          'Policy hash for this autonomous run (required for direct run without prepared bundle).',
+        ),
       risk_tier: z
         .enum(['LIGHT', 'STANDARD', 'THOROUGH'])
         .optional()
@@ -70,8 +77,14 @@ export function createAutopilotTools(
         .optional()
         .describe('Optional command working directory for mode=run'),
       session_id: z.string().optional().describe('Target session id'),
-      max_cycles: z.number().optional().describe('Max autopilot cycles for the window'),
-      auto_continue: z.boolean().optional().describe('Whether loops auto-continue'),
+      max_cycles: z
+        .number()
+        .optional()
+        .describe('Max autopilot cycles for the window'),
+      auto_continue: z
+        .boolean()
+        .optional()
+        .describe('Whether loops auto-continue'),
       strict_quality_gate: z
         .boolean()
         .optional()
@@ -125,34 +138,50 @@ export function createAutopilotTools(
       if (mode === 'run') {
         const existingBinding = readPlanBundleBinding(projectDir, sessionID);
         const providedBundleID =
-          typeof args.plan_bundle_id === 'string' ? args.plan_bundle_id.trim() : '';
+          typeof args.plan_bundle_id === 'string'
+            ? args.plan_bundle_id.trim()
+            : '';
         const providedPolicyHash =
           typeof args.policy_hash === 'string' ? args.policy_hash.trim() : '';
         const providedRiskTier =
-          args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
+          args.risk_tier === 'LIGHT' ||
+          args.risk_tier === 'STANDARD' ||
+          args.risk_tier === 'THOROUGH'
             ? args.risk_tier
             : undefined;
         const bindingLocked =
           existingBinding &&
-          (existingBinding.status === 'prepared' || existingBinding.status === 'running');
+          (existingBinding.status === 'prepared' ||
+            existingBinding.status === 'running');
         if (bindingLocked) {
           if (existingBinding.sourceTool !== 'miya_autopilot') {
             throw new Error(
               `plan_bundle_source_mismatch:expected=${existingBinding.sourceTool}:got=miya_autopilot`,
             );
           }
-          if (providedBundleID && providedBundleID !== existingBinding.bundleId) {
+          if (
+            providedBundleID &&
+            providedBundleID !== existingBinding.bundleId
+          ) {
             throw new Error('plan_bundle_frozen_field_mismatch:bundle_id');
           }
-          if (providedPolicyHash && providedPolicyHash !== existingBinding.policyHash) {
+          if (
+            providedPolicyHash &&
+            providedPolicyHash !== existingBinding.policyHash
+          ) {
             throw new Error('plan_bundle_frozen_field_mismatch:policy_hash');
           }
-          if (providedRiskTier && providedRiskTier !== existingBinding.riskTier) {
+          if (
+            providedRiskTier &&
+            providedRiskTier !== existingBinding.riskTier
+          ) {
             throw new Error('plan_bundle_frozen_field_mismatch:risk_tier');
           }
         }
-        const planBundleID = providedBundleID || existingBinding?.bundleId || '';
-        const policyHash = providedPolicyHash || existingBinding?.policyHash || '';
+        const planBundleID =
+          providedBundleID || existingBinding?.bundleId || '';
+        const policyHash =
+          providedPolicyHash || existingBinding?.policyHash || '';
         if (!planBundleID || !policyHash) {
           throw new Error(
             'plan_bundle_required:autopilot_run_requires_plan_bundle_id_and_policy_hash',
@@ -177,11 +206,16 @@ export function createAutopilotTools(
           projectDir,
           sessionID,
           goal: goal || 'autopilot run',
-          commands: Array.isArray(args.commands) ? args.commands.map(String) : [],
+          commands: Array.isArray(args.commands)
+            ? args.commands.map(String)
+            : [],
           verificationCommand: args.verification_command
             ? String(args.verification_command)
             : undefined,
-          timeoutMs: typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : 60000,
+          timeoutMs:
+            typeof args.timeout_ms === 'number'
+              ? Number(args.timeout_ms)
+              : 60000,
           maxRetriesPerCommand:
             typeof args.max_retries_per_command === 'number'
               ? Number(args.max_retries_per_command)
@@ -227,7 +261,8 @@ export function createAutopilotTools(
       const plan = createAutopilotPlan(goal || 'autopilot goal');
       const existingBinding = readPlanBundleBinding(projectDir, sessionID);
       const planBundleID =
-        (typeof args.plan_bundle_id === 'string' && args.plan_bundle_id.trim()) ||
+        (typeof args.plan_bundle_id === 'string' &&
+          args.plan_bundle_id.trim()) ||
         existingBinding?.bundleId ||
         `pb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       const policyHash =
@@ -235,7 +270,9 @@ export function createAutopilotTools(
         existingBinding?.policyHash ||
         currentPolicyHash(projectDir);
       const riskTier =
-        args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
+        args.risk_tier === 'LIGHT' ||
+        args.risk_tier === 'STANDARD' ||
+        args.risk_tier === 'THOROUGH'
           ? args.risk_tier
           : existingBinding?.riskTier || 'THOROUGH';
       preparePlanBundleBinding(projectDir, {
@@ -251,7 +288,9 @@ export function createAutopilotTools(
         sessionID,
         enabled: true,
         maxCycles:
-          typeof args.max_cycles === 'number' ? Number(args.max_cycles) : undefined,
+          typeof args.max_cycles === 'number'
+            ? Number(args.max_cycles)
+            : undefined,
         autoContinue:
           typeof args.auto_continue === 'boolean'
             ? Boolean(args.auto_continue)

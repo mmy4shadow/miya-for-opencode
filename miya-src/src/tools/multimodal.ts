@@ -21,7 +21,10 @@ export function createMultimodalTools(
         .optional()
         .describe('Optional reference media ids'),
       model: z.string().optional().describe('Image model id'),
-      size: z.string().optional().describe('Output size (for example 1024x1024)'),
+      size: z
+        .string()
+        .optional()
+        .describe('Output size (for example 1024x1024)'),
       register_as_companion_asset: z
         .boolean()
         .optional()
@@ -52,9 +55,15 @@ export function createMultimodalTools(
       'Ingest voice input text/media into Miya voice state and history.',
     args: {
       text: z.string().optional().describe('Recognized text content'),
-      media_id: z.string().optional().describe('Optional media id for ASR transcript'),
+      media_id: z
+        .string()
+        .optional()
+        .describe('Optional media id for ASR transcript'),
       source: z.enum(['wake', 'talk', 'manual', 'media']).optional(),
-      language: z.string().optional().describe('Language hint, for example zh-CN'),
+      language: z
+        .string()
+        .optional()
+        .describe('Language hint, for example zh-CN'),
     },
     async execute(args) {
       const result = ingestVoiceInput(projectDir, {

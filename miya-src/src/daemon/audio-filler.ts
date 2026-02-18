@@ -39,7 +39,11 @@ function nowIso(): string {
 }
 
 function estimateLatencyMs(kind: ResourceTaskKind, timeoutMs?: number): number {
-  if (typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+  if (
+    typeof timeoutMs === 'number' &&
+    Number.isFinite(timeoutMs) &&
+    timeoutMs > 0
+  ) {
     return Math.max(0, Math.floor(timeoutMs));
   }
   if (kind === 'training.image' || kind === 'training.voice') return 30_000;
@@ -75,7 +79,9 @@ function safeArray(input: unknown): unknown[] {
 }
 
 function parseAdaptiveWakeWords(projectDir: string): AdaptiveWakeWord[] {
-  const file = wakeWordsFileCandidates(projectDir).find((candidate) => fs.existsSync(candidate));
+  const file = wakeWordsFileCandidates(projectDir).find((candidate) =>
+    fs.existsSync(candidate),
+  );
   if (!file) return [];
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as
@@ -87,12 +93,14 @@ function parseAdaptiveWakeWords(projectDir: string): AdaptiveWakeWord[] {
     const baseDir = path.dirname(file);
     const parsed = rows
       .map((row) => {
-        const text = typeof (row as { text?: unknown })?.text === 'string'
-          ? (row as { text: string }).text.trim()
-          : '';
+        const text =
+          typeof (row as { text?: unknown })?.text === 'string'
+            ? (row as { text: string }).text.trim()
+            : '';
         if (!text) return null;
         const weightRaw = Number((row as { weight?: unknown })?.weight ?? 1);
-        const weight = Number.isFinite(weightRaw) && weightRaw > 0 ? weightRaw : 1;
+        const weight =
+          Number.isFinite(weightRaw) && weightRaw > 0 ? weightRaw : 1;
         const tags = safeArray((row as { tags?: unknown })?.tags)
           .map((item) => String(item).trim().toLowerCase())
           .filter(Boolean);
@@ -102,7 +110,9 @@ function parseAdaptiveWakeWords(projectDir: string): AdaptiveWakeWord[] {
             : '';
         let cuePath: string | undefined;
         if (cuePathRaw) {
-          cuePath = path.isAbsolute(cuePathRaw) ? cuePathRaw : path.join(baseDir, cuePathRaw);
+          cuePath = path.isAbsolute(cuePathRaw)
+            ? cuePathRaw
+            : path.join(baseDir, cuePathRaw);
           if (!fs.existsSync(cuePath)) cuePath = undefined;
         }
         return {
@@ -138,7 +148,10 @@ function tagsForKind(kind: ResourceTaskKind): string[] {
   }
 }
 
-function listAudioCandidates(projectDir: string, kind: ResourceTaskKind): string[] {
+function listAudioCandidates(
+  projectDir: string,
+  kind: ResourceTaskKind,
+): string[] {
   const root = fillersDir(projectDir);
   const candidates: string[] = [];
   const dirs = [path.join(root, kind), root];
@@ -169,7 +182,10 @@ function chooseWeighted<T extends { weight: number }>(
   random: () => number,
 ): T | undefined {
   if (items.length === 0) return undefined;
-  const total = items.reduce((sum, item) => sum + Math.max(0.0001, item.weight), 0);
+  const total = items.reduce(
+    (sum, item) => sum + Math.max(0.0001, item.weight),
+    0,
+  );
   let cursor = random() * total;
   for (const item of items) {
     cursor -= Math.max(0.0001, item.weight);
@@ -191,16 +207,25 @@ export class AudioFillerController {
     this.random = options?.random ?? Math.random;
   }
 
-  private pickAdaptiveCue(kind: ResourceTaskKind): AdaptiveWakeWord | undefined {
+  private pickAdaptiveCue(
+    kind: ResourceTaskKind,
+  ): AdaptiveWakeWord | undefined {
     const cues = parseAdaptiveWakeWords(this.projectDir);
     if (cues.length === 0) return undefined;
     const wantedTags = tagsForKind(kind);
     const matched = cues.filter(
-      (item) => item.tags.length === 0 || item.tags.some((tag) => wantedTags.includes(tag)),
+      (item) =>
+        item.tags.length === 0 ||
+        item.tags.some((tag) => wantedTags.includes(tag)),
     );
     const pool = matched.length > 0 ? matched : cues;
-    const notRecent = pool.filter((item) => !this.recentCueTexts.includes(item.text));
-    const selected = chooseWeighted(notRecent.length > 0 ? notRecent : pool, this.random);
+    const notRecent = pool.filter(
+      (item) => !this.recentCueTexts.includes(item.text),
+    );
+    const selected = chooseWeighted(
+      notRecent.length > 0 ? notRecent : pool,
+      this.random,
+    );
     if (!selected) return undefined;
     this.recentCueTexts.unshift(selected.text);
     if (this.recentCueTexts.length > RECENT_CUE_WINDOW) {
@@ -209,7 +234,10 @@ export class AudioFillerController {
     return selected;
   }
 
-  decide(input: { kind: ResourceTaskKind; timeoutMs?: number }): AudioFillerDecision {
+  decide(input: {
+    kind: ResourceTaskKind;
+    timeoutMs?: number;
+  }): AudioFillerDecision {
     const expectedLatencyMs = estimateLatencyMs(input.kind, input.timeoutMs);
     if (expectedLatencyMs <= AUDIO_FILLER_THRESHOLD_MS) {
       return { shouldFill: false, expectedLatencyMs };

@@ -112,6 +112,8 @@ describe('autopilot executor', () => {
     });
     expect(second.success).toBe(true);
     expect(second.execution[0]?.command.includes('src/b.ts')).toBe(true);
-    expect(second.auditLedger.some((row) => row.action === 'plan_template_reused')).toBe(true);
+    expect(
+      second.auditLedger.some((row) => row.action === 'plan_template_reused'),
+    ).toBe(true);
   });
 });

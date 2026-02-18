@@ -30,7 +30,9 @@ for (const canonical of [
   PERMISSION_HOOK_COMPAT.canonicalReplied,
 ]) {
   if (!source.includes(canonical)) {
-    fail(`missing permission canonical event reference in src/index.ts: ${canonical}`);
+    fail(
+      `missing permission canonical event reference in src/index.ts: ${canonical}`,
+    );
   }
 }
 

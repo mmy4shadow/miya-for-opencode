@@ -8,8 +8,8 @@ import {
 } from './state';
 import type {
   AutoflowCommandResult,
-  AutoflowFixability,
   AutoflowFailureSummary,
+  AutoflowFixability,
   AutoflowPhase,
   AutoflowPipelineSnapshot,
   AutoflowRunInput,
@@ -52,7 +52,9 @@ function runShellCommand(
   };
 }
 
-function normalizeTasks(input: AutoflowRunInput['tasks']): AutoflowSessionState['planTasks'] {
+function normalizeTasks(
+  input: AutoflowRunInput['tasks'],
+): AutoflowSessionState['planTasks'] {
   if (!Array.isArray(input)) return [];
   return input
     .filter((task) => task && task.agent?.trim() && task.prompt?.trim())
@@ -62,7 +64,10 @@ function normalizeTasks(input: AutoflowRunInput['tasks']): AutoflowSessionState[
       prompt: task.prompt.trim(),
       description: task.description?.trim() || task.prompt.trim().slice(0, 120),
       dependsOn: Array.isArray(task.dependsOn)
-        ? task.dependsOn.map(String).map((dep) => dep.trim()).filter(Boolean)
+        ? task.dependsOn
+            .map(String)
+            .map((dep) => dep.trim())
+            .filter(Boolean)
         : [],
       timeoutMs:
         typeof task.timeoutMs === 'number' && Number.isFinite(task.timeoutMs)
@@ -77,7 +82,10 @@ function normalizeTasks(input: AutoflowRunInput['tasks']): AutoflowSessionState[
 
 function normalizeFixCommands(input: string[] | undefined): string[] {
   if (!Array.isArray(input)) return [];
-  return input.map(String).map((item) => item.trim()).filter(Boolean);
+  return input
+    .map(String)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function setFailed(state: AutoflowSessionState, reason: string): void {
@@ -109,14 +117,20 @@ function inferFixability(reason: string): AutoflowFixability {
   const text = String(reason ?? '').toLowerCase();
   if (!text) return 'unknown';
   if (/invalid_|schema|syntax|parse|bad_request/.test(text)) return 'rewrite';
-  if (/missing_evidence|approval|permission|forbidden|denied/.test(text)) return 'need_evidence';
-  if (/timeout|temporar|network|rate_limit|overload/.test(text)) return 'retry_later';
+  if (/missing_evidence|approval|permission|forbidden|denied/.test(text))
+    return 'need_evidence';
+  if (/timeout|temporar|network|rate_limit|overload/.test(text))
+    return 'retry_later';
   if (/budget|scope|too_long/.test(text)) return 'reduce_scope';
-  if (/kill_switch|policy_|impossible|unsupported/.test(text)) return 'impossible';
+  if (/kill_switch|policy_|impossible|unsupported/.test(text))
+    return 'impossible';
   return 'unknown';
 }
 
-function buildFailureSummary(state: AutoflowSessionState, reason: string): AutoflowFailureSummary {
+function buildFailureSummary(
+  state: AutoflowSessionState,
+  reason: string,
+): AutoflowFailureSummary {
   return {
     phase: state.phase,
     stage: phaseToStage(state.phase),
@@ -131,7 +145,9 @@ function buildFailureSummary(state: AutoflowSessionState, reason: string): Autof
   };
 }
 
-function buildPipelineSnapshot(state: AutoflowSessionState): AutoflowPipelineSnapshot {
+function buildPipelineSnapshot(
+  state: AutoflowSessionState,
+): AutoflowPipelineSnapshot {
   return {
     graph: 'plan->exec->verify->fix',
     phase: state.phase,
@@ -139,7 +155,9 @@ function buildPipelineSnapshot(state: AutoflowSessionState): AutoflowPipelineSna
   };
 }
 
-export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunResult> {
+export async function runAutoflow(
+  input: AutoflowRunInput,
+): Promise<AutoflowRunResult> {
   const timeoutMs =
     typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs)
       ? Math.max(1000, Math.floor(input.timeoutMs))
@@ -169,8 +187,14 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
   if (input.fixCommands) {
     state.fixCommands = normalizeFixCommands(input.fixCommands);
   }
-  if (typeof input.maxFixRounds === 'number' && Number.isFinite(input.maxFixRounds)) {
-    state.maxFixRounds = Math.max(1, Math.min(10, Math.floor(input.maxFixRounds)));
+  if (
+    typeof input.maxFixRounds === 'number' &&
+    Number.isFinite(input.maxFixRounds)
+  ) {
+    state.maxFixRounds = Math.max(
+      1,
+      Math.min(10, Math.floor(input.maxFixRounds)),
+    );
   }
 
   if (state.phase === 'stopped') {
@@ -215,7 +239,11 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
   for (let loop = 0; loop < RUN_LOOP_LIMIT; loop += 1) {
     if (state.phase === 'planning') {
       if (state.planTasks.length === 0) {
-        appendAutoflowHistory(state, 'planning_waiting', 'No executable tasks in plan.');
+        appendAutoflowHistory(
+          state,
+          'planning_waiting',
+          'No executable tasks in plan.',
+        );
         state = saveAutoflowSession(input.projectDir, state);
         return {
           success: false,
@@ -242,12 +270,16 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
           parentSessionID: input.sessionID,
           tasks: state.planTasks,
           maxParallel:
-            typeof input.maxParallel === 'number' && Number.isFinite(input.maxParallel)
+            typeof input.maxParallel === 'number' &&
+            Number.isFinite(input.maxParallel)
               ? Number(input.maxParallel)
               : undefined,
         });
       } catch (error) {
-        setFailed(state, `execution_exception:${error instanceof Error ? error.message : String(error)}`);
+        setFailed(
+          state,
+          `execution_exception:${error instanceof Error ? error.message : String(error)}`,
+        );
         break;
       }
 
@@ -276,7 +308,11 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
       }
 
       state.phase = 'verification';
-      appendAutoflowHistory(state, 'execution_complete', 'Parallel execution completed.');
+      appendAutoflowHistory(
+        state,
+        'execution_complete',
+        'Parallel execution completed.',
+      );
       continue;
     }
 
@@ -286,14 +322,21 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
         break;
       }
 
-      verification = runCommand(state.verificationCommand, timeoutMs, input.workingDirectory);
+      verification = runCommand(
+        state.verificationCommand,
+        timeoutMs,
+        input.workingDirectory,
+      );
       if (verification.ok) {
         setCompleted(state, 'verification_passed');
         break;
       }
 
       const hash = hashText(`${verification.stderr}\n${verification.stdout}`);
-      state.recentVerificationHashes = [...state.recentVerificationHashes, hash].slice(-3);
+      state.recentVerificationHashes = [
+        ...state.recentVerificationHashes,
+        hash,
+      ].slice(-3);
       const repeatedFailure =
         state.recentVerificationHashes.length >= 3 &&
         state.recentVerificationHashes.every((item) => item === hash);
@@ -352,7 +395,9 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
   return {
     success,
     phase: state.phase,
-    summary: success ? 'autoflow_completed' : state.lastError ?? `autoflow_${state.phase}`,
+    summary: success
+      ? 'autoflow_completed'
+      : (state.lastError ?? `autoflow_${state.phase}`),
     pipeline: buildPipelineSnapshot(state),
     state,
     dagResult,
@@ -361,6 +406,9 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
     failure:
       success || state.phase === 'stopped'
         ? undefined
-        : buildFailureSummary(state, state.lastError ?? `autoflow_${state.phase}`),
+        : buildFailureSummary(
+            state,
+            state.lastError ?? `autoflow_${state.phase}`,
+          ),
   };
 }

@@ -1,6 +1,6 @@
 import {
-  searchCompanionMemoryVectors,
   type MemoryDomain,
+  searchCompanionMemoryVectors,
 } from '../../companion/memory-vector';
 import {
   applyModeSafeWorkFallback,
@@ -13,9 +13,9 @@ import {
   findLastUserTextPart,
   hasBlock,
   isCommandBridgeText,
+  type MessageWithParts,
   parseModeKernelMeta,
   prependBlock,
-  type MessageWithParts,
 } from '../neural-chain/shared';
 
 interface MemoryWeaverConfig {
@@ -64,7 +64,9 @@ function formatNote(input: {
   })})`;
 }
 
-function resolveConfig(input?: MemoryWeaverConfig): Required<MemoryWeaverConfig> {
+function resolveConfig(
+  input?: MemoryWeaverConfig,
+): Required<MemoryWeaverConfig> {
   return {
     enabled: input?.enabled ?? true,
   };
@@ -84,7 +86,9 @@ export function createMemoryWeaverHook(
       const target = findLastUserTextPart(output.messages);
       if (!target) return;
 
-      const currentText = String(target.message.parts[target.partIndex].text ?? '');
+      const currentText = String(
+        target.message.parts[target.partIndex].text ?? '',
+      );
       if (!currentText.trim()) return;
       if (isCommandBridgeText(currentText)) return;
       if (hasBlock(currentText, '[MIYA_MEMORY_CONTEXT v1')) return;
@@ -95,10 +99,15 @@ export function createMemoryWeaverHook(
 
       const notes: string[] = [];
       for (const plan of plans) {
-        const hits = searchCompanionMemoryVectors(projectDir, query, plan.limit, {
-          threshold: plan.threshold,
-          domain: plan.domain,
-        });
+        const hits = searchCompanionMemoryVectors(
+          projectDir,
+          query,
+          plan.limit,
+          {
+            threshold: plan.threshold,
+            domain: plan.domain,
+          },
+        );
         for (const hit of hits) {
           notes.push(
             formatNote({
@@ -126,7 +135,10 @@ export function createMemoryWeaverHook(
         '[/MIYA_MEMORY_CONTEXT]',
       ].join('\n');
 
-      target.message.parts[target.partIndex].text = prependBlock(block, currentText);
+      target.message.parts[target.partIndex].text = prependBlock(
+        block,
+        currentText,
+      );
     },
   };
 }

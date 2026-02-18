@@ -1,8 +1,9 @@
-import { collectNativeSentinelSignals, type NativeSentinelSignalSample } from './sensors';
+import {
+  collectNativeSentinelSignals,
+  type NativeSentinelSignalSample,
+} from './sensors';
 
-interface SignalHubCollector {
-  (): NativeSentinelSignalSample;
-}
+type SignalHubCollector = () => NativeSentinelSignalSample;
 
 export interface PsycheNativeSignalHubStatus {
   running: boolean;
@@ -22,17 +23,26 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function normalizeDelay(value: unknown, fallback: number, min: number, max: number): number {
+function normalizeDelay(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(num)));
 }
 
 function normalizeCaptureLimitations(values: string[]): string[] {
-  return [...new Set(values.map((item) => String(item ?? '').trim()).filter(Boolean))].slice(0, 24);
+  return [
+    ...new Set(values.map((item) => String(item ?? '').trim()).filter(Boolean)),
+  ].slice(0, 24);
 }
 
-function cloneSample(sample: NativeSentinelSignalSample): NativeSentinelSignalSample {
+function cloneSample(
+  sample: NativeSentinelSignalSample,
+): NativeSentinelSignalSample {
   return {
     sampledAt: String(sample.sampledAt ?? nowIso()),
     signals:
@@ -46,7 +56,8 @@ function cloneSample(sample: NativeSentinelSignalSample): NativeSentinelSignalSa
 }
 
 function resolveErrorText(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) return error.message.trim();
+  if (error instanceof Error && error.message.trim().length > 0)
+    return error.message.trim();
   return String(error ?? 'unknown_error').trim() || 'unknown_error';
 }
 
@@ -89,7 +100,8 @@ export class PsycheNativeSignalHub {
     staleAfterMs?: number;
     burstCyclesOnChange?: number;
   }) {
-    this.collector = options?.collector ?? (() => collectNativeSentinelSignals());
+    this.collector =
+      options?.collector ?? (() => collectNativeSentinelSignals());
     this.sampleIntervalMs = normalizeDelay(
       options?.sampleIntervalMs ?? process.env.MIYA_PSYCHE_SIGNAL_SAMPLE_MS,
       1_200,
@@ -109,7 +121,8 @@ export class PsycheNativeSignalHub {
       30_000,
     );
     this.burstCyclesOnChange = normalizeDelay(
-      options?.burstCyclesOnChange ?? process.env.MIYA_PSYCHE_SIGNAL_BURST_CYCLES,
+      options?.burstCyclesOnChange ??
+        process.env.MIYA_PSYCHE_SIGNAL_BURST_CYCLES,
       3,
       0,
       12,
@@ -161,12 +174,15 @@ export class PsycheNativeSignalHub {
   private scheduleNext(delayMs: number): void {
     if (!this.running) return;
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = undefined;
-      this.sampleNow('timer');
-      const nextDelay = this.resolveNextDelay();
-      this.scheduleNext(nextDelay);
-    }, Math.max(60, delayMs));
+    this.timer = setTimeout(
+      () => {
+        this.timer = undefined;
+        this.sampleNow('timer');
+        const nextDelay = this.resolveNextDelay();
+        this.scheduleNext(nextDelay);
+      },
+      Math.max(60, delayMs),
+    );
   }
 
   private resolveNextDelay(): number {
@@ -175,7 +191,8 @@ export class PsycheNativeSignalHub {
       return this.burstIntervalMs;
     }
     if (this.consecutiveFailures > 0) {
-      const backoff = this.sampleIntervalMs * Math.min(5, this.consecutiveFailures + 1);
+      const backoff =
+        this.sampleIntervalMs * Math.min(5, this.consecutiveFailures + 1);
       return Math.max(this.sampleIntervalMs, backoff);
     }
     return this.sampleIntervalMs;
@@ -191,7 +208,10 @@ export class PsycheNativeSignalHub {
       const raw = this.collector();
       const normalized: NativeSentinelSignalSample = {
         sampledAt: String(raw.sampledAt ?? nowIso()),
-        signals: raw.signals && typeof raw.signals === 'object' ? { ...raw.signals } : {},
+        signals:
+          raw.signals && typeof raw.signals === 'object'
+            ? { ...raw.signals }
+            : {},
         captureLimitations: normalizeCaptureLimitations(
           Array.isArray(raw.captureLimitations) ? raw.captureLimitations : [],
         ),
@@ -203,7 +223,10 @@ export class PsycheNativeSignalHub {
       this.lastError = '';
       this.consecutiveFailures = 0;
       if (changed && this.burstCyclesOnChange > 0) {
-        this.burstRemaining = Math.max(this.burstRemaining, this.burstCyclesOnChange);
+        this.burstRemaining = Math.max(
+          this.burstRemaining,
+          this.burstCyclesOnChange,
+        );
       }
       return cloneSample(normalized);
     } catch (error) {

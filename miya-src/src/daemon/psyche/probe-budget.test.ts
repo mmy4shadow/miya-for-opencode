@@ -5,7 +5,9 @@ import * as path from 'node:path';
 import { consumeProbeBudget } from './probe-budget';
 
 function tempBudgetPath(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-psyche-probe-budget-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-psyche-probe-budget-'),
+  );
   return path.join(dir, 'probe-budget.json');
 }
 

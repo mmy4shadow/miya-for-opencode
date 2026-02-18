@@ -1,12 +1,14 @@
-import type { Plugin, ToolDefinition } from '@opencode-ai/plugin';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { Plugin, ToolDefinition } from '@opencode-ai/plugin';
 import { getAgentConfigs } from './agents';
 import { MiyaAutomationService } from './automation';
+import { preparePlanBundleBinding, readPlanBundleBinding } from './autopilot';
 import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
+import { parseList } from './config/agent-mcps';
 import {
   extractAgentModelSelectionsFromEvent,
   extractAgentRuntimeSelectionsFromCommandEvent,
@@ -14,7 +16,18 @@ import {
   readPersistedAgentRuntime,
   syncPersistedAgentRuntimeFromOpenCodeState,
 } from './config/agent-model-persistence';
-import { parseList } from './config/agent-mcps';
+import { appendProviderOverrideAudit } from './config/provider-override-audit';
+import { mergePluginAgentConfigs } from './config/runtime-merge';
+import { assertRequiredHookHandlers } from './contracts/hook-contract';
+import {
+  adaptPermissionLifecycle,
+  PERMISSION_OBSERVED_HOOK,
+} from './contracts/permission-events';
+import {
+  ensureMiyaLauncher,
+  getLauncherDaemonSnapshot,
+  subscribeLauncherEvents,
+} from './daemon';
 import {
   createGatewayTools,
   ensureGatewayRunning,
@@ -22,22 +35,6 @@ import {
   probeGatewayAlive,
   registerGatewayDependencies,
 } from './gateway';
-import { createIntakeTools } from './intake';
-import {
-  shouldInterceptWriteAfterWebsearch,
-  trackWebsearchToolOutput,
-} from './intake/websearch-guard';
-import {
-  ensureMiyaLauncher,
-  getLauncherDaemonSnapshot,
-  subscribeLauncherEvents,
-} from './daemon';
-import { appendProviderOverrideAudit } from './config/provider-override-audit';
-import {
-  adaptPermissionLifecycle,
-  PERMISSION_OBSERVED_HOOK,
-} from './contracts/permission-events';
-import { assertRequiredHookHandlers } from './contracts/hook-contract';
 import {
   createContextGovernorHook,
   createLoopGuardHook,
@@ -50,36 +47,39 @@ import {
   createPsycheToneHook,
   createSlashCommandBridgeHook,
 } from './hooks';
+import { createIntakeTools } from './intake';
+import {
+  shouldInterceptWriteAfterWebsearch,
+  trackWebsearchToolOutput,
+} from './intake/websearch-guard';
+import { createBuiltinMcps } from './mcp';
 import { createSafetyTools, handlePermissionAsk } from './safety';
 import { createConfigTools } from './settings';
-import { createBuiltinMcps } from './mcp';
 import {
   ast_grep_replace,
   ast_grep_search,
-  createAutomationTools,
   createAutoflowTools,
+  createAutomationTools,
   createAutopilotTools,
   createBackgroundTools,
   createCapabilityTools,
   createLearningTools,
-  createMultimodalTools,
   createMcpTools,
+  createMultimodalTools,
   createNodeTools,
   createRalphTools,
   createRouterTools,
   createSoulTools,
   createUltraworkTools,
+  createWorkflowTools,
   grep,
   lsp_diagnostics,
   lsp_find_references,
   lsp_goto_definition,
   lsp_rename,
-  createWorkflowTools,
 } from './tools';
-import { mergePluginAgentConfigs } from './config/runtime-merge';
 import { startTmuxCheck } from './utils';
 import { log } from './utils/logger';
-import { preparePlanBundleBinding, readPlanBundleBinding } from './autopilot';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -88,7 +88,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function shouldSyncModelStateFromEventType(eventType: string): boolean {
   if (!eventType) return false;
   // Avoid high-frequency message streams while still covering command/session/settings/model/agent updates.
-  return /(^|\.)(command|session|agent|settings|config|model)(\.|$)/i.test(eventType);
+  return /(^|\.)(command|session|agent|settings|config|model)(\.|$)/i.test(
+    eventType,
+  );
 }
 
 function deepMergeObject(
@@ -122,7 +124,9 @@ function readLastAutoUiOpenAt(projectDir: string): number {
   const file = autoUiOpenGuardFile(projectDir);
   if (!fs.existsSync(file)) return 0;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      atMs?: unknown;
+    };
     const atMs = Number(parsed?.atMs ?? 0);
     return Number.isFinite(atMs) ? atMs : 0;
   } catch {
@@ -144,7 +148,9 @@ function readLastDockLaunchAt(projectDir: string): number {
   const file = dockLaunchGuardFile(projectDir);
   if (!fs.existsSync(file)) return 0;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      atMs?: unknown;
+    };
     const atMs = Number(parsed?.atMs ?? 0);
     return Number.isFinite(atMs) ? atMs : 0;
   } catch {
@@ -217,14 +223,32 @@ function launchDockSilently(projectDir: string): void {
       if (isPidAlive(pid)) return;
     } catch {}
   }
-  const ps1 = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-dock.ps1');
+  const ps1 = path.join(
+    projectDir,
+    'miya-src',
+    'tools',
+    'miya-dock',
+    'miya-dock.ps1',
+  );
   if (!fs.existsSync(ps1)) return;
-  const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1], {
-    cwd: projectDir,
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  });
+  const child = spawn(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-WindowStyle',
+      'Hidden',
+      '-File',
+      ps1,
+    ],
+    {
+      cwd: projectDir,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    },
+  );
   dockLaunchAtByDir.set(projectDir, now);
   writeLastDockLaunchAt(projectDir, now);
   child.unref();
@@ -392,16 +416,23 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
   // Change default to TRUE unless explicitly disabled, to match user expectations for control panel launch.
   // Previous logic required opt-in; now we default to auto-open if openOnStart is not false.
-  const autoOpenOptIn = true; 
+  const autoOpenOptIn = true;
   const autoOpenEnabledResolved = autoOpenEnabled && autoOpenOptIn;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === '0';
   const autoOpenCooldownMs =
     typeof dashboardConfig.autoOpenCooldownMs === 'number'
-      ? Math.max(10_000, Math.min(24 * 60_000, Math.floor(Number(dashboardConfig.autoOpenCooldownMs))))
+      ? Math.max(
+          10_000,
+          Math.min(
+            24 * 60_000,
+            Math.floor(Number(dashboardConfig.autoOpenCooldownMs)),
+          ),
+        )
       : 10 * 60_000;
   const dockAutoLaunch =
     process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
-    (process.env.MIYA_DOCK_AUTO_LAUNCH !== '0' && dashboardConfig.dockAutoLaunch !== false);
+    (process.env.MIYA_DOCK_AUTO_LAUNCH !== '0' &&
+      dashboardConfig.dockAutoLaunch !== false);
   const interactiveSession = isInteractiveSession();
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);
@@ -447,7 +478,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
     }, 4000);
     subscribeLauncherEvents(ctx.directory, (event) => {
       if (event.type !== 'job.progress') return;
-      const status = String(event.payload?.status ?? '').trim().toLowerCase();
+      const status = String(event.payload?.status ?? '')
+        .trim()
+        .toLowerCase();
       if (
         status !== 'completed' &&
         status !== 'failed' &&
@@ -456,19 +489,27 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ) {
         return;
       }
-      const jobID = String(event.payload?.jobID ?? event.snapshot.activeJobID ?? '').trim();
+      const jobID = String(
+        event.payload?.jobID ?? event.snapshot.activeJobID ?? '',
+      ).trim();
       const phase = String(event.payload?.phase ?? '').trim();
       const progress = Number(event.payload?.progress ?? 0);
       const messageParts = [`job=${jobID || 'unknown'}`, `status=${status}`];
       if (phase) messageParts.push(`phase=${phase}`);
-      if (Number.isFinite(progress)) messageParts.push(`progress=${Math.floor(progress)}%`);
+      if (Number.isFinite(progress))
+        messageParts.push(`progress=${Math.floor(progress)}%`);
       void ctx.client.tui
         .showToast({
           query: { directory: ctx.directory },
           body: {
             title: 'Miya Job',
             message: messageParts.join(' | '),
-            variant: status === 'completed' ? 'success' : status === 'failed' ? 'error' : 'info',
+            variant:
+              status === 'completed'
+                ? 'success'
+                : status === 'failed'
+                  ? 'error'
+                  : 'info',
             duration: 3500,
           },
         })
@@ -571,7 +612,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const modeKernelHook = createModeKernelHook();
   const memoryWeaverHook = createMemoryWeaverHook(ctx.directory);
   const psycheToneHook = createPsycheToneHook();
-  const contextGovernorHook = createContextGovernorHook(config.contextGovernance);
+  const contextGovernorHook = createContextGovernorHook(
+    config.contextGovernance,
+  );
   const chatTransformPipeline = [
     slashCommandBridgeHook,
     loopGuardHook,
@@ -614,29 +657,41 @@ const MiyaPlugin: Plugin = async (ctx) => {
     const sessionID = String(input.sessionID ?? 'main');
     const callID = typeof input.callID === 'string' ? input.callID : undefined;
     const argObject =
-      output.args && typeof output.args === 'object' && !Array.isArray(output.args)
+      output.args &&
+      typeof output.args === 'object' &&
+      !Array.isArray(output.args)
         ? (output.args as Record<string, unknown>)
         : undefined;
     const autonomousTool = isAutonomousTool(tool);
     const autonomousRun = isAutonomousRunTool(tool, argObject);
     let effectivePermission = tool;
     if (autonomousTool) {
-      effectivePermission = isAutonomousReadOnlyMode(tool, argObject) ? 'read_only' : 'bash';
+      effectivePermission = isAutonomousReadOnlyMode(tool, argObject)
+        ? 'read_only'
+        : 'bash';
     }
     if (autonomousRun) {
       if (!argObject) {
-        throw new Error('miya_plan_bundle_required:autonomous_run_requires_object_args');
+        throw new Error(
+          'miya_plan_bundle_required:autonomous_run_requires_object_args',
+        );
       }
-      const sourceTool = tool === 'miya_autoflow' ? 'miya_autoflow' : 'miya_autopilot';
+      const sourceTool =
+        tool === 'miya_autoflow' ? 'miya_autoflow' : 'miya_autopilot';
       const modeLabel = parseToolMode(argObject) || 'run';
       const existingBinding = readPlanBundleBinding(ctx.directory, sessionID);
       const bindingLocked =
         existingBinding &&
-        (existingBinding.status === 'prepared' || existingBinding.status === 'running');
+        (existingBinding.status === 'prepared' ||
+          existingBinding.status === 'running');
       const providedBundleID =
-        typeof argObject.plan_bundle_id === 'string' ? argObject.plan_bundle_id.trim() : '';
+        typeof argObject.plan_bundle_id === 'string'
+          ? argObject.plan_bundle_id.trim()
+          : '';
       const providedPolicyHash =
-        typeof argObject.policy_hash === 'string' ? argObject.policy_hash.trim() : '';
+        typeof argObject.policy_hash === 'string'
+          ? argObject.policy_hash.trim()
+          : '';
       const providedRiskTier =
         argObject.risk_tier === 'LIGHT' ||
         argObject.risk_tier === 'STANDARD' ||
@@ -654,24 +709,32 @@ const MiyaPlugin: Plugin = async (ctx) => {
             `miya_plan_bundle_frozen_field_mismatch:bundle_id:${providedBundleID}->${existingBinding.bundleId}`,
           );
         }
-        if (providedPolicyHash && providedPolicyHash !== existingBinding.policyHash) {
+        if (
+          providedPolicyHash &&
+          providedPolicyHash !== existingBinding.policyHash
+        ) {
           throw new Error('miya_plan_bundle_frozen_field_mismatch:policy_hash');
         }
         if (providedRiskTier && providedRiskTier !== existingBinding.riskTier) {
           throw new Error('miya_plan_bundle_frozen_field_mismatch:risk_tier');
         }
       }
-      const canUseBinding = Boolean(existingBinding && existingBinding.sourceTool === sourceTool);
-      const bundleId = providedBundleID || (canUseBinding ? existingBinding!.bundleId : '');
+      const canUseBinding = Boolean(
+        existingBinding && existingBinding.sourceTool === sourceTool,
+      );
+      const bundleId =
+        providedBundleID || (canUseBinding ? existingBinding!.bundleId : '');
       const policyHash =
-        providedPolicyHash || (canUseBinding ? existingBinding!.policyHash : '');
+        providedPolicyHash ||
+        (canUseBinding ? existingBinding!.policyHash : '');
       if (!bundleId || !policyHash) {
         throw new Error(
           'miya_plan_bundle_required:autonomous_run_requires_plan_bundle_id_and_policy_hash',
         );
       }
       const riskTier =
-        providedRiskTier || (canUseBinding ? existingBinding!.riskTier : 'THOROUGH');
+        providedRiskTier ||
+        (canUseBinding ? existingBinding!.riskTier : 'THOROUGH');
       const normalizedArgs = {
         ...argObject,
         plan_bundle_id: bundleId,
@@ -708,7 +771,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
     }
     const argSummary: string[] = [];
     if (output.args && typeof output.args === 'object') {
-      for (const [key, value] of Object.entries(output.args as Record<string, unknown>)) {
+      for (const [key, value] of Object.entries(
+        output.args as Record<string, unknown>,
+      )) {
         if (typeof value === 'string') {
           argSummary.push(`${key}=${value.slice(0, 180)}`);
           continue;
@@ -729,7 +794,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
       permission: effectivePermission,
     });
     if (intakeGate.intercept) {
-      throw new Error('miya_intake_gate_blocked:write_after_websearch_requires_revalidation');
+      throw new Error(
+        'miya_intake_gate_blocked:write_after_websearch_requires_revalidation',
+      );
     }
 
     const safety = await handlePermissionAsk(ctx.directory, {
@@ -753,7 +820,11 @@ const MiyaPlugin: Plugin = async (ctx) => {
       sessionID: string;
       callID: string;
     },
-    output: { title: string; output: string; metadata: Record<string, unknown> },
+    output: {
+      title: string;
+      output: string;
+      metadata: Record<string, unknown>;
+    },
   ) => {
     await postReadNudgeHook['tool.execute.after'](input, output);
     if (postWriteSimplicityEnabled) {
@@ -784,9 +855,13 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
     config: async (opencodeConfig: Record<string, unknown>) => {
       try {
-        const synced = syncPersistedAgentRuntimeFromOpenCodeState(ctx.directory);
+        const synced = syncPersistedAgentRuntimeFromOpenCodeState(
+          ctx.directory,
+        );
         if (synced) {
-          log('[model-persistence] synchronized from opencode state on config merge');
+          log(
+            '[model-persistence] synchronized from opencode state on config merge',
+          );
         }
       } catch (error) {
         log('[model-persistence] config merge sync failed', {
@@ -930,7 +1005,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
       // Aliases for users/IMEs that prefer underscore or dot command styles.
       if (!commandConfig.miya_gateway_start) {
-        commandConfig.miya_gateway_start = { ...commandConfig['miya-gateway-start'] };
+        commandConfig.miya_gateway_start = {
+          ...commandConfig['miya-gateway-start'],
+        };
       }
       if (!commandConfig.miya_gateway_shutdown) {
         commandConfig.miya_gateway_shutdown = {
@@ -968,7 +1045,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
       const pluginProvider = isPlainObject(config.provider)
         ? (config.provider as Record<string, unknown>)
         : {};
-      opencodeConfig.provider = deepMergeObject(existingProvider, pluginProvider);
+      opencodeConfig.provider = deepMergeObject(
+        existingProvider,
+        pluginProvider,
+      );
 
       // Merge MCP configs
       const configMcp = opencodeConfig.mcp as
@@ -1023,14 +1103,21 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
 
     event: async (input) => {
-      const eventType = isPlainObject(input.event) ? String(input.event.type ?? '') : '';
+      const eventType = isPlainObject(input.event)
+        ? String(input.event.type ?? '')
+        : '';
       if (shouldSyncModelStateFromEventType(eventType)) {
         try {
-          const synced = syncPersistedAgentRuntimeFromOpenCodeState(ctx.directory);
+          const synced = syncPersistedAgentRuntimeFromOpenCodeState(
+            ctx.directory,
+          );
           if (synced) {
-            log('[model-persistence] synchronized from opencode state on event', {
-              eventType,
-            });
+            log(
+              '[model-persistence] synchronized from opencode state on event',
+              {
+                eventType,
+              },
+            );
           }
         } catch (error) {
           log('[model-persistence] event sync failed', {
@@ -1046,7 +1133,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
         runtimeBefore.activeAgentId,
       );
       for (const commandSelection of commandSelections) {
-        const changed = persistAgentRuntimeSelection(ctx.directory, commandSelection);
+        const changed = persistAgentRuntimeSelection(
+          ctx.directory,
+          commandSelection,
+        );
         if (changed) {
           log('[model-persistence] updated from command event', {
             eventType,

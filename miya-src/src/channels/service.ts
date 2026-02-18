@@ -1,11 +1,16 @@
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
 import { sendQqDesktopMessage } from '../channel/outbound/qq';
 import { sendWechatDesktopMessage } from '../channel/outbound/wechat';
 import { analyzeDesktopOutboundEvidence } from '../multimodal/vision';
-import type { ChannelName } from './types';
-import { assertChannelCanSend, canChannelSend } from './policy';
+import { readPolicy } from '../policy';
+import {
+  assertSemanticTags,
+  normalizeSemanticTags,
+  type SemanticTag,
+} from '../policy/semantic-tags';
+import { getMiyaRuntimeDir } from '../workflow';
 import {
   ensurePairRequest,
   getContactTier,
@@ -15,13 +20,8 @@ import {
   resolvePairRequest,
   upsertChannelState,
 } from './pairing-store';
-import { getMiyaRuntimeDir } from '../workflow';
-import { readPolicy } from '../policy';
-import {
-  assertSemanticTags,
-  normalizeSemanticTags,
-  type SemanticTag,
-} from '../policy/semantic-tags';
+import { assertChannelCanSend, canChannelSend } from './policy';
+import type { ChannelName } from './types';
 
 export interface ChannelInboundMessage {
   channel: ChannelName;
@@ -134,7 +134,12 @@ export interface ChannelOutboundAudit {
   };
   ocrSource?: 'remote_vlm' | 'tesseract' | 'none';
   ocrPreview?: string;
-  captureMethod?: 'wgc_hwnd' | 'print_window' | 'dxgi_duplication' | 'uia_only' | 'unknown';
+  captureMethod?:
+    | 'wgc_hwnd'
+    | 'print_window'
+    | 'dxgi_duplication'
+    | 'uia_only'
+    | 'unknown';
   evidenceConfidence?: number;
   evidenceLimitations?: string[];
   evidenceBundle?: {
@@ -190,12 +195,17 @@ export interface ChannelOutboundAudit {
 }
 
 function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
-  if (message.includes('target_not_in_allowlist')) return ['recipient_mismatch'];
-  if (message.includes('recipient_text_mismatch')) return ['recipient_mismatch'];
+  if (message.includes('target_not_in_allowlist'))
+    return ['recipient_mismatch'];
+  if (message.includes('recipient_text_mismatch'))
+    return ['recipient_mismatch'];
   if (message.includes('arch_advisor_denied')) return ['privilege_barrier'];
   if (message.includes('input_mutex_timeout')) return ['input_mutex_timeout'];
   if (message.includes('receipt_uncertain')) return ['receipt_uncertain'];
-  if (message.includes('blocked_by_privilege') || message.includes('privilege')) {
+  if (
+    message.includes('blocked_by_privilege') ||
+    message.includes('privilege')
+  ) {
     return ['privilege_barrier'];
   }
   if (message.includes('window_not_found')) return ['window_not_found'];
@@ -216,7 +226,10 @@ function parsePositiveIntEnv(name: string, fallback: number): number {
   return Math.floor(parsed);
 }
 
-const INPUT_MUTEX_TIMEOUT_MS = parsePositiveIntEnv('MIYA_INPUT_MUTEX_TIMEOUT_MS', 20_000);
+const INPUT_MUTEX_TIMEOUT_MS = parsePositiveIntEnv(
+  'MIYA_INPUT_MUTEX_TIMEOUT_MS',
+  20_000,
+);
 const INPUT_MUTEX_STRIKE_LIMIT = 3;
 const INPUT_MUTEX_COOLDOWN_MS = 15 * 60 * 1000;
 
@@ -227,7 +240,10 @@ const inputMutexQueue: Array<{
   grant: () => void;
 }> = [];
 
-function acquireInputMutex(sessionID: string, timeoutMs = INPUT_MUTEX_TIMEOUT_MS): Promise<InputMutexLease> {
+function acquireInputMutex(
+  sessionID: string,
+  timeoutMs = INPUT_MUTEX_TIMEOUT_MS,
+): Promise<InputMutexLease> {
   return new Promise((resolve, reject) => {
     let released = false;
     const makeLease = (): InputMutexLease => ({
@@ -273,7 +289,9 @@ function acquireInputMutex(sessionID: string, timeoutMs = INPUT_MUTEX_TIMEOUT_MS
   });
 }
 
-function buildSemanticSummary(row: Omit<ChannelOutboundAudit, 'id' | 'at'>): ChannelOutboundAudit['semanticSummary'] {
+function buildSemanticSummary(
+  row: Omit<ChannelOutboundAudit, 'id' | 'at'>,
+): ChannelOutboundAudit['semanticSummary'] {
   if (row.sent) {
     return {
       conclusion: 'Outbound send completed with verifiable desktop evidence.',
@@ -284,26 +302,35 @@ function buildSemanticSummary(row: Omit<ChannelOutboundAudit, 'id' | 'at'>): Cha
   if (row.message.includes('arch_advisor_denied')) {
     return {
       conclusion: 'Outbound send blocked by Arch Advisor approval gate.',
-      keyAssertion: 'Arch Advisor approval flag was false, so outbound flow was denied before desktop execution.',
-      recovery: 'Re-issue approval ticket via Arch Advisor and retry only after policy checks pass.',
+      keyAssertion:
+        'Arch Advisor approval flag was false, so outbound flow was denied before desktop execution.',
+      recovery:
+        'Re-issue approval ticket via Arch Advisor and retry only after policy checks pass.',
     };
   }
   if (row.message.includes('input_mutex_timeout')) {
     return {
       conclusion: 'Outbound send blocked by input mutex timeout.',
-      keyAssertion: 'Desktop control was denied because user input mutex could not be acquired in time.',
-      recovery: 'Wait for user idle state and retry with renewed approval tickets.',
+      keyAssertion:
+        'Desktop control was denied because user input mutex could not be acquired in time.',
+      recovery:
+        'Wait for user idle state and retry with renewed approval tickets.',
     };
   }
   if (row.message.includes('ui_style_mismatch')) {
     return {
-      conclusion: 'Outbound send degraded due to unstable UI/OCR style mismatch.',
-      keyAssertion: 'Visual confirmation confidence was too low after retry, so send was treated as failed.',
-      recovery: 'Adjust DPI/theme/window state, then retry with refreshed evidence.',
+      conclusion:
+        'Outbound send degraded due to unstable UI/OCR style mismatch.',
+      keyAssertion:
+        'Visual confirmation confidence was too low after retry, so send was treated as failed.',
+      recovery:
+        'Adjust DPI/theme/window state, then retry with refreshed evidence.',
     };
   }
   return {
-    conclusion: row.sent ? 'Outbound send completed.' : 'Outbound send blocked or uncertain.',
+    conclusion: row.sent
+      ? 'Outbound send completed.'
+      : 'Outbound send blocked or uncertain.',
     keyAssertion: `message=${row.message}`,
     recovery: row.sent
       ? 'No recovery needed.'
@@ -315,12 +342,18 @@ function buildEvidenceBundle(
   row: Omit<ChannelOutboundAudit, 'id' | 'at'>,
 ): ChannelOutboundAudit['evidenceBundle'] | undefined {
   if (row.channel !== 'qq' && row.channel !== 'wechat') return undefined;
-  const screenshots = [row.preSendScreenshotPath, row.postSendScreenshotPath]
-    .filter((item): item is string => typeof item === 'string' && item.length > 0);
+  const screenshots = [
+    row.preSendScreenshotPath,
+    row.postSendScreenshotPath,
+  ].filter(
+    (item): item is string => typeof item === 'string' && item.length > 0,
+  );
   const ticketTraceIds = [
     row.ticketSummary?.outboundSendTraceId,
     row.ticketSummary?.desktopControlTraceId,
-  ].filter((item): item is string => typeof item === 'string' && item.length > 0);
+  ].filter(
+    (item): item is string => typeof item === 'string' && item.length > 0,
+  );
   return {
     kind: 'desktop_outbound',
     version: 'v5',
@@ -344,14 +377,21 @@ function buildEvidenceBundle(
       routeLevel: row.routeLevel,
       somSelectionSource: row.somSelectionSource,
       somSelectedCandidateId:
-        typeof row.somSelectedCandidateId === 'number' ? String(row.somSelectedCandidateId) : undefined,
-      vlmCallsUsed: typeof row.vlmCallsUsed === 'number' ? String(row.vlmCallsUsed) : undefined,
+        typeof row.somSelectedCandidateId === 'number'
+          ? String(row.somSelectedCandidateId)
+          : undefined,
+      vlmCallsUsed:
+        typeof row.vlmCallsUsed === 'number'
+          ? String(row.vlmCallsUsed)
+          : undefined,
       ocrSource: row.ocrSource,
       ocrPreview: row.ocrPreview,
     },
     meta: {
       captureMethod: row.captureMethod ?? 'unknown',
-      confidence: Number.isFinite(row.evidenceConfidence) ? Number(row.evidenceConfidence) : 0,
+      confidence: Number.isFinite(row.evidenceConfidence)
+        ? Number(row.evidenceConfidence)
+        : 0,
       limitations: row.evidenceLimitations ?? [],
       policyHash: row.policyHash,
     },
@@ -426,8 +466,13 @@ export function summarizeChannelGovernance(
   projectDir: string,
   limit = 400,
 ): ChannelGovernanceSummary {
-  const rows = listOutboundAudit(projectDir, Math.max(20, Math.min(5000, limit)));
-  const stateMap = new Map(listChannelStates(projectDir).map((state) => [state.name, state]));
+  const rows = listOutboundAudit(
+    projectDir,
+    Math.max(20, Math.min(5000, limit)),
+  );
+  const stateMap = new Map(
+    listChannelStates(projectDir).map((state) => [state.name, state]),
+  );
   const blockedRows = rows.filter((row) => !row.sent);
   const inboundOnlyViolationAttempts = rows.filter(
     (row) => !canChannelSend(row.channel),
@@ -462,7 +507,8 @@ export function summarizeChannelGovernance(
     outboundBlocked: blockedRows.length,
     inboundOnlyViolationAttempts,
     inboundOnlyInvariantMaintained,
-    highRiskBlocked: blockedRows.filter((row) => row.riskLevel === 'HIGH').length,
+    highRiskBlocked: blockedRows.filter((row) => row.riskLevel === 'HIGH')
+      .length,
     topBlockedReasons: [...blockedReasonCount.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
@@ -492,7 +538,10 @@ export class ChannelRuntime {
   private slackSocket?: WebSocket;
   private slackReconnectTimer?: ReturnType<typeof setTimeout>;
   private readonly outboundThrottle = new Map<string, number[]>();
-  private readonly outboundPayloadHistory = new Map<string, Array<{ at: number; hash: string }>>();
+  private readonly outboundPayloadHistory = new Map<
+    string,
+    Array<{ at: number; hash: string }>
+  >();
   private readonly inputMutexStrike = new Map<string, number>();
   private readonly inputMutexCooldownUntil = new Map<string, number>();
   private readonly sendFingerprintHistory = new Map<string, number>();
@@ -504,8 +553,10 @@ export class ChannelRuntime {
   ) {
     this.projectDir = projectDir;
     this.callbacks = callbacks;
-    this.sendQqDesktopMessageImpl = deps.sendQqDesktopMessage ?? sendQqDesktopMessage;
-    this.sendWechatDesktopMessageImpl = deps.sendWechatDesktopMessage ?? sendWechatDesktopMessage;
+    this.sendQqDesktopMessageImpl =
+      deps.sendQqDesktopMessage ?? sendQqDesktopMessage;
+    this.sendWechatDesktopMessageImpl =
+      deps.sendWechatDesktopMessage ?? sendWechatDesktopMessage;
     this.analyzeDesktopOutboundEvidenceImpl =
       deps.analyzeDesktopOutboundEvidence ?? analyzeDesktopOutboundEvidence;
   }
@@ -527,11 +578,17 @@ export class ChannelRuntime {
   }
 
   markChannelEnabled(channel: ChannelName, enabled: boolean): void {
-    upsertChannelState(this.projectDir, channel, { enabled, connected: enabled });
+    upsertChannelState(this.projectDir, channel, {
+      enabled,
+      connected: enabled,
+    });
   }
 
   async start(): Promise<void> {
-    upsertChannelState(this.projectDir, 'webchat', { enabled: true, connected: true });
+    upsertChannelState(this.projectDir, 'webchat', {
+      enabled: true,
+      connected: true,
+    });
     await this.startTelegramPolling();
     this.syncPassiveChannelStates();
     await this.startSlackSocketMode();
@@ -579,7 +636,9 @@ export class ChannelRuntime {
     upsertChannelState(this.projectDir, 'google_chat', {
       enabled: hasGoogleChat,
       connected: hasGoogleChat,
-      lastError: hasGoogleChat ? undefined : 'Missing MIYA_GOOGLE_CHAT_WEBHOOK_URL',
+      lastError: hasGoogleChat
+        ? undefined
+        : 'Missing MIYA_GOOGLE_CHAT_WEBHOOK_URL',
     });
 
     const hasSignal = !!process.env.MIYA_SIGNAL_REST_URL;
@@ -614,14 +673,17 @@ export class ChannelRuntime {
       if (!this.slackSocketModeRunning) return;
 
       try {
-        const openRes = await fetch('https://slack.com/api/apps.connections.open', {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${appToken}`,
-            'content-type': 'application/json',
+        const openRes = await fetch(
+          'https://slack.com/api/apps.connections.open',
+          {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${appToken}`,
+              'content-type': 'application/json',
+            },
+            body: '{}',
           },
-          body: '{}',
-        });
+        );
         const openBody = (await openRes.json()) as {
           ok?: boolean;
           url?: string;
@@ -697,8 +759,13 @@ export class ChannelRuntime {
       };
     };
 
-    if (payload.envelope_id && this.slackSocket?.readyState === WebSocket.OPEN) {
-      this.slackSocket.send(JSON.stringify({ envelope_id: payload.envelope_id }));
+    if (
+      payload.envelope_id &&
+      this.slackSocket?.readyState === WebSocket.OPEN
+    ) {
+      this.slackSocket.send(
+        JSON.stringify({ envelope_id: payload.envelope_id }),
+      );
     }
 
     if (payload.type !== 'events_api') return;
@@ -749,7 +816,11 @@ export class ChannelRuntime {
             update_id: number;
             message?: {
               chat?: { id?: number | string; type?: string; title?: string };
-              from?: { id?: number | string; username?: string; first_name?: string };
+              from?: {
+                id?: number | string;
+                username?: string;
+                first_name?: string;
+              };
               text?: string;
             };
           }>;
@@ -761,7 +832,10 @@ export class ChannelRuntime {
         }
 
         for (const update of body.result ?? []) {
-          this.telegramOffset = Math.max(this.telegramOffset, Number(update.update_id) + 1);
+          this.telegramOffset = Math.max(
+            this.telegramOffset,
+            Number(update.update_id) + 1,
+          );
           const message = update.message;
           if (!message?.text || !message.chat?.id || !message.from?.id) {
             continue;
@@ -771,7 +845,9 @@ export class ChannelRuntime {
             channel: 'telegram',
             senderID: String(message.from.id),
             displayName:
-              message.from.username ?? message.from.first_name ?? String(message.from.id),
+              message.from.username ??
+              message.from.first_name ??
+              String(message.from.id),
             conversationID: String(message.chat.id),
             text: message.text,
             raw: update,
@@ -900,12 +976,21 @@ export class ChannelRuntime {
     return payload;
   }
 
-  private checkThrottle(channel: ChannelName, destination: string): string | null {
+  private checkThrottle(
+    channel: ChannelName,
+    destination: string,
+  ): string | null {
     const now = Date.now();
     const key = `${channel}:${destination}`;
     const policy = readPolicy(this.projectDir);
-    const windowMs = Math.max(1000, Number(policy.outbound.burstWindowMs || 60000));
-    const minIntervalMs = Math.max(500, Number(policy.outbound.minIntervalMs || 4000));
+    const windowMs = Math.max(
+      1000,
+      Number(policy.outbound.burstWindowMs || 60000),
+    );
+    const minIntervalMs = Math.max(
+      500,
+      Number(policy.outbound.minIntervalMs || 4000),
+    );
     const burstLimit = Math.max(1, Number(policy.outbound.burstLimit || 3));
     const list = (this.outboundThrottle.get(key) ?? []).filter(
       (ts) => now - ts <= windowMs,
@@ -935,7 +1020,10 @@ export class ChannelRuntime {
       Number(policy.outbound.duplicateWindowMs || 60000),
     );
     const key = `${channel}:${destination}`;
-    const payloadHash = createHash('sha256').update(text).digest('hex').slice(0, 24);
+    const payloadHash = createHash('sha256')
+      .update(text)
+      .digest('hex')
+      .slice(0, 24);
     const recent = (this.outboundPayloadHistory.get(key) ?? []).filter(
       (item) => now - item.at <= duplicateWindowMs,
     );
@@ -962,7 +1050,10 @@ export class ChannelRuntime {
     const strikes = (this.inputMutexStrike.get(sessionID) ?? 0) + 1;
     this.inputMutexStrike.set(sessionID, strikes);
     if (strikes >= INPUT_MUTEX_STRIKE_LIMIT) {
-      this.inputMutexCooldownUntil.set(sessionID, Date.now() + INPUT_MUTEX_COOLDOWN_MS);
+      this.inputMutexCooldownUntil.set(
+        sessionID,
+        Date.now() + INPUT_MUTEX_COOLDOWN_MS,
+      );
       this.inputMutexStrike.set(sessionID, 0);
     }
   }
@@ -993,11 +1084,13 @@ export class ChannelRuntime {
         : typeof error === 'string'
           ? error
           : 'unknown';
-    return raw
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9:_-]+/g, '_')
-      .slice(0, 120) || 'unknown';
+    return (
+      raw
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9:_-]+/g, '_')
+        .slice(0, 120) || 'unknown'
+    );
   }
 
   private recordDesktopRuntimeFailure(input: {
@@ -1075,7 +1168,8 @@ export class ChannelRuntime {
     const text = (input.text ?? '').trim();
     const mediaPath = (input.mediaPath ?? '').trim();
     const payloadHash = (
-      input.payloadHash ?? createHash('sha256').update(`${text}||${mediaPath}`).digest('hex')
+      input.payloadHash ??
+      createHash('sha256').update(`${text}||${mediaPath}`).digest('hex')
     ).trim();
     if (!text && !mediaPath) {
       return { sent: false, message: 'invalid_outbound_payload_empty' };
@@ -1100,7 +1194,9 @@ export class ChannelRuntime {
       };
     }
 
-    const archAdvisorApproved = Boolean(input.outboundCheck?.archAdvisorApproved);
+    const archAdvisorApproved = Boolean(
+      input.outboundCheck?.archAdvisorApproved,
+    );
     const riskLevel = input.outboundCheck?.riskLevel ?? 'HIGH';
     const intent = input.outboundCheck?.intent ?? 'initiate';
     const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
@@ -1169,9 +1265,9 @@ export class ChannelRuntime {
       if (intent !== 'reply') {
         const audit = this.recordOutboundAttempt({
           channel: input.channel,
-        destination: input.destination,
-        textPreview: text.slice(0, 200),
-        sent: false,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
           message: 'outbound_blocked:friend_tier_can_only_reply',
           reason: 'allowlist_denied',
           archAdvisorApproved,
@@ -1188,9 +1284,9 @@ export class ChannelRuntime {
       if (containsSensitive) {
         const audit = this.recordOutboundAttempt({
           channel: input.channel,
-        destination: input.destination,
-        textPreview: text.slice(0, 200),
-        sent: false,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
           message: 'outbound_blocked:friend_tier_sensitive_content_denied',
           reason: 'allowlist_denied',
           archAdvisorApproved,
@@ -1211,9 +1307,9 @@ export class ChannelRuntime {
       if (throttle) {
         const audit = this.recordOutboundAttempt({
           channel: input.channel,
-        destination: input.destination,
-        textPreview: text.slice(0, 200),
-        sent: false,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
           message: `outbound_blocked:${throttle}`,
           reason: 'throttled',
           archAdvisorApproved,
@@ -1385,7 +1481,8 @@ export class ChannelRuntime {
             payloadHash: result.payloadHash ?? payloadHash,
             windowFingerprint: result.windowFingerprint,
             recipientTextCheck:
-              visionCheck.recipientMatch === 'matched' || visionCheck.recipientMatch === 'mismatch'
+              visionCheck.recipientMatch === 'matched' ||
+              visionCheck.recipientMatch === 'mismatch'
                 ? visionCheck.recipientMatch
                 : result.recipientTextCheck,
             sendStatusCheck: visionCheck.sendStatusDetected,
@@ -1481,7 +1578,8 @@ export class ChannelRuntime {
           payloadHash: result.payloadHash ?? payloadHash,
           windowFingerprint: result.windowFingerprint,
           recipientTextCheck:
-            visionCheck.recipientMatch === 'matched' || visionCheck.recipientMatch === 'mismatch'
+            visionCheck.recipientMatch === 'matched' ||
+            visionCheck.recipientMatch === 'mismatch'
               ? visionCheck.recipientMatch
               : result.recipientTextCheck,
           sendStatusCheck: visionCheck.sendStatusDetected,

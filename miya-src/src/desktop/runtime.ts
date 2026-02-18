@@ -1,4 +1,7 @@
-import { parseDesktopActionPlanV2, type DesktopActionPlanV2 } from './action-engine';
+import {
+  type DesktopActionPlanV2,
+  parseDesktopActionPlanV2,
+} from './action-engine';
 
 export interface DesktopActionExecutionStep {
   id: string;
@@ -666,16 +669,22 @@ function failureText(result: DesktopActionExecutionResult): string {
   return reason;
 }
 
-function classifyRetryClass(result: DesktopActionExecutionResult): NonNullable<DesktopActionExecutionResult['retryClass']> {
+function classifyRetryClass(
+  result: DesktopActionExecutionResult,
+): NonNullable<DesktopActionExecutionResult['retryClass']> {
   const reason = failureText(result);
   if (!reason) return 'none';
   if (/input_mutex|user_interference/.test(reason)) return 'input_mutex';
   if (/execution_timeout|timeout/.test(reason)) return 'timeout';
-  if (/not_found|unresolved|target_|focus_|window_/.test(reason)) return 'target_not_found';
-  if (/post_action_verify_failed|assert_.*mismatch|mismatch|drift/.test(reason)) {
+  if (/not_found|unresolved|target_|focus_|window_/.test(reason))
+    return 'target_not_found';
+  if (
+    /post_action_verify_failed|assert_.*mismatch|mismatch|drift/.test(reason)
+  ) {
     return 'verification_failed';
   }
-  if (/unsupported|not_supported|invalid/.test(reason)) return 'unsupported_action';
+  if (/unsupported|not_supported|invalid/.test(reason))
+    return 'unsupported_action';
   return 'unknown';
 }
 
@@ -734,7 +743,12 @@ function buildPostActionVerifyPlan(
   action: DesktopActionPlanV2['actions'][number],
   stepIndex: number,
 ): DesktopActionPlanV2 | null {
-  if (!action.target || !action.target.value || action.target.mode === 'coordinates') return null;
+  if (
+    !action.target ||
+    !action.target.value ||
+    action.target.mode === 'coordinates'
+  )
+    return null;
   const expected = action.target.value.trim();
   if (!expected) return null;
   const assertType = action.target.mode === 'window' ? 'window' : 'text';
@@ -764,19 +778,31 @@ async function executeDesktopActionPlanOnce(input: {
 }): Promise<DesktopActionExecutionResult> {
   const plan = parseDesktopActionPlanV2(input.plan);
   const traceID = `desktop_exec_${Date.now().toString(36)}`;
-  const planPayload = Buffer.from(JSON.stringify(plan), 'utf-8').toString('base64');
+  const planPayload = Buffer.from(JSON.stringify(plan), 'utf-8').toString(
+    'base64',
+  );
   const timeoutMs = clampTimeoutMs(input.timeoutMs, 25_000);
   const startedAt = nowIso();
 
   const proc = Bun.spawn(
-    ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', actionScript()],
+    [
+      'powershell',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      actionScript(),
+    ],
     {
       env: {
         ...process.env,
         MIYA_DESKTOP_TRACE_ID: traceID,
         MIYA_DESKTOP_ACTION_PLAN_B64: planPayload,
         MIYA_INPUT_MUTEX_ENABLED: plan.safety.inputMutex ? '1' : '0',
-        MIYA_ABORT_ON_INTERFERENCE: plan.safety.abortOnUserInterference ? '1' : '0',
+        MIYA_ABORT_ON_INTERFERENCE: plan.safety.abortOnUserInterference
+          ? '1'
+          : '0',
       },
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -806,7 +832,9 @@ async function executeDesktopActionPlanOnce(input: {
       startedAt,
       finishedAt: nowIso(),
       executedCount: 0,
-      failureReason: timedOut ? 'execution_timeout' : `execution_parse_failed:${exitCode}`,
+      failureReason: timedOut
+        ? 'execution_timeout'
+        : `execution_parse_failed:${exitCode}`,
       inputMutexTriggered: false,
       steps: [],
       stdout,
@@ -821,7 +849,10 @@ async function executeDesktopActionPlanOnce(input: {
       const item = row as Record<string, unknown>;
       const statusRaw = String(item.status ?? '').trim();
       const status =
-        statusRaw === 'planned' || statusRaw === 'ok' || statusRaw === 'failed' || statusRaw === 'skipped'
+        statusRaw === 'planned' ||
+        statusRaw === 'ok' ||
+        statusRaw === 'failed' ||
+        statusRaw === 'skipped'
           ? statusRaw
           : 'failed';
       return {
@@ -833,12 +864,16 @@ async function executeDesktopActionPlanOnce(input: {
             ? item.message.trim()
             : undefined,
         durationMs:
-          typeof item.durationMs === 'number' && Number.isFinite(item.durationMs)
+          typeof item.durationMs === 'number' &&
+          Number.isFinite(item.durationMs)
             ? Math.max(0, Math.floor(item.durationMs))
             : undefined,
       };
     })
-    .filter((item): item is DesktopActionExecutionStep => item !== null && item.id.length > 0);
+    .filter(
+      (item): item is DesktopActionExecutionStep =>
+        item !== null && item.id.length > 0,
+    );
 
   return {
     ok: parsed.ok === true && !timedOut,
@@ -850,23 +885,26 @@ async function executeDesktopActionPlanOnce(input: {
         ? parsed.startedAt
         : startedAt,
     finishedAt:
-      typeof parsed.finishedAt === 'string' && parsed.finishedAt.trim().length > 0
+      typeof parsed.finishedAt === 'string' &&
+      parsed.finishedAt.trim().length > 0
         ? parsed.finishedAt
         : nowIso(),
     executedCount:
-      typeof parsed.executedCount === 'number' && Number.isFinite(parsed.executedCount)
+      typeof parsed.executedCount === 'number' &&
+      Number.isFinite(parsed.executedCount)
         ? Math.max(0, Math.floor(parsed.executedCount))
         : 0,
     failureStepID:
-      typeof parsed.failureStepID === 'string' && parsed.failureStepID.trim().length > 0
+      typeof parsed.failureStepID === 'string' &&
+      parsed.failureStepID.trim().length > 0
         ? parsed.failureStepID.trim()
         : undefined,
-    failureReason:
-      timedOut
-        ? 'execution_timeout'
-        : typeof parsed.failureReason === 'string' && parsed.failureReason.trim().length > 0
-          ? parsed.failureReason.trim()
-          : undefined,
+    failureReason: timedOut
+      ? 'execution_timeout'
+      : typeof parsed.failureReason === 'string' &&
+          parsed.failureReason.trim().length > 0
+        ? parsed.failureReason.trim()
+        : undefined,
     inputMutexTriggered: parsed.inputMutexTriggered === true,
     steps,
     stdout,
@@ -879,8 +917,13 @@ export async function executeDesktopActionPlan(
 ): Promise<DesktopActionExecutionResult> {
   const parsedPlan = parseDesktopActionPlanV2(input.plan);
   const singleStep = input.singleStep === true;
-  const actionsToRun = singleStep ? parsedPlan.actions.slice(0, 1) : parsedPlan.actions;
-  const remainingCount = Math.max(0, parsedPlan.actions.length - actionsToRun.length);
+  const actionsToRun = singleStep
+    ? parsedPlan.actions.slice(0, 1)
+    : parsedPlan.actions;
+  const remainingCount = Math.max(
+    0,
+    parsedPlan.actions.length - actionsToRun.length,
+  );
   const plan = clonePlanWithActions({
     plan: parsedPlan,
     actions: actionsToRun,
@@ -888,7 +931,8 @@ export async function executeDesktopActionPlan(
   });
   if (input.dryRun === true) {
     const result = dryRunResult(plan);
-    const retryClass: NonNullable<DesktopActionExecutionResult['retryClass']> = 'none';
+    const retryClass: NonNullable<DesktopActionExecutionResult['retryClass']> =
+      'none';
     return {
       ...result,
       plannedCount: actionsToRun.length,
@@ -905,7 +949,8 @@ export async function executeDesktopActionPlan(
     };
   }
   if (process.platform !== 'win32') {
-    const retryClass: NonNullable<DesktopActionExecutionResult['retryClass']> = 'unsupported_action';
+    const retryClass: NonNullable<DesktopActionExecutionResult['retryClass']> =
+      'unsupported_action';
     return {
       ok: false,
       dryRun: false,
@@ -942,7 +987,8 @@ export async function executeDesktopActionPlan(
     ? Math.max(0, Math.min(4, Math.floor(stepRetryLimitRaw)))
     : 2;
   const verifyAfterAction =
-    input.verifyAfterAction ?? process.env.MIYA_DESKTOP_VERIFY_AFTER_ACTION !== '0';
+    input.verifyAfterAction ??
+    process.env.MIYA_DESKTOP_VERIFY_AFTER_ACTION !== '0';
 
   const steps: DesktopActionExecutionStep[] = [];
   let ok = true;
@@ -987,11 +1033,15 @@ export async function executeDesktopActionPlan(
           if (verifyPlan) {
             const verifyRun = await executeDesktopActionPlanOnce({
               plan: verifyPlan,
-              timeoutMs: Math.max(1_000, Math.min(4_000, deadline - Date.now())),
+              timeoutMs: Math.max(
+                1_000,
+                Math.min(4_000, deadline - Date.now()),
+              ),
             });
             stdout = verifyRun.stdout ?? stdout;
             stderr = verifyRun.stderr ?? stderr;
-            inputMutexTriggered = inputMutexTriggered || verifyRun.inputMutexTriggered;
+            inputMutexTriggered =
+              inputMutexTriggered || verifyRun.inputMutexTriggered;
             steps.push(
               ...decorateAttemptSteps(
                 verifyRun.steps.map((step) => ({

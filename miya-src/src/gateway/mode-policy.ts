@@ -31,4 +31,3 @@ export function stripWorkAffectionatePrefix(text: string): {
     stripped: next !== text,
   };
 }
-

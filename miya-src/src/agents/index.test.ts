@@ -117,7 +117,10 @@ describe('orchestrator agent', () => {
   test('orchestrator accepts overrides', () => {
     const config: PluginConfig = {
       agents: {
-        '1-task-manager': { model: 'custom-orchestrator-model', temperature: 0.3 },
+        '1-task-manager': {
+          model: 'custom-orchestrator-model',
+          temperature: 0.3,
+        },
       },
     };
     const agents = createAgents(config);
@@ -220,18 +223,22 @@ describe('createAgents', () => {
   test('injects soul persona layer when project directory is provided', () => {
     const projectDir = tempProjectDir();
     const agents = createAgents(undefined, projectDir);
-    expect(String(agents[0].config.prompt).includes('<PersonaLayer>')).toBe(true);
+    expect(String(agents[0].config.prompt).includes('<PersonaLayer>')).toBe(
+      true,
+    );
   });
 
   test('injects chat/work persona mode router into agent prompts', () => {
     const agents = createAgents();
-    expect(String(agents[0].config.prompt).includes('<PersonaModeRouter>')).toBe(
-      true,
-    );
+    expect(
+      String(agents[0].config.prompt).includes('<PersonaModeRouter>'),
+    ).toBe(true);
     expect(
       String(agents[0].config.prompt).includes('<ContextHydraulicPress>'),
     ).toBe(true);
-    expect(String(agents[0].config.prompt).includes('mode_decision')).toBe(true);
+    expect(String(agents[0].config.prompt).includes('mode_decision')).toBe(
+      true,
+    );
     expect(
       String(
         agents.find((agent) => agent.name === '5-code-fixer')?.config.prompt,

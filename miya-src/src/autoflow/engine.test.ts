@@ -19,7 +19,9 @@ class FakeManager implements AutoflowManager {
     };
   }
 
-  async waitForCompletion(taskID: string): Promise<ReturnType<FakeManager['launch']> | null> {
+  async waitForCompletion(
+    taskID: string,
+  ): Promise<ReturnType<FakeManager['launch']> | null> {
     return {
       id: taskID,
       agent: '2-code-search',
@@ -45,7 +47,8 @@ function tempProjectDir(): string {
 }
 
 function commandResult(
-  input: Partial<AutoflowCommandResult> & Pick<AutoflowCommandResult, 'command' | 'ok'>,
+  input: Partial<AutoflowCommandResult> &
+    Pick<AutoflowCommandResult, 'command' | 'ok'>,
 ): AutoflowCommandResult {
   return {
     command: input.command,
@@ -74,7 +77,9 @@ describe('autoflow engine', () => {
     expect(result.summary).toBe('planning_requires_tasks');
     expect(result.pipeline.stage).toBe('plan');
     expect(result.failure?.fixability).toBe('unknown');
-    expect(result.state.history.some((item) => item.event === 'planning_waiting')).toBe(true);
+    expect(
+      result.state.history.some((item) => item.event === 'planning_waiting'),
+    ).toBe(true);
   });
 
   test('completes after successful execution and verification', async () => {
@@ -199,7 +204,11 @@ describe('autoflow engine', () => {
         },
       ],
       verificationCommand: 'bun test',
-      fixCommands: ['bun run lint --fix', 'bun run lint --fix', 'bun run lint --fix'],
+      fixCommands: [
+        'bun run lint --fix',
+        'bun run lint --fix',
+        'bun run lint --fix',
+      ],
       runDag: async () => ({
         total: 1,
         completed: 1,

@@ -24,7 +24,10 @@ export function calculateVramBudget(input: {
   );
 
   const loaded = new Map(
-    input.snapshot.loadedModels.map((model) => [model.modelID, clampNonNegative(model.vramMB)]),
+    input.snapshot.loadedModels.map((model) => [
+      model.modelID,
+      clampNonNegative(model.vramMB),
+    ]),
   );
   const keepLoaded = new Set<string>();
   let modelsNeedLoadMB = 0;

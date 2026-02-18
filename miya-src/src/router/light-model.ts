@@ -8,31 +8,77 @@ export interface RouteLightModelResult {
 
 const VERSION = 'route_light_model_v1';
 
-const FEATURE_WEIGHTS: Record<RouteIntent, Array<{ pattern: RegExp; weight: number; evidence: string }>> = {
+const FEATURE_WEIGHTS: Record<
+  RouteIntent,
+  Array<{ pattern: RegExp; weight: number; evidence: string }>
+> = {
   code_fix: [
-    { pattern: /(bug|报错|修复|failing|stack trace|panic|exception|traceback|fix)/i, weight: 1.3, evidence: 'lm_fix_error' },
-    { pattern: /(test fail|ci fail|lint fail|回归|hotfix|patch)/i, weight: 0.9, evidence: 'lm_fix_ci' },
+    {
+      pattern:
+        /(bug|报错|修复|failing|stack trace|panic|exception|traceback|fix)/i,
+      weight: 1.3,
+      evidence: 'lm_fix_error',
+    },
+    {
+      pattern: /(test fail|ci fail|lint fail|回归|hotfix|patch)/i,
+      weight: 0.9,
+      evidence: 'lm_fix_ci',
+    },
   ],
   code_search: [
-    { pattern: /(find|search|grep|定位|查找|索引|where)/i, weight: 1.2, evidence: 'lm_search_query' },
-    { pattern: /(在哪|引用|definition|symbol|callsite)/i, weight: 0.7, evidence: 'lm_search_symbol' },
+    {
+      pattern: /(find|search|grep|定位|查找|索引|where)/i,
+      weight: 1.2,
+      evidence: 'lm_search_query',
+    },
+    {
+      pattern: /(在哪|引用|definition|symbol|callsite)/i,
+      weight: 0.7,
+      evidence: 'lm_search_symbol',
+    },
   ],
   docs_research: [
-    { pattern: /(docs?|文档|reference|规范|citation|paper)/i, weight: 1.1, evidence: 'lm_docs_keyword' },
-    { pattern: /(latest|最新|official|官网|source link)/i, weight: 0.6, evidence: 'lm_docs_freshness' },
+    {
+      pattern: /(docs?|文档|reference|规范|citation|paper)/i,
+      weight: 1.1,
+      evidence: 'lm_docs_keyword',
+    },
+    {
+      pattern: /(latest|最新|official|官网|source link)/i,
+      weight: 0.6,
+      evidence: 'lm_docs_freshness',
+    },
   ],
   architecture: [
-    { pattern: /(architecture|架构|tradeoff|可扩展|migration|重构方案|risk)/i, weight: 1.15, evidence: 'lm_arch_signal' },
-    { pattern: /(pipeline|orchestr|workflow|state machine|治理)/i, weight: 0.7, evidence: 'lm_arch_workflow' },
+    {
+      pattern: /(architecture|架构|tradeoff|可扩展|migration|重构方案|risk)/i,
+      weight: 1.15,
+      evidence: 'lm_arch_signal',
+    },
+    {
+      pattern: /(pipeline|orchestr|workflow|state machine|治理)/i,
+      weight: 0.7,
+      evidence: 'lm_arch_workflow',
+    },
   ],
   ui_design: [
-    { pattern: /(ui|页面|视觉|layout|css|交互|动效|mockup|figma)/i, weight: 1.2, evidence: 'lm_ui_signal' },
-    { pattern: /(font|color|spacing|responsive)/i, weight: 0.6, evidence: 'lm_ui_detail' },
+    {
+      pattern: /(ui|页面|视觉|layout|css|交互|动效|mockup|figma)/i,
+      weight: 1.2,
+      evidence: 'lm_ui_signal',
+    },
+    {
+      pattern: /(font|color|spacing|responsive)/i,
+      weight: 0.6,
+      evidence: 'lm_ui_detail',
+    },
   ],
   general: [],
 };
 
-function softmax(scores: Record<RouteIntent, number>): Record<RouteIntent, number> {
+function softmax(
+  scores: Record<RouteIntent, number>,
+): Record<RouteIntent, number> {
   const intents = Object.keys(scores) as RouteIntent[];
   const maxValue = Math.max(...intents.map((intent) => scores[intent]));
   const exps = intents.map((intent) => Math.exp(scores[intent] - maxValue));
@@ -51,7 +97,9 @@ function softmax(scores: Record<RouteIntent, number>): Record<RouteIntent, numbe
   return probs;
 }
 
-export function scoreRouteIntentLightModel(text: string): RouteLightModelResult {
+export function scoreRouteIntentLightModel(
+  text: string,
+): RouteLightModelResult {
   const input = String(text ?? '').trim();
   const scores: Record<RouteIntent, number> = {
     code_fix: 0.25,

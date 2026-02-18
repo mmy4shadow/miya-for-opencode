@@ -42,6 +42,16 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - Dock 启动链路新增 30 秒防抖：同一工作区短时间内不重复拉起 Dock 脚本，降低“终端/窗口持续闪烁”概率并抑制重复触发。
 - 控制台信息架构新增：在 `控制中心/任务` 之外新增 `记忆`、`网关` 导航页，降低单页拥挤。
 - 记忆中心已落地可编辑能力：支持按域/状态筛选、详情编辑、待确认转生效、归档/取消归档；后端新增 `companion.memory.update`、`companion.memory.archive` 接口。
+- Owner 校验新增逃生阀：支持 `security.ownerCheck=false`（默认）或环境变量 `MIYA_DISABLE_OWNER_CHECK=1`，用于避免本机控制台在 `owner_mode_required` 下反复抖动。
+
+### 2026-02-18 代码实读复核（逻辑闭环/触发链路）
+
+- 结论：当前主链路可运行，但仍存在“接口壳层已接入、能力未真正下沉”的未闭环点；本节结论覆盖同日“已落地”表述中的冲突项。
+- 问题 1（网关拆域未闭环，属 `P0-1` 在途）：`methods/channels|security|nodes|companion|memory` 目前仅为透传壳层（`register(methods)`），实际方法定义仍集中在 `gateway/index.ts` 大块注册，尚未形成可独立演进的按域实现闭环（`miya-src/src/gateway/methods/channels.ts:3`、`miya-src/src/gateway/methods/security.ts:3`、`miya-src/src/gateway/methods/nodes.ts:3`、`miya-src/src/gateway/methods/companion.ts:3`、`miya-src/src/gateway/methods/memory.ts:3`、`miya-src/src/gateway/index.ts:6203`、`miya-src/src/gateway/index.ts:6383`、`miya-src/src/gateway/index.ts:7191`、`miya-src/src/gateway/index.ts:8020`、`miya-src/src/gateway/index.ts:8321`）。
+- 问题 2（配置语义与运行默认值冲突）：`SlimCompat` schema 默认值为 `false`，但运行态在未配置时按 `true` 处理，导致“默认关闭”的配置预期与“默认启用”实际行为冲突，存在触发链路歧义（`miya-src/src/config/schema.ts`、`miya-src/src/index.ts:627`、`miya-src/src/index.ts:630`）。
+- 问题 3（命令覆盖导致用户自定义失效风险）：`miya-gateway-start` 在配置注入阶段被无条件重写，和其它命令的“仅缺失时注入”策略不一致，用户自定义模板可能被静默覆盖（`miya-src/src/index.ts:945`）。
+- 问题 4（伴随开关语义未收口）：`autoOpenOptIn` 常量固定为 `true`，对最终行为无约束增量，属于保留占位变量，增加理解成本（`miya-src/src/index.ts:419`、`miya-src/src/index.ts:420`）。
+- 修正口径：网关拆域当前状态应按“进行中（第一阶段：域壳层 + 组合注册）”维护，不应表述为“已完成拆域”。
 
 - 不删减现有功能：保持既有桌控、陪伴、多代理自主流、模型路由、学习复用主链路可用。
 - 不破坏现有接口：旧 `gateway method`、`daemon ws method`、配置键与工具入口保持可调用。
@@ -59,7 +69,7 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - Phase H（文档与发布门禁）：已落地第一阶段。`check:ci` 已纳入 no-regression 门禁，发布前运行 `opencode debug config`、`opencode debug skill`、`opencode debug paths` 作为固定检查。
 
 - `P0` PlanBundle v1 事务对象：已落地（`miya-src/src/autopilot/plan-bundle.ts`、`miya-src/src/autopilot/executor.ts`、`miya-src/src/gateway/protocol.ts`）。
-- `P0` 网关按域拆分：已启动并接入运行（`miya-src/src/gateway/methods/core.ts` + `miya-src/src/gateway/kernel/action-ledger.ts`，`gateway/index.ts` 改为组合式注册）。
+- `P0` 网关按域拆分：进行中（第一阶段已接入：域壳层 + 组合注册；业务方法仍主要集中于 `gateway/index.ts`，后续需继续下沉到各域实现）（`miya-src/src/gateway/methods/core.ts`、`miya-src/src/gateway/methods/channels.ts`、`miya-src/src/gateway/methods/security.ts`、`miya-src/src/gateway/methods/nodes.ts`、`miya-src/src/gateway/methods/companion.ts`、`miya-src/src/gateway/methods/memory.ts`、`miya-src/src/gateway/kernel/action-ledger.ts`、`miya-src/src/gateway/index.ts`）。
 - `P0` 路由双层升级（规则+学习）：已落地（`miya-src/src/router/learner.ts`、`miya-src/src/router/runtime.ts`、`miya-src/src/tools/router.ts`），学习权重支持成功率/成本/风险。
 - `P0` 执行审计账本化：已落地（`miya-src/src/gateway/kernel/action-ledger.ts`，在 `invokeGatewayMethod` 全量落盘不可变事件，含输入摘要/审批依据/结果哈希/replay token）。
 - `P1` 记忆“向量+事实图谱”：已落地（`miya-src/src/companion/memory-graph.ts` + 网关图谱检索方法）。
@@ -74,7 +84,7 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 
 ### 2026-02-16 增量实装状态回填（本轮）
 
-- `P0-1` Gateway 拆域重构（先不改协议）：已落地第一阶段。`gateway/index.ts` 已按域接入子注册器（`miya-src/src/gateway/methods/channels.ts`、`security.ts`、`nodes.ts`、`companion.ts`、`memory.ts`），协议版本与 method 名保持不变。
+- `P0-1` Gateway 拆域重构（先不改协议）：进行中（第一阶段已完成，第二阶段未收口）。当前 `gateway/index.ts` 已按域接入子注册器，但大部分方法仍在主文件注册，域文件以透传壳层为主；协议版本与 method 名保持不变。
 - `P0-2` 记忆检索“双通道召回 + 可评测”：已落地。新增可插拔 embedding provider（本地 hash/ngram + 远程 HTTP 回退）与 dual-recall 融合检索（semantic + lexical），并新增离线 recall@k 数据集与评测工具（`miya-src/src/companion/memory-embedding.ts`、`memory-recall-benchmark.ts`、`src/companion/benchmarks/recall-default.json`、`tools/memory-recall-benchmark.ts`）。
 - `P0-3` 路由“规则+轻模型判别”：已落地。规则层与轻量模型层做融合打分，保留规则兜底并补充模型证据链（`miya-src/src/router/classifier.ts`、`miya-src/src/router/light-model.ts`）。
 - `P0-4` 回归/基准套件：已落地最小可用集。新增 `src/regression/suite.test.ts`，覆盖外发安全、审批疲劳、mixed 模式、记忆跨域写入四类场景；新增 `npm script`：`test:regression`、`benchmark:memory-recall`。

@@ -10,7 +10,10 @@ interface CaptureHelperRaw {
 }
 
 function parseMethodList(): ProbeCaptureMethod[] {
-  const raw = String(process.env.MIYA_CAPTURE_PROBE_METHODS ?? 'dxgi_duplication,wgc_hwnd,print_window')
+  const raw = String(
+    process.env.MIYA_CAPTURE_PROBE_METHODS ??
+      'dxgi_duplication,wgc_hwnd,print_window',
+  )
     .trim()
     .toLowerCase();
   const parsed = raw
@@ -18,12 +21,18 @@ function parseMethodList(): ProbeCaptureMethod[] {
     .map((item) => item.trim())
     .filter(Boolean)
     .map((item) =>
-      item === 'dxgi' || item === 'dxgi_duplication' || item === 'wgc_hwnd' || item === 'print_window'
-        ? (item === 'dxgi' ? 'dxgi_duplication' : item)
+      item === 'dxgi' ||
+      item === 'dxgi_duplication' ||
+      item === 'wgc_hwnd' ||
+      item === 'print_window'
+        ? item === 'dxgi'
+          ? 'dxgi_duplication'
+          : item
         : null,
     )
     .filter((item): item is ProbeCaptureMethod => Boolean(item));
-  if (parsed.length === 0) return ['dxgi_duplication', 'wgc_hwnd', 'print_window'];
+  if (parsed.length === 0)
+    return ['dxgi_duplication', 'wgc_hwnd', 'print_window'];
   return [...new Set(parsed)];
 }
 
@@ -76,7 +85,9 @@ function runCaptureHelper(input: {
       error: String(result.stderr || `exit_${result.status}`).trim(),
     };
   }
-  const parsed = parseJson<CaptureHelperRaw>(String(result.stdout ?? '').trim());
+  const parsed = parseJson<CaptureHelperRaw>(
+    String(result.stdout ?? '').trim(),
+  );
   if (!parsed) {
     return {
       ok: false,
@@ -86,12 +97,18 @@ function runCaptureHelper(input: {
     };
   }
   const limitations = Array.isArray(parsed.limitations)
-    ? parsed.limitations.map((item) => String(item ?? '').trim()).filter(Boolean)
+    ? parsed.limitations
+        .map((item) => String(item ?? '').trim())
+        .filter(Boolean)
     : [];
   return {
-    ok: parsed.ok === true && typeof parsed.imageBase64 === 'string' && parsed.imageBase64.length > 0,
+    ok:
+      parsed.ok === true &&
+      typeof parsed.imageBase64 === 'string' &&
+      parsed.imageBase64.length > 0,
     method: input.method,
-    imageBase64: typeof parsed.imageBase64 === 'string' ? parsed.imageBase64 : undefined,
+    imageBase64:
+      typeof parsed.imageBase64 === 'string' ? parsed.imageBase64 : undefined,
     blackFrame: parsed.blackFrame === true,
     limitations,
     error: typeof parsed.error === 'string' ? parsed.error : undefined,
@@ -121,20 +138,28 @@ function runDxgiHelper(timeoutMs: number): ProbeCaptureResult {
   if (!ffmpeg.ok) {
     return {
       ...helper,
-      limitations: [...new Set([...helper.limitations, ...ffmpeg.limitations])].slice(0, 24),
+      limitations: [
+        ...new Set([...helper.limitations, ...ffmpeg.limitations]),
+      ].slice(0, 24),
       error: helper.error || ffmpeg.error,
     };
   }
   return {
     ...ffmpeg,
     limitations: [
-      ...new Set([...helper.limitations, ...ffmpeg.limitations, 'dxgi_helper_fallback']),
+      ...new Set([
+        ...helper.limitations,
+        ...ffmpeg.limitations,
+        'dxgi_helper_fallback',
+      ]),
     ].slice(0, 24),
   };
 }
 
 function runDxgiFfmpegFallback(timeoutMs: number): ProbeCaptureResult {
-  const command = String(process.env.MIYA_DXGI_CAPTURE_FFMPEG_CMD ?? 'ffmpeg').trim();
+  const command = String(
+    process.env.MIYA_DXGI_CAPTURE_FFMPEG_CMD ?? 'ffmpeg',
+  ).trim();
   if (!command) {
     return {
       ok: false,
@@ -143,7 +168,9 @@ function runDxgiFfmpegFallback(timeoutMs: number): ProbeCaptureResult {
       error: 'dxgi_ffmpeg_missing',
     };
   }
-  const argsRaw = String(process.env.MIYA_DXGI_CAPTURE_FFMPEG_ARGS ?? '').trim();
+  const argsRaw = String(
+    process.env.MIYA_DXGI_CAPTURE_FFMPEG_ARGS ?? '',
+  ).trim();
   const args =
     argsRaw.length > 0
       ? argsRaw.split(/\s+/).filter(Boolean)
@@ -195,10 +222,15 @@ function runDxgiFfmpegFallback(timeoutMs: number): ProbeCaptureResult {
       ok: false,
       method: 'dxgi_duplication',
       limitations: ['dxgi_ffmpeg_nonzero_exit'],
-      error: Buffer.from(run.stderr ?? '').toString('utf-8').trim() || `exit_${run.status}`,
+      error:
+        Buffer.from(run.stderr ?? '')
+          .toString('utf-8')
+          .trim() || `exit_${run.status}`,
     };
   }
-  const imageBuffer = Buffer.isBuffer(run.stdout) ? run.stdout : Buffer.from(run.stdout ?? '');
+  const imageBuffer = Buffer.isBuffer(run.stdout)
+    ? run.stdout
+    : Buffer.from(run.stdout ?? '');
   if (!imageBuffer || imageBuffer.length === 0) {
     return {
       ok: false,
@@ -304,7 +336,14 @@ public static class MiyaPrintWindowProbe {
 `.trim();
   const run = spawnSync(
     'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script,
+    ],
     {
       timeout: Math.max(500, timeoutMs),
       encoding: 'utf-8',
@@ -338,19 +377,27 @@ public static class MiyaPrintWindowProbe {
     };
   }
   const limitations = Array.isArray(parsed.limitations)
-    ? parsed.limitations.map((item) => String(item ?? '').trim()).filter(Boolean)
+    ? parsed.limitations
+        .map((item) => String(item ?? '').trim())
+        .filter(Boolean)
     : [];
   return {
-    ok: parsed.ok === true && typeof parsed.imageBase64 === 'string' && parsed.imageBase64.length > 0,
+    ok:
+      parsed.ok === true &&
+      typeof parsed.imageBase64 === 'string' &&
+      parsed.imageBase64.length > 0,
     method: 'print_window',
-    imageBase64: typeof parsed.imageBase64 === 'string' ? parsed.imageBase64 : undefined,
+    imageBase64:
+      typeof parsed.imageBase64 === 'string' ? parsed.imageBase64 : undefined,
     blackFrame: parsed.blackFrame === true,
     limitations,
     error: typeof parsed.error === 'string' ? parsed.error : undefined,
   };
 }
 
-export function captureFrameForScreenProbe(timeoutMs = 2_000): ProbeCaptureResult {
+export function captureFrameForScreenProbe(
+  timeoutMs = 2_000,
+): ProbeCaptureResult {
   const methods = parseMethodList();
   const limitations: string[] = [];
   for (const method of methods) {

@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
 
-export type EmbeddingProviderKind = 'local-hash' | 'local-ngram' | 'remote-http';
+export type EmbeddingProviderKind =
+  | 'local-hash'
+  | 'local-ngram'
+  | 'remote-http';
 
 export interface EmbeddingProviderConfig {
   kind: EmbeddingProviderKind;
@@ -47,7 +50,11 @@ const PROVIDERS: EmbeddingProviderInfo[] = [
 ];
 
 function configPath(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'memory', 'embedding-provider.json');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'memory',
+    'embedding-provider.json',
+  );
 }
 
 function ensureDir(projectDir: string): void {
@@ -55,17 +62,25 @@ function ensureDir(projectDir: string): void {
 }
 
 function normalizeText(text: string): string {
-  return String(text ?? '').trim().replace(/\s+/g, ' ');
+  return String(text ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
-function toNumber(value: unknown, fallback: number, min: number, max: number): number {
+function toNumber(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const next = Number(value);
   if (!Number.isFinite(next)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(next)));
 }
 
 function normalizeHeaders(input: unknown): Record<string, string> | undefined {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    return undefined;
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     const k = String(key).trim();
@@ -76,9 +91,13 @@ function normalizeHeaders(input: unknown): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function normalizeConfig(raw: Partial<EmbeddingProviderConfig> | undefined): EmbeddingProviderConfig {
+function normalizeConfig(
+  raw: Partial<EmbeddingProviderConfig> | undefined,
+): EmbeddingProviderConfig {
   const kind: EmbeddingProviderKind =
-    raw?.kind === 'local-hash' || raw?.kind === 'local-ngram' || raw?.kind === 'remote-http'
+    raw?.kind === 'local-hash' ||
+    raw?.kind === 'local-ngram' ||
+    raw?.kind === 'remote-http'
       ? raw.kind
       : DEFAULT_CONFIG.kind;
   const fallbackKind: 'local-hash' | 'local-ngram' =
@@ -87,8 +106,16 @@ function normalizeConfig(raw: Partial<EmbeddingProviderConfig> | undefined): Emb
     kind,
     dims: toNumber(raw?.dims, DEFAULT_CONFIG.dims, 16, 2048),
     url: typeof raw?.url === 'string' ? raw.url.trim() || undefined : undefined,
-    model: typeof raw?.model === 'string' ? raw.model.trim() || undefined : undefined,
-    timeoutMs: toNumber(raw?.timeoutMs, DEFAULT_CONFIG.timeoutMs ?? 2_500, 500, 20_000),
+    model:
+      typeof raw?.model === 'string'
+        ? raw.model.trim() || undefined
+        : undefined,
+    timeoutMs: toNumber(
+      raw?.timeoutMs,
+      DEFAULT_CONFIG.timeoutMs ?? 2_500,
+      500,
+      20_000,
+    ),
     headers: normalizeHeaders(raw?.headers),
     fallbackKind,
   };
@@ -98,11 +125,15 @@ export function listEmbeddingProviders(): EmbeddingProviderInfo[] {
   return PROVIDERS;
 }
 
-export function readEmbeddingProviderConfig(projectDir: string): EmbeddingProviderConfig {
+export function readEmbeddingProviderConfig(
+  projectDir: string,
+): EmbeddingProviderConfig {
   const file = configPath(projectDir);
   if (!fs.existsSync(file)) return DEFAULT_CONFIG;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<EmbeddingProviderConfig>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<EmbeddingProviderConfig>;
     return normalizeConfig(parsed);
   } catch {
     return DEFAULT_CONFIG;
@@ -120,7 +151,11 @@ export function writeEmbeddingProviderConfig(
     headers: patch.headers ?? current.headers,
   });
   ensureDir(projectDir);
-  fs.writeFileSync(configPath(projectDir), `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    configPath(projectDir),
+    `${JSON.stringify(next, null, 2)}\n`,
+    'utf-8',
+  );
   return next;
 }
 
@@ -176,7 +211,11 @@ function localNgramEmbedding(text: string, dims: number): number[] {
   return vec.map((value) => value / norm);
 }
 
-function fallbackEmbedding(text: string, dims: number, fallbackKind: 'local-hash' | 'local-ngram'): number[] {
+function fallbackEmbedding(
+  text: string,
+  dims: number,
+  fallbackKind: 'local-hash' | 'local-ngram',
+): number[] {
   return fallbackKind === 'local-ngram'
     ? localNgramEmbedding(text, dims)
     : localHashEmbedding(text, dims);
@@ -187,7 +226,9 @@ function extractEmbeddingPayload(raw: unknown): number[] | null {
   const obj = raw as Record<string, unknown>;
   const direct = obj.embedding;
   if (Array.isArray(direct)) {
-    return direct.map((item) => Number(item)).filter((item) => Number.isFinite(item));
+    return direct
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item));
   }
   if (Array.isArray(obj.data) && obj.data.length > 0) {
     const first = obj.data[0] as Record<string, unknown>;
@@ -200,10 +241,19 @@ function extractEmbeddingPayload(raw: unknown): number[] | null {
   return null;
 }
 
-function remoteHttpEmbedding(text: string, config: EmbeddingProviderConfig): number[] | null {
+function remoteHttpEmbedding(
+  text: string,
+  config: EmbeddingProviderConfig,
+): number[] | null {
   if (!config.url || typeof Bun === 'undefined') return null;
   try {
-    const args: string[] = ['-sS', '--max-time', String(Math.ceil((config.timeoutMs ?? 2500) / 1000)), '-H', 'Content-Type: application/json'];
+    const args: string[] = [
+      '-sS',
+      '--max-time',
+      String(Math.ceil((config.timeoutMs ?? 2500) / 1000)),
+      '-H',
+      'Content-Type: application/json',
+    ];
     if (config.headers) {
       for (const [key, value] of Object.entries(config.headers)) {
         args.push('-H', `${key}: ${value}`);

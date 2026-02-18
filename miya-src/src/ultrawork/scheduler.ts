@@ -74,10 +74,19 @@ function buildNodes(tasks: UltraworkTaskInput[]): UltraworkNode[] {
     prompt: task.prompt.trim(),
     description: task.description.trim() || task.prompt.trim().slice(0, 80),
     dependsOn: Array.isArray(task.dependsOn)
-      ? task.dependsOn.map(String).map((item) => item.trim()).filter(Boolean)
+      ? task.dependsOn
+          .map(String)
+          .map((item) => item.trim())
+          .filter(Boolean)
       : [],
-    timeoutMs: Math.max(5_000, Math.min(20 * 60_000, Number(task.timeoutMs ?? 120_000))),
-    maxRetries: Math.max(0, Math.min(3, Math.floor(Number(task.maxRetries ?? 0)))),
+    timeoutMs: Math.max(
+      5_000,
+      Math.min(20 * 60_000, Number(task.timeoutMs ?? 120_000)),
+    ),
+    maxRetries: Math.max(
+      0,
+      Math.min(3, Math.floor(Number(task.maxRetries ?? 0))),
+    ),
   }));
 }
 
@@ -211,7 +220,10 @@ export async function runUltraworkDag(input: {
     };
   }
   const critical = buildCriticalPathScore(nodes);
-  const maxParallel = Math.max(1, Math.min(8, Math.floor(Number(input.maxParallel ?? 3))));
+  const maxParallel = Math.max(
+    1,
+    Math.min(8, Math.floor(Number(input.maxParallel ?? 3))),
+  );
   const nodeMap = new Map(nodes.map((node) => [node.nodeID, node]));
   const pending = new Set(nodes.map((item) => item.nodeID));
   const running = new Set<string>();
@@ -238,10 +250,18 @@ export async function runUltraworkDag(input: {
       description: node.description,
       parentSessionId: input.parentSessionID,
     });
-    const task = await input.manager.waitForCompletion(launched.id, node.timeoutMs);
-    const status = String(task?.status ?? 'timeout') as RuntimeTaskStatus | 'timeout';
+    const task = await input.manager.waitForCompletion(
+      launched.id,
+      node.timeoutMs,
+    );
+    const status = String(task?.status ?? 'timeout') as
+      | RuntimeTaskStatus
+      | 'timeout';
     const attempts = retries.get(node.nodeID) ?? 0;
-    if ((status === 'failed' || status === 'timeout' || status === 'cancelled') && attempts < node.maxRetries) {
+    if (
+      (status === 'failed' || status === 'timeout' || status === 'cancelled') &&
+      attempts < node.maxRetries
+    ) {
       retries.set(node.nodeID, attempts + 1);
       pending.add(node.nodeID);
       retriesScheduled += 1;
@@ -267,7 +287,11 @@ export async function runUltraworkDag(input: {
       .map((nodeID) => nodeMap.get(nodeID))
       .filter((node): node is UltraworkNode => Boolean(node))
       .filter((node) => canRun(node))
-      .sort((a, b) => (critical.priority.get(b.nodeID) ?? 0) - (critical.priority.get(a.nodeID) ?? 0));
+      .sort(
+        (a, b) =>
+          (critical.priority.get(b.nodeID) ?? 0) -
+          (critical.priority.get(a.nodeID) ?? 0),
+      );
     for (const node of ready) {
       if (running.size >= maxParallel) break;
       pending.delete(node.nodeID);
@@ -280,10 +304,17 @@ export async function runUltraworkDag(input: {
     const blocked = [...pending]
       .map((nodeID) => nodeMap.get(nodeID))
       .filter((node): node is UltraworkNode => Boolean(node))
-      .filter((node) => node.dependsOn.some((dep) => {
-        const depStatus = results.get(dep)?.status;
-        return depStatus === 'failed' || depStatus === 'cancelled' || depStatus === 'timeout' || depStatus === 'blocked_dependency';
-      }));
+      .filter((node) =>
+        node.dependsOn.some((dep) => {
+          const depStatus = results.get(dep)?.status;
+          return (
+            depStatus === 'failed' ||
+            depStatus === 'cancelled' ||
+            depStatus === 'timeout' ||
+            depStatus === 'blocked_dependency'
+          );
+        }),
+      );
     for (const node of blocked) {
       pending.delete(node.nodeID);
       results.set(node.nodeID, {
@@ -294,7 +325,12 @@ export async function runUltraworkDag(input: {
         error: 'dependency_failed',
       });
     }
-    if (running.size === 0 && ready.length === 0 && blocked.length === 0 && pending.size > 0) {
+    if (
+      running.size === 0 &&
+      ready.length === 0 &&
+      blocked.length === 0 &&
+      pending.size > 0
+    ) {
       // Unknown dependency node id blocks execution.
       for (const nodeID of pending) {
         const node = nodeMap.get(nodeID);
@@ -328,14 +364,18 @@ export async function runUltraworkDag(input: {
       }
     );
   });
-  const completed = nodeResults.filter((item) => item.status === 'completed').length;
+  const completed = nodeResults.filter(
+    (item) => item.status === 'completed',
+  ).length;
   const failed = nodeResults.filter(
     (item) =>
       item.status === 'failed' ||
       item.status === 'cancelled' ||
       item.status === 'timeout',
   ).length;
-  const blocked = nodeResults.filter((item) => item.status === 'blocked_dependency').length;
+  const blocked = nodeResults.filter(
+    (item) => item.status === 'blocked_dependency',
+  ).length;
 
   return {
     total: nodeResults.length,

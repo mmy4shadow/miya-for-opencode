@@ -46,7 +46,9 @@ function readStore(projectDir: string): RouteHistoryStore {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) return { records: [] };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as RouteHistoryStore;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as RouteHistoryStore;
     return { records: Array.isArray(parsed.records) ? parsed.records : [] };
   } catch {
     return { records: [] };
@@ -63,10 +65,20 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function sanitizeWeights(input: Partial<RouteLearningWeights>): RouteLearningWeights {
+function sanitizeWeights(
+  input: Partial<RouteLearningWeights>,
+): RouteLearningWeights {
   const next: RouteLearningWeights = {
-    accept: clamp(Number(input.accept ?? DEFAULT_LEARNING_WEIGHTS.accept), 0, 1),
-    success: clamp(Number(input.success ?? DEFAULT_LEARNING_WEIGHTS.success), 0, 1),
+    accept: clamp(
+      Number(input.accept ?? DEFAULT_LEARNING_WEIGHTS.accept),
+      0,
+      1,
+    ),
+    success: clamp(
+      Number(input.success ?? DEFAULT_LEARNING_WEIGHTS.success),
+      0,
+      1,
+    ),
     cost: clamp(Number(input.cost ?? DEFAULT_LEARNING_WEIGHTS.cost), 0, 1),
     risk: clamp(Number(input.risk ?? DEFAULT_LEARNING_WEIGHTS.risk), 0, 1),
   };
@@ -80,11 +92,15 @@ function sanitizeWeights(input: Partial<RouteLearningWeights>): RouteLearningWei
   };
 }
 
-export function readRouteLearningWeights(projectDir: string): RouteLearningWeights {
+export function readRouteLearningWeights(
+  projectDir: string,
+): RouteLearningWeights {
   const file = weightFilePath(projectDir);
   if (!fs.existsSync(file)) return { ...DEFAULT_LEARNING_WEIGHTS };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<RouteLearningWeights>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<RouteLearningWeights>;
     return sanitizeWeights(parsed);
   } catch {
     return { ...DEFAULT_LEARNING_WEIGHTS };
@@ -134,8 +150,10 @@ export function summarizeRouteHistory(projectDir: string): string {
     records.length > 0
       ? Number(
           (
-            records.reduce((sum, item) => sum + Number(item.riskScore ?? 0.5), 0) /
-            records.length
+            records.reduce(
+              (sum, item) => sum + Number(item.riskScore ?? 0.5),
+              0,
+            ) / records.length
           ).toFixed(4),
         )
       : 0.5;
@@ -143,8 +161,10 @@ export function summarizeRouteHistory(projectDir: string): string {
     records.length > 0
       ? Number(
           (
-            records.reduce((sum, item) => sum + Number(item.costUsdEstimate ?? 0), 0) /
-            records.length
+            records.reduce(
+              (sum, item) => sum + Number(item.costUsdEstimate ?? 0),
+              0,
+            ) / records.length
           ).toFixed(6),
         )
       : 0;
@@ -171,8 +191,8 @@ export function rankAgentsByFeedback(
   avgRisk: number;
 }> {
   const weights = readRouteLearningWeights(projectDir);
-  const records = readStore(projectDir).records
-    .filter((item) => item.intent === intent)
+  const records = readStore(projectDir)
+    .records.filter((item) => item.intent === intent)
     .slice(0, 300);
   const scoredRaw = availableAgents.map((agent) => {
     const matched = records.filter((item) => item.suggestedAgent === agent);
@@ -183,11 +203,17 @@ export function rankAgentsByFeedback(
     const successRate = samples > 0 ? success / samples : 0;
     const avgCostUsd =
       samples > 0
-        ? matched.reduce((sum, item) => sum + Number(item.costUsdEstimate ?? 0), 0) / samples
+        ? matched.reduce(
+            (sum, item) => sum + Number(item.costUsdEstimate ?? 0),
+            0,
+          ) / samples
         : 0;
     const avgRisk =
       samples > 0
-        ? matched.reduce((sum, item) => sum + Number(item.riskScore ?? 0.5), 0) / samples
+        ? matched.reduce(
+            (sum, item) => sum + Number(item.riskScore ?? 0.5),
+            0,
+          ) / samples
         : 0.5;
     return {
       agent,
@@ -205,7 +231,11 @@ export function rankAgentsByFeedback(
   const maxCost = costValues.length > 0 ? Math.max(...costValues) : 1;
   const scored = scoredRaw.map((item) => {
     const normalizedCost =
-      maxCost <= minCost ? (item.avgCostUsd > 0 ? 1 : 0) : (item.avgCostUsd - minCost) / (maxCost - minCost);
+      maxCost <= minCost
+        ? item.avgCostUsd > 0
+          ? 1
+          : 0
+        : (item.avgCostUsd - minCost) / (maxCost - minCost);
     const samplePrior = Math.min(0.15, item.samples / 80);
     const blended =
       weights.accept * item.acceptRate +

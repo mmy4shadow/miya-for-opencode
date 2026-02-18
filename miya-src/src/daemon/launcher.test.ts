@@ -3,8 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
-import { getLauncherBackpressureStats, getLauncherDaemonSnapshot } from './launcher';
-import { ensureMiyaLauncher, stopMiyaLauncher } from './launcher';
+import {
+  ensureMiyaLauncher,
+  getLauncherBackpressureStats,
+  getLauncherDaemonSnapshot,
+  stopMiyaLauncher,
+} from './launcher';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-launcher-test-'));
@@ -46,7 +50,9 @@ describe('daemon launcher snapshot', () => {
       'daemon',
       'launcher.runtime.json',
     );
-    const store = JSON.parse(fs.readFileSync(runtimeStorePath, 'utf-8')) as Record<string, unknown>;
+    const store = JSON.parse(
+      fs.readFileSync(runtimeStorePath, 'utf-8'),
+    ) as Record<string, unknown>;
     expect(store.desiredState).toBe('stopped');
   });
 

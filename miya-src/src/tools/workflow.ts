@@ -74,7 +74,10 @@ export function createWorkflowTools(
     args: {
       done: z.array(z.string()).optional().describe('Completed items'),
       missing: z.array(z.string()).optional().describe('Still missing items'),
-      unresolved: z.array(z.string()).optional().describe('Known unresolved issues or risks'),
+      unresolved: z
+        .array(z.string())
+        .optional()
+        .describe('Known unresolved issues or risks'),
       notes: z.string().optional().describe('Extra notes'),
     },
     async execute(args, toolContext) {
@@ -106,7 +109,10 @@ export function createWorkflowTools(
       state.lastMissing = missing;
       state.lastUnresolved = unresolved;
 
-      const window = Math.max(0, state.iterationCompleted - state.windowStartIteration);
+      const window = Math.max(
+        0,
+        state.iterationCompleted - state.windowStartIteration,
+      );
       const limit = state.maxIterationsPerWindow;
       const capped = state.loopEnabled && window >= limit;
       state.awaitingConfirmation = capped;
@@ -221,7 +227,8 @@ Notes: ${record.notes ?? '(none)'}`;
       threshold: z.number().min(0).max(10).optional(),
     },
     async execute(args) {
-      const threshold = typeof args.threshold === 'number' ? args.threshold : 9.2;
+      const threshold =
+        typeof args.threshold === 'number' ? args.threshold : 9.2;
       const a = Number(args.architecture_score);
       const d = Number(args.docs_score);
       const x = Number(args.domain_score);
@@ -284,7 +291,9 @@ Notes: ${record.notes ?? '(none)'}`;
     },
     async execute(args, toolContext) {
       const sessionID =
-        toolContext && typeof toolContext === 'object' && 'sessionID' in toolContext
+        toolContext &&
+        typeof toolContext === 'object' &&
+        'sessionID' in toolContext
           ? String((toolContext as { sessionID: string }).sessionID)
           : 'unknown';
       if (sessionID === 'unknown') {

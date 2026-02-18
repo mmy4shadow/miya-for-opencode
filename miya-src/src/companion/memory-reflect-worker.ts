@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getMiyaRuntimeDir } from '../workflow';
 import { recordStrategyObservation, resolveStrategyVariant } from '../strategy';
+import { getMiyaRuntimeDir } from '../workflow';
 import {
   getMemoryReflectStatus,
-  reflectCompanionMemory,
   type ReflectResult,
+  reflectCompanionMemory,
 } from './memory-reflect';
 import { mergePendingMemoryConflicts } from './memory-vector';
 
@@ -51,14 +51,20 @@ function nowIso(): string {
 }
 
 function queueFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'memory', 'reflect-queue.json');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'memory',
+    'reflect-queue.json',
+  );
 }
 
 function readStore(projectDir: string): ReflectWorkerStore {
   const file = queueFile(projectDir);
   if (!fs.existsSync(file)) return { version: 1, jobs: [] };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ReflectWorkerStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<ReflectWorkerStore>;
     return {
       version: 1,
       jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
@@ -68,7 +74,10 @@ function readStore(projectDir: string): ReflectWorkerStore {
   }
 }
 
-function writeStore(projectDir: string, store: ReflectWorkerStore): ReflectWorkerStore {
+function writeStore(
+  projectDir: string,
+  store: ReflectWorkerStore,
+): ReflectWorkerStore {
   const file = queueFile(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const next: ReflectWorkerStore = {
@@ -108,7 +117,8 @@ export function enqueueReflectWorkerJob(
           ? Number(request.maxWrites)
           : undefined,
       cooldownMinutes:
-        typeof request.cooldownMinutes === 'number' && request.cooldownMinutes >= 0
+        typeof request.cooldownMinutes === 'number' &&
+        request.cooldownMinutes >= 0
           ? Number(request.cooldownMinutes)
           : undefined,
     },
@@ -149,7 +159,8 @@ export function scheduleAutoReflectJob(
   if (!Number.isFinite(idleMs) || idleMs < idleMinutes * 60 * 1000) return null;
   if (status.lastReflectAt) {
     const cooldownMs = nowMs - Date.parse(status.lastReflectAt);
-    if (Number.isFinite(cooldownMs) && cooldownMs < cooldownMinutes * 60 * 1000) return null;
+    if (Number.isFinite(cooldownMs) && cooldownMs < cooldownMinutes * 60 * 1000)
+      return null;
   }
   return enqueueReflectWorkerJob(projectDir, {
     reason: 'auto_idle',
@@ -171,8 +182,14 @@ export function runReflectWorkerTick(
   jobs: ReflectWorkerJob[];
 } {
   const maxJobs = Math.max(1, Math.min(5, Math.floor(input?.maxJobs ?? 1)));
-  const writeBudget = Math.max(1, Math.min(200, Math.floor(input?.writeBudget ?? 40)));
-  const mergeBudget = Math.max(1, Math.min(200, Math.floor(input?.mergeBudget ?? 40)));
+  const writeBudget = Math.max(
+    1,
+    Math.min(200, Math.floor(input?.writeBudget ?? 40)),
+  );
+  const mergeBudget = Math.max(
+    1,
+    Math.min(200, Math.floor(input?.mergeBudget ?? 40)),
+  );
   const store = readStore(projectDir);
   const jobs = store.jobs;
   const toRun = jobs.filter((job) => job.status === 'queued').slice(0, maxJobs);

@@ -11,7 +11,9 @@ function toV2Alias(method: string): string {
   return method.startsWith('v2.') ? method : `v2.${method}`;
 }
 
-export function registerGatewayV2Aliases(methods: GatewayMethodRegistry): GatewayV2AliasReport {
+export function registerGatewayV2Aliases(
+  methods: GatewayMethodRegistry,
+): GatewayV2AliasReport {
   const targets = methods
     .list()
     .filter((method) => method.trim().length > 0)

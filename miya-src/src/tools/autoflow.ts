@@ -1,10 +1,9 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
-import type { BackgroundTaskManager } from '../background';
 import {
   clearAutoflowStopIntent,
   configureAutoflowSession,
-  getAutoflowSession,
   getAutoflowPersistentRuntimeSnapshot,
+  getAutoflowSession,
   markAutoflowStopAcked,
   markAutoflowStopRequested,
   readAutoflowPersistentConfig,
@@ -18,6 +17,7 @@ import {
   readPlanBundleBinding,
   updatePlanBundleBindingStatus,
 } from '../autopilot';
+import type { BackgroundTaskManager } from '../background';
 import { currentPolicyHash } from '../policy';
 
 const z = tool.schema;
@@ -29,7 +29,9 @@ function getSessionID(ctx: unknown): string {
   return 'main';
 }
 
-function formatStateSummary(state: ReturnType<typeof getAutoflowSession>): string[] {
+function formatStateSummary(
+  state: ReturnType<typeof getAutoflowSession>,
+): string[] {
   return [
     `session=${state.sessionID}`,
     `phase=${state.phase}`,
@@ -44,7 +46,10 @@ function formatStateSummary(state: ReturnType<typeof getAutoflowSession>): strin
   ];
 }
 
-function formatPersistentSummary(projectDir: string, sessionID: string): string[] {
+function formatPersistentSummary(
+  projectDir: string,
+  sessionID: string,
+): string[] {
   const config = readAutoflowPersistentConfig(projectDir);
   const runtime = getAutoflowPersistentRuntimeSnapshot(projectDir, 200).find(
     (item) => item.sessionID === sessionID,
@@ -73,8 +78,13 @@ export function createAutoflowTools(
       mode: z
         .enum(['start', 'run', 'status', 'stop'])
         .default('run')
-        .describe('start configures plan, run executes loop, status inspects, stop halts session'),
-      session_id: z.string().optional().describe('Target session id (default current session)'),
+        .describe(
+          'start configures plan, run executes loop, status inspects, stop halts session',
+        ),
+      session_id: z
+        .string()
+        .optional()
+        .describe('Target session id (default current session)'),
       goal: z.string().optional().describe('Workflow goal summary'),
       tasks: z
         .array(
@@ -97,19 +107,28 @@ export function createAutoflowTools(
       fix_commands: z
         .array(z.string())
         .optional()
-        .describe('Fix commands executed round-by-round when verification fails'),
-      max_fix_rounds: z.number().optional().describe('Maximum verification-fix rounds'),
+        .describe(
+          'Fix commands executed round-by-round when verification fails',
+        ),
+      max_fix_rounds: z
+        .number()
+        .optional()
+        .describe('Maximum verification-fix rounds'),
       max_parallel: z.number().optional().describe('DAG worker concurrency'),
       timeout_ms: z.number().optional().describe('Shell command timeout'),
       working_directory: z.string().optional().describe('Shell command cwd'),
       plan_bundle_id: z
         .string()
         .optional()
-        .describe('PlanBundle id. Required for direct run when no prepared bundle exists.'),
+        .describe(
+          'PlanBundle id. Required for direct run when no prepared bundle exists.',
+        ),
       policy_hash: z
         .string()
         .optional()
-        .describe('Policy hash for this autonomous run (required for direct run without prepared bundle).'),
+        .describe(
+          'Policy hash for this autonomous run (required for direct run without prepared bundle).',
+        ),
       risk_tier: z
         .enum(['LIGHT', 'STANDARD', 'THOROUGH'])
         .optional()
@@ -136,9 +155,10 @@ export function createAutoflowTools(
 
       if (mode === 'status') {
         const state = getAutoflowSession(projectDir, sessionID);
-        return [...formatStateSummary(state), ...formatPersistentSummary(projectDir, sessionID)].join(
-          '\n',
-        );
+        return [
+          ...formatStateSummary(state),
+          ...formatPersistentSummary(projectDir, sessionID),
+        ].join('\n');
       }
 
       if (mode === 'stop') {
@@ -190,7 +210,8 @@ export function createAutoflowTools(
         clearAutoflowStopIntent(projectDir, sessionID);
         const existingBinding = readPlanBundleBinding(projectDir, sessionID);
         const planBundleID =
-          (typeof args.plan_bundle_id === 'string' && args.plan_bundle_id.trim()) ||
+          (typeof args.plan_bundle_id === 'string' &&
+            args.plan_bundle_id.trim()) ||
           existingBinding?.bundleId ||
           `pb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
         const policyHash =
@@ -198,7 +219,9 @@ export function createAutoflowTools(
           existingBinding?.policyHash ||
           currentPolicyHash(projectDir);
         const riskTier =
-          args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
+          args.risk_tier === 'LIGHT' ||
+          args.risk_tier === 'STANDARD' ||
+          args.risk_tier === 'THOROUGH'
             ? args.risk_tier
             : existingBinding?.riskTier || 'THOROUGH';
         preparePlanBundleBinding(projectDir, {
@@ -217,7 +240,9 @@ export function createAutoflowTools(
             typeof args.verification_command === 'string'
               ? args.verification_command
               : undefined,
-          fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands : undefined,
+          fixCommands: Array.isArray(args.fix_commands)
+            ? args.fix_commands
+            : undefined,
           maxFixRounds:
             typeof args.max_fix_rounds === 'number'
               ? Number(args.max_fix_rounds)
@@ -236,16 +261,21 @@ export function createAutoflowTools(
 
       const existingBinding = readPlanBundleBinding(projectDir, sessionID);
       const providedBundleID =
-        typeof args.plan_bundle_id === 'string' ? args.plan_bundle_id.trim() : '';
+        typeof args.plan_bundle_id === 'string'
+          ? args.plan_bundle_id.trim()
+          : '';
       const providedPolicyHash =
         typeof args.policy_hash === 'string' ? args.policy_hash.trim() : '';
       const providedRiskTier =
-        args.risk_tier === 'LIGHT' || args.risk_tier === 'STANDARD' || args.risk_tier === 'THOROUGH'
+        args.risk_tier === 'LIGHT' ||
+        args.risk_tier === 'STANDARD' ||
+        args.risk_tier === 'THOROUGH'
           ? args.risk_tier
           : undefined;
       const bindingLocked =
         existingBinding &&
-        (existingBinding.status === 'prepared' || existingBinding.status === 'running');
+        (existingBinding.status === 'prepared' ||
+          existingBinding.status === 'running');
       if (bindingLocked) {
         if (existingBinding.sourceTool !== 'miya_autoflow') {
           throw new Error(
@@ -255,7 +285,10 @@ export function createAutoflowTools(
         if (providedBundleID && providedBundleID !== existingBinding.bundleId) {
           throw new Error('plan_bundle_frozen_field_mismatch:bundle_id');
         }
-        if (providedPolicyHash && providedPolicyHash !== existingBinding.policyHash) {
+        if (
+          providedPolicyHash &&
+          providedPolicyHash !== existingBinding.policyHash
+        ) {
           throw new Error('plan_bundle_frozen_field_mismatch:policy_hash');
         }
         if (providedRiskTier && providedRiskTier !== existingBinding.riskTier) {
@@ -263,7 +296,8 @@ export function createAutoflowTools(
         }
       }
       const planBundleID = providedBundleID || existingBinding?.bundleId || '';
-      const policyHash = providedPolicyHash || existingBinding?.policyHash || '';
+      const policyHash =
+        providedPolicyHash || existingBinding?.policyHash || '';
       if (!planBundleID || !policyHash) {
         throw new Error(
           'plan_bundle_required:autoflow_run_requires_plan_bundle_id_and_policy_hash',
@@ -295,12 +329,21 @@ export function createAutoflowTools(
           typeof args.verification_command === 'string'
             ? args.verification_command
             : undefined,
-        fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands : undefined,
+        fixCommands: Array.isArray(args.fix_commands)
+          ? args.fix_commands
+          : undefined,
         maxFixRounds:
-          typeof args.max_fix_rounds === 'number' ? Number(args.max_fix_rounds) : undefined,
+          typeof args.max_fix_rounds === 'number'
+            ? Number(args.max_fix_rounds)
+            : undefined,
         maxParallel:
-          typeof args.max_parallel === 'number' ? Number(args.max_parallel) : undefined,
-        timeoutMs: typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : undefined,
+          typeof args.max_parallel === 'number'
+            ? Number(args.max_parallel)
+            : undefined,
+        timeoutMs:
+          typeof args.timeout_ms === 'number'
+            ? Number(args.timeout_ms)
+            : undefined,
         workingDirectory:
           typeof args.working_directory === 'string'
             ? args.working_directory

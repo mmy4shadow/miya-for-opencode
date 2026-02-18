@@ -82,7 +82,9 @@ export function readPolicy(projectDir: string): MiyaPolicy {
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<MiyaPolicy>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<MiyaPolicy>;
     const base = defaultPolicy();
     const parsedDomains =
       parsed.domains && typeof parsed.domains === 'object'
@@ -166,5 +168,8 @@ export function isDomainRunning(
 }
 
 export function isPolicyDomain(value: unknown): value is PolicyDomain {
-  return typeof value === 'string' && (POLICY_DOMAINS as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' &&
+    (POLICY_DOMAINS as readonly string[]).includes(value)
+  );
 }

@@ -1,6 +1,5 @@
-import { getSessionState, setSessionState } from '../workflow';
 import { currentPolicyHash } from '../policy';
-import { attachCommandSteps, createAutopilotPlan } from './planner';
+import { getSessionState, setSessionState } from '../workflow';
 import {
   appendPlanBundleAudit,
   createPlanBundleV1,
@@ -15,6 +14,7 @@ import {
   loadReusablePlanTemplate,
   saveReusablePlanTemplate,
 } from './plan-reuse';
+import { attachCommandSteps, createAutopilotPlan } from './planner';
 import { recordAutopilotRunDigest } from './stats';
 import type {
   AutopilotCommandResult,
@@ -33,7 +33,10 @@ export function configureAutopilotSession(input: {
   const state = getSessionState(input.projectDir, input.sessionID);
   state.loopEnabled = input.enabled;
   if (typeof input.maxCycles === 'number') {
-    state.maxIterationsPerWindow = Math.max(1, Math.min(20, Math.floor(input.maxCycles)));
+    state.maxIterationsPerWindow = Math.max(
+      1,
+      Math.min(20, Math.floor(input.maxCycles)),
+    );
   }
   if (typeof input.autoContinue === 'boolean') {
     state.autoContinue = input.autoContinue;
@@ -84,12 +87,22 @@ function resolveRetryLimit(override?: number): number {
 
 function isRetriableFailure(result: AutopilotCommandResult): boolean {
   if (result.ok) return false;
-  if (result.exitCode === 124 || result.exitCode === 137 || result.exitCode === 143) return true;
+  if (
+    result.exitCode === 124 ||
+    result.exitCode === 137 ||
+    result.exitCode === 143
+  )
+    return true;
   const text = `${result.stderr}\n${result.stdout}`.toLowerCase();
-  return /timeout|temporar|network|rate.?limit|connection|econnreset|eai_again/.test(text);
+  return /timeout|temporar|network|rate.?limit|connection|econnreset|eai_again/.test(
+    text,
+  );
 }
 
-function withAttemptSuffix(result: AutopilotCommandResult, attempt: number): AutopilotCommandResult {
+function withAttemptSuffix(
+  result: AutopilotCommandResult,
+  attempt: number,
+): AutopilotCommandResult {
   if (attempt <= 0) return result;
   return {
     ...result,
@@ -101,28 +114,30 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
   const maxRetriesPerCommand = resolveRetryLimit(input.maxRetriesPerCommand);
   const resolvedPolicyHash =
     String(input.policyHash ?? '').trim() ||
-    (input.projectDir ? currentPolicyHash(input.projectDir) : 'UNSPECIFIED_POLICY_HASH');
+    (input.projectDir
+      ? currentPolicyHash(input.projectDir)
+      : 'UNSPECIFIED_POLICY_HASH');
   const normalizedInput: AutopilotRunInput = {
     ...input,
     policyHash: resolvedPolicyHash,
     capabilitiesNeeded:
-      Array.isArray(input.capabilitiesNeeded) && input.capabilitiesNeeded.length > 0
+      Array.isArray(input.capabilitiesNeeded) &&
+      input.capabilitiesNeeded.length > 0
         ? input.capabilitiesNeeded
         : ['bash'],
     riskTier: input.riskTier ?? 'STANDARD',
     mode: input.mode ?? 'work',
   };
-  const signature =
-    input.projectDir
-      ? buildPlanBundleTaskSignature({
-          goal: input.goal,
-          commands: input.commands,
-          verificationCommand: input.verificationCommand,
-          workingDirectory: input.workingDirectory,
-          mode: normalizedInput.mode,
-          riskTier: normalizedInput.riskTier,
-        })
-      : undefined;
+  const signature = input.projectDir
+    ? buildPlanBundleTaskSignature({
+        goal: input.goal,
+        commands: input.commands,
+        verificationCommand: input.verificationCommand,
+        workingDirectory: input.workingDirectory,
+        mode: normalizedInput.mode,
+        riskTier: normalizedInput.riskTier,
+      })
+    : undefined;
   const reused =
     input.projectDir && signature
       ? loadReusablePlanTemplate({
@@ -201,7 +216,10 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
   const execution: AutopilotCommandResult[] = [];
   let retryCount = 0;
 
-  const persistDigest = (result: AutopilotRunResult, failureReason?: string): AutopilotRunResult => {
+  const persistDigest = (
+    result: AutopilotRunResult,
+    failureReason?: string,
+  ): AutopilotRunResult => {
     if (input.projectDir) {
       recordAutopilotRunDigest(input.projectDir, {
         at: new Date().toISOString(),
@@ -254,7 +272,11 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
       const rollbackCommand = input.rollbackCommand?.trim();
       let rollbackResult: AutopilotCommandResult | undefined;
       if (rollbackCommand) {
-        rollbackResult = runCommand(rollbackCommand, input.timeoutMs, input.workingDirectory);
+        rollbackResult = runCommand(
+          rollbackCommand,
+          input.timeoutMs,
+          input.workingDirectory,
+        );
       }
       markPlanBundleRollback(
         bundle,
@@ -270,16 +292,19 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
         success: false,
         summary,
       });
-      return persistDigest({
-        success: false,
-        retryCount,
-        summary,
-        planBundle: bundle,
-        plan,
-        execution,
-        rollback: rollbackResult,
-        auditLedger: bundle.audit,
-      }, finalResult?.stderr || finalResult?.command || 'execution_failed');
+      return persistDigest(
+        {
+          success: false,
+          retryCount,
+          summary,
+          planBundle: bundle,
+          plan,
+          execution,
+          rollback: rollbackResult,
+          auditLedger: bundle.audit,
+        },
+        finalResult?.stderr || finalResult?.command || 'execution_failed',
+      );
     }
   }
 
@@ -290,8 +315,15 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
       input.timeoutMs,
       input.workingDirectory,
     );
-    markPlanBundleVerification(bundle, withAttemptSuffix(verification, attempt));
-    while (!verification.ok && attempt < maxRetriesPerCommand && isRetriableFailure(verification)) {
+    markPlanBundleVerification(
+      bundle,
+      withAttemptSuffix(verification, attempt),
+    );
+    while (
+      !verification.ok &&
+      attempt < maxRetriesPerCommand &&
+      isRetriableFailure(verification)
+    ) {
       retryCount += 1;
       attempt += 1;
       appendPlanBundleAudit(bundle, {
@@ -313,7 +345,10 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
         input.timeoutMs,
         input.workingDirectory,
       );
-      markPlanBundleVerification(bundle, withAttemptSuffix(verification, attempt));
+      markPlanBundleVerification(
+        bundle,
+        withAttemptSuffix(verification, attempt),
+      );
     }
     if (!verification.ok && input.rollbackCommand?.trim()) {
       const rollback = runCommand(
@@ -321,7 +356,11 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
         input.timeoutMs,
         input.workingDirectory,
       );
-      markPlanBundleRollback(bundle, rollback, `verification_failed:exit=${verification.exitCode}`);
+      markPlanBundleRollback(
+        bundle,
+        rollback,
+        `verification_failed:exit=${verification.exitCode}`,
+      );
       const summary = rollback.ok
         ? `Verification failed (exit=${verification.exitCode}); rollback completed.`
         : `Verification failed (exit=${verification.exitCode}); rollback failed.`;
@@ -329,17 +368,20 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
         success: false,
         summary,
       });
-      return persistDigest({
-        success: false,
-        retryCount,
-        summary,
-        planBundle: bundle,
-        plan,
-        execution,
-        verification,
-        rollback,
-        auditLedger: bundle.audit,
-      }, verification.stderr || 'verification_failed');
+      return persistDigest(
+        {
+          success: false,
+          retryCount,
+          summary,
+          planBundle: bundle,
+          plan,
+          execution,
+          verification,
+          rollback,
+          auditLedger: bundle.audit,
+        },
+        verification.stderr || 'verification_failed',
+      );
     }
     const summary = verification.ok
       ? 'Execution and verification completed successfully.'
@@ -348,16 +390,21 @@ export function runAutopilot(input: AutopilotRunInput): AutopilotRunResult {
       success: verification.ok,
       summary,
     });
-    return persistDigest({
-      success: verification.ok,
-      retryCount,
-      summary,
-      planBundle: bundle,
-      plan,
-      execution,
-      verification,
-      auditLedger: bundle.audit,
-    }, verification.ok ? undefined : verification.stderr || 'verification_failed');
+    return persistDigest(
+      {
+        success: verification.ok,
+        retryCount,
+        summary,
+        planBundle: bundle,
+        plan,
+        execution,
+        verification,
+        auditLedger: bundle.audit,
+      },
+      verification.ok
+        ? undefined
+        : verification.stderr || 'verification_failed',
+    );
   }
 
   markPlanBundleFinalized(bundle, {

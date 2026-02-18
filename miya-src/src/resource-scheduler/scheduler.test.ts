@@ -5,7 +5,9 @@ import * as path from 'node:path';
 import { ResourceScheduler } from './scheduler';
 
 function tempProjectDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-resource-scheduler-test-'));
+  return fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-resource-scheduler-test-'),
+  );
 }
 
 describe('resource scheduler', () => {
@@ -119,7 +121,9 @@ describe('resource scheduler', () => {
     );
 
     const snapshot = scheduler.snapshot();
-    expect(snapshot.loadedModels.some((item) => item.modelID === 'model-c')).toBe(true);
+    expect(
+      snapshot.loadedModels.some((item) => item.modelID === 'model-c'),
+    ).toBe(true);
     expect(snapshot.loadedModels.length).toBeLessThanOrEqual(2);
   });
 
@@ -163,14 +167,19 @@ describe('resource scheduler', () => {
       );
       const snapshot = scheduler.snapshot();
       expect(snapshot.hydraulics.hotsetLimitMB).toBeGreaterThan(0);
-      expect(snapshot.hydraulics.offloadedModels.length).toBeGreaterThanOrEqual(1);
+      expect(snapshot.hydraulics.offloadedModels.length).toBeGreaterThanOrEqual(
+        1,
+      );
       expect(
-        snapshot.loadedModels.every((item) => item.residency === 'hot' || item.residency === 'warm'),
+        snapshot.loadedModels.every(
+          (item) => item.residency === 'hot' || item.residency === 'warm',
+        ),
       ).toBe(true);
     } finally {
       if (prevHotset === undefined) delete process.env.MIYA_RESOURCE_HOTSET_MB;
       else process.env.MIYA_RESOURCE_HOTSET_MB = prevHotset;
-      if (prevWarmPool === undefined) delete process.env.MIYA_RESOURCE_WARMPOOL_MB;
+      if (prevWarmPool === undefined)
+        delete process.env.MIYA_RESOURCE_WARMPOOL_MB;
       else process.env.MIYA_RESOURCE_WARMPOOL_MB = prevWarmPool;
     }
   });

@@ -1,9 +1,13 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
-import { getMiyaRuntimeDir } from '../workflow';
 import { recordStrategyObservation, resolveStrategyVariant } from '../strategy';
-import { analyzeRouteSemantics, classifyIntent, type RouteIntent } from './classifier';
+import { getMiyaRuntimeDir } from '../workflow';
+import {
+  analyzeRouteSemantics,
+  classifyIntent,
+  type RouteIntent,
+} from './classifier';
 import { resolveAgentWithFeedback, resolveFallbackAgent } from './fallback';
 import { addRouteFeedback, rankAgentsByFeedback } from './learner';
 
@@ -83,7 +87,10 @@ interface RouterCostSummary {
   savingsTokensEstimate: number;
   savingsPercentEstimate: number;
   totalCostUsdEstimate: number;
-  byStage: Record<RouteStage, { records: number; tokens: number; costUsd: number }>;
+  byStage: Record<
+    RouteStage,
+    { records: number; tokens: number; costUsd: number }
+  >;
 }
 
 interface RouterSessionState {
@@ -148,9 +155,12 @@ function nowIso(): string {
 }
 
 function parseMode(raw: unknown): RouterModeConfig {
-  const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const input =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const forcedStage =
-    input.forcedStage === 'low' || input.forcedStage === 'medium' || input.forcedStage === 'high'
+    input.forcedStage === 'low' ||
+    input.forcedStage === 'medium' ||
+    input.forcedStage === 'high'
       ? input.forcedStage
       : undefined;
   const stageTokenMultiplierInput =
@@ -165,43 +175,84 @@ function parseMode(raw: unknown): RouterModeConfig {
     input.retryBudget && typeof input.retryBudget === 'object'
       ? (input.retryBudget as Record<string, unknown>)
       : {};
-  const contextHardCapTokens = Number(input.contextHardCapTokens ?? DEFAULT_MODE.contextHardCapTokens);
-  const retryDeltaMaxLines = Number(input.retryDeltaMaxLines ?? DEFAULT_MODE.retryDeltaMaxLines);
+  const contextHardCapTokens = Number(
+    input.contextHardCapTokens ?? DEFAULT_MODE.contextHardCapTokens,
+  );
+  const retryDeltaMaxLines = Number(
+    input.retryDeltaMaxLines ?? DEFAULT_MODE.retryDeltaMaxLines,
+  );
   return {
     ecoMode: input.ecoMode !== false,
     forcedStage,
     stageTokenMultiplier: {
-      low: clamp(Number(stageTokenMultiplierInput.low ?? DEFAULT_MODE.stageTokenMultiplier.low), 0.2, 2.5),
+      low: clamp(
+        Number(
+          stageTokenMultiplierInput.low ??
+            DEFAULT_MODE.stageTokenMultiplier.low,
+        ),
+        0.2,
+        2.5,
+      ),
       medium: clamp(
-        Number(stageTokenMultiplierInput.medium ?? DEFAULT_MODE.stageTokenMultiplier.medium),
+        Number(
+          stageTokenMultiplierInput.medium ??
+            DEFAULT_MODE.stageTokenMultiplier.medium,
+        ),
         0.3,
         3,
       ),
-      high: clamp(Number(stageTokenMultiplierInput.high ?? DEFAULT_MODE.stageTokenMultiplier.high), 0.4, 4),
+      high: clamp(
+        Number(
+          stageTokenMultiplierInput.high ??
+            DEFAULT_MODE.stageTokenMultiplier.high,
+        ),
+        0.4,
+        4,
+      ),
     },
     stageCostUsdPer1k: {
-      low: clamp(Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low), 0.0001, 0.1),
-      medium: clamp(Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium), 0.0001, 0.2),
-      high: clamp(Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high), 0.0001, 0.3),
+      low: clamp(
+        Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low),
+        0.0001,
+        0.1,
+      ),
+      medium: clamp(
+        Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium),
+        0.0001,
+        0.2,
+      ),
+      high: clamp(
+        Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high),
+        0.0001,
+        0.3,
+      ),
     },
     contextHardCapTokens: clamp(
-      Number.isFinite(contextHardCapTokens) ? contextHardCapTokens : DEFAULT_MODE.contextHardCapTokens,
+      Number.isFinite(contextHardCapTokens)
+        ? contextHardCapTokens
+        : DEFAULT_MODE.contextHardCapTokens,
       300,
       8000,
     ),
     retryDeltaMaxLines: clamp(
-      Number.isFinite(retryDeltaMaxLines) ? retryDeltaMaxLines : DEFAULT_MODE.retryDeltaMaxLines,
+      Number.isFinite(retryDeltaMaxLines)
+        ? retryDeltaMaxLines
+        : DEFAULT_MODE.retryDeltaMaxLines,
       4,
       64,
     ),
     retryBudget: {
       autoRetry: clamp(
-        Number(retryBudgetInput.autoRetry ?? DEFAULT_MODE.retryBudget.autoRetry),
+        Number(
+          retryBudgetInput.autoRetry ?? DEFAULT_MODE.retryBudget.autoRetry,
+        ),
         0,
         8,
       ),
       humanEdit: clamp(
-        Number(retryBudgetInput.humanEdit ?? DEFAULT_MODE.retryBudget.humanEdit),
+        Number(
+          retryBudgetInput.humanEdit ?? DEFAULT_MODE.retryBudget.humanEdit,
+        ),
         0,
         4,
       ),
@@ -242,7 +293,11 @@ export function writeRouterModeConfig(
       ...(patch.retryBudget ?? {}),
     },
   });
-  fs.writeFileSync(modeFile(projectDir), `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    modeFile(projectDir),
+    `${JSON.stringify(next, null, 2)}\n`,
+    'utf-8',
+  );
   return next;
 }
 
@@ -250,17 +305,26 @@ function readSessionStore(projectDir: string): RouterSessionStore {
   const file = sessionStateFile(projectDir);
   if (!fs.existsSync(file)) return { sessions: {} };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as RouterSessionStore;
-    if (!parsed || typeof parsed !== 'object' || !parsed.sessions) return { sessions: {} };
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as RouterSessionStore;
+    if (!parsed || typeof parsed !== 'object' || !parsed.sessions)
+      return { sessions: {} };
     return {
       sessions: Object.fromEntries(
         Object.entries(parsed.sessions).map(([sessionID, state]) => [
           sessionID,
           {
             sessionID,
-            consecutiveFailures: clamp(Number(state?.consecutiveFailures ?? 0), 0, 10),
+            consecutiveFailures: clamp(
+              Number(state?.consecutiveFailures ?? 0),
+              0,
+              10,
+            ),
             lastStage:
-              state?.lastStage === 'low' || state?.lastStage === 'medium' || state?.lastStage === 'high'
+              state?.lastStage === 'low' ||
+              state?.lastStage === 'medium' ||
+              state?.lastStage === 'high'
                 ? state.lastStage
                 : 'medium',
             autoRetryUsed: clamp(Number(state?.autoRetryUsed ?? 0), 0, 20),
@@ -296,12 +360,22 @@ function readSessionStore(projectDir: string): RouterSessionStore {
   }
 }
 
-function writeSessionStore(projectDir: string, store: RouterSessionStore): void {
+function writeSessionStore(
+  projectDir: string,
+  store: RouterSessionStore,
+): void {
   ensureDir(projectDir);
-  fs.writeFileSync(sessionStateFile(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    sessionStateFile(projectDir),
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
-function getSessionState(projectDir: string, sessionID: string): RouterSessionState {
+function getSessionState(
+  projectDir: string,
+  sessionID: string,
+): RouterSessionState {
   const store = readSessionStore(projectDir);
   return (
     store.sessions[sessionID] ?? {
@@ -372,12 +446,20 @@ export function analyzeRouteComplexity(text: string): RouteComplexitySignals {
     reasons.push('contains_code_block');
   }
 
-  if (/(架构|tradeoff|风险|risk|migration|重构|performance|性能|security|安全)/i.test(normalized)) {
+  if (
+    /(架构|tradeoff|风险|risk|migration|重构|performance|性能|security|安全)/i.test(
+      normalized,
+    )
+  ) {
     score += 1;
     reasons.push('architecture_or_risk');
   }
 
-  if (/(并行|多步骤|pipeline|workflow|验证|verify|修复|fix|loop)/i.test(normalized)) {
+  if (
+    /(并行|多步骤|pipeline|workflow|验证|verify|修复|fix|loop)/i.test(
+      normalized,
+    )
+  ) {
     score += 1;
     reasons.push('multi_step_execution');
   }
@@ -387,7 +469,8 @@ export function analyzeRouteComplexity(text: string): RouteComplexitySignals {
     reasons.push('urgency_signal');
   }
 
-  const complexity: RouteComplexity = score >= 4 ? 'high' : score >= 2 ? 'medium' : 'low';
+  const complexity: RouteComplexity =
+    score >= 4 ? 'high' : score >= 2 ? 'medium' : 'low';
   return { complexity, score, reasons };
 }
 
@@ -409,7 +492,9 @@ function inferFixabilityFromReason(reason?: string): RouteFixability {
   if (/timeout|temporar|network|overload|rate_limit/.test(text)) {
     return 'retry_later';
   }
-  if (/missing_evidence|receipt_uncertain|ui_style_mismatch|mismatch/.test(text)) {
+  if (
+    /missing_evidence|receipt_uncertain|ui_style_mismatch|mismatch/.test(text)
+  ) {
     return 'need_evidence';
   }
   if (/too_long|budget|scope/.test(text)) {
@@ -424,25 +509,37 @@ function inferRiskScore(input: {
   stage: RouteStage;
 }): number {
   if (input.success) {
-    return input.stage === 'high' ? 0.22 : input.stage === 'medium' ? 0.16 : 0.1;
+    return input.stage === 'high'
+      ? 0.22
+      : input.stage === 'medium'
+        ? 0.16
+        : 0.1;
   }
   const reason = String(input.failureReason ?? '').toLowerCase();
-  if (/permission|forbidden|policy_|kill_switch|security/.test(reason)) return 0.95;
+  if (/permission|forbidden|policy_|kill_switch|security/.test(reason))
+    return 0.95;
   if (/timeout|overload|network|rate_limit/.test(reason)) return 0.75;
   if (/invalid_|schema|parse|bad_request/.test(reason)) return 0.62;
   return input.stage === 'high' ? 0.7 : input.stage === 'medium' ? 0.6 : 0.55;
 }
 
 function hashText(text: string): string {
-  return createHash('sha256').update(String(text ?? '')).digest('hex');
+  return createHash('sha256')
+    .update(String(text ?? ''))
+    .digest('hex');
 }
 
-function compressTextByStage(text: string, stage: RouteStage): { text: string; compressed: boolean } {
+function compressTextByStage(
+  text: string,
+  stage: RouteStage,
+): { text: string; compressed: boolean } {
   const normalized = String(text ?? '').trim();
   if (!normalized) return { text: '', compressed: false };
   if (stage === 'high') return { text: normalized, compressed: false };
-  if (stage === 'medium' && normalized.length <= 4200) return { text: normalized, compressed: false };
-  if (stage === 'low' && normalized.length <= 1600) return { text: normalized, compressed: false };
+  if (stage === 'medium' && normalized.length <= 4200)
+    return { text: normalized, compressed: false };
+  if (stage === 'low' && normalized.length <= 1600)
+    return { text: normalized, compressed: false };
 
   if (stage === 'medium') {
     const head = normalized.slice(0, 2600);
@@ -498,7 +595,10 @@ function buildRetryDeltaContext(input: {
       .slice(-Math.max(4, input.maxLines));
   }
   if (deltaLines.length === 0) return { text: current, applied: false };
-  const baselineHash = (input.previousHash?.trim() || hashText(previous)).slice(0, 16);
+  const baselineHash = (input.previousHash?.trim() || hashText(previous)).slice(
+    0,
+    16,
+  );
   const reason = (input.failureReason ?? '').trim() || 'retry';
   const retryText = [
     '[MIYA_RETRY_DELTA]',
@@ -510,10 +610,10 @@ function buildRetryDeltaContext(input: {
   return { text: retryText, applied: true };
 }
 
-function applyContextHardCap(input: {
+function applyContextHardCap(input: { text: string; capTokens: number }): {
   text: string;
-  capTokens: number;
-}): { text: string; hardCapped: boolean } {
+  hardCapped: boolean;
+} {
   const text = String(input.text ?? '').trim();
   const capTokens = Math.max(300, Math.floor(input.capTokens));
   const maxChars = Math.max(900, Math.floor(capTokens * 3.6));
@@ -558,21 +658,35 @@ export function buildRouteExecutionPlan(input: {
   const complexity = analyzeRouteComplexity(input.text);
   const mode = readRouterModeConfig(input.projectDir);
   const session = getSessionState(input.projectDir, input.sessionID);
-  const ranked = rankAgentsByFeedback(input.projectDir, intent, input.availableAgents);
+  const ranked = rankAgentsByFeedback(
+    input.projectDir,
+    intent,
+    input.availableAgents,
+  );
   const preferredAgent = resolveFallbackAgent(intent, input.availableAgents);
   const fallbackAgent = resolveFallbackAgent(intent, input.availableAgents);
-  const selectedByFeedback = resolveAgentWithFeedback(intent, input.availableAgents, ranked);
+  const selectedByFeedback = resolveAgentWithFeedback(
+    intent,
+    input.availableAgents,
+    ranked,
+  );
   const pinnedAgent = input.pinnedAgent?.trim();
   const selectedAgent =
-    pinnedAgent && input.availableAgents.includes(pinnedAgent) ? pinnedAgent : selectedByFeedback;
-  const feedbackScore = ranked.find((item) => item.agent === selectedAgent)?.score ?? 0;
-  const feedbackSamples = ranked.find((item) => item.agent === selectedAgent)?.samples ?? 0;
+    pinnedAgent && input.availableAgents.includes(pinnedAgent)
+      ? pinnedAgent
+      : selectedByFeedback;
+  const feedbackScore =
+    ranked.find((item) => item.agent === selectedAgent)?.score ?? 0;
+  const feedbackSamples =
+    ranked.find((item) => item.agent === selectedAgent)?.samples ?? 0;
 
   let stage = stageFromComplexity(complexity.complexity);
   const reasons = [...complexity.reasons];
   if (semantic.ambiguity >= 0.75) reasons.push('semantic_ambiguity_high');
   if (semantic.evidence.length > 0) {
-    reasons.push(...semantic.evidence.slice(0, 3).map((item) => `semantic_${item}`));
+    reasons.push(
+      ...semantic.evidence.slice(0, 3).map((item) => `semantic_${item}`),
+    );
   }
   let executionMode: 'auto' | 'human_gate' = 'auto';
   const fixabilityHint = session.lastFixability;
@@ -636,16 +750,19 @@ export function buildRouteExecutionPlan(input: {
   };
 }
 
-export function prepareRoutePayload(projectDir: string, input: {
-  text: string;
-  stage: RouteStage;
-  retry?: {
-    attempt?: number;
-    previousContextText?: string;
-    previousContextHash?: string;
-    failureReason?: string;
-  };
-}): {
+export function prepareRoutePayload(
+  projectDir: string,
+  input: {
+    text: string;
+    stage: RouteStage;
+    retry?: {
+      attempt?: number;
+      previousContextText?: string;
+      previousContextHash?: string;
+      failureReason?: string;
+    };
+  },
+): {
   text: string;
   compressed: boolean;
   hardCapped: boolean;
@@ -658,16 +775,20 @@ export function prepareRoutePayload(projectDir: string, input: {
   costUsdEstimate: number;
 } {
   const mode = readRouterModeConfig(projectDir);
-  const retryAttempt = Math.max(0, Math.floor(Number(input.retry?.attempt ?? 0)));
-  const retryDelta = retryAttempt > 0
-    ? buildRetryDeltaContext({
-        text: input.text,
-        previousText: input.retry?.previousContextText,
-        previousHash: input.retry?.previousContextHash,
-        failureReason: input.retry?.failureReason,
-        maxLines: mode.retryDeltaMaxLines,
-      })
-    : { text: input.text, applied: false };
+  const retryAttempt = Math.max(
+    0,
+    Math.floor(Number(input.retry?.attempt ?? 0)),
+  );
+  const retryDelta =
+    retryAttempt > 0
+      ? buildRetryDeltaContext({
+          text: input.text,
+          previousText: input.retry?.previousContextText,
+          previousHash: input.retry?.previousContextHash,
+          failureReason: input.retry?.failureReason,
+          maxLines: mode.retryDeltaMaxLines,
+        })
+      : { text: input.text, applied: false };
   const compressed = compressTextByStage(retryDelta.text, input.stage);
   const hardCap = applyContextHardCap({
     text: compressed.text,
@@ -676,14 +797,18 @@ export function prepareRoutePayload(projectDir: string, input: {
   const inputTokens = estimateInputTokens(hardCap.text);
   const outputTokensEstimate = estimateOutputTokens(inputTokens, input.stage);
   const totalTokensEstimate = Math.ceil(
-    (inputTokens + outputTokensEstimate) * mode.stageTokenMultiplier[input.stage],
+    (inputTokens + outputTokensEstimate) *
+      mode.stageTokenMultiplier[input.stage],
   );
   const baselineHighTokensEstimate = Math.ceil(
     (inputTokens + estimateOutputTokens(inputTokens, 'high')) *
       mode.stageTokenMultiplier.high,
   );
   const costUsdEstimate = Number(
-    ((totalTokensEstimate / 1000) * mode.stageCostUsdPer1k[input.stage]).toFixed(6),
+    (
+      (totalTokensEstimate / 1000) *
+      mode.stageCostUsdPer1k[input.stage]
+    ).toFixed(6),
   );
   return {
     text: hardCap.text,
@@ -763,7 +888,9 @@ export function recordRouteExecutionOutcome(input: {
       : current.humanEditUsed;
   const next: RouterSessionState = {
     sessionID: input.sessionID,
-    consecutiveFailures: input.success ? 0 : clamp(current.consecutiveFailures + 1, 0, 10),
+    consecutiveFailures: input.success
+      ? 0
+      : clamp(current.consecutiveFailures + 1, 0, 10),
     lastStage: input.stage,
     autoRetryUsed: Math.min(nextAutoUsed, mode.retryBudget.autoRetry + 6),
     humanEditUsed: Math.min(nextHumanUsed, mode.retryBudget.humanEdit + 4),
@@ -771,8 +898,14 @@ export function recordRouteExecutionOutcome(input: {
     lastFailureReason: input.success
       ? undefined
       : String(input.failureReason ?? '').slice(0, 200),
-    lastContextHash: typeof input.contextHash === 'string' ? input.contextHash.slice(0, 128) : undefined,
-    lastContextText: typeof input.contextText === 'string' ? input.contextText.slice(0, 6000) : undefined,
+    lastContextHash:
+      typeof input.contextHash === 'string'
+        ? input.contextHash.slice(0, 128)
+        : undefined,
+    lastContextText:
+      typeof input.contextText === 'string'
+        ? input.contextText.slice(0, 6000)
+        : undefined,
     updatedAt: nowIso(),
   };
   store.sessions[input.sessionID] = next;
@@ -792,7 +925,11 @@ export function recordRouteExecutionOutcome(input: {
     failureReason: input.failureReason,
     stage: input.stage,
   });
-  const variant = resolveStrategyVariant(input.projectDir, 'routing', input.sessionID);
+  const variant = resolveStrategyVariant(
+    input.projectDir,
+    'routing',
+    input.sessionID,
+  );
   recordStrategyObservation(input.projectDir, {
     experiment: 'routing',
     variant,
@@ -813,7 +950,10 @@ export function recordRouteExecutionOutcome(input: {
   return row;
 }
 
-export function getRouteCostSummary(projectDir: string, limit = 300): RouterCostSummary {
+export function getRouteCostSummary(
+  projectDir: string,
+  limit = 300,
+): RouterCostSummary {
   const rows = readCostRows(projectDir, limit);
   const byStage: RouterCostSummary['byStage'] = {
     low: { records: 0, tokens: 0, costUsd: 0 },
@@ -832,10 +972,17 @@ export function getRouteCostSummary(projectDir: string, limit = 300): RouterCost
     baselineHighTokensEstimate += row.baselineHighTokensEstimate;
     totalCostUsdEstimate += row.costUsdEstimate;
   }
-  const savingsTokensEstimate = Math.max(0, baselineHighTokensEstimate - totalTokensEstimate);
+  const savingsTokensEstimate = Math.max(
+    0,
+    baselineHighTokensEstimate - totalTokensEstimate,
+  );
   const savingsPercentEstimate =
     baselineHighTokensEstimate > 0
-      ? Number(((savingsTokensEstimate / baselineHighTokensEstimate) * 100).toFixed(2))
+      ? Number(
+          ((savingsTokensEstimate / baselineHighTokensEstimate) * 100).toFixed(
+            2,
+          ),
+        )
       : 0;
 
   return {
@@ -862,10 +1009,16 @@ export function getRouteCostSummary(projectDir: string, limit = 300): RouterCost
   };
 }
 
-export function listRouteCostRecords(projectDir: string, limit = 40): RouterCostRecord[] {
+export function listRouteCostRecords(
+  projectDir: string,
+  limit = 40,
+): RouterCostRecord[] {
   return readCostRows(projectDir, limit);
 }
 
-export function getRouterSessionState(projectDir: string, sessionID: string): RouterSessionState {
+export function getRouterSessionState(
+  projectDir: string,
+  sessionID: string,
+): RouterSessionState {
   return getSessionState(projectDir, sessionID);
 }

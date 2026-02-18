@@ -15,7 +15,10 @@ function nowIso(): string {
 }
 
 function mergeCaptureLimitations(parts: string[][]): string[] {
-  const merged = parts.flat().map((item) => String(item ?? '').trim()).filter(Boolean);
+  const merged = parts
+    .flat()
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean);
   return [...new Set(merged)].slice(0, 24);
 }
 
@@ -42,4 +45,9 @@ export function collectNativeSentinelSignals(): NativeSentinelSignalSample {
   };
 }
 
-export { sampleInputSignal, sampleForegroundSignal, sampleAudioSignal, sampleGamepadSignal };
+export {
+  sampleInputSignal,
+  sampleForegroundSignal,
+  sampleAudioSignal,
+  sampleGamepadSignal,
+};

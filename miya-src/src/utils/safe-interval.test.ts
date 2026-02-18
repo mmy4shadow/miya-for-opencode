@@ -28,7 +28,9 @@ describe('safeInterval', () => {
     await sleep(55);
     clearInterval(timer);
     expect(errors.length).toBeGreaterThan(0);
-    expect(errors.some((item) => item.taskName === 'unit.fail_once')).toBe(true);
+    expect(errors.some((item) => item.taskName === 'unit.fail_once')).toBe(
+      true,
+    );
   });
 
   test('skips overlapping async runs', async () => {
@@ -43,4 +45,3 @@ describe('safeInterval', () => {
     expect(runs).toBeGreaterThanOrEqual(2);
   });
 });
-

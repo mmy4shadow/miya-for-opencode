@@ -35,7 +35,10 @@ describe('soul loader', () => {
 - 先安抚再行动
 `,
     );
-    const layer = soulPersonaLayer(projectDir, { mode: 'work', depth: 'minimal' });
+    const layer = soulPersonaLayer(projectDir, {
+      mode: 'work',
+      depth: 'minimal',
+    });
     expect(layer.includes('name: MiyaX')).toBe(true);
     expect(layer.includes('mode: work')).toBe(true);
     expect(layer.includes('depth: minimal')).toBe(true);

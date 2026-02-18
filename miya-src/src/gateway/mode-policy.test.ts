@@ -23,4 +23,3 @@ describe('mode policy freeze', () => {
     expect(output.text).toBe('请修复构建失败');
   });
 });
-

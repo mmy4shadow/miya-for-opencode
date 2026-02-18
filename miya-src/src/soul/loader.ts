@@ -1,5 +1,5 @@
-import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import { DEFAULT_SOUL_MARKDOWN } from './templates';
@@ -32,7 +32,11 @@ function parseBulletSection(markdown: string, heading: string): string[] {
     .filter(Boolean);
 }
 
-function parseIdentityValue(items: string[], key: string, fallback: string): string {
+function parseIdentityValue(
+  items: string[],
+  key: string,
+  fallback: string,
+): string {
   const item = items.find((line) => line.startsWith(`${key}：`));
   if (!item) return fallback;
   return item.replace(`${key}：`, '').trim() || fallback;
@@ -42,7 +46,10 @@ export function loadSoulProfile(projectDir: string): SoulProfile {
   const file = ensureSoulFile(projectDir);
   const rawMarkdown = fs.readFileSync(file, 'utf-8');
   const identity = parseBulletSection(rawMarkdown, '身份');
-  const revision = createHash('sha256').update(rawMarkdown).digest('hex').slice(0, 12);
+  const revision = createHash('sha256')
+    .update(rawMarkdown)
+    .digest('hex')
+    .slice(0, 12);
   return {
     name: parseIdentityValue(identity, '名称', 'Miya'),
     role: parseIdentityValue(identity, '角色', 'Assistant'),
@@ -57,18 +64,26 @@ export function loadSoulProfile(projectDir: string): SoulProfile {
   };
 }
 
-export function saveSoulMarkdown(projectDir: string, markdown: string): SoulProfile {
+export function saveSoulMarkdown(
+  projectDir: string,
+  markdown: string,
+): SoulProfile {
   const file = ensureSoulFile(projectDir);
   fs.writeFileSync(file, markdown.trimEnd() + '\n', 'utf-8');
   return loadSoulProfile(projectDir);
 }
 
 function compact(items: string[], maxItems: number): string[] {
-  return items.slice(0, Math.max(1, maxItems)).map((item) => item.trim()).filter(Boolean);
+  return items
+    .slice(0, Math.max(1, maxItems))
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function renderList(items: string[], fallback: string): string {
-  return items.length > 0 ? items.map((item) => `- ${item}`).join('\n') : `- ${fallback}`;
+  return items.length > 0
+    ? items.map((item) => `- ${item}`).join('\n')
+    : `- ${fallback}`;
 }
 
 export function soulPersonaLayer(
@@ -81,9 +96,12 @@ export function soulPersonaLayer(
   const soul = loadSoulProfile(projectDir);
   const mode = options?.mode ?? 'mixed';
   const depth = options?.depth ?? 'full';
-  const principlesBase = depth === 'minimal' ? compact(soul.principles, 2) : soul.principles;
-  const rulesBase = depth === 'minimal' ? compact(soul.behaviorRules, 2) : soul.behaviorRules;
-  const forbiddenBase = depth === 'minimal' ? compact(soul.forbidden, 3) : soul.forbidden;
+  const principlesBase =
+    depth === 'minimal' ? compact(soul.principles, 2) : soul.principles;
+  const rulesBase =
+    depth === 'minimal' ? compact(soul.behaviorRules, 2) : soul.behaviorRules;
+  const forbiddenBase =
+    depth === 'minimal' ? compact(soul.forbidden, 3) : soul.forbidden;
   const modeHints =
     mode === 'work'
       ? soul.workAddons
@@ -106,7 +124,10 @@ export function soulPersonaLayer(
     'forbidden:',
     renderList(forbiddenBase, '不绕过安全'),
     'mode_addons:',
-    renderList(modeHintLines, mode === 'work' ? '优先清晰交付与证据' : '优先共情与边界'),
+    renderList(
+      modeHintLines,
+      mode === 'work' ? '优先清晰交付与证据' : '优先共情与边界',
+    ),
     '</PersonaLayer>',
   ].join('\n');
 }

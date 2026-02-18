@@ -63,9 +63,7 @@ export async function downloadAstGrep(
   const platformInfo = PLATFORM_MAP[platformKey];
 
   if (!platformInfo) {
-    console.error(
-      `[miya] Unsupported platform for ast-grep: ${platformKey}`,
-    );
+    console.error(`[miya] Unsupported platform for ast-grep: ${platformKey}`);
     return null;
   }
 

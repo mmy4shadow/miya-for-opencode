@@ -43,7 +43,8 @@ function readJson(file: string): Record<string, unknown> {
   if (!fs.existsSync(file)) return {};
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return {};
     return parsed as Record<string, unknown>;
   } catch {
     return {};
@@ -60,9 +61,13 @@ function defaultCommand(projectDir: string): string {
   return `powershell -NoProfile -WindowStyle Hidden -Command "Set-Location -LiteralPath '${escaped}'; opencode"`;
 }
 
-function normalizeState(projectDir: string, raw?: Record<string, unknown>): AutostartState {
+function normalizeState(
+  projectDir: string,
+  raw?: Record<string, unknown>,
+): AutostartState {
   const enabled = raw?.enabled === true;
-  const taskNameRaw = typeof raw?.taskName === 'string' ? raw.taskName.trim() : '';
+  const taskNameRaw =
+    typeof raw?.taskName === 'string' ? raw.taskName.trim() : '';
   const commandRaw = typeof raw?.command === 'string' ? raw.command.trim() : '';
   return {
     enabled,
@@ -83,7 +88,11 @@ function writeState(projectDir: string, state: AutostartState): void {
   writeJson(stateFile(projectDir), state);
 }
 
-function runSchtasks(args: string[]): { ok: boolean; stdout: string; stderr: string } {
+function runSchtasks(args: string[]): {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+} {
   const proc = spawnSync('schtasks', args, {
     windowsHide: true,
     encoding: 'utf-8',
@@ -102,7 +111,10 @@ function queryInstalled(taskName: string): boolean {
   return query.ok;
 }
 
-function installTask(taskName: string, command: string): { ok: boolean; reason?: string } {
+function installTask(
+  taskName: string,
+  command: string,
+): { ok: boolean; reason?: string } {
   const result = runSchtasks([
     '/Create',
     '/F',
@@ -116,7 +128,8 @@ function installTask(taskName: string, command: string): { ok: boolean; reason?:
     command,
   ]);
   if (result.ok) return { ok: true };
-  const reason = result.stderr.trim() || result.stdout.trim() || 'autostart_install_failed';
+  const reason =
+    result.stderr.trim() || result.stdout.trim() || 'autostart_install_failed';
   return { ok: false, reason };
 }
 
@@ -127,7 +140,10 @@ function uninstallTask(taskName: string): { ok: boolean; reason?: string } {
   if (text.includes('cannot find') || text.includes('not found')) {
     return { ok: true };
   }
-  const reason = result.stderr.trim() || result.stdout.trim() || 'autostart_uninstall_failed';
+  const reason =
+    result.stderr.trim() ||
+    result.stdout.trim() ||
+    'autostart_uninstall_failed';
   return { ok: false, reason };
 }
 
@@ -210,12 +226,16 @@ export function setAutostartEnabled(
   if (next.enabled) {
     const installed = installTask(next.taskName, next.command);
     if (!installed.ok) {
-      throw new Error(`autostart_enable_failed:${installed.reason ?? 'unknown'}`);
+      throw new Error(
+        `autostart_enable_failed:${installed.reason ?? 'unknown'}`,
+      );
     }
   } else {
     const removed = uninstallTask(next.taskName);
     if (!removed.ok) {
-      throw new Error(`autostart_disable_failed:${removed.reason ?? 'unknown'}`);
+      throw new Error(
+        `autostart_disable_failed:${removed.reason ?? 'unknown'}`,
+      );
     }
   }
   writeState(projectDir, next);

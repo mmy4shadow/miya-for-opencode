@@ -486,7 +486,8 @@ export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
     type: 'boolean',
     defaultValue: false,
     risk: 'HIGH',
-    description: '是否强制 Owner 模式校验（默认关闭以避免本机控制台陷入 owner_mode_required 循环）。',
+    description:
+      '是否强制 Owner 模式校验（默认关闭以避免本机控制台陷入 owner_mode_required 循环）。',
   }),
   entry({
     key: 'security.voiceprint.strict',
@@ -700,8 +701,10 @@ function leafSchema(entryValue: MiyaSettingEntry): Record<string, unknown> {
   if (entryValue.type === 'boolean') return { type: 'boolean' };
   if (entryValue.type === 'integer') {
     const schema: Record<string, unknown> = { type: 'integer' };
-    if (typeof entryValue.minimum === 'number') schema.minimum = entryValue.minimum;
-    if (typeof entryValue.maximum === 'number') schema.maximum = entryValue.maximum;
+    if (typeof entryValue.minimum === 'number')
+      schema.minimum = entryValue.minimum;
+    if (typeof entryValue.maximum === 'number')
+      schema.maximum = entryValue.maximum;
     return schema;
   }
   if (entryValue.type === 'string') return { type: 'string' };

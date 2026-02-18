@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import * as fs from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface InterfaceCapabilityBaseline {
@@ -19,10 +19,16 @@ export interface InterfaceCapabilityBaseline {
   capabilities: string[];
 }
 
-export const BASELINE_FILE = join(process.cwd(), 'baseline', 'interface-capability-baseline.json');
+export const BASELINE_FILE = join(
+  process.cwd(),
+  'baseline',
+  'interface-capability-baseline.json',
+);
 
 function uniqSorted(input: string[]): string[] {
-  return [...new Set(input.map((item) => item.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return [...new Set(input.map((item) => item.trim()).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b),
+  );
 }
 
 function readText(file: string): string {
@@ -59,7 +65,9 @@ function walkTsFiles(root: string): string[] {
   return out;
 }
 
-export function collectInterfaceCapabilityBaseline(repoRoot = process.cwd()): InterfaceCapabilityBaseline {
+export function collectInterfaceCapabilityBaseline(
+  repoRoot = process.cwd(),
+): InterfaceCapabilityBaseline {
   const gatewayPath = join(repoRoot, 'src', 'gateway', 'index.ts');
   const daemonPath = join(repoRoot, 'src', 'daemon', 'host.ts');
   const settingsPath = join(repoRoot, 'src', 'settings', 'registry.ts');
@@ -71,7 +79,7 @@ export function collectInterfaceCapabilityBaseline(repoRoot = process.cwd()): In
   const settingsContent = readText(settingsPath);
 
   const gatewayMethods = uniqSorted(
-    extractByRegex(gatewayContent, /methods\.register\('([^']+)'/g),
+    extractByRegex(gatewayContent, /methods\.register\(\s*'([^']+)'/g),
   );
   const daemonMethods = uniqSorted(
     extractByRegex(daemonContent, /if \(method === '([^']+)'\)/g),
@@ -90,7 +98,10 @@ export function collectInterfaceCapabilityBaseline(repoRoot = process.cwd()): In
       const content = readText(file);
       return [
         ...extractByRegex(content, /\bconst\s+([A-Za-z0-9_]+)\s*=\s*tool\(/g),
-        ...extractByRegex(content, /\bexport\s+const\s+([A-Za-z0-9_]+)(?::[^=]+)?=\s*tool\(/g),
+        ...extractByRegex(
+          content,
+          /\bexport\s+const\s+([A-Za-z0-9_]+)(?::[^=]+)?=\s*tool\(/g,
+        ),
       ];
     }),
   );
@@ -122,13 +133,19 @@ export function collectInterfaceCapabilityBaseline(repoRoot = process.cwd()): In
 
 export function writeBaselineFile(baseline: InterfaceCapabilityBaseline): void {
   fs.mkdirSync(join(process.cwd(), 'baseline'), { recursive: true });
-  fs.writeFileSync(BASELINE_FILE, `${JSON.stringify(baseline, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    BASELINE_FILE,
+    `${JSON.stringify(baseline, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 export function readBaselineFile(): InterfaceCapabilityBaseline | null {
   if (!existsSync(BASELINE_FILE)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf-8')) as InterfaceCapabilityBaseline;
+    const parsed = JSON.parse(
+      fs.readFileSync(BASELINE_FILE, 'utf-8'),
+    ) as InterfaceCapabilityBaseline;
     return parsed && parsed.version === 1 ? parsed : null;
   } catch {
     return null;

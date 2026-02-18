@@ -1,7 +1,7 @@
-import type { RouteExecutionPlan } from '../router';
-import type { GatewayMode } from './sanitizer';
-import type { ModeKernelResult } from './mode-kernel';
 import { DEFAULT_MODE_SAFE_WORK_CONFIDENCE } from '../context/pipeline';
+import type { RouteExecutionPlan } from '../router';
+import type { ModeKernelResult } from './mode-kernel';
+import type { GatewayMode } from './sanitizer';
 
 export interface SafetySignal {
   blocked: boolean;
@@ -42,7 +42,9 @@ export interface CortexArbiterResult {
   executeWork: boolean;
   rightBrainSuppressed: boolean;
   responseHints: string[];
-  priorityTrail: Array<'Safety' | 'User explicit' | 'Work objective' | 'Emotional optimization'>;
+  priorityTrail: Array<
+    'Safety' | 'User explicit' | 'Work objective' | 'Emotional optimization'
+  >;
   why: string[];
   executionTrack: 'left_brain_single_track';
 }
@@ -64,7 +66,9 @@ function normalizeReasonList(input: string[]): string[] {
 }
 
 export function detectUserExplicitIntent(text: string): UserExplicitIntent {
-  const normalized = String(text ?? '').trim().toLowerCase();
+  const normalized = String(text ?? '')
+    .trim()
+    .toLowerCase();
   if (!normalized) return { preference: 'none', confidence: 0, why: [] };
 
   const why: string[] = [];
@@ -75,7 +79,9 @@ export function detectUserExplicitIntent(text: string): UserExplicitIntent {
     preference = 'defer';
     confidence = 0.95;
     why.push('explicit_defer');
-  } else if (/(边做边聊|一边.*做.*一边.*聊|work and chat|both)/i.test(normalized)) {
+  } else if (
+    /(边做边聊|一边.*做.*一边.*聊|work and chat|both)/i.test(normalized)
+  ) {
     preference = 'mixed';
     confidence = 0.88;
     why.push('explicit_mixed');
@@ -83,7 +89,9 @@ export function detectUserExplicitIntent(text: string): UserExplicitIntent {
     preference = 'chat';
     confidence = 0.85;
     why.push('explicit_chat');
-  } else if (/(直接执行|马上做|请修复|start work|do it now|implement)/i.test(normalized)) {
+  } else if (
+    /(直接执行|马上做|请修复|start work|do it now|implement)/i.test(normalized)
+  ) {
     preference = 'work';
     confidence = 0.82;
     why.push('explicit_work');
@@ -97,7 +105,10 @@ export function detectUserExplicitIntent(text: string): UserExplicitIntent {
 }
 
 export function buildLeftBrainActionPlan(input: {
-  routePlan: Pick<RouteExecutionPlan, 'intent' | 'complexity' | 'stage' | 'executionMode' | 'reasons'>;
+  routePlan: Pick<
+    RouteExecutionPlan,
+    'intent' | 'complexity' | 'stage' | 'executionMode' | 'reasons'
+  >;
   modeKernel: ModeKernelResult;
 }): LeftBrainActionPlan {
   const risk: LeftBrainActionPlan['risk'] =
@@ -141,7 +152,9 @@ export function buildRightBrainResponsePlan(input: {
     suggestions.push('以执行结论为主，情绪表达保持一行以内');
   }
   const highRiskToolSuggestion =
-    /(删库|转账|发给所有人|mass send|delete all|password|secret)/i.test(normalized);
+    /(删库|转账|发给所有人|mass send|delete all|password|secret)/i.test(
+      normalized,
+    );
   const tone: RightBrainResponsePlan['tone'] =
     input.modeKernel.mode === 'work'
       ? 'neutral'
@@ -155,12 +168,16 @@ export function buildRightBrainResponsePlan(input: {
     why: [
       `mode=${input.modeKernel.mode}`,
       `tone=${tone}`,
-      highRiskToolSuggestion ? 'high_risk_tool_suggestion_detected' : 'tool_suggestion_safe',
+      highRiskToolSuggestion
+        ? 'high_risk_tool_suggestion_detected'
+        : 'tool_suggestion_safe',
     ],
   };
 }
 
-export function arbitrateCortex(input: CortexArbiterInput): CortexArbiterResult {
+export function arbitrateCortex(
+  input: CortexArbiterInput,
+): CortexArbiterResult {
   const trail: CortexArbiterResult['priorityTrail'] = [
     'Safety',
     'User explicit',
@@ -182,7 +199,11 @@ export function arbitrateCortex(input: CortexArbiterInput): CortexArbiterResult 
     reasons.push(`safety_blocked:${input.safety.reason ?? 'unspecified'}`);
   }
 
-  if (!input.safety.blocked && input.userExplicit.preference !== 'none' && input.userExplicit.confidence >= 0.55) {
+  if (
+    !input.safety.blocked &&
+    input.userExplicit.preference !== 'none' &&
+    input.userExplicit.confidence >= 0.55
+  ) {
     if (input.userExplicit.preference === 'defer') {
       executeWork = false;
       reasons.push('user_explicit_defer');
@@ -197,7 +218,11 @@ export function arbitrateCortex(input: CortexArbiterInput): CortexArbiterResult 
     reasons.push('work_objective_promoted_to_mixed');
   }
 
-  if (mode === 'work' && input.rightBrain.tone !== 'neutral' && !input.safety.blocked) {
+  if (
+    mode === 'work' &&
+    input.rightBrain.tone !== 'neutral' &&
+    !input.safety.blocked
+  ) {
     reasons.push('emotional_optimization_kept_secondary');
   }
 
@@ -210,7 +235,9 @@ export function arbitrateCortex(input: CortexArbiterInput): CortexArbiterResult 
     mode,
     executeWork,
     rightBrainSuppressed,
-    responseHints: rightBrainSuppressed ? [] : input.rightBrain.suggestions.slice(0, 3),
+    responseHints: rightBrainSuppressed
+      ? []
+      : input.rightBrain.suggestions.slice(0, 3),
     priorityTrail: trail,
     why: normalizeReasonList([
       ...reasons,

@@ -1,6 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { venvPythonPath } from '../daemon/python-runtime';
 import { getMediaItem } from '../media/store';
@@ -8,7 +8,9 @@ import { getMiyaQwen3VlModelDir } from '../model/paths';
 import { readOcrCoordinateCache, writeOcrCoordinateCache } from './ocr-cache';
 import type { VisionAnalyzeInput, VisionAnalyzeResult } from './types';
 
-function summarizeFromMetadata(metadata: Record<string, unknown> | undefined): string {
+function summarizeFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): string {
   if (!metadata) return 'No metadata available for vision summary.';
   const caption =
     typeof metadata.caption === 'string'
@@ -26,7 +28,8 @@ function summarizeFromMetadata(metadata: Record<string, unknown> | undefined): s
 }
 
 async function commandExists(command: string): Promise<boolean> {
-  const probe = process.platform === 'win32' ? ['where', command] : ['which', command];
+  const probe =
+    process.platform === 'win32' ? ['where', command] : ['which', command];
   const proc = Bun.spawn(probe, { stdout: 'pipe', stderr: 'pipe' });
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -63,7 +66,11 @@ async function runTesseractOcr(imagePath: string): Promise<string> {
 async function runRemoteVisionInference(
   imagePath: string,
   question?: string,
-): Promise<{ text: string; summary?: string; boxes?: Array<Record<string, unknown>> }> {
+): Promise<{
+  text: string;
+  summary?: string;
+  boxes?: Array<Record<string, unknown>>;
+}> {
   const endpoint = process.env.MIYA_VISION_OCR_ENDPOINT?.trim();
   if (!endpoint) return { text: '' };
   if (!fs.existsSync(imagePath)) return { text: '' };
@@ -109,7 +116,9 @@ interface LocalVisionCommandSpec {
   shell: boolean;
 }
 
-function parseCommandSpec(raw: string): { command: string; args: string[] } | null {
+function parseCommandSpec(
+  raw: string,
+): { command: string; args: string[] } | null {
   const input = raw.trim();
   if (!input) return null;
   const tokens: string[] = [];
@@ -136,7 +145,9 @@ function parseCommandSpec(raw: string): { command: string; args: string[] } | nu
   };
 }
 
-function resolveLocalVisionCommand(projectDir: string): LocalVisionCommandSpec | null {
+function resolveLocalVisionCommand(
+  projectDir: string,
+): LocalVisionCommandSpec | null {
   const explicit = process.env.MIYA_VISION_LOCAL_CMD?.trim();
   if (explicit) {
     const parsed = parseCommandSpec(explicit);
@@ -144,13 +155,23 @@ function resolveLocalVisionCommand(projectDir: string): LocalVisionCommandSpec |
     return { command: explicit, args: [], shell: true };
   }
 
-  const scriptPath = path.join(projectDir, 'miya-src', 'python', 'infer_qwen3_vl.py');
+  const scriptPath = path.join(
+    projectDir,
+    'miya-src',
+    'python',
+    'infer_qwen3_vl.py',
+  );
   if (!fs.existsSync(scriptPath)) return null;
   const backendCmd = String(process.env.MIYA_QWEN3VL_CMD ?? '').trim();
   const pythonOverride = String(process.env.MIYA_VISION_PYTHON ?? '').trim();
   const venvPython = venvPythonPath(projectDir);
   const python =
-    pythonOverride || (fs.existsSync(venvPython) ? venvPython : process.platform === 'win32' ? 'python' : 'python3');
+    pythonOverride ||
+    (fs.existsSync(venvPython)
+      ? venvPython
+      : process.platform === 'win32'
+        ? 'python'
+        : 'python3');
   const args = [
     scriptPath,
     '--model-dir',
@@ -176,7 +197,9 @@ function runLocalVisionInference(
   const commandSpec = resolveLocalVisionCommand(projectDir);
   if (!commandSpec) return { text: '' };
   if (!fs.existsSync(imagePath)) return { text: '' };
-  const timeoutMsRaw = Number(process.env.MIYA_VISION_LOCAL_TIMEOUT_MS ?? 6_000);
+  const timeoutMsRaw = Number(
+    process.env.MIYA_VISION_LOCAL_TIMEOUT_MS ?? 6_000,
+  );
   const timeoutMs = Number.isFinite(timeoutMsRaw)
     ? Math.max(800, Math.min(30_000, Math.floor(timeoutMsRaw)))
     : 6_000;
@@ -202,7 +225,8 @@ function runLocalVisionInference(
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    if (result.error || result.status !== 0 || result.signal) return { text: '' };
+    if (result.error || result.status !== 0 || result.signal)
+      return { text: '' };
     const parsed = JSON.parse(String(result.stdout ?? '').trim()) as {
       text?: string;
       summary?: string;
@@ -267,7 +291,12 @@ export interface DesktopOcrSignals {
   sendStatusDetected: 'sent' | 'failed' | 'uncertain';
 }
 
-export type CaptureMethod = 'wgc_hwnd' | 'print_window' | 'dxgi_duplication' | 'uia_only' | 'unknown';
+export type CaptureMethod =
+  | 'wgc_hwnd'
+  | 'print_window'
+  | 'dxgi_duplication'
+  | 'uia_only'
+  | 'unknown';
 
 export interface CaptureCapabilityReport {
   method: CaptureMethod;
@@ -282,8 +311,12 @@ const CAPTURE_PRIORITY: CaptureMethod[] = [
   'uia_only',
 ];
 
-function normalizeCaptureMethod(input: string | undefined): CaptureMethod | null {
-  const raw = String(input ?? '').trim().toLowerCase();
+function normalizeCaptureMethod(
+  input: string | undefined,
+): CaptureMethod | null {
+  const raw = String(input ?? '')
+    .trim()
+    .toLowerCase();
   if (!raw) return null;
   if (raw === 'wgc' || raw === 'wgc_hwnd') return 'wgc_hwnd';
   if (raw === 'printwindow' || raw === 'print_window') return 'print_window';
@@ -299,7 +332,9 @@ function parseCaptureMethods(input: string | undefined): CaptureMethod[] {
   const methods = raw
     .split(',')
     .map((item) => normalizeCaptureMethod(item))
-    .filter((item): item is CaptureMethod => Boolean(item) && item !== 'unknown');
+    .filter(
+      (item): item is CaptureMethod => Boolean(item) && item !== 'unknown',
+    );
   if (methods.length === 0) return [...CAPTURE_PRIORITY];
   return [...new Set(methods)];
 }
@@ -308,12 +343,14 @@ function inferCaptureProbeLimitations(input: {
   visualPrecheck?: string;
   visualPostcheck?: string;
 }): string[] {
-  const signal = `${input.visualPrecheck ?? ''}|${input.visualPostcheck ?? ''}`.toLowerCase();
+  const signal =
+    `${input.visualPrecheck ?? ''}|${input.visualPostcheck ?? ''}`.toLowerCase();
   const result: string[] = [];
   if (!signal.trim()) return result;
   if (signal.includes('black')) result.push('capture_probe_black_screen');
   if (signal.includes('timeout')) result.push('capture_probe_timeout');
-  if (signal.includes('error') || signal.includes('failed')) result.push('capture_probe_error');
+  if (signal.includes('error') || signal.includes('failed'))
+    result.push('capture_probe_error');
   if (signal.includes('occluded')) result.push('capture_probe_occluded');
   return [...new Set(result)];
 }
@@ -335,7 +372,8 @@ export function parseDesktopOcrSignals(
     recipient &&
     (normalized.includes(recipient) ||
       lowered.includes(recipient.toLowerCase()) ||
-      (compactRecipient.length > 0 && compactNormalized.includes(compactRecipient)))
+      (compactRecipient.length > 0 &&
+        compactNormalized.includes(compactRecipient)))
       ? recipient
       : '';
 
@@ -347,22 +385,21 @@ export function parseDesktopOcrSignals(
     '发送',
     '已发出',
   ];
-  const failHints = [
-    '发送失败',
-    'failed',
-    '失败',
-    'retry',
-    '重试',
-    '未发送',
-  ];
+  const failHints = ['发送失败', 'failed', '失败', 'retry', '重试', '未发送'];
 
   const hasSent = sentHints.some((item) => {
     const loweredHint = item.toLowerCase();
-    return lowered.includes(loweredHint) || compactNormalized.includes(compactOcrText(loweredHint));
+    return (
+      lowered.includes(loweredHint) ||
+      compactNormalized.includes(compactOcrText(loweredHint))
+    );
   });
   const hasFail = failHints.some((item) => {
     const loweredHint = item.toLowerCase();
-    return lowered.includes(loweredHint) || compactNormalized.includes(compactOcrText(loweredHint));
+    return (
+      lowered.includes(loweredHint) ||
+      compactNormalized.includes(compactOcrText(loweredHint))
+    );
   });
   const sendStatusDetected: DesktopOcrSignals['sendStatusDetected'] = hasFail
     ? 'failed'
@@ -384,17 +421,15 @@ export function parseDesktopOcrSignals(
   };
 }
 
-export async function analyzeDesktopOutboundEvidence(
-  input: {
-    destination: string;
-    preSendScreenshotPath?: string;
-    postSendScreenshotPath?: string;
-    visualPrecheck?: string;
-    visualPostcheck?: string;
-    receiptStatus?: 'confirmed' | 'uncertain';
-    recipientTextCheck?: 'matched' | 'uncertain' | 'mismatch';
-  },
-): Promise<{
+export async function analyzeDesktopOutboundEvidence(input: {
+  destination: string;
+  preSendScreenshotPath?: string;
+  postSendScreenshotPath?: string;
+  visualPrecheck?: string;
+  visualPostcheck?: string;
+  receiptStatus?: 'confirmed' | 'uncertain';
+  recipientTextCheck?: 'matched' | 'uncertain' | 'mismatch';
+}): Promise<{
   recipientMatch: 'matched' | 'mismatch' | 'uncertain';
   sendStatusDetected: 'sent' | 'failed' | 'uncertain';
   ocrSource: 'remote_vlm' | 'tesseract' | 'none';
@@ -407,10 +442,13 @@ export async function analyzeDesktopOutboundEvidence(
   const candidates = [
     input.postSendScreenshotPath,
     input.preSendScreenshotPath,
-  ].filter((item): item is string => typeof item === 'string' && fs.existsSync(item));
+  ].filter(
+    (item): item is string => typeof item === 'string' && fs.existsSync(item),
+  );
   if (candidates.length === 0) {
     const recipientMatch = input.recipientTextCheck ?? 'uncertain';
-    const sendStatusDetected = input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain';
+    const sendStatusDetected =
+      input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain';
     return {
       recipientMatch,
       sendStatusDetected,
@@ -438,12 +476,16 @@ export async function analyzeDesktopOutboundEvidence(
     return noiseRatio > 0.6;
   };
 
-  let inferred = await readTextFromImage(candidates[0], '识别聊天界面收件人与发送状态');
+  let inferred = await readTextFromImage(
+    candidates[0],
+    '识别聊天界面收件人与发送状态',
+  );
   let signals = parseDesktopOcrSignals(inferred.text, input.destination);
   let retries = 0;
   let uiStyleMismatch =
     inferred.source === 'none' ||
-    (signals.recipientMatch !== 'matched' && isLowConfidenceText(inferred.text));
+    (signals.recipientMatch !== 'matched' &&
+      isLowConfidenceText(inferred.text));
 
   if (
     candidates.length > 1 &&
@@ -453,14 +495,18 @@ export async function analyzeDesktopOutboundEvidence(
       candidates[1],
       'DPI样式兼容重试：识别聊天界面收件人与发送状态',
     );
-    const retrySignals = parseDesktopOcrSignals(retryInferred.text, input.destination);
+    const retrySignals = parseDesktopOcrSignals(
+      retryInferred.text,
+      input.destination,
+    );
     retries = 1;
 
     const retryBetter =
       retrySignals.recipientMatch === 'matched' ||
       (retrySignals.sendStatusDetected !== 'uncertain' &&
         signals.sendStatusDetected === 'uncertain') ||
-      (!isLowConfidenceText(retryInferred.text) && isLowConfidenceText(inferred.text));
+      (!isLowConfidenceText(retryInferred.text) &&
+        isLowConfidenceText(inferred.text));
     if (retryBetter) {
       inferred = retryInferred;
       signals = retrySignals;
@@ -471,7 +517,8 @@ export async function analyzeDesktopOutboundEvidence(
   }
 
   const mergedRecipient =
-    signals.recipientMatch === 'mismatch' && input.recipientTextCheck === 'matched'
+    signals.recipientMatch === 'mismatch' &&
+    input.recipientTextCheck === 'matched'
       ? 'matched'
       : signals.recipientMatch === 'uncertain'
         ? (input.recipientTextCheck ?? 'uncertain')
@@ -484,7 +531,9 @@ export async function analyzeDesktopOutboundEvidence(
       : signals.sendStatusDetected;
 
   const stableRecipient =
-    uiStyleMismatch && mergedRecipient === 'mismatch' ? 'uncertain' : mergedRecipient;
+    uiStyleMismatch && mergedRecipient === 'mismatch'
+      ? 'uncertain'
+      : mergedRecipient;
   const confidence = estimateEvidenceConfidence({
     ocrSource: inferred.source,
     uiStyleMismatch,
@@ -492,7 +541,9 @@ export async function analyzeDesktopOutboundEvidence(
     sendStatusDetected: mergedStatus,
     retries,
   });
-  const mergedConfidence = Number(Math.min(confidence, capture.confidence).toFixed(2));
+  const mergedConfidence = Number(
+    Math.min(confidence, capture.confidence).toFixed(2),
+  );
   if (mergedConfidence < 0.45) {
     uiStyleMismatch = true;
   }
@@ -552,7 +603,12 @@ function resolveCaptureCapability(input: {
   if (requested && requested !== 'unknown' && !supported.includes(requested)) {
     limitations.push(`capture_method_not_supported:${requested}`);
   }
-  if (hasScreenshots && preferred && method !== 'unknown' && method !== preferred) {
+  if (
+    hasScreenshots &&
+    preferred &&
+    method !== 'unknown' &&
+    method !== preferred
+  ) {
     limitations.push(`capture_fallback:${preferred}->${method}`);
   }
   if (!hasScreenshots && preferred && preferred !== 'uia_only') {
@@ -594,10 +650,19 @@ function estimateEvidenceConfidence(input: {
   sendStatusDetected: 'sent' | 'failed' | 'uncertain';
   retries: number;
 }): number {
-  let score = input.ocrSource === 'remote_vlm' ? 0.86 : input.ocrSource === 'tesseract' ? 0.72 : 0.35;
+  let score =
+    input.ocrSource === 'remote_vlm'
+      ? 0.86
+      : input.ocrSource === 'tesseract'
+        ? 0.72
+        : 0.35;
   if (input.uiStyleMismatch) score -= 0.32;
   if (input.recipientMatch === 'matched') score += 0.08;
-  if (input.sendStatusDetected === 'sent' || input.sendStatusDetected === 'failed') score += 0.04;
+  if (
+    input.sendStatusDetected === 'sent' ||
+    input.sendStatusDetected === 'failed'
+  )
+    score += 0.04;
   if (input.retries > 0) score -= 0.05;
   if (score < 0) return 0;
   if (score > 1) return 1;
@@ -615,7 +680,8 @@ function mergeCaptureLimitations(
   const result = [...base];
   if (input.uiStyleMismatch) result.push('ui_style_mismatch');
   if (input.recipientMatch === 'uncertain') result.push('recipient_unverified');
-  if (input.sendStatusDetected === 'uncertain') result.push('delivery_unverified');
+  if (input.sendStatusDetected === 'uncertain')
+    result.push('delivery_unverified');
   return [...new Set(result)];
 }
 
@@ -641,7 +707,8 @@ export async function analyzeVision(
   const media = getMediaItem(projectDir, input.mediaID);
   if (!media) throw new Error('media_not_found');
   if (media.kind !== 'image') throw new Error('invalid_vision_media_kind');
-  const filePath = media.localPath && fs.existsSync(media.localPath) ? media.localPath : '';
+  const filePath =
+    media.localPath && fs.existsSync(media.localPath) ? media.localPath : '';
   const ocr: Awaited<ReturnType<typeof readTextFromImage>> = filePath
     ? await readTextFromImage(filePath, input.question, projectDir)
     : { source: 'none', text: '' };

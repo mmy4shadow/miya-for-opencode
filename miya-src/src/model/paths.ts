@@ -54,12 +54,23 @@ export function getMiyaModelRootDir(projectDir: string): string {
   return path.join(getMiyaDataRootDir(projectDir), 'model');
 }
 
-export function getMiyaModelPath(projectDir: string, ...segments: string[]): string {
+export function getMiyaModelPath(
+  projectDir: string,
+  ...segments: string[]
+): string {
   return path.join(getMiyaModelRootDir(projectDir), ...segments);
 }
 
-export function getMiyaVisionTempDir(projectDir: string, ...segments: string[]): string {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.vision, 'lin shi', ...segments);
+export function getMiyaVisionTempDir(
+  projectDir: string,
+  ...segments: string[]
+): string {
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.vision,
+    'lin shi',
+    ...segments,
+  );
 }
 
 export function getMiyaVisionLongTermDir(projectDir: string): string {
@@ -83,27 +94,51 @@ export function getMiyaVoiceLongTermDir(projectDir: string): string {
 }
 
 export function getMiyaFluxModelDir(projectDir: string): string {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.image, MIYA_MODEL_NAME.fluxSchnell);
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.image,
+    MIYA_MODEL_NAME.fluxSchnell,
+  );
 }
 
 export function getMiyaFluxKleinModelDir(projectDir: string): string {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.image, MIYA_MODEL_NAME.fluxKlein);
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.image,
+    MIYA_MODEL_NAME.fluxKlein,
+  );
 }
 
 export function getMiyaQwen3VlModelDir(projectDir: string): string {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.vision, MIYA_MODEL_NAME.qwen3vl);
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.vision,
+    MIYA_MODEL_NAME.qwen3vl,
+  );
 }
 
 export function getMiyaSovitsModelDir(projectDir: string): string {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.voice, MIYA_MODEL_NAME.sovits);
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.voice,
+    MIYA_MODEL_NAME.sovits,
+  );
 }
 
 export function getMiyaAsrModelDir(projectDir: string): string {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.voice, MIYA_MODEL_NAME.whisper);
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.voice,
+    MIYA_MODEL_NAME.whisper,
+  );
 }
 
 export function getMiyaVoiceprintModelDir(projectDir: string): string {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.voiceprint, MIYA_MODEL_NAME.eres2net);
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.voiceprint,
+    MIYA_MODEL_NAME.eres2net,
+  );
 }
 
 export function getMiyaVoiceprintSampleDir(projectDir: string): string {

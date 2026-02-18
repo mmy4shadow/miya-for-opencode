@@ -38,15 +38,25 @@ describe('model path resolver', () => {
     const root = getMiyaModelRootDir(projectDir);
     expect(root).toBe(path.join(projectDir, 'miya', 'model'));
     expect(getMiyaQwen3VlModelDir(projectDir)).toBe(
-      path.join(projectDir, 'miya', 'model', 'shi jue', 'Qwen3VL-4B-Instruct-Q4_K_M'),
+      path.join(
+        projectDir,
+        'miya',
+        'model',
+        'shi jue',
+        'Qwen3VL-4B-Instruct-Q4_K_M',
+      ),
     );
   });
 
   test('supports absolute env override', () => {
-    process.env.MIYA_MODEL_ROOT_DIR = path.join(path.sep, 'data', 'miya-models');
-    expect(getMiyaModelRootDir(path.resolve(path.sep, 'repo', 'workspace'))).toBe(
-      path.join(path.sep, 'data', 'miya-models'),
+    process.env.MIYA_MODEL_ROOT_DIR = path.join(
+      path.sep,
+      'data',
+      'miya-models',
     );
+    expect(
+      getMiyaModelRootDir(path.resolve(path.sep, 'repo', 'workspace')),
+    ).toBe(path.join(path.sep, 'data', 'miya-models'));
   });
 
   test('supports project-relative env override', () => {
@@ -64,7 +74,14 @@ describe('model path resolver', () => {
       path.join(projectDir, '.opencode', 'miya', 'automation'),
     );
     expect(getMiyaFluxModelDir(projectDir)).toBe(
-      path.join(projectDir, '.opencode', 'miya', 'model', 'tu pian', 'FLUX.1 schnell'),
+      path.join(
+        projectDir,
+        '.opencode',
+        'miya',
+        'model',
+        'tu pian',
+        'FLUX.1 schnell',
+      ),
     );
     expect(getMiyaSovitsModelDir(projectDir)).toBe(
       path.join(
@@ -77,7 +94,14 @@ describe('model path resolver', () => {
       ),
     );
     expect(getMiyaVoiceprintModelDir(projectDir)).toBe(
-      path.join(projectDir, '.opencode', 'miya', 'model', 'shi bie', 'eres2net'),
+      path.join(
+        projectDir,
+        '.opencode',
+        'miya',
+        'model',
+        'shi bie',
+        'eres2net',
+      ),
     );
     expect(getMiyaVoiceprintSampleDir(projectDir)).toBe(
       path.join(projectDir, '.opencode', 'miya', 'model', 'shi bie', 'ben ren'),

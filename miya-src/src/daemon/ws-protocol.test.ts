@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  parseDaemonIncomingFrame,
-  parseDaemonOutgoingFrame,
   DaemonRequestFrameSchema,
   DaemonResponseFrameSchema,
+  parseDaemonIncomingFrame,
+  parseDaemonOutgoingFrame,
 } from './ws-protocol';
 
 describe('daemon ws protocol', () => {
@@ -49,4 +49,3 @@ describe('daemon ws protocol', () => {
     ).toThrow();
   });
 });
-

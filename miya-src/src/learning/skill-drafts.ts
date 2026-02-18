@@ -1,11 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { RalphLoopResult } from '../ralph';
 import type { CompanionMemoryVector } from '../companion/memory-vector';
+import type { RalphLoopResult } from '../ralph';
 import { getMiyaRuntimeDir } from '../workflow';
 
-export type SkillDraftStatus = 'draft' | 'recommended' | 'accepted' | 'rejected';
+export type SkillDraftStatus =
+  | 'draft'
+  | 'recommended'
+  | 'accepted'
+  | 'rejected';
 export type SkillDraftSource = 'ralph' | 'reflect';
 
 export interface SkillDraft {
@@ -50,7 +54,9 @@ function filePath(projectDir: string): string {
 }
 
 function normalizeText(text: string): string {
-  return String(text ?? '').replace(/\s+/g, ' ').trim();
+  return String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function tokenize(text: string): string[] {
@@ -96,7 +102,10 @@ function normalizeDraft(raw: Partial<SkillDraft>): SkillDraft {
       ? raw.commands.map(String).map(normalizeText).filter(Boolean)
       : [],
     tags: Array.isArray(raw.tags)
-      ? raw.tags.map(String).map((item) => item.trim().toLowerCase()).filter(Boolean)
+      ? raw.tags
+          .map(String)
+          .map((item) => item.trim().toLowerCase())
+          .filter(Boolean)
       : [],
     confidence: clamp(Number(raw.confidence ?? 0.5), 0.1, 0.99),
     uses: clamp(Number(raw.uses ?? 0), 0, 1_000_000),
@@ -111,7 +120,9 @@ function readStore(projectDir: string): SkillDraftStore {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) return { drafts: [] };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as SkillDraftStore;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as SkillDraftStore;
     const drafts = Array.isArray(parsed?.drafts)
       ? parsed.drafts.map((item) => normalizeDraft(item))
       : [];
@@ -123,10 +134,17 @@ function readStore(projectDir: string): SkillDraftStore {
 
 function writeStore(projectDir: string, store: SkillDraftStore): void {
   ensureDir(projectDir);
-  fs.writeFileSync(filePath(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    filePath(projectDir),
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
-function findSimilarDraftIndex(drafts: SkillDraft[], candidate: SkillDraft): number {
+function findSimilarDraftIndex(
+  drafts: SkillDraft[],
+  candidate: SkillDraft,
+): number {
   const signature = hashText(
     `${candidate.source}|${candidate.problemPattern}|${candidate.solutionPattern}|${candidate.commands.join('|')}`,
   );
@@ -148,7 +166,7 @@ function upsertDraft(projectDir: string, draft: SkillDraft): SkillDraft {
       ...draft,
       id: current.id,
       createdAt: current.createdAt,
-      confidence: (current.confidence * 0.7 + draft.confidence * 0.3),
+      confidence: current.confidence * 0.7 + draft.confidence * 0.3,
       status:
         current.status === 'accepted' || current.status === 'rejected'
           ? current.status
@@ -170,7 +188,9 @@ function draftScoreForQuery(draft: SkillDraft, query: string): number {
   const queryTokens = tokenize(query);
   if (queryTokens.length === 0) return 0;
   const targetTokens = new Set(
-    tokenize(`${draft.title} ${draft.problemPattern} ${draft.solutionPattern} ${draft.tags.join(' ')}`),
+    tokenize(
+      `${draft.title} ${draft.problemPattern} ${draft.solutionPattern} ${draft.tags.join(' ')}`,
+    ),
   );
   let overlap = 0;
   for (const token of queryTokens) {
@@ -179,7 +199,11 @@ function draftScoreForQuery(draft: SkillDraft, query: string): number {
   const overlapScore = overlap / queryTokens.length;
   const quality = draft.confidence;
   const statusBoost =
-    draft.status === 'accepted' ? 0.12 : draft.status === 'recommended' ? 0.06 : 0;
+    draft.status === 'accepted'
+      ? 0.12
+      : draft.status === 'recommended'
+        ? 0.06
+        : 0;
   return clamp(overlapScore * 0.75 + quality * 0.25 + statusBoost, 0, 1);
 }
 
@@ -202,7 +226,10 @@ export function listSkillDrafts(
   projectDir: string,
   input?: { limit?: number; status?: SkillDraftStatus },
 ): SkillDraft[] {
-  const limit = Math.max(1, Math.min(200, Math.floor(Number(input?.limit ?? 50))));
+  const limit = Math.max(
+    1,
+    Math.min(200, Math.floor(Number(input?.limit ?? 50))),
+  );
   const store = readStore(projectDir);
   return store.drafts
     .filter((draft) => (input?.status ? draft.status === input.status : true))
@@ -269,7 +296,9 @@ export function buildLearningInjection(
     'Matched historical patterns (use as guidance, then verify):',
   ];
   for (const item of matches) {
-    lines.push(`- draft=${item.draft.id} score=${item.score.toFixed(2)} title=${item.draft.title}`);
+    lines.push(
+      `- draft=${item.draft.id} score=${item.score.toFixed(2)} title=${item.draft.title}`,
+    );
     lines.push(`  pattern=${item.draft.problemPattern}`);
     lines.push(`  fix=${item.draft.solutionPattern}`);
     if (item.draft.commands.length > 0) {
@@ -297,7 +326,9 @@ export function createSkillDraftFromRalph(
   const latestVerify = [...input.result.attempts]
     .reverse()
     .find((item) => item.type === 'verify');
-  const problemSummary = normalizeText(latestVerify?.failureSummary ?? input.result.summary);
+  const problemSummary = normalizeText(
+    latestVerify?.failureSummary ?? input.result.summary,
+  );
   const confidence = input.result.success ? 0.82 : 0.58;
 
   return upsertDraft(projectDir, {
@@ -324,7 +355,9 @@ export function createSkillDraftsFromReflect(
     createdMemories: CompanionMemoryVector[];
   },
 ): SkillDraft[] {
-  const memories = Array.isArray(input.createdMemories) ? input.createdMemories : [];
+  const memories = Array.isArray(input.createdMemories)
+    ? input.createdMemories
+    : [];
   if (memories.length === 0) return [];
   const preferenceMemories = memories
     .filter((item) => item.memoryKind === 'UserPreference')
@@ -350,4 +383,3 @@ export function createSkillDraftsFromReflect(
   });
   return [draft];
 }
-

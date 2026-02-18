@@ -42,6 +42,8 @@ describe('owner identity voiceprint thresholds', () => {
     expect(updated.voiceprintThresholds.frrTarget).toBe(0.04);
 
     expect(verifyOwnerPasswordOnly(projectDir, 'pw-1')).toBe(true);
-    expect(verifyOwnerSecrets(projectDir, { passphrase: 'phrase-1' })).toBe(true);
+    expect(verifyOwnerSecrets(projectDir, { passphrase: 'phrase-1' })).toBe(
+      true,
+    );
   });
 });

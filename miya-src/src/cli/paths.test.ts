@@ -56,7 +56,9 @@ describe('paths', () => {
 
   test('getLiteConfig() returns correct path', () => {
     process.env.XDG_CONFIG_HOME = '/tmp/xdg-config';
-    expect(getLiteConfig()).toBe(join('/tmp/xdg-config', 'opencode', 'miya.json'));
+    expect(getLiteConfig()).toBe(
+      join('/tmp/xdg-config', 'opencode', 'miya.json'),
+    );
   });
 
   describe('getExistingConfigPath()', () => {

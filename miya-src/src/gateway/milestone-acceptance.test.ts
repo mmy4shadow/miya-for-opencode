@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { getLauncherDaemonSnapshot } from '../daemon';
 import { ensureGatewayRunning, stopGateway } from './index';
 import { createGatewayAcceptanceProjectDir } from './test-helpers';
-import { getLauncherDaemonSnapshot } from '../daemon';
 
 interface GatewayWsClient {
   request(
@@ -37,7 +37,10 @@ async function connectGatewayWithRole(
   >();
 
   const ready = new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('gateway_ws_hello_timeout')), 10_000);
+    const timeout = setTimeout(
+      () => reject(new Error('gateway_ws_hello_timeout')),
+      10_000,
+    );
     ws.onopen = () => {
       ws.send(
         JSON.stringify({
@@ -67,7 +70,9 @@ async function connectGatewayWithRole(
           resolve();
           return;
         }
-        reject(new Error(String(frame.error?.message ?? 'gateway_hello_failed')));
+        reject(
+          new Error(String(frame.error?.message ?? 'gateway_hello_failed')),
+        );
         return;
       }
       const waiter = pending.get(String(frame.id));
@@ -77,7 +82,9 @@ async function connectGatewayWithRole(
       if (frame.ok) {
         waiter.resolve(frame.result);
       } else {
-        waiter.reject(new Error(String(frame.error?.message ?? 'gateway_request_failed')));
+        waiter.reject(
+          new Error(String(frame.error?.message ?? 'gateway_request_failed')),
+        );
       }
     };
   });
@@ -123,7 +130,10 @@ async function connectGatewayWithRole(
   };
 }
 
-async function legacyHelloHandshake(url: string, token?: string): Promise<void> {
+async function legacyHelloHandshake(
+  url: string,
+  token?: string,
+): Promise<void> {
   const wsUrl = `${url.replace('http://', 'ws://')}/ws`;
   const ws = new WebSocket(wsUrl);
   await new Promise<void>((resolve, reject) => {
@@ -160,69 +170,93 @@ async function legacyHelloHandshake(url: string, token?: string): Promise<void> 
 }
 
 describe('gateway milestone acceptance', () => {
-  test('runs startup probe for 20 rounds with stable gateway health', { timeout: 30_000 }, async () => {
-    const projectDir = await createGatewayAcceptanceProjectDir();
-    ensureGatewayRunning(projectDir);
-    try {
-      const rounds = 20;
-      let gatewayHealthy = 0;
-      const samples: Array<{ gatewayAlive: boolean; daemonConnected: boolean }> = [];
-      for (let index = 0; index < rounds; index += 1) {
-        const snapshot = ensureGatewayRunning(projectDir);
-        const gatewayAlive = snapshot.status === 'running' && snapshot.port > 0;
-        const daemonConnected = Boolean(getLauncherDaemonSnapshot(projectDir).connected);
-        if (gatewayAlive) gatewayHealthy += 1;
-        samples.push({ gatewayAlive, daemonConnected });
-        if (index < rounds - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 25));
+  test(
+    'runs startup probe for 20 rounds with stable gateway health',
+    { timeout: 30_000 },
+    async () => {
+      const projectDir = await createGatewayAcceptanceProjectDir();
+      ensureGatewayRunning(projectDir);
+      try {
+        const rounds = 20;
+        let gatewayHealthy = 0;
+        const samples: Array<{
+          gatewayAlive: boolean;
+          daemonConnected: boolean;
+        }> = [];
+        for (let index = 0; index < rounds; index += 1) {
+          const snapshot = ensureGatewayRunning(projectDir);
+          const gatewayAlive =
+            snapshot.status === 'running' && snapshot.port > 0;
+          const daemonConnected = Boolean(
+            getLauncherDaemonSnapshot(projectDir).connected,
+          );
+          if (gatewayAlive) gatewayHealthy += 1;
+          samples.push({ gatewayAlive, daemonConnected });
+          if (index < rounds - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
         }
+        expect(gatewayHealthy).toBe(20);
+        expect(samples).toHaveLength(20);
+        expect(samples.every((sample) => sample.gatewayAlive)).toBe(true);
+      } finally {
+        stopGateway(projectDir);
       }
-      expect(gatewayHealthy).toBe(20);
-      expect(samples).toHaveLength(20);
-      expect(samples.every((sample) => sample.gatewayAlive)).toBe(true);
-    } finally {
-      stopGateway(projectDir);
-    }
-  });
+    },
+  );
 
-  test('runs 10-concurrency pressure probe with accounted outcomes', { timeout: 30_000 }, async () => {
-    const projectDir = await createGatewayAcceptanceProjectDir();
-    const state = ensureGatewayRunning(projectDir);
-    const client = await connectGateway(state.url, state.authToken);
-    try {
-      const result = (await client.request('gateway.pressure.run', {
-        concurrency: 10,
-        rounds: 1,
-        timeoutMs: 10_000,
-      })) as {
-        success: number;
-        failed: number;
-        gateway: { rejected_timeout: number; rejected_overloaded: number };
-      };
-      expect(result.success + result.failed).toBe(10);
-      expect(result.gateway.rejected_timeout).toBeGreaterThanOrEqual(0);
-      expect(result.gateway.rejected_overloaded).toBeGreaterThanOrEqual(0);
-    } finally {
-      client.close();
-      stopGateway(projectDir);
-    }
-  });
+  test(
+    'runs 10-concurrency pressure probe with accounted outcomes',
+    { timeout: 30_000 },
+    async () => {
+      const projectDir = await createGatewayAcceptanceProjectDir();
+      const state = ensureGatewayRunning(projectDir);
+      const client = await connectGateway(state.url, state.authToken);
+      try {
+        const result = (await client.request('gateway.pressure.run', {
+          concurrency: 10,
+          rounds: 1,
+          timeoutMs: 10_000,
+        })) as {
+          success: number;
+          failed: number;
+          gateway: { rejected_timeout: number; rejected_overloaded: number };
+        };
+        expect(result.success + result.failed).toBe(10);
+        expect(result.gateway.rejected_timeout).toBeGreaterThanOrEqual(0);
+        expect(result.gateway.rejected_overloaded).toBeGreaterThanOrEqual(0);
+      } finally {
+        client.close();
+        stopGateway(projectDir);
+      }
+    },
+  );
 
   test('exposes provider override audit and mcp capabilities endpoints', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url, state.authToken);
     try {
-      const providerAudit = (await client.request('provider.override.audit.list', {
-        limit: 20,
-      })) as unknown[];
-      const capabilities = (await client.request('mcp.capabilities.list', {})) as {
+      const providerAudit = (await client.request(
+        'provider.override.audit.list',
+        {
+          limit: 20,
+        },
+      )) as unknown[];
+      const capabilities = (await client.request(
+        'mcp.capabilities.list',
+        {},
+      )) as {
         mcps?: Array<{ name: string; sampling: boolean; mcpUi: boolean }>;
       };
       expect(Array.isArray(providerAudit)).toBe(true);
       expect(Array.isArray(capabilities.mcps)).toBe(true);
-      expect(capabilities.mcps?.every((item) => typeof item.sampling === 'boolean')).toBe(true);
-      expect(capabilities.mcps?.every((item) => typeof item.mcpUi === 'boolean')).toBe(true);
+      expect(
+        capabilities.mcps?.every((item) => typeof item.sampling === 'boolean'),
+      ).toBe(true);
+      expect(
+        capabilities.mcps?.every((item) => typeof item.mcpUi === 'boolean'),
+      ).toBe(true);
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -269,7 +303,6 @@ describe('gateway milestone acceptance', () => {
       )) as { updatedAt?: string };
       expect(typeof first.updatedAt).toBe('string');
       expect(second).toEqual(first);
-
     } finally {
       client.close();
       stopGateway(projectDir);

@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  buildDesktopSingleStepPlanFromDecision,
-  buildDesktopSingleStepPromptKit,
   buildDesktopActionPlanV2FromRequest,
   buildDesktopOutboundHumanActions,
-  parseDesktopSingleStepDecision,
+  buildDesktopSingleStepPlanFromDecision,
+  buildDesktopSingleStepPromptKit,
   parseDesktopActionPlanV2,
+  parseDesktopSingleStepDecision,
 } from './action-engine';
 
 describe('desktop action engine v2', () => {
@@ -143,6 +143,10 @@ describe('desktop action engine v2', () => {
     expect(kit.protocol).toBe('desktop_single_step_prompt.v1');
     expect(kit.rules.length).toBeGreaterThanOrEqual(5);
     expect(kit.fewShot.length).toBeGreaterThanOrEqual(4);
-    expect(kit.responseSchema.required).toEqual(['action', 'coordinate', 'content']);
+    expect(kit.responseSchema.required).toEqual([
+      'action',
+      'coordinate',
+      'content',
+    ]);
   });
 });

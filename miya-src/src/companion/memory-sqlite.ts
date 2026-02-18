@@ -1,6 +1,6 @@
+import { Database } from 'bun:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Database } from 'bun:sqlite';
 import { getMiyaRuntimeDir } from '../workflow';
 import type { CompanionMemoryVector } from './memory-vector';
 
@@ -80,7 +80,11 @@ function openDatabase(projectDir: string): Database {
   return db;
 }
 
-function parseTriplet(text: string): { subject: string; predicate: string; object: string } {
+function parseTriplet(text: string): {
+  subject: string;
+  predicate: string;
+  object: string;
+} {
   const parts = text.trim().split(/\s+/);
   if (parts.length >= 3) {
     return {
@@ -213,17 +217,30 @@ export function getCompanionMemorySqliteStats(projectDir: string): {
   try {
     db = openDatabase(projectDir);
     const memoryCount = Number(
-      (db.query('SELECT COUNT(1) AS c FROM memories').get() as { c?: number } | null)?.c ?? 0,
+      (
+        db.query('SELECT COUNT(1) AS c FROM memories').get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const vectorCount = Number(
-      (db.query('SELECT COUNT(1) AS c FROM memories_vss').get() as { c?: number } | null)?.c ?? 0,
+      (
+        db.query('SELECT COUNT(1) AS c FROM memories_vss').get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const graphCount = Number(
-      (db.query('SELECT COUNT(1) AS c FROM long_term_graph').get() as { c?: number } | null)?.c ??
-        0,
+      (
+        db.query('SELECT COUNT(1) AS c FROM long_term_graph').get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const stageRows = db
-      .query('SELECT learning_stage AS stage, COUNT(1) AS c FROM memories GROUP BY learning_stage')
+      .query(
+        'SELECT learning_stage AS stage, COUNT(1) AS c FROM memories GROUP BY learning_stage',
+      )
       .all() as Array<{ stage?: string; c?: number }>;
     const byLearningStage: Record<string, number> = {};
     for (const row of stageRows) {

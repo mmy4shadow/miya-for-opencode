@@ -82,7 +82,8 @@ for ($i = 0; $i -lt 4; $i++) {
       gamepadActive: Boolean(shell.value.gamepadActive),
     },
     limitations:
-      typeof shell.value.error === 'string' && shell.value.error.trim().length > 0
+      typeof shell.value.error === 'string' &&
+      shell.value.error.trim().length > 0
         ? [shell.value.error.trim()]
         : [],
   };

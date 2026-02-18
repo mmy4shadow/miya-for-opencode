@@ -1,19 +1,13 @@
 // AST-grep tools
 export { ast_grep_replace, ast_grep_search } from './ast-grep';
-export { createBackgroundTools } from './background';
-export { createNodeTools } from './nodes';
-export { createRalphTools } from './ralph';
-export { createAutopilotTools } from './autopilot';
 export { createAutoflowTools } from './autoflow';
-export { createMultimodalTools } from './multimodal';
-export { createSoulTools } from './soul';
-export { createUltraworkTools } from './ultrawork';
-export { createRouterTools } from './router';
-export { createMcpTools } from './mcp';
+export { createAutomationTools } from './automation';
+export { createAutopilotTools } from './autopilot';
+export { createBackgroundTools } from './background';
 export { createCapabilityTools } from './capability';
-
 // Grep tool (ripgrep-based)
 export { grep } from './grep';
+export { createLearningTools } from './learning';
 export {
   lsp_diagnostics,
   lsp_find_references,
@@ -21,6 +15,11 @@ export {
   lsp_rename,
   lspManager,
 } from './lsp';
-export { createAutomationTools } from './automation';
+export { createMcpTools } from './mcp';
+export { createMultimodalTools } from './multimodal';
+export { createNodeTools } from './nodes';
+export { createRalphTools } from './ralph';
+export { createRouterTools } from './router';
+export { createSoulTools } from './soul';
+export { createUltraworkTools } from './ultrawork';
 export { createWorkflowTools } from './workflow';
-export { createLearningTools } from './learning';

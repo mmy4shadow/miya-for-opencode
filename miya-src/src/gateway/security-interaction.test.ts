@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as path from 'node:path';
-import { ensureGatewayRunning, registerGatewayDependencies, stopGateway } from './index';
+import {
+  ensureGatewayRunning,
+  registerGatewayDependencies,
+  stopGateway,
+} from './index';
 import { createGatewayAcceptanceProjectDir } from './test-helpers';
 
 interface GatewayWsClient {
@@ -11,11 +15,21 @@ interface GatewayWsClient {
 }
 
 function pendingQueueFile(projectDir: string): string {
-  return path.join(projectDir, '.opencode', 'miya', 'gateway-pending-outbound-queue.json');
+  return path.join(
+    projectDir,
+    '.opencode',
+    'miya',
+    'gateway-pending-outbound-queue.json',
+  );
 }
 
 function turnEvidenceFile(projectDir: string): string {
-  return path.join(projectDir, '.opencode', 'miya', 'gateway-turn-evidence.jsonl');
+  return path.join(
+    projectDir,
+    '.opencode',
+    'miya',
+    'gateway-turn-evidence.jsonl',
+  );
 }
 
 async function allocateFreePort(): Promise<number> {
@@ -45,10 +59,15 @@ async function allocateFreePort(): Promise<number> {
 async function assignFreshGatewayPort(projectDir: string): Promise<void> {
   const configPath = path.join(projectDir, '.opencode', 'miya', 'config.json');
   const raw = fs.existsSync(configPath)
-    ? (JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown>)
+    ? (JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<
+        string,
+        unknown
+      >)
     : {};
   const gateway =
-    raw.gateway && typeof raw.gateway === 'object' && !Array.isArray(raw.gateway)
+    raw.gateway &&
+    typeof raw.gateway === 'object' &&
+    !Array.isArray(raw.gateway)
       ? (raw.gateway as Record<string, unknown>)
       : {};
   gateway.bindHost = '127.0.0.1';
@@ -75,7 +94,10 @@ async function connectGateway(
   >();
 
   const ready = new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('gateway_ws_hello_timeout')), 10_000);
+    const timeout = setTimeout(
+      () => reject(new Error('gateway_ws_hello_timeout')),
+      10_000,
+    );
     ws.onopen = () => {
       ws.send(
         JSON.stringify({
@@ -105,7 +127,9 @@ async function connectGateway(
           resolve();
           return;
         }
-        reject(new Error(String(frame.error?.message ?? 'gateway_hello_failed')));
+        reject(
+          new Error(String(frame.error?.message ?? 'gateway_hello_failed')),
+        );
         return;
       }
       const waiter = pending.get(String(frame.id));
@@ -115,7 +139,9 @@ async function connectGateway(
       if (frame.ok) {
         waiter.resolve(frame.result);
       } else {
-        waiter.reject(new Error(String(frame.error?.message ?? 'gateway_request_failed')));
+        waiter.reject(
+          new Error(String(frame.error?.message ?? 'gateway_request_failed')),
+        );
       }
     };
   });
@@ -161,7 +187,9 @@ describe('gateway security interaction acceptance', () => {
     registerGatewayDependencies(projectDir, {
       client: {
         session: {
-          prompt: async (input: { body?: { parts?: Array<{ text?: string }> } }) => {
+          prompt: async (input: {
+            body?: { parts?: Array<{ text?: string }> };
+          }) => {
             capturedPrompt = String(input.body?.parts?.[0]?.text ?? '');
           },
         },
@@ -184,7 +212,12 @@ describe('gateway security interaction acceptance', () => {
         .readFileSync(turnEvidenceFile(projectDir), 'utf-8')
         .split(/\r?\n/)
         .filter(Boolean)
-        .map((line) => JSON.parse(line) as { contextPipeline?: { personaWorldPromptInjected?: boolean } });
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              contextPipeline?: { personaWorldPromptInjected?: boolean };
+            },
+        );
       const latest = evidenceRows[evidenceRows.length - 1];
       expect(latest?.contextPipeline?.personaWorldPromptInjected).toBe(false);
     } finally {
@@ -246,7 +279,9 @@ describe('gateway security interaction acceptance', () => {
       } catch (error) {
         blockedError = String(error instanceof Error ? error.message : error);
       }
-      expect(blockedError).toContain('skill_not_loadable:missing_permission_metadata');
+      expect(blockedError).toContain(
+        'skill_not_loadable:missing_permission_metadata',
+      );
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -288,7 +323,9 @@ describe('gateway security interaction acceptance', () => {
       const domains = (await client.request('policy.domains.list')) as {
         domains: Array<{ domain: string; status: string }>;
       };
-      const byName = new Map(domains.domains.map((item) => [item.domain, item.status]));
+      const byName = new Map(
+        domains.domains.map((item) => [item.domain, item.status]),
+      );
       expect(byName.get('outbound_send')).toBe('paused');
       expect(byName.get('desktop_control')).toBe('running');
 
@@ -314,7 +351,9 @@ describe('gateway security interaction acceptance', () => {
 
       let blockedError = '';
       try {
-        await client.request('policy.domain.resume', { domain: 'outbound_send' });
+        await client.request('policy.domain.resume', {
+          domain: 'outbound_send',
+        });
       } catch (error) {
         blockedError = String(error instanceof Error ? error.message : error);
       }
@@ -323,7 +362,9 @@ describe('gateway security interaction acceptance', () => {
       const domains = (await client.request('policy.domains.list')) as {
         domains: Array<{ domain: string; status: string }>;
       };
-      const byName = new Map(domains.domains.map((item) => [item.domain, item.status]));
+      const byName = new Map(
+        domains.domains.map((item) => [item.domain, item.status]),
+      );
       expect(byName.get('outbound_send')).toBe('paused');
 
       const released = (await client.request('killswitch.set_mode', {
@@ -367,13 +408,18 @@ describe('gateway security interaction acceptance', () => {
       const updated = (await client.request('psyche.mode.set', {
         resonanceEnabled: false,
         captureProbeEnabled: false,
-      })) as { mode?: { resonanceEnabled?: boolean; captureProbeEnabled?: boolean } };
+      })) as {
+        mode?: { resonanceEnabled?: boolean; captureProbeEnabled?: boolean };
+      };
       expect(updated.mode?.resonanceEnabled).toBe(false);
       expect(updated.mode?.captureProbeEnabled).toBe(false);
 
       const snapshot = (await client.request('gateway.status.get')) as {
         nexus?: {
-          psycheMode?: { resonanceEnabled?: boolean; captureProbeEnabled?: boolean };
+          psycheMode?: {
+            resonanceEnabled?: boolean;
+            captureProbeEnabled?: boolean;
+          };
         };
       };
       expect(snapshot.nexus?.psycheMode?.resonanceEnabled).toBe(false);
@@ -449,7 +495,9 @@ describe('gateway security interaction acceptance', () => {
         };
       };
       expect(snapshot.nexus?.learningGate?.candidateMode).toBe('toast_gate');
-      expect(snapshot.nexus?.learningGate?.persistentRequiresApproval).toBe(true);
+      expect(snapshot.nexus?.learningGate?.persistentRequiresApproval).toBe(
+        true,
+      );
 
       const policy = (await client.request('policy.get')) as { hash: string };
       const added = (await client.request('companion.memory.add', {
@@ -478,7 +526,9 @@ describe('gateway security interaction acceptance', () => {
         hash?: string;
         policyHash?: string;
       };
-      const policyHash = String(policyResult.hash ?? policyResult.policyHash ?? '');
+      const policyHash = String(
+        policyResult.hash ?? policyResult.policyHash ?? '',
+      );
       expect(policyHash.length).toBeGreaterThan(16);
       const media = (await client.request('media.ingest', {
         policyHash,
@@ -511,7 +561,8 @@ describe('gateway security interaction acceptance', () => {
       stopGateway(projectDir);
       if (prevAsrTest === undefined) delete process.env.MIYA_ASR_TEST_MODE;
       else process.env.MIYA_ASR_TEST_MODE = prevAsrTest;
-      if (prevVoiceprintStrict === undefined) delete process.env.MIYA_VOICEPRINT_STRICT;
+      if (prevVoiceprintStrict === undefined)
+        delete process.env.MIYA_VOICEPRINT_STRICT;
       else process.env.MIYA_VOICEPRINT_STRICT = prevVoiceprintStrict;
     }
   }, 30_000);
@@ -626,7 +677,8 @@ describe('gateway security interaction acceptance', () => {
     } finally {
       client.close();
       stopGateway(projectDir);
-      if (prevAutostartTest === undefined) delete process.env.MIYA_AUTOSTART_TEST_MODE;
+      if (prevAutostartTest === undefined)
+        delete process.env.MIYA_AUTOSTART_TEST_MODE;
       else process.env.MIYA_AUTOSTART_TEST_MODE = prevAutostartTest;
     }
   });
@@ -657,7 +709,9 @@ describe('gateway security interaction acceptance', () => {
       expect(typeof rollback.reason).toBe('string');
       expect(typeof rollback.ok).toBe('boolean');
 
-      const hydraulics = (await client.request('daemon.vram.hydraulics.get')) as {
+      const hydraulics = (await client.request(
+        'daemon.vram.hydraulics.get',
+      )) as {
         hydraulics?: {
           hotsetLimitMB?: number;
           warmPoolLimitMB?: number;
@@ -687,15 +741,20 @@ describe('gateway security interaction acceptance', () => {
       });
       const policy = (await client.request('policy.get')) as { hash: string };
 
-      const thresholdBefore = (await client.request('security.voiceprint.threshold.get')) as {
+      const thresholdBefore = (await client.request(
+        'security.voiceprint.threshold.get',
+      )) as {
         ownerMinScore: number;
       };
       expect(thresholdBefore.ownerMinScore).toBeGreaterThan(0.7);
 
-      const thresholdAfter = (await client.request('security.voiceprint.threshold.set', {
-        ownerMinScore: 0.81,
-        farTarget: 0.02,
-      })) as { ownerMinScore: number; farTarget: number };
+      const thresholdAfter = (await client.request(
+        'security.voiceprint.threshold.set',
+        {
+          ownerMinScore: 0.81,
+          farTarget: 0.02,
+        },
+      )) as { ownerMinScore: number; farTarget: number };
       expect(thresholdAfter.ownerMinScore).toBe(0.81);
       expect(thresholdAfter.farTarget).toBe(0.02);
 
@@ -714,7 +773,9 @@ describe('gateway security interaction acceptance', () => {
       const domains = (await client.request('policy.domains.list')) as {
         domains: Array<{ domain: string; status: string }>;
       };
-      const byName = new Map(domains.domains.map((item) => [item.domain, item.status]));
+      const byName = new Map(
+        domains.domains.map((item) => [item.domain, item.status]),
+      );
       expect(byName.get('outbound_send')).toBe('paused');
       expect(byName.get('desktop_control')).toBe('paused');
       expect(byName.get('memory_read')).toBe('paused');
@@ -760,9 +821,10 @@ describe('gateway security interaction acceptance', () => {
         requiresConfirmation?: boolean;
       };
       expect(firstTry.sent).toBe(false);
-      expect(firstTry.message).toBe('outbound_blocked:high_risk_confirmation_required');
+      expect(firstTry.message).toBe(
+        'outbound_blocked:high_risk_confirmation_required',
+      );
       expect(Boolean(firstTry.requiresConfirmation)).toBe(true);
-
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -815,7 +877,9 @@ describe('gateway security interaction acceptance', () => {
       const snapshot = (await client.request('gateway.status.get')) as {
         nexus?: { pendingQueue?: { size?: number } };
       };
-      expect(Number(snapshot.nexus?.pendingQueue?.size ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(
+        Number(snapshot.nexus?.pendingQueue?.size ?? 0),
+      ).toBeGreaterThanOrEqual(1);
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -867,18 +931,28 @@ describe('gateway security interaction acceptance', () => {
       expect(Number(result.retryAfterSec ?? 0)).toBeGreaterThan(0);
       expect(elapsedMs).toBeLessThan(4_500);
       const snapshot = (await client.request('gateway.status.get')) as {
-        nexus?: { guardianSafeHoldReason?: string; pendingQueue?: { size?: number } };
+        nexus?: {
+          guardianSafeHoldReason?: string;
+          pendingQueue?: { size?: number };
+        };
       };
-      expect(snapshot.nexus?.guardianSafeHoldReason).toBe('psyche_consult_unavailable');
-      expect(Number(snapshot.nexus?.pendingQueue?.size ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(snapshot.nexus?.guardianSafeHoldReason).toBe(
+        'psyche_consult_unavailable',
+      );
+      expect(
+        Number(snapshot.nexus?.pendingQueue?.size ?? 0),
+      ).toBeGreaterThanOrEqual(1);
     } finally {
       client.close();
       stopGateway(projectDir);
-      if (prevPsycheSwitch === undefined) delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+      if (prevPsycheSwitch === undefined)
+        delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
       else process.env.MIYA_PSYCHE_CONSULT_ENABLE = prevPsycheSwitch;
-      if (prevConsultTimeout === undefined) delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+      if (prevConsultTimeout === undefined)
+        delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
       else process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = prevConsultTimeout;
-      if (prevConsultDelay === undefined) delete process.env.MIYA_PSYCHE_CONSULT_DELAY_MS;
+      if (prevConsultDelay === undefined)
+        delete process.env.MIYA_PSYCHE_CONSULT_DELAY_MS;
       else process.env.MIYA_PSYCHE_CONSULT_DELAY_MS = prevConsultDelay;
     }
   });
@@ -927,20 +1001,31 @@ describe('gateway security interaction acceptance', () => {
       expect(Number(result.retryAfterSec ?? 0)).toBeGreaterThan(0);
       expect(elapsedMs).toBeLessThan(4_500);
       const snapshot = (await client.request('gateway.status.get')) as {
-        nexus?: { guardianSafeHoldReason?: string; pendingQueue?: { size?: number } };
+        nexus?: {
+          guardianSafeHoldReason?: string;
+          pendingQueue?: { size?: number };
+        };
       };
-      expect(snapshot.nexus?.guardianSafeHoldReason).toBe('psyche_consult_unavailable');
-      expect(Number(snapshot.nexus?.pendingQueue?.size ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(snapshot.nexus?.guardianSafeHoldReason).toBe(
+        'psyche_consult_unavailable',
+      );
+      expect(
+        Number(snapshot.nexus?.pendingQueue?.size ?? 0),
+      ).toBeGreaterThanOrEqual(1);
     } finally {
       client.close();
       stopGateway(projectDir);
-      if (prevPsycheSwitch === undefined) delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+      if (prevPsycheSwitch === undefined)
+        delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
       else process.env.MIYA_PSYCHE_CONSULT_ENABLE = prevPsycheSwitch;
-      if (prevConsultTimeout === undefined) delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+      if (prevConsultTimeout === undefined)
+        delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
       else process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = prevConsultTimeout;
-      if (prevLifecycleMode === undefined) delete process.env.MIYA_DAEMON_LIFECYCLE_MODE;
+      if (prevLifecycleMode === undefined)
+        delete process.env.MIYA_DAEMON_LIFECYCLE_MODE;
       else process.env.MIYA_DAEMON_LIFECYCLE_MODE = prevLifecycleMode;
-      if (prevServiceToken === undefined) delete process.env.MIYA_DAEMON_SERVICE_TOKEN;
+      if (prevServiceToken === undefined)
+        delete process.env.MIYA_DAEMON_SERVICE_TOKEN;
       else process.env.MIYA_DAEMON_SERVICE_TOKEN = prevServiceToken;
       if (prevDaemonToken === undefined) delete process.env.MIYA_DAEMON_TOKEN;
       else process.env.MIYA_DAEMON_TOKEN = prevDaemonToken;
@@ -992,9 +1077,15 @@ describe('gateway security interaction acceptance', () => {
       expect(Array.isArray(queueBefore.items)).toBe(true);
       expect((queueBefore.items ?? []).length).toBeGreaterThan(0);
       const firstItem = (queueBefore.items ?? [])[0] ?? {};
-      (firstItem as Record<string, unknown>).nextRunAt = new Date(Date.now() - 2_000).toISOString();
+      (firstItem as Record<string, unknown>).nextRunAt = new Date(
+        Date.now() - 2_000,
+      ).toISOString();
       (firstItem as Record<string, unknown>).attempts = 0;
-      fs.writeFileSync(queuePath, `${JSON.stringify(queueBefore, null, 2)}\n`, 'utf-8');
+      fs.writeFileSync(
+        queuePath,
+        `${JSON.stringify(queueBefore, null, 2)}\n`,
+        'utf-8',
+      );
 
       await assignFreshGatewayPort(projectDir);
       const secondState = ensureGatewayRunning(projectDir);
@@ -1010,18 +1101,28 @@ describe('gateway security interaction acceptance', () => {
       expect(afterAttempts).toBeGreaterThanOrEqual(1);
 
       const snapshot = (await client.request('gateway.status.get')) as {
-        nexus?: { guardianSafeHoldReason?: string; pendingQueue?: { size?: number } };
+        nexus?: {
+          guardianSafeHoldReason?: string;
+          pendingQueue?: { size?: number };
+        };
       };
-      expect(snapshot.nexus?.guardianSafeHoldReason).toBe('psyche_consult_unavailable');
-      expect(Number(snapshot.nexus?.pendingQueue?.size ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(snapshot.nexus?.guardianSafeHoldReason).toBe(
+        'psyche_consult_unavailable',
+      );
+      expect(
+        Number(snapshot.nexus?.pendingQueue?.size ?? 0),
+      ).toBeGreaterThanOrEqual(1);
     } finally {
       client.close();
       stopGateway(projectDir);
-      if (prevPsycheSwitch === undefined) delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
+      if (prevPsycheSwitch === undefined)
+        delete process.env.MIYA_PSYCHE_CONSULT_ENABLE;
       else process.env.MIYA_PSYCHE_CONSULT_ENABLE = prevPsycheSwitch;
-      if (prevConsultTimeout === undefined) delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
+      if (prevConsultTimeout === undefined)
+        delete process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS;
       else process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS = prevConsultTimeout;
-      if (prevConsultDelay === undefined) delete process.env.MIYA_PSYCHE_CONSULT_DELAY_MS;
+      if (prevConsultDelay === undefined)
+        delete process.env.MIYA_PSYCHE_CONSULT_DELAY_MS;
       else process.env.MIYA_PSYCHE_CONSULT_DELAY_MS = prevConsultDelay;
     }
   }, 45_000);
@@ -1108,10 +1209,16 @@ describe('gateway security interaction acceptance', () => {
           userInitiated: false,
           negotiationID: humanNegotiationID,
         },
-      })) as { sent: boolean; fixability?: string; budget?: { humanEdit?: number } };
+      })) as {
+        sent: boolean;
+        fixability?: string;
+        budget?: { humanEdit?: number };
+      };
       expect(humanFirst.sent).toBe(false);
       expect(humanFirst.fixability).toBe('retry_later');
-      expect(Number(humanFirst.budget?.humanEdit ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(Number(humanFirst.budget?.humanEdit ?? 0)).toBeGreaterThanOrEqual(
+        1,
+      );
 
       const humanSecond = (await client.request('channels.message.send', {
         channel: 'qq',
@@ -1146,11 +1253,12 @@ describe('gateway security interaction acceptance', () => {
         },
       })) as { sent: boolean; message: string };
       expect(humanThird.sent).toBe(false);
-      expect(humanThird.message).toMatch(/negotiation_budget_exhausted:human_edit_exhausted/);
+      expect(humanThird.message).toMatch(
+        /negotiation_budget_exhausted:human_edit_exhausted/,
+      );
     } finally {
       client.close();
       stopGateway(projectDir);
     }
   });
 });
-

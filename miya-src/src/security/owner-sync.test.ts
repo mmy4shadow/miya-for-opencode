@@ -50,8 +50,9 @@ describe('owner sync token flow', () => {
 
   test('detects owner sync token from confirmation text', () => {
     expect(detectOwnerSyncTokenFromText('同意 OSABC12345')).toBe('OSABC12345');
-    expect(detectOwnerSyncTokenFromText('/miya confirm osabc12345')).toBe('OSABC12345');
+    expect(detectOwnerSyncTokenFromText('/miya confirm osabc12345')).toBe(
+      'OSABC12345',
+    );
     expect(detectOwnerSyncTokenFromText('随便聊聊')).toBeNull();
   });
 });
-

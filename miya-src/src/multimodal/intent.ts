@@ -18,7 +18,8 @@ export function detectMultimodalIntent(text: string): MultimodalIntent {
   if (/(发张自拍|来张自拍|自拍一下|自拍照)/.test(normalized)) {
     return {
       type: 'selfie',
-      prompt: 'a natural selfie portrait, indoor soft light, realistic phone camera shot',
+      prompt:
+        'a natural selfie portrait, indoor soft light, realistic phone camera shot',
     };
   }
 

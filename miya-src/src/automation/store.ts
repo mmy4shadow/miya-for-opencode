@@ -97,7 +97,10 @@ export function readHistoryRecords(
   }
 }
 
-export function removeHistoryRecord(projectDir: string, runId: string): boolean {
+export function removeHistoryRecord(
+  projectDir: string,
+  runId: string,
+): boolean {
   const historyPath = getHistoryPath(projectDir);
   if (!fs.existsSync(historyPath)) {
     return false;

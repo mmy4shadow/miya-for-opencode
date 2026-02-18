@@ -8,7 +8,11 @@ import {
   getLauncherDaemonSnapshot,
   getMiyaClient,
 } from '../../daemon';
-import { getLearningStats, listSkillDrafts, buildLearningInjection } from '../../learning';
+import {
+  buildLearningInjection,
+  getLearningStats,
+  listSkillDrafts,
+} from '../../learning';
 import {
   getRouteCostSummary,
   listRouteCostRecords,
@@ -16,9 +20,7 @@ import {
 } from '../../router';
 import { readModeObservability } from '../mode-observability';
 import { MODE_POLICY_FREEZE_V1 } from '../mode-policy';
-import type {
-  GatewayMethodRegistry,
-} from '../protocol';
+import type { GatewayMethodRegistry } from '../protocol';
 
 interface GatewayCoreMethodDeps {
   projectDir: string;
@@ -77,8 +79,14 @@ export function registerGatewayCoreMethods(
     return {
       mode,
       modePolicy: MODE_POLICY_FREEZE_V1,
-      cost: getRouteCostSummary(deps.projectDir, Math.max(1, Math.min(1000, limit))),
-      recent: listRouteCostRecords(deps.projectDir, Math.max(1, Math.min(100, limit))),
+      cost: getRouteCostSummary(
+        deps.projectDir,
+        Math.max(1, Math.min(1000, limit)),
+      ),
+      recent: listRouteCostRecords(
+        deps.projectDir,
+        Math.max(1, Math.min(100, limit)),
+      ),
       modeObservability: readModeObservability(deps.projectDir),
     };
   });
@@ -109,8 +117,11 @@ export function registerGatewayCoreMethods(
     const query = parseText(params.query);
     if (!query) throw new Error('query_required');
     const threshold =
-      typeof params.threshold === 'number' ? Number(params.threshold) : undefined;
-    const limit = typeof params.limit === 'number' ? Number(params.limit) : undefined;
+      typeof params.threshold === 'number'
+        ? Number(params.threshold)
+        : undefined;
+    const limit =
+      typeof params.limit === 'number' ? Number(params.limit) : undefined;
     return buildLearningInjection(deps.projectDir, query, {
       threshold,
       limit,
@@ -127,7 +138,8 @@ export function registerGatewayCoreMethods(
     updatedAt: deps.now(),
   }));
   methods.register('audit.ledger.list', async (params) => {
-    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 50;
+    const limitRaw =
+      typeof params.limit === 'number' ? Number(params.limit) : 50;
     const limit = Math.max(1, Math.min(500, Math.floor(limitRaw)));
     return {
       items: deps.listActionLedger(limit),
@@ -157,8 +169,10 @@ export function registerGatewayCoreMethods(
   methods.register('gateway.pressure.run', async (params) => {
     const concurrencyRaw =
       typeof params.concurrency === 'number' ? Number(params.concurrency) : 10;
-    const roundsRaw = typeof params.rounds === 'number' ? Number(params.rounds) : 1;
-    const timeoutMs = typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : 20_000;
+    const roundsRaw =
+      typeof params.rounds === 'number' ? Number(params.rounds) : 1;
+    const timeoutMs =
+      typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : 20_000;
     const concurrency = Math.max(1, Math.min(100, Math.floor(concurrencyRaw)));
     const rounds = Math.max(1, Math.min(20, Math.floor(roundsRaw)));
     const daemon = getMiyaClient(deps.projectDir);
@@ -196,13 +210,17 @@ export function registerGatewayCoreMethods(
     };
   });
   methods.register('gateway.startup.probe.run', async (params) => {
-    const roundsRaw = typeof params.rounds === 'number' ? Number(params.rounds) : 20;
+    const roundsRaw =
+      typeof params.rounds === 'number' ? Number(params.rounds) : 20;
     const rounds = Math.max(1, Math.min(100, Math.floor(roundsRaw)));
-    const waitMsRaw = typeof params.waitMs === 'number' ? Number(params.waitMs) : 250;
+    const waitMsRaw =
+      typeof params.waitMs === 'number' ? Number(params.waitMs) : 250;
     const waitMs = Math.max(50, Math.min(5_000, Math.floor(waitMsRaw)));
     const gatewayState = deps.buildGatewayState() as { url?: unknown } | null;
     const urlFromRuntime =
-      gatewayState && typeof gatewayState.url === 'string' && gatewayState.url.trim().length > 0
+      gatewayState &&
+      typeof gatewayState.url === 'string' &&
+      gatewayState.url.trim().length > 0
         ? gatewayState.url
         : undefined;
     const probeUrl = urlFromRuntime ?? deps.ensureGatewayRunning().url;

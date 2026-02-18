@@ -6,7 +6,9 @@ import { upsertCompanionMemoryVector } from '../../companion/memory-vector';
 import { createMemoryWeaverHook } from './index';
 
 function createTempProjectDir(): string {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-memory-weaver-hook-test-'));
+  const projectDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-memory-weaver-hook-test-'),
+  );
   fs.mkdirSync(path.join(projectDir, '.opencode', 'miya'), { recursive: true });
   return projectDir;
 }
@@ -39,8 +41,7 @@ describe('memory weaver hook', () => {
           parts: [
             {
               type: 'text',
-              text:
-                '[MIYA_MODE_KERNEL v1]\nmode=work\nconfidence=0.810\nwhy=text_signal=work\n[/MIYA_MODE_KERNEL]\n\n---\n\n请帮我处理 bun test 失败问题',
+              text: '[MIYA_MODE_KERNEL v1]\nmode=work\nconfidence=0.810\nwhy=text_signal=work\n[/MIYA_MODE_KERNEL]\n\n---\n\n请帮我处理 bun test 失败问题',
             },
           ],
         },

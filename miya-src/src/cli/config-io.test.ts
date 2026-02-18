@@ -201,10 +201,7 @@ describe('config-io', () => {
     const litePath = join(tmpDir, 'opencode', 'miya.json');
     paths.ensureConfigDir();
 
-    writeFileSync(
-      configPath,
-      JSON.stringify({ plugin: ['miya'] }),
-    );
+    writeFileSync(configPath, JSON.stringify({ plugin: ['miya'] }));
     writeFileSync(
       litePath,
       JSON.stringify({

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { type SafetyTier } from './tier';
+import type { SafetyTier } from './tier';
 
 export interface SafetyPermissionRequest {
   sessionID: string;
@@ -86,7 +86,10 @@ export function requiredTierForRequest(
   if (request.permission === 'external_directory') return 'THOROUGH';
   if (request.permission === 'external_message') return 'THOROUGH';
   if (request.permission === 'desktop_control') return 'THOROUGH';
-  if (request.permission === 'miya_autopilot' || request.permission === 'miya_autoflow') {
+  if (
+    request.permission === 'miya_autopilot' ||
+    request.permission === 'miya_autoflow'
+  ) {
     return hasIrreversiblePattern(patterns) ? 'THOROUGH' : 'STANDARD';
   }
   if (request.permission === 'node_invoke') {
@@ -124,8 +127,8 @@ export function buildRequestHash(
   const payload = {
     permission: request.permission,
     patterns: [...request.patterns].map(normalizePattern).sort(),
-    toolCallID: includeMessageContext ? request.toolCallID ?? '' : '',
-    messageID: includeMessageContext ? request.messageID ?? '' : '',
+    toolCallID: includeMessageContext ? (request.toolCallID ?? '') : '',
+    messageID: includeMessageContext ? (request.messageID ?? '') : '',
   };
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }

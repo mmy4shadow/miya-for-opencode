@@ -36,5 +36,9 @@ export function appendDaemonJob(
   record: DaemonJobRecord,
 ): void {
   ensureDir(projectDir);
-  fs.appendFileSync(jobsPath(projectDir), `${JSON.stringify(record)}\n`, 'utf-8');
+  fs.appendFileSync(
+    jobsPath(projectDir),
+    `${JSON.stringify(record)}\n`,
+    'utf-8',
+  );
 }

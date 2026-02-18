@@ -43,4 +43,3 @@ describe('mode observability', () => {
     expect(detectNegativeFeedbackText('谢谢你，继续就好')).toBe(false);
   });
 });
-

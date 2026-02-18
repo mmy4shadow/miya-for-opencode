@@ -10,11 +10,15 @@ export function createCapabilityTools(
     description:
       'Export Miya tool capability schema catalog (id/version/inputs/outputs/sideEffects/permissions/auditFields/fallbackPlan).',
     args: {
-      id: z.string().optional().describe('Optional capability id, e.g. tool.miya_gateway_start'),
+      id: z
+        .string()
+        .optional()
+        .describe('Optional capability id, e.g. tool.miya_gateway_start'),
       limit: z.number().optional().describe('Max rows, default 500'),
     },
     async execute(args) {
-      const limitRaw = typeof args.limit === 'number' ? Number(args.limit) : 500;
+      const limitRaw =
+        typeof args.limit === 'number' ? Number(args.limit) : 500;
       const limit = Math.max(1, Math.min(5000, Math.floor(limitRaw)));
       const schemas = buildToolCapabilitySchemas(
         getToolNames().filter((name) => name !== 'miya_capability_schema'),
@@ -22,7 +26,12 @@ export function createCapabilityTools(
       const id = typeof args.id === 'string' ? args.id.trim() : '';
       if (id) {
         const hit = schemas.find((item) => item.id === id);
-        if (!hit) return JSON.stringify({ ok: false, error: `capability_not_found:${id}` }, null, 2);
+        if (!hit)
+          return JSON.stringify(
+            { ok: false, error: `capability_not_found:${id}` },
+            null,
+            2,
+          );
         return JSON.stringify({ ok: true, capability: hit }, null, 2);
       }
       return JSON.stringify(

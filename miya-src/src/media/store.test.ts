@@ -32,8 +32,14 @@ describe('media store gc', () => {
     const raw = fs.readFileSync(indexFile, 'utf-8');
     expect(raw.includes('telegram')).toBe(false);
     expect(raw.includes('miya-sec:')).toBe(true);
-    parsed.items[media.id].expiresAt = new Date(Date.now() - 1000).toISOString();
-    fs.writeFileSync(indexFile, `${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
+    parsed.items[media.id].expiresAt = new Date(
+      Date.now() - 1000,
+    ).toISOString();
+    fs.writeFileSync(
+      indexFile,
+      `${JSON.stringify(parsed, null, 2)}\n`,
+      'utf-8',
+    );
 
     const gc = runMediaGc(projectDir);
     expect(gc.removed).toBe(1);

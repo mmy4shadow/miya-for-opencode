@@ -1,4 +1,8 @@
-import { collectInterfaceCapabilityBaseline, readBaselineFile, writeBaselineFile } from './interface-baseline-lib';
+import {
+  collectInterfaceCapabilityBaseline,
+  readBaselineFile,
+  writeBaselineFile,
+} from './interface-baseline-lib';
 
 const args = new Set(process.argv.slice(2));
 const writeMode = args.has('--write');
@@ -13,7 +17,9 @@ if (writeMode) {
 
 const existing = readBaselineFile();
 if (!existing) {
-  console.log('[baseline] no existing baseline file; pass --write to create one');
+  console.log(
+    '[baseline] no existing baseline file; pass --write to create one',
+  );
   process.exit(1);
 }
 

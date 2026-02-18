@@ -47,10 +47,16 @@ export interface TurnEvidencePack {
 }
 
 function evidenceFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-turn-evidence.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'gateway-turn-evidence.jsonl',
+  );
 }
 
-export function appendTurnEvidencePack(projectDir: string, pack: TurnEvidencePack): void {
+export function appendTurnEvidencePack(
+  projectDir: string,
+  pack: TurnEvidencePack,
+): void {
   const file = evidenceFile(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, `${JSON.stringify(pack)}\n`, 'utf-8');

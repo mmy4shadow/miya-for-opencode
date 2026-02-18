@@ -1,12 +1,21 @@
-import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { type ToolDefinition, tool } from '@opencode-ai/plugin';
 import type { MiyaAutomationService } from '../automation';
 import { getSafetySnapshot } from '../safety';
 
 const z = tool.schema;
 
-function formatJobs(jobs: { id: string; name: string; enabled: boolean; nextRunAt: string; requireApproval: boolean; schedule: { time: string } }[]): string {
+function formatJobs(
+  jobs: {
+    id: string;
+    name: string;
+    enabled: boolean;
+    nextRunAt: string;
+    requireApproval: boolean;
+    schedule: { time: string };
+  }[],
+): string {
   if (jobs.length === 0) {
     return 'No jobs configured.';
   }
@@ -19,15 +28,18 @@ function formatJobs(jobs: { id: string; name: string; enabled: boolean; nextRunA
     .join('\n');
 }
 
-function parseNaturalSchedule(input: string): { time: string; command: string } | null {
+function parseNaturalSchedule(
+  input: string,
+): { time: string; command: string } | null {
   const text = input.trim();
 
   let hour: number | null = null;
   let minute = 0;
 
-  const chineseMatch = /每天(?:\s*(上午|中午|下午|晚上|凌晨))?\s*(\d{1,2})[:点时]?\s*(\d{1,2})?/.exec(
-    text,
-  );
+  const chineseMatch =
+    /每天(?:\s*(上午|中午|下午|晚上|凌晨))?\s*(\d{1,2})[:点时]?\s*(\d{1,2})?/.exec(
+      text,
+    );
   if (chineseMatch) {
     const period = chineseMatch[1];
     hour = Number(chineseMatch[2]);
@@ -45,9 +57,8 @@ function parseNaturalSchedule(input: string): { time: string; command: string } 
   }
 
   if (hour === null) {
-    const englishMatch = /(?:every day at|daily\s*(?:at)?)\s*(\d{1,2})(?::(\d{1,2}))?/i.exec(
-      text,
-    );
+    const englishMatch =
+      /(?:every day at|daily\s*(?:at)?)\s*(\d{1,2})(?::(\d{1,2}))?/i.exec(text);
     if (englishMatch) {
       hour = Number(englishMatch[1]);
       minute = englishMatch[2] ? Number(englishMatch[2]) : 0;
@@ -151,7 +162,9 @@ export function createAutomationTools(
         command: String(args.command),
         cwd: args.cwd ? String(args.cwd) : undefined,
         timeoutMs:
-          typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : undefined,
+          typeof args.timeout_ms === 'number'
+            ? Number(args.timeout_ms)
+            : undefined,
         requireApproval:
           typeof args.require_approval === 'boolean'
             ? args.require_approval
@@ -239,7 +252,8 @@ ${result.stderr || '(empty)'}`;
   });
 
   const miya_approve_job_run = tool({
-    description: 'Approve a pending job run request and execute it immediately.',
+    description:
+      'Approve a pending job run request and execute it immediately.',
     args: {
       approval_id: z.string().describe('Approval request id'),
     },
@@ -264,7 +278,9 @@ timed_out=${result.result?.timedOut ?? 'n/a'}`;
       approval_id: z.string().describe('Approval request id'),
     },
     async execute(args) {
-      const approval = automationService.rejectApproval(String(args.approval_id));
+      const approval = automationService.rejectApproval(
+        String(args.approval_id),
+      );
       if (!approval) {
         return 'Approval not found or no longer pending.';
       }
@@ -275,7 +291,10 @@ timed_out=${result.result?.timedOut ?? 'n/a'}`;
   const miya_job_history = tool({
     description: 'Show recent Miya job execution history.',
     args: {
-      limit: z.number().optional().describe('Maximum records to return (default 20)'),
+      limit: z
+        .number()
+        .optional()
+        .describe('Maximum records to return (default 20)'),
     },
     async execute(args) {
       const limit =
@@ -295,7 +314,8 @@ timed_out=${result.result?.timedOut ?? 'n/a'}`;
   });
 
   const miya_status_panel = tool({
-    description: 'Show compact Miya runtime status panel for jobs and approvals.',
+    description:
+      'Show compact Miya runtime status panel for jobs and approvals.',
     args: {},
     async execute() {
       const jobs = automationService.listJobs();
@@ -311,7 +331,7 @@ timed_out=${result.result?.timedOut ?? 'n/a'}`;
               .map(
                 (item) =>
                   `- ${item.startedAt} | ${item.jobName} | ${item.status} | exit=${item.exitCode}`,
-                )
+              )
               .join('\n');
       const safety = getSafetySnapshot(automationService.getProjectDir());
       const safetyText =

@@ -63,4 +63,3 @@ describe('negotiation budget', () => {
     expect(h2.reason).toBe('human_edit_exhausted');
   });
 });
-

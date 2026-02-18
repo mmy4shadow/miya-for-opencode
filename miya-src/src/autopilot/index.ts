@@ -1,5 +1,4 @@
 export { configureAutopilotSession, runAutopilot } from './executor';
-export { attachCommandSteps, createAutopilotPlan } from './planner';
 export {
   appendPlanBundleAudit,
   createPlanBundleV1,
@@ -10,8 +9,6 @@ export {
   markPlanBundleRunning,
   markPlanBundleVerification,
 } from './plan-bundle';
-export { summarizeAutopilotPlan, summarizeVerification } from './verifier';
-export { readAutopilotStats, recordAutopilotRunDigest } from './stats';
 export {
   clearPlanBundleBinding,
   preparePlanBundleBinding,
@@ -23,13 +20,15 @@ export {
   loadReusablePlanTemplate,
   saveReusablePlanTemplate,
 } from './plan-reuse';
+export { attachCommandSteps, createAutopilotPlan } from './planner';
+export { readAutopilotStats, recordAutopilotRunDigest } from './stats';
 export type {
   AutopilotApprovalInput,
   AutopilotCommandResult,
   AutopilotPlan,
   AutopilotPlanStep,
-  AutopilotRunInput,
   AutopilotRunDigest,
+  AutopilotRunInput,
   AutopilotRunResult,
   AutopilotStats,
   PlanBundleApproval,
@@ -40,8 +39,9 @@ export type {
   PlanBundleMode,
   PlanBundleRiskTier,
   PlanBundleRollback,
-  PlanBundleStep,
   PlanBundleStage,
+  PlanBundleStep,
   PlanBundleV1,
   PlanBundleVerificationPlan,
 } from './types';
+export { summarizeAutopilotPlan, summarizeVerification } from './verifier';

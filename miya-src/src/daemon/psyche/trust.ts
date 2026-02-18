@@ -52,7 +52,8 @@ function readStore(filePath: string): TrustStore {
   if (!fs.existsSync(filePath)) return { entities: {} };
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as TrustStore;
-    if (!parsed || typeof parsed !== 'object' || !parsed.entities) return { entities: {} };
+    if (!parsed || typeof parsed !== 'object' || !parsed.entities)
+      return { entities: {} };
     return parsed;
   } catch {
     return { entities: {} };
@@ -75,20 +76,28 @@ function seedScore(): TrustEntityScore {
   };
 }
 
-export function getTrustScore(filePath: string, input: { kind: TrustEntityKind; value?: string }): number {
+export function getTrustScore(
+  filePath: string,
+  input: { kind: TrustEntityKind; value?: string },
+): number {
   const value = String(input.value ?? '').trim();
   if (!value) return DEFAULT_SCORE;
   const store = readStore(filePath);
   return store.entities[entityKey(input.kind, value)]?.score ?? DEFAULT_SCORE;
 }
 
-export function updateTrustScore(filePath: string, input: TrustUpdateInput): TrustEntityScore {
+export function updateTrustScore(
+  filePath: string,
+  input: TrustUpdateInput,
+): TrustEntityScore {
   const value = String(input.value ?? '').trim();
   if (!value) return seedScore();
   const store = readStore(filePath);
   const key = entityKey(input.kind, value);
   const current = store.entities[key] ?? seedScore();
-  const confidence = Number.isFinite(input.confidence) ? Number(input.confidence) : 1;
+  const confidence = Number.isFinite(input.confidence)
+    ? Number(input.confidence)
+    : 1;
   let score = current.score;
 
   if (input.highRiskRollback) {
@@ -107,8 +116,12 @@ export function updateTrustScore(filePath: string, input: TrustUpdateInput): Tru
     ? shiftWindow(current.deniedCount10)
     : shiftWindow(current.deniedCount10) + 1;
 
-  const useful = input.approved ? shiftWindow(current.usefulCount10) + 1 : shiftWindow(current.usefulCount10);
-  const useless = input.approved ? shiftWindow(current.uselessCount10) : shiftWindow(current.uselessCount10) + 1;
+  const useful = input.approved
+    ? shiftWindow(current.usefulCount10) + 1
+    : shiftWindow(current.usefulCount10);
+  const useless = input.approved
+    ? shiftWindow(current.uselessCount10)
+    : shiftWindow(current.uselessCount10) + 1;
   const autoBlacklisted = useful < useless;
 
   const next: TrustEntityScore = {

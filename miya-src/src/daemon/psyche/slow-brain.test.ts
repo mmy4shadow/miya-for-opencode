@@ -43,7 +43,9 @@ describe('psyche slow brain', () => {
     expect(result.policy?.versionID.startsWith('sb_')).toBe(true);
     const active = getActiveSlowBrainPolicy(projectDir);
     expect(active.versionID).toBe(result.policy?.versionID);
-    expect(active.parameters.consumeAllowThreshold).toBeGreaterThanOrEqual(0.35);
+    expect(active.parameters.consumeAllowThreshold).toBeGreaterThanOrEqual(
+      0.35,
+    );
     expect(active.parameters.consumeAllowThreshold).toBeLessThanOrEqual(0.88);
   });
 
@@ -133,4 +135,3 @@ describe('psyche slow brain', () => {
     expect(state.activeVersionID).toBe(first.policy?.versionID);
   });
 });
-

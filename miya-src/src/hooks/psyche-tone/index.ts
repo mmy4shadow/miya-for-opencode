@@ -4,9 +4,9 @@ import {
   findLastUserTextPart,
   hasBlock,
   isCommandBridgeText,
+  type MessageWithParts,
   parseModeKernelMeta,
   prependBlock,
-  type MessageWithParts,
 } from '../neural-chain/shared';
 
 interface PsycheToneConfig {
@@ -27,13 +27,19 @@ function inferToneProfile(text: string): {
   reason: string;
 } {
   const normalized = text.toLowerCase();
-  if (/(难受|焦虑|崩溃|害怕|沮丧|失眠|孤独|累死|心烦|sad|anxious|panic|overwhelmed)/i.test(normalized)) {
+  if (
+    /(难受|焦虑|崩溃|害怕|沮丧|失眠|孤独|累死|心烦|sad|anxious|panic|overwhelmed)/i.test(
+      normalized,
+    )
+  ) {
     return {
       tone: 'supportive',
       reason: 'emotion_signal=stress',
     };
   }
-  if (/(开心|高兴|激动|期待|喜欢|甜|可爱|happy|excited|love)/i.test(normalized)) {
+  if (
+    /(开心|高兴|激动|期待|喜欢|甜|可爱|happy|excited|love)/i.test(normalized)
+  ) {
     return {
       tone: 'warm',
       reason: 'emotion_signal=positive',
@@ -62,7 +68,9 @@ export function createPsycheToneHook(rawConfig?: PsycheToneConfig) {
       const target = findLastUserTextPart(output.messages);
       if (!target) return;
 
-      const currentText = String(target.message.parts[target.partIndex].text ?? '');
+      const currentText = String(
+        target.message.parts[target.partIndex].text ?? '',
+      );
       if (!currentText.trim()) return;
       if (isCommandBridgeText(currentText)) return;
       if (hasBlock(currentText, '[MIYA_PSYCHE_TONE v1]')) return;
@@ -97,7 +105,10 @@ export function createPsycheToneHook(rawConfig?: PsycheToneConfig) {
         '[/MIYA_PSYCHE_TONE]',
       ].join('\n');
 
-      target.message.parts[target.partIndex].text = prependBlock(block, currentText);
+      target.message.parts[target.partIndex].text = prependBlock(
+        block,
+        currentText,
+      );
     },
   };
 }

@@ -991,19 +991,21 @@ describe('BackgroundTaskManager', () => {
         throw new Error('Expected sessionId to be defined');
 
       // Orchestrator can delegate to all subagents
-      expect(manager.isAgentAllowed(orchestratorSessionId, '2-code-search')).toBe(
-        true,
-      );
-      expect(manager.isAgentAllowed(orchestratorSessionId, '5-code-fixer')).toBe(true);
-      expect(manager.isAgentAllowed(orchestratorSessionId, '6-ui-designer')).toBe(
-        true,
-      );
-      expect(manager.isAgentAllowed(orchestratorSessionId, '3-docs-helper')).toBe(
-        true,
-      );
-      expect(manager.isAgentAllowed(orchestratorSessionId, '4-architecture-advisor')).toBe(
-        true,
-      );
+      expect(
+        manager.isAgentAllowed(orchestratorSessionId, '2-code-search'),
+      ).toBe(true);
+      expect(
+        manager.isAgentAllowed(orchestratorSessionId, '5-code-fixer'),
+      ).toBe(true);
+      expect(
+        manager.isAgentAllowed(orchestratorSessionId, '6-ui-designer'),
+      ).toBe(true);
+      expect(
+        manager.isAgentAllowed(orchestratorSessionId, '3-docs-helper'),
+      ).toBe(true);
+      expect(
+        manager.isAgentAllowed(orchestratorSessionId, '4-architecture-advisor'),
+      ).toBe(true);
     });
 
     test('isAgentAllowed returns false for invalid delegations', async () => {
@@ -1024,10 +1026,18 @@ describe('BackgroundTaskManager', () => {
       if (!fixerSessionId) throw new Error('Expected sessionId to be defined');
 
       // Fixer can only delegate to 2-code-search
-      expect(manager.isAgentAllowed(fixerSessionId, '2-code-search')).toBe(true);
-      expect(manager.isAgentAllowed(fixerSessionId, '4-architecture-advisor')).toBe(false);
-      expect(manager.isAgentAllowed(fixerSessionId, '6-ui-designer')).toBe(false);
-      expect(manager.isAgentAllowed(fixerSessionId, '3-docs-helper')).toBe(false);
+      expect(manager.isAgentAllowed(fixerSessionId, '2-code-search')).toBe(
+        true,
+      );
+      expect(
+        manager.isAgentAllowed(fixerSessionId, '4-architecture-advisor'),
+      ).toBe(false);
+      expect(manager.isAgentAllowed(fixerSessionId, '6-ui-designer')).toBe(
+        false,
+      );
+      expect(manager.isAgentAllowed(fixerSessionId, '3-docs-helper')).toBe(
+        false,
+      );
     });
 
     test('isAgentAllowed returns false for leaf agents', async () => {
@@ -1049,7 +1059,9 @@ describe('BackgroundTaskManager', () => {
       if (!explorerSessionId)
         throw new Error('Expected sessionId to be defined');
 
-      expect(manager.isAgentAllowed(explorerSessionId, '5-code-fixer')).toBe(false);
+      expect(manager.isAgentAllowed(explorerSessionId, '5-code-fixer')).toBe(
+        false,
+      );
 
       // Librarian is also a leaf agent
       const librarianTask = manager.launch({
@@ -1076,11 +1088,21 @@ describe('BackgroundTaskManager', () => {
       const manager = new BackgroundTaskManager(ctx);
 
       // Unknown sessions default to 1-task-manager, which can delegate to all subagents
-      expect(manager.isAgentAllowed('unknown-session', '2-code-search')).toBe(true);
-      expect(manager.isAgentAllowed('unknown-session', '5-code-fixer')).toBe(true);
-      expect(manager.isAgentAllowed('unknown-session', '6-ui-designer')).toBe(true);
-      expect(manager.isAgentAllowed('unknown-session', '3-docs-helper')).toBe(true);
-      expect(manager.isAgentAllowed('unknown-session', '4-architecture-advisor')).toBe(true);
+      expect(manager.isAgentAllowed('unknown-session', '2-code-search')).toBe(
+        true,
+      );
+      expect(manager.isAgentAllowed('unknown-session', '5-code-fixer')).toBe(
+        true,
+      );
+      expect(manager.isAgentAllowed('unknown-session', '6-ui-designer')).toBe(
+        true,
+      );
+      expect(manager.isAgentAllowed('unknown-session', '3-docs-helper')).toBe(
+        true,
+      );
+      expect(
+        manager.isAgentAllowed('unknown-session', '4-architecture-advisor'),
+      ).toBe(true);
     });
 
     test('unknown agent type defaults to 2-code-search-only delegation', async () => {
@@ -1105,9 +1127,15 @@ describe('BackgroundTaskManager', () => {
       expect(manager.getAllowedSubagents(customSessionId)).toEqual([
         '2-code-search',
       ]);
-      expect(manager.isAgentAllowed(customSessionId, '2-code-search')).toBe(true);
-      expect(manager.isAgentAllowed(customSessionId, '5-code-fixer')).toBe(false);
-      expect(manager.isAgentAllowed(customSessionId, '4-architecture-advisor')).toBe(false);
+      expect(manager.isAgentAllowed(customSessionId, '2-code-search')).toBe(
+        true,
+      );
+      expect(manager.isAgentAllowed(customSessionId, '5-code-fixer')).toBe(
+        false,
+      );
+      expect(
+        manager.isAgentAllowed(customSessionId, '4-architecture-advisor'),
+      ).toBe(false);
     });
 
     test('spawned 2-code-search from custom agent gets tools disabled (leaf node)', async () => {
@@ -1170,7 +1198,9 @@ describe('BackgroundTaskManager', () => {
         throw new Error('Expected sessionId to be defined');
 
       // Orchestrator can delegate to 5-code-fixer
-      expect(manager.isAgentAllowed(orchestratorSessionId, '5-code-fixer')).toBe(true);
+      expect(
+        manager.isAgentAllowed(orchestratorSessionId, '5-code-fixer'),
+      ).toBe(true);
 
       // Level 2: Launch 5-code-fixer from 1-task-manager
       const fixerTask = manager.launch({
@@ -1197,8 +1227,12 @@ describe('BackgroundTaskManager', () => {
       });
 
       // Fixer can delegate to 2-code-search but NOT 4-architecture-advisor
-      expect(manager.isAgentAllowed(fixerSessionId, '2-code-search')).toBe(true);
-      expect(manager.isAgentAllowed(fixerSessionId, '4-architecture-advisor')).toBe(false);
+      expect(manager.isAgentAllowed(fixerSessionId, '2-code-search')).toBe(
+        true,
+      );
+      expect(
+        manager.isAgentAllowed(fixerSessionId, '4-architecture-advisor'),
+      ).toBe(false);
 
       // Level 3: Launch 2-code-search from 5-code-fixer
       const explorerTask = manager.launch({
@@ -1223,9 +1257,15 @@ describe('BackgroundTaskManager', () => {
       });
 
       // Explorer cannot delegate to anything
-      expect(manager.isAgentAllowed(explorerSessionId, '2-code-search')).toBe(false);
-      expect(manager.isAgentAllowed(explorerSessionId, '5-code-fixer')).toBe(false);
-      expect(manager.isAgentAllowed(explorerSessionId, '4-architecture-advisor')).toBe(false);
+      expect(manager.isAgentAllowed(explorerSessionId, '2-code-search')).toBe(
+        false,
+      );
+      expect(manager.isAgentAllowed(explorerSessionId, '5-code-fixer')).toBe(
+        false,
+      );
+      expect(
+        manager.isAgentAllowed(explorerSessionId, '4-architecture-advisor'),
+      ).toBe(false);
       expect(manager.getAllowedSubagents(explorerSessionId)).toEqual([]);
     });
 
@@ -1274,9 +1314,15 @@ describe('BackgroundTaskManager', () => {
       });
 
       // Designer can only spawn 2-code-search
-      expect(manager.isAgentAllowed(designerSessionId, '2-code-search')).toBe(true);
-      expect(manager.isAgentAllowed(designerSessionId, '5-code-fixer')).toBe(false);
-      expect(manager.isAgentAllowed(designerSessionId, '4-architecture-advisor')).toBe(false);
+      expect(manager.isAgentAllowed(designerSessionId, '2-code-search')).toBe(
+        true,
+      );
+      expect(manager.isAgentAllowed(designerSessionId, '5-code-fixer')).toBe(
+        false,
+      );
+      expect(
+        manager.isAgentAllowed(designerSessionId, '4-architecture-advisor'),
+      ).toBe(false);
 
       // Level 3: Launch 2-code-search from 6-ui-designer
       const explorerTask = manager.launch({
@@ -1337,14 +1383,26 @@ describe('BackgroundTaskManager', () => {
       if (!fixerSessionId) throw new Error('Expected sessionId to be defined');
 
       // Fixer should be blocked from spawning these agents
-      expect(manager.isAgentAllowed(fixerSessionId, '4-architecture-advisor')).toBe(false);
-      expect(manager.isAgentAllowed(fixerSessionId, '6-ui-designer')).toBe(false);
-      expect(manager.isAgentAllowed(fixerSessionId, '3-docs-helper')).toBe(false);
-      expect(manager.isAgentAllowed(fixerSessionId, '5-code-fixer')).toBe(false);
+      expect(
+        manager.isAgentAllowed(fixerSessionId, '4-architecture-advisor'),
+      ).toBe(false);
+      expect(manager.isAgentAllowed(fixerSessionId, '6-ui-designer')).toBe(
+        false,
+      );
+      expect(manager.isAgentAllowed(fixerSessionId, '3-docs-helper')).toBe(
+        false,
+      );
+      expect(manager.isAgentAllowed(fixerSessionId, '5-code-fixer')).toBe(
+        false,
+      );
 
       // Only 2-code-search is allowed
-      expect(manager.isAgentAllowed(fixerSessionId, '2-code-search')).toBe(true);
-      expect(manager.getAllowedSubagents(fixerSessionId)).toEqual(['2-code-search']);
+      expect(manager.isAgentAllowed(fixerSessionId, '2-code-search')).toBe(
+        true,
+      );
+      expect(manager.getAllowedSubagents(fixerSessionId)).toEqual([
+        '2-code-search',
+      ]);
     });
 
     test('chain: completed parent does not affect child permissions', async () => {
@@ -1411,7 +1469,9 @@ describe('BackgroundTaskManager', () => {
       expect(fixerTask.status).toBe('completed');
 
       // Explorer's own session tracking is independent — still works
-      expect(manager.isAgentAllowed(explorerSessionId, '5-code-fixer')).toBe(false);
+      expect(manager.isAgentAllowed(explorerSessionId, '5-code-fixer')).toBe(
+        false,
+      );
       expect(manager.getAllowedSubagents(explorerSessionId)).toEqual([]);
     });
 
@@ -1456,7 +1516,9 @@ describe('BackgroundTaskManager', () => {
       const fixerSessionId = fixerTask.sessionId;
       if (!fixerSessionId) throw new Error('Expected sessionId to be defined');
 
-      expect(manager.getAllowedSubagents(fixerSessionId)).toEqual(['2-code-search']);
+      expect(manager.getAllowedSubagents(fixerSessionId)).toEqual([
+        '2-code-search',
+      ]);
 
       // Designer -> only 2-code-search
       const designerTask = manager.launch({

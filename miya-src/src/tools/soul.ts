@@ -9,7 +9,9 @@ import {
 
 const z = tool.schema;
 
-export function createSoulTools(projectDir: string): Record<string, ToolDefinition> {
+export function createSoulTools(
+  projectDir: string,
+): Record<string, ToolDefinition> {
   const miya_soul_get = tool({
     description: 'Read current SOUL profile and persona layer.',
     args: {

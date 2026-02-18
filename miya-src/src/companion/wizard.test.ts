@@ -10,8 +10,8 @@ import {
   listCompanionWizardSessions,
   markTrainingJobFinished,
   markTrainingJobRunning,
-  requeueTrainingJob,
   readCompanionWizardState,
+  requeueTrainingJob,
   startCompanionWizard,
   submitWizardPersonality,
   submitWizardPhotos,
@@ -28,7 +28,10 @@ const ONE_PIXEL_BASE64 =
 describe('companion wizard', () => {
   test('follows photo -> image training -> voice -> personality state machine', () => {
     const projectDir = tempProjectDir();
-    const start = startCompanionWizard(projectDir, { sessionId: 's1', forceReset: true });
+    const start = startCompanionWizard(projectDir, {
+      sessionId: 's1',
+      forceReset: true,
+    });
     expect(start.state).toBe('awaiting_photos');
 
     const imageMedia = ingestMedia(projectDir, {
@@ -38,7 +41,9 @@ describe('companion wizard', () => {
       fileName: 'p.png',
       contentBase64: ONE_PIXEL_BASE64,
     });
-    const photos = submitWizardPhotos(projectDir, { mediaIDs: [imageMedia.id] });
+    const photos = submitWizardPhotos(projectDir, {
+      mediaIDs: [imageMedia.id],
+    });
     expect(photos.state.state).toBe('training_image');
     expect(photos.job.type).toBe('training.image');
 
@@ -70,11 +75,13 @@ describe('companion wizard', () => {
     });
     expect(afterVoice.state).toBe('awaiting_personality');
 
-    const done = submitWizardPersonality(projectDir, { personalityText: '你是个讽刺的艺术学生' });
+    const done = submitWizardPersonality(projectDir, {
+      personalityText: '你是个讽刺的艺术学生',
+    });
     expect(done.state).toBe('completed');
-    expect(readCompanionWizardState(projectDir, 's1').assets.personalityText.length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      readCompanionWizardState(projectDir, 's1').assets.personalityText.length,
+    ).toBeGreaterThan(0);
 
     const selfie = detectMultimodalIntent('给我发张自拍');
     const voiceIntent = detectMultimodalIntent('用你的声音发一条语音给[小明]');
@@ -113,7 +120,10 @@ describe('companion wizard', () => {
 
   test('cancel marks queued/running jobs canceled and keeps wizard retryable', () => {
     const projectDir = tempProjectDir();
-    startCompanionWizard(projectDir, { sessionId: 'cancel_case', forceReset: true });
+    startCompanionWizard(projectDir, {
+      sessionId: 'cancel_case',
+      forceReset: true,
+    });
     const imageMedia = ingestMedia(projectDir, {
       source: 'test',
       kind: 'image',
@@ -133,7 +143,10 @@ describe('companion wizard', () => {
 
   test('covers failed/degraded/retry paths for training jobs', () => {
     const projectDir = tempProjectDir();
-    startCompanionWizard(projectDir, { sessionId: 'retry_case', forceReset: true });
+    startCompanionWizard(projectDir, {
+      sessionId: 'retry_case',
+      forceReset: true,
+    });
     const imageMedia = ingestMedia(projectDir, {
       source: 'test',
       kind: 'image',
@@ -162,7 +175,9 @@ describe('companion wizard', () => {
       message: 'retry_from_checkpoint',
       checkpointPath: 'checkpoint/image-ref.safetensors',
     });
-    expect(requeued.jobs.find((job) => job.id === photos.job.id)?.status).toBe('queued');
+    expect(requeued.jobs.find((job) => job.id === photos.job.id)?.status).toBe(
+      'queued',
+    );
 
     markTrainingJobRunning(projectDir, photos.job.id, 'retry_case');
     const degradedImage = markTrainingJobFinished(projectDir, {
@@ -198,10 +213,16 @@ describe('companion wizard', () => {
 
   test('recovers when sessions directory disappears during listing', () => {
     const projectDir = tempProjectDir();
-    startCompanionWizard(projectDir, { sessionId: 'race_case', forceReset: true });
+    startCompanionWizard(projectDir, {
+      sessionId: 'race_case',
+      forceReset: true,
+    });
     const original = fs.readdirSync;
     const sessionsPathToken = path.join('profiles', 'companion', 'sessions');
-    const spy = spyOn(fs, 'readdirSync').mockImplementation(((targetPath: fs.PathLike, options?: unknown) => {
+    const spy = spyOn(fs, 'readdirSync').mockImplementation(((
+      targetPath: fs.PathLike,
+      options?: unknown,
+    ) => {
       if (String(targetPath).includes(sessionsPathToken)) {
         const err = new Error('ENOENT: no such file or directory');
         (err as NodeJS.ErrnoException).code = 'ENOENT';

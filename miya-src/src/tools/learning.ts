@@ -8,12 +8,16 @@ import {
 
 const z = tool.schema;
 
-export function createLearningTools(projectDir: string): Record<string, ToolDefinition> {
+export function createLearningTools(
+  projectDir: string,
+): Record<string, ToolDefinition> {
   const miya_learning_drafts = tool({
     description:
       'Inspect/recommend/approve learning skill drafts generated from Ralph + memory-reflect.',
     args: {
-      mode: z.enum(['list', 'recommend', 'accept', 'reject', 'stats']).default('stats'),
+      mode: z
+        .enum(['list', 'recommend', 'accept', 'reject', 'stats'])
+        .default('stats'),
       id: z.string().optional(),
       query: z.string().optional(),
       threshold: z.number().optional(),
@@ -46,17 +50,28 @@ export function createLearningTools(projectDir: string): Record<string, ToolDefi
         const query = String(args.query ?? '').trim();
         if (!query) return 'error=query_required';
         const result = buildLearningInjection(projectDir, query, {
-          threshold: typeof args.threshold === 'number' ? Number(args.threshold) : undefined,
-          limit: typeof args.limit === 'number' ? Number(args.limit) : undefined,
+          threshold:
+            typeof args.threshold === 'number'
+              ? Number(args.threshold)
+              : undefined,
+          limit:
+            typeof args.limit === 'number' ? Number(args.limit) : undefined,
         });
         if (!result.snippet) return 'learning_recommendation=none';
-        return [result.snippet, `matched=${result.matchedDraftIDs.join(',')}`].join('\n');
+        return [
+          result.snippet,
+          `matched=${result.matchedDraftIDs.join(',')}`,
+        ].join('\n');
       }
 
       if (mode === 'accept' || mode === 'reject') {
         const id = String(args.id ?? '').trim();
         if (!id) return 'error=id_required';
-        const updated = setSkillDraftStatus(projectDir, id, mode === 'accept' ? 'accepted' : 'rejected');
+        const updated = setSkillDraftStatus(
+          projectDir,
+          id,
+          mode === 'accept' ? 'accepted' : 'rejected',
+        );
         if (!updated) return 'error=draft_not_found';
         return `updated=true\nid=${updated.id}\nstatus=${updated.status}`;
       }
@@ -78,4 +93,3 @@ export function createLearningTools(projectDir: string): Record<string, ToolDefi
     miya_learning_drafts,
   };
 }
-

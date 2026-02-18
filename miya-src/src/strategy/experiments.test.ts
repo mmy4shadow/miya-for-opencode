@@ -44,6 +44,8 @@ describe('strategy experiments', () => {
     });
     const replay = replayStrategyOffline(projectDir, { limit: 100 });
     expect(replay.summary.routing.total).toBe(2);
-    expect(replay.summary.routing.byVariant.treatment.total).toBeGreaterThanOrEqual(1);
+    expect(
+      replay.summary.routing.byVariant.treatment.total,
+    ).toBeGreaterThanOrEqual(1);
   });
 });

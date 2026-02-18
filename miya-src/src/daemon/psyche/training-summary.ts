@@ -49,7 +49,12 @@ function nowIso(): string {
 }
 
 function trainingFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'daemon', 'psyche', 'training-data.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'daemon',
+    'psyche',
+    'training-data.jsonl',
+  );
 }
 
 function safeParse(line: string): TrainingRow | null {
@@ -60,7 +65,10 @@ function safeParse(line: string): TrainingRow | null {
   }
 }
 
-export function readPsycheTrainingSummary(projectDir: string, limit = 400): PsycheTrainingSummary {
+export function readPsycheTrainingSummary(
+  projectDir: string,
+  limit = 400,
+): PsycheTrainingSummary {
   const file = trainingFile(projectDir);
   if (!fs.existsSync(file)) {
     return {
@@ -114,7 +122,13 @@ export function readPsycheTrainingSummary(projectDir: string, limit = 400): Psyc
       const reasons = Array.isArray(row.obs?.reasons)
         ? row.obs?.reasons.map((item) => String(item))
         : [];
-      if (reasons.some((item) => item.includes('shadow_mode_safe_hold') || item.includes('safe_hold'))) {
+      if (
+        reasons.some(
+          (item) =>
+            item.includes('shadow_mode_safe_hold') ||
+            item.includes('safe_hold'),
+        )
+      ) {
         safeHoldDefers += 1;
       }
       if (
@@ -153,8 +167,10 @@ export function readPsycheTrainingSummary(projectDir: string, limit = 400): Psyc
     }
   }
 
-  const positiveRate = outcomes > 0 ? Number((positive / outcomes).toFixed(4)) : 0;
-  const avgScore = scoreCount > 0 ? Number((scoreTotal / scoreCount).toFixed(4)) : 0;
+  const positiveRate =
+    outcomes > 0 ? Number((positive / outcomes).toFixed(4)) : 0;
+  const avgScore =
+    scoreCount > 0 ? Number((scoreTotal / scoreCount).toFixed(4)) : 0;
 
   return {
     windowRows: rows.length,

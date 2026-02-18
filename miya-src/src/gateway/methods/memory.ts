@@ -1,4 +1,4 @@
-import { GatewayMethodRegistry } from '../protocol';
+import type { GatewayMethodRegistry } from '../protocol';
 
 export function registerGatewayMemoryMethods(
   methods: GatewayMethodRegistry,

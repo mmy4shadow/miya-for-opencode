@@ -3,8 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getMediaItem, ingestMedia } from '../media/store';
-import { analyzeVision, parseDesktopOcrSignals } from './vision';
 import { generateImage } from './image';
+import { analyzeVision, parseDesktopOcrSignals } from './vision';
 import { ingestVoiceInput, synthesizeVoiceOutput } from './voice';
 
 function tempProjectDir(): string {
@@ -31,7 +31,9 @@ describe('multimodal', () => {
       );
       expect(result.media.metadata?.tier).toBe('reference');
       expect(result.media.metadata?.degraded).toBe(true);
-      expect(String(result.media.metadata?.engineMessage ?? '')).toContain('test_mode');
+      expect(String(result.media.metadata?.engineMessage ?? '')).toContain(
+        'test_mode',
+      );
     } finally {
       if (prev === undefined) delete process.env.MIYA_MULTIMODAL_TEST_MODE;
       else process.env.MIYA_MULTIMODAL_TEST_MODE = prev;
@@ -63,7 +65,9 @@ describe('multimodal', () => {
       );
       expect(output.media.metadata?.tier).toBe('reference');
       expect(output.media.metadata?.degraded).toBe(true);
-      expect(String(output.media.metadata?.engineMessage ?? '')).toContain('test_mode');
+      expect(String(output.media.metadata?.engineMessage ?? '')).toContain(
+        'test_mode',
+      );
     } finally {
       if (prev === undefined) delete process.env.MIYA_MULTIMODAL_TEST_MODE;
       else process.env.MIYA_MULTIMODAL_TEST_MODE = prev;
@@ -89,13 +93,19 @@ describe('multimodal', () => {
   });
 
   test('detects recipient and sent status from OCR text', () => {
-    const signals = parseDesktopOcrSignals('聊天对象: 小明\\n消息已发送', '小明');
+    const signals = parseDesktopOcrSignals(
+      '聊天对象: 小明\\n消息已发送',
+      '小明',
+    );
     expect(signals.recipientMatch).toBe('matched');
     expect(signals.sendStatusDetected).toBe('sent');
   });
 
   test('detects recipient mismatch from OCR text', () => {
-    const signals = parseDesktopOcrSignals('聊天对象: 李雷\\n消息已发送', '小明');
+    const signals = parseDesktopOcrSignals(
+      '聊天对象: 李雷\\n消息已发送',
+      '小明',
+    );
     expect(signals.recipientMatch).toBe('mismatch');
   });
 
@@ -106,13 +116,19 @@ describe('multimodal', () => {
   });
 
   test('matches recipient and sent status with DPI whitespace noise', () => {
-    const signals = parseDesktopOcrSignals('聊 天 对 象 : 小 明\\n已 发 送', '小明');
+    const signals = parseDesktopOcrSignals(
+      '聊 天 对 象 : 小 明\\n已 发 送',
+      '小明',
+    );
     expect(signals.recipientMatch).toBe('matched');
     expect(signals.sendStatusDetected).toBe('sent');
   });
 
   test('detects failed status with fragmented OCR tokens', () => {
-    const signals = parseDesktopOcrSignals('chat with alex\\ns e n d   f a i l e d retry', 'alex');
+    const signals = parseDesktopOcrSignals(
+      'chat with alex\\ns e n d   f a i l e d retry',
+      'alex',
+    );
     expect(signals.recipientMatch).toBe('matched');
     expect(signals.sendStatusDetected).toBe('failed');
   });

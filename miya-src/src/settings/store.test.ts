@@ -1,12 +1,8 @@
+import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, test } from 'bun:test';
-import {
-  applyConfigPatch,
-  readConfig,
-  validateConfigPatch,
-} from './store';
+import { applyConfigPatch, readConfig, validateConfigPatch } from './store';
 
 const tempDirs: string[] = [];
 
@@ -50,19 +46,28 @@ describe('settings store', () => {
       ).stats?.downrankThresholdRatioX100,
     ).toBe(150);
     expect(
-      (
-        config.intake as { stats?: { downrankExplorePercent?: number } }
-      ).stats?.downrankExplorePercent,
+      (config.intake as { stats?: { downrankExplorePercent?: number } }).stats
+        ?.downrankExplorePercent,
     ).toBe(30);
 
-    const configPath = path.join(projectDir, '.opencode', 'miya', 'config.json');
+    const configPath = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'config.json',
+    );
     const registryPath = path.join(
       projectDir,
       '.opencode',
       'miya',
       'registry.json',
     );
-    const schemaPath = path.join(projectDir, '.opencode', 'miya', 'schema.json');
+    const schemaPath = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'schema.json',
+    );
     expect(fs.existsSync(configPath)).toBe(true);
     expect(fs.existsSync(registryPath)).toBe(true);
     expect(fs.existsSync(schemaPath)).toBe(true);
@@ -114,8 +119,8 @@ describe('settings store', () => {
       },
     });
     expect(validation.ok).toBe(false);
-    expect(validation.errors.some((item) => item.includes('Unknown setting key'))).toBe(
-      true,
-    );
+    expect(
+      validation.errors.some((item) => item.includes('Unknown setting key')),
+    ).toBe(true);
   });
 });

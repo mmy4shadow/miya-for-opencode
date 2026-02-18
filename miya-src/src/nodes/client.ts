@@ -82,7 +82,9 @@ function loadApprovalConfig(projectDir: string): NodeApprovalConfig {
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<NodeApprovalConfig>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<NodeApprovalConfig>;
     return {
       allowAllReadOnly: parsed.allowAllReadOnly ?? true,
       requireExplicitForRun: parsed.requireExplicitForRun ?? true,
@@ -132,7 +134,9 @@ function isAllowedByLocalPolicy(
   }
 
   if (capability === 'system.run' && config.requireExplicitForRun) {
-    const allowed = config.allow.some((rule) => evaluateRule(rule, capability, payload));
+    const allowed = config.allow.some((rule) =>
+      evaluateRule(rule, capability, payload),
+    );
     return allowed
       ? { ok: true }
       : { ok: false, reason: 'system.run_requires_allow_rule' };
@@ -145,12 +149,13 @@ function isAllowedByLocalPolicy(
   return { ok: false, reason: 'no_matching_allow_rule' };
 }
 
-function appendHistory(
-  projectDir: string,
-  row: Record<string, unknown>,
-): void {
+function appendHistory(projectDir: string, row: Record<string, unknown>): void {
   ensureRuntimeDir(projectDir);
-  fs.appendFileSync(historyFile(projectDir), `${JSON.stringify(row)}\n`, 'utf-8');
+  fs.appendFileSync(
+    historyFile(projectDir),
+    `${JSON.stringify(row)}\n`,
+    'utf-8',
+  );
 }
 
 function runShellCommand(
@@ -198,21 +203,22 @@ async function executeCapability(
   }
 
   if (payload.capability === 'system.which') {
-    const binary = typeof payload.args.binary === 'string' ? payload.args.binary : '';
+    const binary =
+      typeof payload.args.binary === 'string' ? payload.args.binary : '';
     if (!binary) return { ok: false, error: 'missing_binary' };
-    const cmd = process.platform === 'win32' ? `where ${binary}` : `which ${binary}`;
+    const cmd =
+      process.platform === 'win32' ? `where ${binary}` : `which ${binary}`;
     const result = runShellCommand(cmd, 10000);
     return {
       ok: result.ok,
-      result: result.ok
-        ? { binary, path: result.stdout.trim() }
-        : undefined,
+      result: result.ok ? { binary, path: result.stdout.trim() } : undefined,
       error: result.ok ? undefined : result.stderr.trim() || 'binary_not_found',
     };
   }
 
   if (payload.capability === 'system.run') {
-    const command = typeof payload.args.command === 'string' ? payload.args.command : '';
+    const command =
+      typeof payload.args.command === 'string' ? payload.args.command : '';
     const timeoutMs =
       typeof payload.args.timeoutMs === 'number'
         ? Number(payload.args.timeoutMs)
@@ -252,7 +258,8 @@ async function executeCapability(
   }
 
   if (payload.capability === 'canvas.render') {
-    const content = typeof payload.args.content === 'string' ? payload.args.content : '';
+    const content =
+      typeof payload.args.content === 'string' ? payload.args.content : '';
     if (!content) return { ok: false, error: 'missing_canvas_content' };
     const canvasDir = path.join(runtimeDir(projectDir), 'canvas');
     fs.mkdirSync(canvasDir, { recursive: true });
@@ -280,12 +287,16 @@ async function sendFrame(
 export async function runNodeHost(options: NodeHostOptions): Promise<void> {
   const projectDir = options.projectDir;
   const nodeID =
-    options.nodeID || process.env.MIYA_NODE_ID || `node-${os.hostname()}-${randomUUID().slice(0, 8)}`;
+    options.nodeID ||
+    process.env.MIYA_NODE_ID ||
+    `node-${os.hostname()}-${randomUUID().slice(0, 8)}`;
   const deviceID =
     options.deviceID ||
     process.env.MIYA_DEVICE_ID ||
     `${os.hostname()}-${process.platform}-${process.arch}`;
-  const capabilities = [...new Set(options.capabilities ?? DEFAULT_CAPABILITIES)];
+  const capabilities = [
+    ...new Set(options.capabilities ?? DEFAULT_CAPABILITIES),
+  ];
   const nodeType = options.nodeType ?? 'cli';
   const wsUrl = `${options.gatewayUrl.replace(/^http/, 'ws')}/ws`;
   const gatewayToken = process.env.MIYA_GATEWAY_TOKEN;
@@ -351,15 +362,27 @@ export async function runNodeHost(options: NodeHostOptions): Promise<void> {
           event?: string;
           payload?: unknown;
         };
-        if (frame.type !== 'event' || frame.event !== 'node.invoke.request') return;
+        if (frame.type !== 'event' || frame.event !== 'node.invoke.request')
+          return;
         const payload = frame.payload as NodeInvokePayload;
         if (!payload || payload.nodeID !== nodeID) return;
 
         const policy = loadApprovalConfig(projectDir);
-        const allowed = isAllowedByLocalPolicy(policy, payload.capability, payload.args);
-        let response: { ok: boolean; result?: Record<string, unknown>; error?: string };
+        const allowed = isAllowedByLocalPolicy(
+          policy,
+          payload.capability,
+          payload.args,
+        );
+        let response: {
+          ok: boolean;
+          result?: Record<string, unknown>;
+          error?: string;
+        };
         if (!allowed.ok) {
-          response = { ok: false, error: allowed.reason ?? 'blocked_by_local_policy' };
+          response = {
+            ok: false,
+            error: allowed.reason ?? 'blocked_by_local_policy',
+          };
         } else {
           response = await executeCapability(projectDir, payload);
         }

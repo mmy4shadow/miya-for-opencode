@@ -120,9 +120,7 @@ export async function addPluginToOpenCodeConfig(): Promise<ConfigMergeResult> {
 
     // Remove existing miya entries
     const filteredPlugins = plugins.filter(
-      (p) =>
-        p !== PACKAGE_NAME &&
-        !p.startsWith(`${PACKAGE_NAME}@`),
+      (p) => p !== PACKAGE_NAME && !p.startsWith(`${PACKAGE_NAME}@`),
     );
 
     // Add fresh entry

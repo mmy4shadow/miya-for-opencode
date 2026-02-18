@@ -50,7 +50,9 @@ export function readCanvasState(projectDir: string): CanvasState {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) return defaultState();
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<CanvasState>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<CanvasState>;
     return {
       activeDocID: parsed.activeDocID,
       docs: parsed.docs ?? {},
@@ -61,7 +63,10 @@ export function readCanvasState(projectDir: string): CanvasState {
   }
 }
 
-export function writeCanvasState(projectDir: string, state: CanvasState): CanvasState {
+export function writeCanvasState(
+  projectDir: string,
+  state: CanvasState,
+): CanvasState {
   const file = filePath(projectDir);
   ensureDir(file);
   fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
@@ -106,7 +111,11 @@ export function openCanvasDoc(
   };
   state.docs[id] = doc;
   state.activeDocID = id;
-  pushEvent(state, { kind: 'open', docID: id, actor: input.actor ?? 'gateway' });
+  pushEvent(state, {
+    kind: 'open',
+    docID: id,
+    actor: input.actor ?? 'gateway',
+  });
   writeCanvasState(projectDir, state);
   return doc;
 }
@@ -123,10 +132,16 @@ export function renderCanvasDoc(
   const state = readCanvasState(projectDir);
   const doc = state.docs[input.docID];
   if (!doc) return null;
-  doc.content = input.merge ? `${doc.content}\n${input.content}` : input.content;
+  doc.content = input.merge
+    ? `${doc.content}\n${input.content}`
+    : input.content;
   doc.updatedAt = nowIso();
   state.activeDocID = doc.id;
-  pushEvent(state, { kind: 'render', docID: doc.id, actor: input.actor ?? 'gateway' });
+  pushEvent(state, {
+    kind: 'render',
+    docID: doc.id,
+    actor: input.actor ?? 'gateway',
+  });
   writeCanvasState(projectDir, state);
   return doc;
 }
@@ -154,7 +169,10 @@ export function listCanvasDocs(projectDir: string): CanvasDocument[] {
   );
 }
 
-export function getCanvasDoc(projectDir: string, docID: string): CanvasDocument | null {
+export function getCanvasDoc(
+  projectDir: string,
+  docID: string,
+): CanvasDocument | null {
   const state = readCanvasState(projectDir);
   return state.docs[docID] ?? null;
 }

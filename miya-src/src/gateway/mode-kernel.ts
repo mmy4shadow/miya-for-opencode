@@ -1,5 +1,5 @@
 import { inferSentinelState, type SentinelSignals } from '../daemon/psyche';
-import { inferContextMode, type GatewayMode } from './sanitizer';
+import { type GatewayMode, inferContextMode } from './sanitizer';
 
 export interface ModeKernelSessionState {
   activation?: 'active' | 'queued' | 'muted';
@@ -154,9 +154,7 @@ export function evaluateModeKernel(input: ModeKernelInput): ModeKernelResult {
     }
   }
 
-  if (
-    /(先聊|先别执行|不要执行|只聊天|chat only|talk only)/i.test(normalized)
-  ) {
+  if (/(先聊|先别执行|不要执行|只聊天|chat only|talk only)/i.test(normalized)) {
     chatScore += 1;
     reasons.push('explicit_chat_preference');
   }
@@ -187,7 +185,9 @@ export function evaluateModeKernel(input: ModeKernelInput): ModeKernelResult {
   const margin = primary - second;
   const signalDensity = normalizeReasonList(reasons).length;
   const confidence = clamp(
-    0.45 + clamp(margin / Math.max(primary, 1), 0, 1) * 0.4 + Math.min(0.15, signalDensity * 0.015),
+    0.45 +
+      clamp(margin / Math.max(primary, 1), 0, 1) * 0.4 +
+      Math.min(0.15, signalDensity * 0.015),
     0.35,
     0.99,
   );

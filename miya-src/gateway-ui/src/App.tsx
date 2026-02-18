@@ -30,9 +30,20 @@ interface PsycheModeConfig {
 }
 
 type KillSwitchMode = 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
-type ControlView = 'modules' | 'tasks-list' | 'tasks-detail' | 'memory-list' | 'memory-detail' | 'gateway';
+type ControlView =
+  | 'modules'
+  | 'tasks-list'
+  | 'tasks-detail'
+  | 'memory-list'
+  | 'memory-detail'
+  | 'gateway';
 type TaskStatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'stopped';
-type MemoryStatusFilter = 'all' | 'active' | 'pending' | 'superseded' | 'archived';
+type MemoryStatusFilter =
+  | 'all'
+  | 'active'
+  | 'pending'
+  | 'superseded'
+  | 'archived';
 type MemoryDomainFilter = 'all' | 'work' | 'relationship';
 
 interface GatewaySnapshot {
@@ -222,7 +233,12 @@ interface MemoryRecord {
   lastAccessedAt?: string;
 }
 
-function parseRoute(pathname: string): { view: ControlView; taskId?: string; memoryId?: string; basePath: string } {
+function parseRoute(pathname: string): {
+  view: ControlView;
+  taskId?: string;
+  memoryId?: string;
+  basePath: string;
+} {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   const matched = normalized.match(/^(.*)\/tasks(?:\/([^/]+))?$/);
   if (matched) {
@@ -236,7 +252,9 @@ function parseRoute(pathname: string): { view: ControlView; taskId?: string; mem
   if (memoryMatched) {
     return {
       view: memoryMatched[2] ? 'memory-detail' : 'memory-list',
-      memoryId: memoryMatched[2] ? decodeURIComponent(memoryMatched[2]) : undefined,
+      memoryId: memoryMatched[2]
+        ? decodeURIComponent(memoryMatched[2])
+        : undefined,
       basePath: memoryMatched[1] || '',
     };
   }
@@ -253,13 +271,19 @@ function parseRoute(pathname: string): { view: ControlView; taskId?: string; mem
   };
 }
 
-function buildRoute(basePath: string, view: ControlView, taskId?: string): string {
+function buildRoute(
+  basePath: string,
+  view: ControlView,
+  taskId?: string,
+): string {
   const base = basePath || '';
   if (view === 'modules') return base || '/';
   if (view === 'tasks-list') return `${base}/tasks`;
-  if (view === 'tasks-detail') return `${base}/tasks/${encodeURIComponent(taskId || '')}`;
+  if (view === 'tasks-detail')
+    return `${base}/tasks/${encodeURIComponent(taskId || '')}`;
   if (view === 'memory-list') return `${base}/memory`;
-  if (view === 'memory-detail') return `${base}/memory/${encodeURIComponent(taskId || '')}`;
+  if (view === 'memory-detail')
+    return `${base}/memory/${encodeURIComponent(taskId || '')}`;
   return `${base}/gateway`;
 }
 
@@ -296,10 +320,18 @@ function memoryStatusLabel(item: MemoryRecord): string {
 
 function statusTone(status?: string): string {
   const normalized = (status || '').toLowerCase();
-  if (normalized === 'running' || normalized === 'completed' || normalized === 'connected') {
+  if (
+    normalized === 'running' ||
+    normalized === 'completed' ||
+    normalized === 'connected'
+  ) {
     return 'text-emerald-700';
   }
-  if (normalized === 'paused' || normalized === 'queued' || normalized === 'degraded') {
+  if (
+    normalized === 'paused' ||
+    normalized === 'queued' ||
+    normalized === 'degraded'
+  ) {
     return 'text-amber-700';
   }
   return 'text-rose-700';
@@ -307,8 +339,10 @@ function statusTone(status?: string): string {
 
 function guardianReasonLabel(reason?: string): string {
   if (!reason) return '无';
-  if (reason === 'resonance_disabled') return '共鸣层已关闭，自动触达进入静默等待';
-  if (reason === 'psyche_consult_unavailable') return '守门员离线，已自动降级为静默模式';
+  if (reason === 'resonance_disabled')
+    return '共鸣层已关闭，自动触达进入静默等待';
+  if (reason === 'psyche_consult_unavailable')
+    return '守门员离线，已自动降级为静默模式';
   return reason;
 }
 
@@ -318,7 +352,10 @@ function formatHubAge(ageMs?: number): string {
   return `${sec}s`;
 }
 
-function evidenceImageUrl(auditID?: string, slot: 'pre' | 'post' = 'pre'): string {
+function evidenceImageUrl(
+  auditID?: string,
+  slot: 'pre' | 'post' = 'pre',
+): string {
   if (!auditID) return '';
   const params = new URLSearchParams({
     auditID,
@@ -346,10 +383,16 @@ function formatDuration(startedAt?: string, endedAt?: string): string {
   return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
 }
 
-function taskStatusMeta(status: UiTaskStatus): { text: string; className: string } {
-  if (status === 'completed') return { text: '已完成', className: 'bg-emerald-500 text-white' };
-  if (status === 'running') return { text: '执行中', className: 'bg-sky-500 text-white' };
-  if (status === 'failed') return { text: '执行失败', className: 'bg-rose-500 text-white' };
+function taskStatusMeta(status: UiTaskStatus): {
+  text: string;
+  className: string;
+} {
+  if (status === 'completed')
+    return { text: '已完成', className: 'bg-emerald-500 text-white' };
+  if (status === 'running')
+    return { text: '执行中', className: 'bg-sky-500 text-white' };
+  if (status === 'failed')
+    return { text: '执行失败', className: 'bg-rose-500 text-white' };
   return { text: '已终止', className: 'bg-slate-400 text-white' };
 }
 
@@ -359,7 +402,10 @@ function normalizeTaskStatus(status: MiyaJobRun['status']): UiTaskStatus {
   return 'stopped';
 }
 
-async function invokeGateway(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+async function invokeGateway(
+  method: string,
+  params: Record<string, unknown> = {},
+): Promise<unknown> {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
   const reqId = `ui-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -444,15 +490,25 @@ export default function App() {
   const [successText, setSuccessText] = useState('');
   const [insightText, setInsightText] = useState('');
   const [view, setView] = useState<ControlView>(routeState.view);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(routeState.taskId);
-  const [selectedMemoryId, setSelectedMemoryId] = useState<string | undefined>(routeState.memoryId);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(
+    routeState.taskId,
+  );
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | undefined>(
+    routeState.memoryId,
+  );
   const [basePath, setBasePath] = useState(routeState.basePath);
   const [taskFilter, setTaskFilter] = useState<TaskStatusFilter>('all');
-  const [memoryStatusFilter, setMemoryStatusFilter] = useState<MemoryStatusFilter>('all');
-  const [memoryDomainFilter, setMemoryDomainFilter] = useState<MemoryDomainFilter>('all');
+  const [memoryStatusFilter, setMemoryStatusFilter] =
+    useState<MemoryStatusFilter>('all');
+  const [memoryDomainFilter, setMemoryDomainFilter] =
+    useState<MemoryDomainFilter>('all');
   const [memoryEditText, setMemoryEditText] = useState('');
-  const [identityMode, setIdentityMode] = useState<'owner' | 'guest' | 'unknown'>('unknown');
-  const [expandedTaskLogs, setExpandedTaskLogs] = useState<Record<string, boolean>>({});
+  const [identityMode, setIdentityMode] = useState<
+    'owner' | 'guest' | 'unknown'
+  >('unknown');
+  const [expandedTaskLogs, setExpandedTaskLogs] = useState<
+    Record<string, boolean>
+  >({});
   const [trustModeForm, setTrustModeForm] = useState<TrustModeConfig>({
     silentMin: 90,
     modalMax: 50,
@@ -478,15 +534,18 @@ export default function App() {
       const status = (await statusRes.json()) as GatewaySnapshot;
       setSnapshot(status);
       const rpcErrors: string[] = [];
-      const [domainsResult, jobsResult, runsResult, identityResult] = await Promise.allSettled([
-        invokeGateway('policy.domains.list'),
-        invokeGateway('cron.list'),
-        invokeGateway('cron.runs.list', { limit: 80 }),
-        invokeGateway('security.identity.status'),
-      ]);
+      const [domainsResult, jobsResult, runsResult, identityResult] =
+        await Promise.allSettled([
+          invokeGateway('policy.domains.list'),
+          invokeGateway('cron.list'),
+          invokeGateway('cron.runs.list', { limit: 80 }),
+          invokeGateway('security.identity.status'),
+        ]);
 
       if (domainsResult.status === 'fulfilled') {
-        const rows = (domainsResult.value as { domains?: PolicyDomainRow[] }).domains ?? [];
+        const rows =
+          (domainsResult.value as { domains?: PolicyDomainRow[] }).domains ??
+          [];
         setDomains(rows);
       } else {
         rpcErrors.push(
@@ -496,7 +555,11 @@ export default function App() {
         );
       }
       if (jobsResult.status === 'fulfilled') {
-        setJobs(Array.isArray(jobsResult.value) ? (jobsResult.value as MiyaJob[]) : []);
+        setJobs(
+          Array.isArray(jobsResult.value)
+            ? (jobsResult.value as MiyaJob[])
+            : [],
+        );
       } else {
         rpcErrors.push(
           jobsResult.reason instanceof Error
@@ -505,7 +568,11 @@ export default function App() {
         );
       }
       if (runsResult.status === 'fulfilled') {
-        setTaskRuns(Array.isArray(runsResult.value) ? (runsResult.value as MiyaJobRun[]) : []);
+        setTaskRuns(
+          Array.isArray(runsResult.value)
+            ? (runsResult.value as MiyaJobRun[])
+            : [],
+        );
       } else {
         rpcErrors.push(
           runsResult.reason instanceof Error
@@ -515,9 +582,13 @@ export default function App() {
       }
       let resolvedIdentityMode: 'owner' | 'guest' | 'unknown' = identityMode;
       if (identityResult.status === 'fulfilled') {
-        const modeRaw = String((identityResult.value as { mode?: string }).mode ?? 'unknown');
+        const modeRaw = String(
+          (identityResult.value as { mode?: string }).mode ?? 'unknown',
+        );
         const mode =
-          modeRaw === 'owner' || modeRaw === 'guest' || modeRaw === 'unknown' ? modeRaw : 'unknown';
+          modeRaw === 'owner' || modeRaw === 'guest' || modeRaw === 'unknown'
+            ? modeRaw
+            : 'unknown';
         resolvedIdentityMode = mode;
         setIdentityMode(mode);
       } else {
@@ -528,13 +599,20 @@ export default function App() {
         );
       }
       const shouldLoadMemory =
-        view === 'memory-list' || view === 'memory-detail' || resolvedIdentityMode === 'owner';
+        view === 'memory-list' ||
+        view === 'memory-detail' ||
+        resolvedIdentityMode === 'owner';
       if (shouldLoadMemory) {
         try {
-          const memoryRows = (await invokeGateway('companion.memory.vector.list')) as unknown;
-          setMemories(Array.isArray(memoryRows) ? (memoryRows as MemoryRecord[]) : []);
+          const memoryRows = (await invokeGateway(
+            'companion.memory.vector.list',
+          )) as unknown;
+          setMemories(
+            Array.isArray(memoryRows) ? (memoryRows as MemoryRecord[]) : [],
+          );
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           if (!message.includes('owner_mode_required')) {
             rpcErrors.push(message);
           }
@@ -543,7 +621,9 @@ export default function App() {
       } else {
         setMemories([]);
       }
-      const tokenError = rpcErrors.find((item) => item.includes('invalid_gateway_token'));
+      const tokenError = rpcErrors.find((item) =>
+        item.includes('invalid_gateway_token'),
+      );
       setConnected(Boolean(status.daemon?.connected) && !tokenError);
       const incomingMode = status.nexus?.trustMode;
       if (incomingMode) {
@@ -562,7 +642,7 @@ export default function App() {
       setConnected(false);
       setErrorText(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [identityMode, view]);
 
   useEffect(() => {
     void refresh();
@@ -582,13 +662,15 @@ export default function App() {
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [identityMode, view]);
+  }, []);
 
   const navigate = useCallback(
     (nextView: ControlView, id?: string) => {
       const nextPath = buildRoute(basePath, nextView, id);
       const nextUrl = `${nextPath}${location.search || ''}${location.hash || ''}`;
-      if (nextUrl !== `${location.pathname}${location.search}${location.hash}`) {
+      if (
+        nextUrl !== `${location.pathname}${location.search}${location.hash}`
+      ) {
         history.pushState({}, '', nextUrl);
       }
       setView(nextView);
@@ -644,7 +726,8 @@ export default function App() {
     const records: TaskRecord[] = taskRuns.map((run) => ({
       id: run.id,
       jobId: run.jobId,
-      title: run.jobName || jobNameMap.get(run.jobId) || run.jobId || '未命名任务',
+      title:
+        run.jobName || jobNameMap.get(run.jobId) || run.jobId || '未命名任务',
       trigger: run.trigger,
       startedAt: run.startedAt,
       endedAt: run.endedAt,
@@ -657,7 +740,12 @@ export default function App() {
     }));
 
     const activeJobID = snapshot.daemon?.activeJobID;
-    if (activeJobID && !records.some((item) => item.jobId === activeJobID && item.status === 'running')) {
+    if (
+      activeJobID &&
+      !records.some(
+        (item) => item.jobId === activeJobID && item.status === 'running',
+      )
+    ) {
       records.unshift({
         id: `live-${activeJobID}`,
         jobId: activeJobID,
@@ -674,7 +762,10 @@ export default function App() {
   }, [jobNameMap, snapshot.daemon?.activeJobID, snapshot.updatedAt, taskRuns]);
 
   const filteredTaskRecords = useMemo(
-    () => taskRecords.filter((item) => (taskFilter === 'all' ? true : item.status === taskFilter)),
+    () =>
+      taskRecords.filter((item) =>
+        taskFilter === 'all' ? true : item.status === taskFilter,
+      ),
     [taskFilter, taskRecords],
   );
 
@@ -696,7 +787,10 @@ export default function App() {
   const memoryRecords = useMemo(
     () =>
       memories.filter((item) => {
-        const domainOk = memoryDomainFilter === 'all' ? true : item.domain === memoryDomainFilter;
+        const domainOk =
+          memoryDomainFilter === 'all'
+            ? true
+            : item.domain === memoryDomainFilter;
         const statusOk =
           memoryStatusFilter === 'all'
             ? true
@@ -715,9 +809,12 @@ export default function App() {
 
   useEffect(() => {
     setMemoryEditText(selectedMemory?.text ?? '');
-  }, [selectedMemory?.id, selectedMemory?.text]);
+  }, [selectedMemory?.text]);
 
-  const runAction = async (task: () => Promise<unknown>, successMessage: string) => {
+  const runAction = async (
+    task: () => Promise<unknown>,
+    successMessage: string,
+  ) => {
     setLoading(true);
     setSuccessText('');
     try {
@@ -733,12 +830,17 @@ export default function App() {
 
   const setKillSwitchMode = async (mode: KillSwitchMode) => {
     if (mode === 'all_stop') {
-      const confirmed = window.confirm('这会立即停止外发和桌面控制。确定继续吗？');
+      const confirmed = window.confirm(
+        '这会立即停止外发和桌面控制。确定继续吗？',
+      );
       if (!confirmed) return;
     }
-    await runAction(async () => {
-      await invokeGateway('killswitch.set_mode', { mode });
-    }, `已切换为：${killSwitchLabel(mode)}`);
+    await runAction(
+      async () => {
+        await invokeGateway('killswitch.set_mode', { mode });
+      },
+      `已切换为：${killSwitchLabel(mode)}`,
+    );
   };
 
   const rerunTask = async (task: TaskRecord) => {
@@ -789,7 +891,9 @@ export default function App() {
       stderr: task.stderr ?? '',
       exportedAt: new Date().toISOString(),
     };
-    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' });
+    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], {
+      type: 'application/json',
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -829,13 +933,16 @@ export default function App() {
       setErrorText('缺少策略哈希，无法归档记忆，请刷新后重试。');
       return;
     }
-    await runAction(async () => {
-      await invokeGateway('companion.memory.archive', {
-        policyHash,
-        memoryID: selectedMemory.id,
-        archived,
-      });
-    }, archived ? '记忆已归档' : '记忆已恢复');
+    await runAction(
+      async () => {
+        await invokeGateway('companion.memory.archive', {
+          policyHash,
+          memoryID: selectedMemory.id,
+          archived,
+        });
+      },
+      archived ? '记忆已归档' : '记忆已恢复',
+    );
   };
 
   const confirmPendingMemory = async () => {
@@ -855,7 +962,8 @@ export default function App() {
     }, '待确认记忆已转为生效');
   };
 
-  const panelClass = 'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
+  const panelClass =
+    'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm';
 
   return (
     <div className="min-h-screen bg-[#dfe7ec] text-slate-700">
@@ -863,7 +971,9 @@ export default function App() {
         <aside className="hidden w-[300px] shrink-0 flex-col rounded-3xl border border-slate-200 bg-[#f4f8fb] shadow-sm lg:flex">
           <div className="border-b border-slate-200 p-6">
             <p className="text-4xl leading-none">M</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-wide text-slate-800">Miya</h1>
+            <h1 className="mt-2 text-3xl font-semibold tracking-wide text-slate-800">
+              Miya
+            </h1>
             <p className="mt-1 text-sm text-slate-500">控制台</p>
           </div>
           <nav className="space-y-1 px-3 py-4 text-base">
@@ -875,8 +985,10 @@ export default function App() {
             ].map((item) => {
               const active =
                 (view === 'modules' && item.key === 'modules') ||
-                ((view === 'tasks-list' || view === 'tasks-detail') && item.key === 'tasks') ||
-                ((view === 'memory-list' || view === 'memory-detail') && item.key === 'memory') ||
+                ((view === 'tasks-list' || view === 'tasks-detail') &&
+                  item.key === 'tasks') ||
+                ((view === 'memory-list' || view === 'memory-detail') &&
+                  item.key === 'memory') ||
                 (view === 'gateway' && item.key === 'gateway');
               return (
                 <button
@@ -905,12 +1017,18 @@ export default function App() {
           <header className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-4">
-                <p className="rounded-lg bg-slate-100 px-3 py-2 text-xl font-semibold text-slate-800">default</p>
+                <p className="rounded-lg bg-slate-100 px-3 py-2 text-xl font-semibold text-slate-800">
+                  default
+                </p>
                 <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <span className={`h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                  <span
+                    className={`h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                  />
                   <span>{connected ? '运行中' : '已降级'}</span>
                 </div>
-                <p className="text-sm text-slate-500">{snapshot.nodes?.connected ?? 0} 端点</p>
+                <p className="text-sm text-slate-500">
+                  {snapshot.nodes?.connected ?? 0} 端点
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -920,14 +1038,22 @@ export default function App() {
                 >
                   刷新
                 </button>
-                <span className={`rounded-full px-3 py-1 text-xs ${connected ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs ${connected ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}
+                >
                   {connected ? '系统在线' : '系统降级'}
                 </span>
               </div>
             </div>
-            {errorText ? <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">错误：{errorText}</p> : null}
+            {errorText ? (
+              <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                错误：{errorText}
+              </p>
+            ) : null}
             {successText ? (
-              <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">成功：{successText}</p>
+              <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                成功：{successText}
+              </p>
             ) : null}
           </header>
 
@@ -940,8 +1066,10 @@ export default function App() {
             ].map((item) => {
               const active =
                 (view === 'modules' && item.key === 'modules') ||
-                ((view === 'tasks-list' || view === 'tasks-detail') && item.key === 'tasks') ||
-                ((view === 'memory-list' || view === 'memory-detail') && item.key === 'memory') ||
+                ((view === 'tasks-list' || view === 'tasks-detail') &&
+                  item.key === 'tasks') ||
+                ((view === 'memory-list' || view === 'memory-detail') &&
+                  item.key === 'memory') ||
                 (view === 'gateway' && item.key === 'gateway');
               return (
                 <button
@@ -965,13 +1093,19 @@ export default function App() {
             <section className={panelClass}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-3xl font-semibold text-slate-800">任务管理</h2>
-                  <p className="mt-2 text-sm text-slate-500">查看与管理所有执行过的任务记录，点击任务查看详情。</p>
+                  <h2 className="text-3xl font-semibold text-slate-800">
+                    任务管理
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-500">
+                    查看与管理所有执行过的任务记录，点击任务查看详情。
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <select
                     value={taskFilter}
-                    onChange={(event) => setTaskFilter(event.target.value as TaskStatusFilter)}
+                    onChange={(event) =>
+                      setTaskFilter(event.target.value as TaskStatusFilter)
+                    }
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
                   >
                     <option value="all">全部状态</option>
@@ -991,7 +1125,9 @@ export default function App() {
               </div>
               <div className="mt-4 space-y-3">
                 {filteredTaskRecords.length === 0 ? (
-                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">暂无任务记录</p>
+                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
+                    暂无任务记录
+                  </p>
                 ) : (
                   filteredTaskRecords.map((task) => {
                     const statusMeta = taskStatusMeta(task.status);
@@ -1003,11 +1139,20 @@ export default function App() {
                         className="flex w-full cursor-pointer flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-left transition hover:border-sky-200 hover:bg-sky-50 md:flex-row md:items-center"
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-lg font-semibold text-slate-800">{task.title}</p>
-                          <p className="mt-1 text-xs text-slate-600">{formatDateTime(task.startedAt)} · 耗时 {task.durationText}</p>
-                          <p className="mt-1 text-xs text-slate-500">{task.sourceText}</p>
+                          <p className="truncate text-lg font-semibold text-slate-800">
+                            {task.title}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {formatDateTime(task.startedAt)} · 耗时{' '}
+                            {task.durationText}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {task.sourceText}
+                          </p>
                         </div>
-                        <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${statusMeta.className}`}>
+                        <span
+                          className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${statusMeta.className}`}
+                        >
                           {statusMeta.text}
                         </span>
                         <span className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700">
@@ -1032,50 +1177,77 @@ export default function App() {
                   {'< 返回任务列表'}
                 </button>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <h2 className="text-3xl font-semibold text-slate-800">{selectedTask?.title || '任务详情'}</h2>
+                  <h2 className="text-3xl font-semibold text-slate-800">
+                    {selectedTask?.title || '任务详情'}
+                  </h2>
                   {selectedTask ? (
-                    <span className={`rounded-full px-3 py-1 text-xs ${taskStatusMeta(selectedTask.status).className}`}>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs ${taskStatusMeta(selectedTask.status).className}`}
+                    >
                       {taskStatusMeta(selectedTask.status).text}
                     </span>
                   ) : null}
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  开始：{formatDateTime(selectedTask?.startedAt)} · 结束：{formatDateTime(selectedTask?.endedAt)} · 总时长：{selectedTask?.durationText || '-'} · 触发：{selectedTask?.trigger || '-'}
+                  开始：{formatDateTime(selectedTask?.startedAt)} · 结束：
+                  {formatDateTime(selectedTask?.endedAt)} · 总时长：
+                  {selectedTask?.durationText || '-'} · 触发：
+                  {selectedTask?.trigger || '-'}
                 </p>
               </article>
               {!selectedTask ? (
                 <article className={panelClass}>
-                  <p className="text-sm text-slate-500">该任务不存在或已被清理，请返回列表刷新后重试。</p>
+                  <p className="text-sm text-slate-500">
+                    该任务不存在或已被清理，请返回列表刷新后重试。
+                  </p>
                 </article>
               ) : (
                 <>
                   <article className={panelClass}>
-                    <h3 className="text-base font-semibold text-slate-800">任务进度</h3>
+                    <h3 className="text-base font-semibold text-slate-800">
+                      任务进度
+                    </h3>
                     <div className="mt-3 h-2 w-full rounded-full bg-slate-200">
-                      <div className="h-2 rounded-full bg-sky-500" style={{ width: `${selectedTaskProgress}%` }} />
+                      <div
+                        className="h-2 rounded-full bg-sky-500"
+                        style={{ width: `${selectedTaskProgress}%` }}
+                      />
                     </div>
-                    <p className="mt-2 text-xs text-slate-500">当前完成度：{selectedTaskProgress}%</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      当前完成度：{selectedTaskProgress}%
+                    </p>
                   </article>
                   <article className={panelClass}>
-                    <h3 className="text-base font-semibold text-slate-800">执行日志与错误信息</h3>
+                    <h3 className="text-base font-semibold text-slate-800">
+                      执行日志与错误信息
+                    </h3>
                     <div className="mt-3 space-y-2">
                       {selectedTask.stderr ? (
                         <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
-                          <p className="text-xs font-medium text-rose-700">错误日志</p>
+                          <p className="text-xs font-medium text-rose-700">
+                            错误日志
+                          </p>
                           <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-rose-700">
-                            {expandedTaskLogs[selectedTask.id] ? selectedTask.stderr : selectedTask.stderr.slice(0, 600)}
+                            {expandedTaskLogs[selectedTask.id]
+                              ? selectedTask.stderr
+                              : selectedTask.stderr.slice(0, 600)}
                           </pre>
                         </div>
                       ) : null}
                       {selectedTask.stdout ? (
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-xs font-medium text-slate-700">普通日志</p>
+                          <p className="text-xs font-medium text-slate-700">
+                            普通日志
+                          </p>
                           <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
-                            {expandedTaskLogs[selectedTask.id] ? selectedTask.stdout : selectedTask.stdout.slice(0, 600)}
+                            {expandedTaskLogs[selectedTask.id]
+                              ? selectedTask.stdout
+                              : selectedTask.stdout.slice(0, 600)}
                           </pre>
                         </div>
                       ) : null}
-                      {(selectedTask.stdout?.length || 0) > 600 || (selectedTask.stderr?.length || 0) > 600 ? (
+                      {(selectedTask.stdout?.length || 0) > 600 ||
+                      (selectedTask.stderr?.length || 0) > 600 ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -1086,31 +1258,62 @@ export default function App() {
                           }
                           className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
                         >
-                          {expandedTaskLogs[selectedTask.id] ? '折叠日志' : '展开日志'}
+                          {expandedTaskLogs[selectedTask.id]
+                            ? '折叠日志'
+                            : '展开日志'}
                         </button>
                       ) : null}
                     </div>
                   </article>
                   <article className={panelClass}>
-                    <h3 className="text-base font-semibold text-slate-800">获得的经验与习惯</h3>
+                    <h3 className="text-base font-semibold text-slate-800">
+                      获得的经验与习惯
+                    </h3>
                     <div className="mt-3 space-y-2 text-sm text-slate-700">
-                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">任务来源：<span className="font-medium">{selectedTask.trigger}</span>，建议后续同类任务保持相同触发方式。</p>
-                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">执行表现：<span className="font-medium">{taskStatusMeta(selectedTask.status).text}</span>，时长 {selectedTask.durationText}。</p>
+                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        任务来源：
+                        <span className="font-medium">
+                          {selectedTask.trigger}
+                        </span>
+                        ，建议后续同类任务保持相同触发方式。
+                      </p>
+                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        执行表现：
+                        <span className="font-medium">
+                          {taskStatusMeta(selectedTask.status).text}
+                        </span>
+                        ，时长 {selectedTask.durationText}。
+                      </p>
                     </div>
                   </article>
                   <article className={panelClass}>
-                    <h3 className="text-base font-semibold text-slate-800">记忆写入记录</h3>
-                    <p className="mt-2 text-xs text-slate-500">当前网关未提供单任务记忆写入明细接口，以下基于系统时间线生成摘要。</p>
+                    <h3 className="text-base font-semibold text-slate-800">
+                      记忆写入记录
+                    </h3>
+                    <p className="mt-2 text-xs text-slate-500">
+                      当前网关未提供单任务记忆写入明细接口，以下基于系统时间线生成摘要。
+                    </p>
                     <div className="mt-3 space-y-2 text-xs">
-                      {(snapshot.nexus?.insights || []).slice(0, 5).map((item, index) => (
-                        <div key={`${item.at || 'insight'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                          <div className="flex items-center gap-2">
-                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">更新</span>
-                            <span className="text-slate-500">{formatDateTime(item.at)}</span>
+                      {(snapshot.nexus?.insights || [])
+                        .slice(0, 5)
+                        .map((item, index) => (
+                          <div
+                            key={`${item.at || 'insight'}-${index}`}
+                            className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">
+                                更新
+                              </span>
+                              <span className="text-slate-500">
+                                {formatDateTime(item.at)}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-slate-700">
+                              {item.text || '无内容'}
+                            </p>
                           </div>
-                          <p className="mt-1 text-slate-700">{item.text || '无内容'}</p>
-                        </div>
-                      ))}
+                        ))}
                     </div>
                   </article>
                   <article className={`${panelClass} flex flex-wrap gap-2`}>
@@ -1145,13 +1348,21 @@ export default function App() {
             <section className={panelClass}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-3xl font-semibold text-slate-800">记忆中心</h2>
-                  <p className="mt-2 text-sm text-slate-500">查看、分类与检索已写入记忆，支持跳转到详情编辑。</p>
+                  <h2 className="text-3xl font-semibold text-slate-800">
+                    记忆中心
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-500">
+                    查看、分类与检索已写入记忆，支持跳转到详情编辑。
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     value={memoryDomainFilter}
-                    onChange={(event) => setMemoryDomainFilter(event.target.value as MemoryDomainFilter)}
+                    onChange={(event) =>
+                      setMemoryDomainFilter(
+                        event.target.value as MemoryDomainFilter,
+                      )
+                    }
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
                   >
                     <option value="all">全部域</option>
@@ -1160,7 +1371,11 @@ export default function App() {
                   </select>
                   <select
                     value={memoryStatusFilter}
-                    onChange={(event) => setMemoryStatusFilter(event.target.value as MemoryStatusFilter)}
+                    onChange={(event) =>
+                      setMemoryStatusFilter(
+                        event.target.value as MemoryStatusFilter,
+                      )
+                    }
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
                   >
                     <option value="all">全部状态</option>
@@ -1173,20 +1388,39 @@ export default function App() {
               </div>
               {identityMode !== 'owner' ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  当前身份：{identityMode}。记忆编辑仅在 Owner 模式下可用；可先完成 `security.identity.init`。
+                  当前身份：{identityMode}。记忆编辑仅在 Owner
+                  模式下可用；可先完成 `security.identity.init`。
                 </p>
               ) : null}
               <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
                 {[
                   { key: 'all', label: '全部', count: memories.length },
-                  { key: 'active', label: '生效中', count: memories.filter((m) => m.status === 'active' && !m.isArchived).length },
-                  { key: 'pending', label: '待确认', count: memories.filter((m) => m.status === 'pending' && !m.isArchived).length },
-                  { key: 'archived', label: '已归档', count: memories.filter((m) => m.isArchived).length },
+                  {
+                    key: 'active',
+                    label: '生效中',
+                    count: memories.filter(
+                      (m) => m.status === 'active' && !m.isArchived,
+                    ).length,
+                  },
+                  {
+                    key: 'pending',
+                    label: '待确认',
+                    count: memories.filter(
+                      (m) => m.status === 'pending' && !m.isArchived,
+                    ).length,
+                  },
+                  {
+                    key: 'archived',
+                    label: '已归档',
+                    count: memories.filter((m) => m.isArchived).length,
+                  },
                 ].map((item) => (
                   <button
                     key={item.key}
                     type="button"
-                    onClick={() => setMemoryStatusFilter(item.key as MemoryStatusFilter)}
+                    onClick={() =>
+                      setMemoryStatusFilter(item.key as MemoryStatusFilter)
+                    }
                     className={`rounded-xl border px-3 py-2 text-left text-xs ${memoryStatusFilter === item.key ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600'}`}
                   >
                     <p>{item.label}</p>
@@ -1196,7 +1430,9 @@ export default function App() {
               </div>
               <div className="mt-4 space-y-2">
                 {memoryRecords.length === 0 ? (
-                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">当前筛选下暂无记忆。</p>
+                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
+                    当前筛选下暂无记忆。
+                  </p>
                 ) : (
                   memoryRecords.map((item) => (
                     <button
@@ -1206,13 +1442,29 @@ export default function App() {
                       className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left hover:border-sky-200 hover:bg-sky-50"
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{memoryDomainLabel(item.domain)}</span>
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{memoryStatusLabel(item)}</span>
-                        {item.semanticLayer ? <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">{item.semanticLayer}</span> : null}
-                        {item.memoryKind ? <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700">{item.memoryKind}</span> : null}
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                          {memoryDomainLabel(item.domain)}
+                        </span>
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                          {memoryStatusLabel(item)}
+                        </span>
+                        {item.semanticLayer ? (
+                          <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">
+                            {item.semanticLayer}
+                          </span>
+                        ) : null}
+                        {item.memoryKind ? (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                            {item.memoryKind}
+                          </span>
+                        ) : null}
                       </div>
-                      <p className="mt-2 line-clamp-2 text-sm text-slate-700">{item.text}</p>
-                      <p className="mt-1 text-[11px] text-slate-500">更新时间：{formatDateTime(item.updatedAt)}</p>
+                      <p className="mt-2 line-clamp-2 text-sm text-slate-700">
+                        {item.text}
+                      </p>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        更新时间：{formatDateTime(item.updatedAt)}
+                      </p>
                     </button>
                   ))
                 )}
@@ -1231,20 +1483,32 @@ export default function App() {
                   {'< 返回记忆列表'}
                 </button>
                 {!selectedMemory ? (
-                  <p className="mt-3 text-sm text-slate-500">该记忆不存在或已被清理，请返回刷新。</p>
+                  <p className="mt-3 text-sm text-slate-500">
+                    该记忆不存在或已被清理，请返回刷新。
+                  </p>
                 ) : (
                   <>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <h2 className="text-2xl font-semibold text-slate-800">记忆详情</h2>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">{memoryDomainLabel(selectedMemory.domain)}</span>
-                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">{memoryStatusLabel(selectedMemory)}</span>
+                      <h2 className="text-2xl font-semibold text-slate-800">
+                        记忆详情
+                      </h2>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                        {memoryDomainLabel(selectedMemory.domain)}
+                      </span>
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                        {memoryStatusLabel(selectedMemory)}
+                      </span>
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
-                      ID: {selectedMemory.id} · 创建：{formatDateTime(selectedMemory.createdAt)} · 最近访问：{formatDateTime(selectedMemory.lastAccessedAt)}
+                      ID: {selectedMemory.id} · 创建：
+                      {formatDateTime(selectedMemory.createdAt)} · 最近访问：
+                      {formatDateTime(selectedMemory.lastAccessedAt)}
                     </p>
                     <textarea
                       value={memoryEditText}
-                      onChange={(event) => setMemoryEditText(event.target.value)}
+                      onChange={(event) =>
+                        setMemoryEditText(event.target.value)
+                      }
                       className="mt-3 min-h-[140px] w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700"
                     />
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1269,7 +1533,9 @@ export default function App() {
                       <button
                         type="button"
                         disabled={loading}
-                        onClick={() => void archiveMemory(!selectedMemory.isArchived)}
+                        onClick={() =>
+                          void archiveMemory(!selectedMemory.isArchived)
+                        }
                         className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
                       >
                         {selectedMemory.isArchived ? '取消归档' : '归档'}
@@ -1284,36 +1550,65 @@ export default function App() {
           {view === 'gateway' ? (
             <section className="space-y-4">
               <article className={panelClass}>
-                <h2 className="text-3xl font-semibold text-slate-800">网关与运行态</h2>
-                <p className="mt-2 text-sm text-slate-500">集中查看 Gateway/Daemon/节点与证据，减少控制中心信息拥挤。</p>
+                <h2 className="text-3xl font-semibold text-slate-800">
+                  网关与运行态
+                </h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  集中查看 Gateway/Daemon/节点与证据，减少控制中心信息拥挤。
+                </p>
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
                     <p>Gateway 状态：{snapshot.gateway?.status ?? 'unknown'}</p>
                     <p className="mt-1">URL：{snapshot.gateway?.url ?? '-'}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
-                    <p>Daemon：{snapshot.daemon?.connected ? 'connected' : 'disconnected'}</p>
-                    <p className="mt-1">CPU：{(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}%</p>
+                    <p>
+                      Daemon：
+                      {snapshot.daemon?.connected
+                        ? 'connected'
+                        : 'disconnected'}
+                    </p>
+                    <p className="mt-1">
+                      CPU：{(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}%
+                    </p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
-                    <p>节点：{snapshot.nodes?.connected ?? 0}/{snapshot.nodes?.total ?? 0}</p>
-                    <p className="mt-1">策略哈希：{snapshot.policyHash ?? '-'}</p>
+                    <p>
+                      节点：{snapshot.nodes?.connected ?? 0}/
+                      {snapshot.nodes?.total ?? 0}
+                    </p>
+                    <p className="mt-1">
+                      策略哈希：{snapshot.policyHash ?? '-'}
+                    </p>
                   </div>
                 </div>
               </article>
               <article className={panelClass}>
-                <h3 className="text-base font-semibold text-slate-800">节点状态</h3>
+                <h3 className="text-base font-semibold text-slate-800">
+                  节点状态
+                </h3>
                 <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
                   {(snapshot.nodes?.list ?? []).map((node, index) => (
                     <div
-                      key={node.id ?? `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`}
+                      key={
+                        node.id ??
+                        `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`
+                      }
                       className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
                     >
-                      <p className="font-medium">{node.label || node.id || '未命名节点'}</p>
-                      <p className={node.connected ? 'text-emerald-700' : 'text-rose-700'}>
+                      <p className="font-medium">
+                        {node.label || node.id || '未命名节点'}
+                      </p>
+                      <p
+                        className={
+                          node.connected ? 'text-emerald-700' : 'text-rose-700'
+                        }
+                      >
                         {node.connected ? '在线' : '离线'}
                       </p>
-                      <p className="text-slate-500">平台：{node.platform || '未知'}</p>
+                      <p className="text-slate-500">
+                        平台：{node.platform || '未知'}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -1322,423 +1617,573 @@ export default function App() {
           ) : null}
 
           <div className={view === 'modules' ? 'space-y-4' : 'hidden'}>
-          <section className={`${panelClass}`}>
-            <h2 className="text-3xl font-semibold text-slate-800">模块管理</h2>
-            <p className="mt-2 text-sm text-slate-500">管理控制面板与安全模块。先看状态，再操作，再写入时间线。</p>
-            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
-              {quickStats.map((item) => (
-                <article key={item.title} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                  <p className="text-xs text-slate-500">{item.title}</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-800">{item.value}</p>
-                  <p className="mt-1 text-xs text-slate-600">{item.desc}</p>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <article className={panelClass}>
-              <h2 className="text-base font-semibold text-slate-800">Psyche Signal Hub</h2>
-              {signalHub ? (
-                <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                    <p>运行状态：{signalHub.running ? 'running' : 'stopped'}</p>
-                    <p>序号：{signalHub.sequence ?? '-'}</p>
-                    <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
-                    <p>过期：{signalHub.stale ? 'yes' : 'no'}</p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                    <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
-                    <p>采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms</p>
-                    <p>突发间隔：{signalHub.burstIntervalMs ?? '-'}ms</p>
-                    <p>过期阈值：{signalHub.staleAfterMs ?? '-'}ms</p>
-                  </div>
-                  {signalHub.lastError ? <p className="text-rose-700 md:col-span-2">lastError: {signalHub.lastError}</p> : null}
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-amber-700">未收到 daemon signal hub 指标。</p>
-              )}
-            </article>
-          </section>
-
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <article className={panelClass}>
-            <h2 className="text-sm font-semibold">安全总开关（紧急开关）</h2>
-            <p className="mt-1 text-xs text-slate-500">当前模式：{killSwitchLabel(killSwitchMode)}</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {([
-                { mode: 'off', text: '正常运行', hint: '外发和桌控都可用' },
-                { mode: 'outbound_only', text: '暂停外发', hint: '停止发送消息，但保留桌控' },
-                { mode: 'desktop_only', text: '暂停桌控', hint: '禁止鼠标键盘自动操作' },
-                { mode: 'all_stop', text: '全部停止', hint: '紧急止损，全部停机' },
-              ] as Array<{ mode: KillSwitchMode; text: string; hint: string }>).map((item) => (
-                <button
-                  key={item.mode}
-                  type="button"
-                  disabled={loading}
-                  onClick={() => void setKillSwitchMode(item.mode)}
-                  className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}
-                >
-                  <p className="font-medium">{item.text}</p>
-                  <p className="mt-1 text-[11px] text-slate-500">{item.hint}</p>
-                </button>
-              ))}
-            </div>
-          </article>
-
-          <article className={panelClass}>
-            <h2 className="text-sm font-semibold">信任阈值（审批疲劳优化）</h2>
-            <p className="mt-1 text-xs text-slate-500">分数高于静默阈值可自动放行，低于阻断阈值必须人工确认。</p>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <label className="flex flex-col gap-1">
-                <span>静默阈值（推荐 90）</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={trustModeForm.silentMin}
-                  onChange={(event) =>
-                    setTrustModeForm((prev) => ({ ...prev, silentMin: Number(event.target.value) }))
-                  }
-                  className="rounded border border-slate-300 bg-white px-2 py-1"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span>阻断阈值（推荐 50）</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={trustModeForm.modalMax}
-                  onChange={(event) =>
-                    setTrustModeForm((prev) => ({ ...prev, modalMax: Number(event.target.value) }))
-                  }
-                  className="rounded border border-slate-300 bg-white px-2 py-1"
-                />
-              </label>
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() =>
-                  void runAction(async () => {
-                    await invokeGateway('trust.set_mode', trustModeForm as unknown as Record<string, unknown>);
-                  }, '信任阈值已保存')
-                }
-                className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
-              >
-                保存
-              </button>
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => {
-                  setTrustModeForm({ silentMin: 90, modalMax: 50 });
-                }}
-                className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
-              >
-                恢复推荐值
-              </button>
-            </div>
-            {trust ? (
-              <p className="mt-2 text-xs text-slate-500">
-                当前信任：{trust.minScore}（{trustTierLabel(trust.tier)}）/ 目标 {trust.target}，来源 {trust.source}，动作 {trust.action}
+            <section className={`${panelClass}`}>
+              <h2 className="text-3xl font-semibold text-slate-800">
+                模块管理
+              </h2>
+              <p className="mt-2 text-sm text-slate-500">
+                管理控制面板与安全模块。先看状态，再操作，再写入时间线。
               </p>
-            ) : null}
-          </article>
-
-          <article className={panelClass}>
-            <h2 className="text-sm font-semibold">守门员开关（新手推荐）</h2>
-            <p className="mt-1 text-xs text-slate-500">关闭共鸣层后，自动触达将进入静默等待；关闭截图核验后，系统不再做截图/VLM探测。</p>
-            <div className="mt-3 space-y-2 text-xs">
-              <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                <span>共鸣层（主动陪伴）</span>
-                <input
-                  type="checkbox"
-                  checked={psycheModeForm.resonanceEnabled}
-                  onChange={(event) =>
-                    setPsycheModeForm((prev) => ({ ...prev, resonanceEnabled: event.target.checked }))
-                  }
-                />
-              </label>
-              <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                <span>截图/VLM 核验</span>
-                <input
-                  type="checkbox"
-                  checked={psycheModeForm.captureProbeEnabled}
-                  onChange={(event) =>
-                    setPsycheModeForm((prev) => ({
-                      ...prev,
-                      captureProbeEnabled: event.target.checked,
-                    }))
-                  }
-                />
-              </label>
-              <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                <span>proactive_ping（主动问候）</span>
-                <input
-                  type="checkbox"
-                  checked={Boolean(psycheModeForm.proactivePingEnabled)}
-                  onChange={(event) =>
-                    setPsycheModeForm((prev) => ({
-                      ...prev,
-                      proactivePingEnabled: event.target.checked,
-                    }))
-                  }
-                />
-              </label>
-              <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                <span>quiet_hours（静默时段）</span>
-                <input
-                  type="checkbox"
-                  checked={Boolean(psycheModeForm.quietHoursEnabled)}
-                  onChange={(event) =>
-                    setPsycheModeForm((prev) => ({
-                      ...prev,
-                      quietHoursEnabled: event.target.checked,
-                    }))
-                  }
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                  <span>最小间隔（分钟）</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    value={psycheModeForm.proactivePingMinIntervalMinutes ?? 90}
-                    onChange={(event) =>
-                      setPsycheModeForm((prev) => ({
-                        ...prev,
-                        proactivePingMinIntervalMinutes: Number(event.target.value),
-                      }))
-                    }
-                    className="rounded border border-slate-300 bg-white px-2 py-1"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                  <span>每日上限</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={psycheModeForm.proactivePingMaxPerDay ?? 12}
-                    onChange={(event) =>
-                      setPsycheModeForm((prev) => ({
-                        ...prev,
-                        proactivePingMaxPerDay: Number(event.target.value),
-                      }))
-                    }
-                    className="rounded border border-slate-300 bg-white px-2 py-1"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                  <span>静默开始</span>
-                  <input
-                    type="time"
-                    value={psycheModeForm.quietHoursStart ?? '23:00'}
-                    onChange={(event) =>
-                      setPsycheModeForm((prev) => ({
-                        ...prev,
-                        quietHoursStart: event.target.value,
-                      }))
-                    }
-                    className="rounded border border-slate-300 bg-white px-2 py-1"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                  <span>静默结束</span>
-                  <input
-                    type="time"
-                    value={psycheModeForm.quietHoursEnd ?? '08:00'}
-                    onChange={(event) =>
-                      setPsycheModeForm((prev) => ({
-                        ...prev,
-                        quietHoursEnd: event.target.value,
-                      }))
-                    }
-                    className="rounded border border-slate-300 bg-white px-2 py-1"
-                  />
-                </label>
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
+                {quickStats.map((item) => (
+                  <article
+                    key={item.title}
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"
+                  >
+                    <p className="text-xs text-slate-500">{item.title}</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-800">
+                      {item.value}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">{item.desc}</p>
+                  </article>
+                ))}
               </div>
-            </div>
-            <p className="mt-2 text-[11px] text-slate-500">
-              当前降级原因：{guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}
-            </p>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() =>
-                  void runAction(async () => {
-                    await invokeGateway('psyche.mode.set', psycheModeForm as unknown as Record<string, unknown>);
-                  }, '守门员开关已保存')
-                }
-                className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
-              >
-                保存守门员设置
-              </button>
-            </div>
-          </article>
-        </section>
+            </section>
 
-        <section className="hidden grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <article className={panelClass}>
-            <h2 className="text-sm font-semibold">能力域状态</h2>
-            <p className="mt-1 text-xs text-slate-500">可直接暂停/恢复单个能力域。</p>
-            <div className="mt-3 space-y-2">
-              {domains.map((domain) => (
-                <div key={domain.domain} className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
-                  <div>
-                    <p className="font-medium">{domainLabel(domain.domain)}</p>
-                    <p className={statusTone(domain.status)}>{domain.status === 'running' ? '运行中' : '已暂停'}</p>
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <article className={panelClass}>
+                <h2 className="text-base font-semibold text-slate-800">
+                  Psyche Signal Hub
+                </h2>
+                {signalHub ? (
+                  <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                      <p>
+                        运行状态：{signalHub.running ? 'running' : 'stopped'}
+                      </p>
+                      <p>序号：{signalHub.sequence ?? '-'}</p>
+                      <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
+                      <p>过期：{signalHub.stale ? 'yes' : 'no'}</p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                      <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
+                      <p>采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms</p>
+                      <p>突发间隔：{signalHub.burstIntervalMs ?? '-'}ms</p>
+                      <p>过期阈值：{signalHub.staleAfterMs ?? '-'}ms</p>
+                    </div>
+                    {signalHub.lastError ? (
+                      <p className="text-rose-700 md:col-span-2">
+                        lastError: {signalHub.lastError}
+                      </p>
+                    ) : null}
                   </div>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-700">
+                    未收到 daemon signal hub 指标。
+                  </p>
+                )}
+              </article>
+            </section>
+
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  安全总开关（紧急开关）
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  当前模式：{killSwitchLabel(killSwitchMode)}
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      {
+                        mode: 'off',
+                        text: '正常运行',
+                        hint: '外发和桌控都可用',
+                      },
+                      {
+                        mode: 'outbound_only',
+                        text: '暂停外发',
+                        hint: '停止发送消息，但保留桌控',
+                      },
+                      {
+                        mode: 'desktop_only',
+                        text: '暂停桌控',
+                        hint: '禁止鼠标键盘自动操作',
+                      },
+                      {
+                        mode: 'all_stop',
+                        text: '全部停止',
+                        hint: '紧急止损，全部停机',
+                      },
+                    ] as Array<{
+                      mode: KillSwitchMode;
+                      text: string;
+                      hint: string;
+                    }>
+                  ).map((item) => (
+                    <button
+                      key={item.mode}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void setKillSwitchMode(item.mode)}
+                      className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}
+                    >
+                      <p className="font-medium">{item.text}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {item.hint}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </article>
+
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  信任阈值（审批疲劳优化）
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  分数高于静默阈值可自动放行，低于阻断阈值必须人工确认。
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <label className="flex flex-col gap-1">
+                    <span>静默阈值（推荐 90）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={trustModeForm.silentMin}
+                      onChange={(event) =>
+                        setTrustModeForm((prev) => ({
+                          ...prev,
+                          silentMin: Number(event.target.value),
+                        }))
+                      }
+                      className="rounded border border-slate-300 bg-white px-2 py-1"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span>阻断阈值（推荐 50）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={trustModeForm.modalMax}
+                      onChange={(event) =>
+                        setTrustModeForm((prev) => ({
+                          ...prev,
+                          modalMax: Number(event.target.value),
+                        }))
+                      }
+                      className="rounded border border-slate-300 bg-white px-2 py-1"
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 flex gap-2">
                   <button
                     type="button"
                     disabled={loading}
                     onClick={() =>
                       void runAction(async () => {
                         await invokeGateway(
-                          domain.status === 'running' ? 'policy.domain.pause' : 'policy.domain.resume',
-                          { domain: domain.domain },
+                          'trust.set_mode',
+                          trustModeForm as unknown as Record<string, unknown>,
                         );
-                      }, `${domainLabel(domain.domain)} 已${domain.status === 'running' ? '暂停' : '恢复'}`)
+                      }, '信任阈值已保存')
                     }
-                    className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
+                    className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
                   >
-                    {domain.status === 'running' ? '暂停' : '恢复'}
+                    保存
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => {
+                      setTrustModeForm({ silentMin: 90, modalMax: 50 });
+                    }}
+                    className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
+                  >
+                    恢复推荐值
                   </button>
                 </div>
-              ))}
-            </div>
-            <p className="mt-2 text-[11px] text-slate-500">策略哈希：{snapshot.policyHash ?? '暂无'}</p>
-          </article>
-
-          <article className={panelClass}>
-            <h2 className="text-sm font-semibold">节点状态</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              在线节点 {snapshot.nodes?.connected ?? 0} / {snapshot.nodes?.total ?? 0}
-            </p>
-            <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
-              {(snapshot.nodes?.list ?? []).map((node, index) => (
-                <div
-                  key={node.id ?? `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`}
-                  className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
-                >
-                  <p className="font-medium">{node.label || node.id || '未命名节点'}</p>
-                  <p className={node.connected ? 'text-emerald-700' : 'text-rose-700'}>
-                    {node.connected ? '在线' : '离线'}
+                {trust ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    当前信任：{trust.minScore}（{trustTierLabel(trust.tier)}）/
+                    目标 {trust.target}，来源 {trust.source}，动作{' '}
+                    {trust.action}
                   </p>
-                  <p className="text-slate-500">平台：{node.platform || '未知'}</p>
-                </div>
-              ))}
-            </div>
-          </article>
-        </section>
+                ) : null}
+              </article>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <article className={panelClass}>
-            <h2 className="text-sm font-semibold">最近任务执行</h2>
-            <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
-              {(snapshot.jobs?.recentRuns ?? []).map((run, index) => (
-                <div key={`${run.id ?? 'run'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                  <p className="font-medium">{run.id ?? '任务'}</p>
-                  <p className={statusTone(run.status)}>{run.status ?? '未知状态'}</p>
-                  <p className="text-slate-500">触发方式：{run.trigger ?? '手动'} / 更新时间：{run.updatedAt ?? '暂无'}</p>
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className={panelClass}>
-            <h2 className="text-sm font-semibold">系统时间线</h2>
-            <p className="mt-1 text-xs text-slate-500">人工干预后建议写一条备注，后续排障更快。</p>
-            <div className="mt-2 flex gap-2">
-              <input
-                value={insightText}
-                onChange={(event) => setInsightText(event.target.value)}
-                className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
-                placeholder="例如：已手工暂停外发，等本人确认。"
-              />
-              <button
-                type="button"
-                disabled={loading || !insightText.trim()}
-                onClick={() =>
-                  void runAction(async () => {
-                    await invokeGateway('insight.append', { text: insightText.trim() });
-                    setInsightText('');
-                  }, '备注已写入时间线')
-                }
-                className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
-              >
-                记录
-              </button>
-            </div>
-            <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
-              {(snapshot.nexus?.insights ?? []).map((item, index) => (
-                <div key={`${item.at ?? 'ins'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                  <p className="text-slate-700">{item.text ?? '无内容'}</p>
-                  <p className="text-slate-500">{item.at ?? '暂无'} {item.auditID ? `| ${item.auditID}` : ''}</p>
-                </div>
-              ))}
-            </div>
-          </article>
-        </section>
-
-        <section className="hidden grid grid-cols-1 gap-4">
-          <article className={panelClass}>
-            <h2 className="text-sm font-semibold">Evidence Pack V5（外发证据预览）</h2>
-            <p className="mt-1 text-xs text-slate-500">用于审批前快速核验：目标、发送状态、截图、限制项。</p>
-            <div className="mt-3 max-h-[28rem] space-y-3 overflow-auto pr-1">
-              {(snapshot.channels?.recentOutbound ?? []).slice(0, 10).map((row, index) => (
-                <div key={`${row.id ?? 'audit'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-medium">
-                      {row.channel ?? 'channel'}
-                      {' -> '}
-                      {row.destination ?? 'unknown'}
-                    </p>
-                    <span className={row.sent ? 'text-emerald-700' : 'text-rose-700'}>
-                      {row.sent ? '已发送' : '已阻断'}
-                    </span>
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  守门员开关（新手推荐）
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  关闭共鸣层后，自动触达将进入静默等待；关闭截图核验后，系统不再做截图/VLM探测。
+                </p>
+                <div className="mt-3 space-y-2 text-xs">
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>共鸣层（主动陪伴）</span>
+                    <input
+                      type="checkbox"
+                      checked={psycheModeForm.resonanceEnabled}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          resonanceEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>截图/VLM 核验</span>
+                    <input
+                      type="checkbox"
+                      checked={psycheModeForm.captureProbeEnabled}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          captureProbeEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>proactive_ping（主动问候）</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(psycheModeForm.proactivePingEnabled)}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          proactivePingEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>quiet_hours（静默时段）</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(psycheModeForm.quietHoursEnabled)}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          quietHoursEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>最小间隔（分钟）</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={1440}
+                        value={
+                          psycheModeForm.proactivePingMinIntervalMinutes ?? 90
+                        }
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            proactivePingMinIntervalMinutes: Number(
+                              event.target.value,
+                            ),
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>每日上限</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={psycheModeForm.proactivePingMaxPerDay ?? 12}
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            proactivePingMaxPerDay: Number(event.target.value),
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>静默开始</span>
+                      <input
+                        type="time"
+                        value={psycheModeForm.quietHoursStart ?? '23:00'}
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            quietHoursStart: event.target.value,
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>静默结束</span>
+                      <input
+                        type="time"
+                        value={psycheModeForm.quietHoursEnd ?? '08:00'}
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            quietHoursEnd: event.target.value,
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
                   </div>
-                  <p className="mt-1 text-slate-600">{row.message ?? '-'}</p>
-                  <p className="mt-1 text-slate-500">
-                    审计ID: {row.id ?? '-'} | 时间: {row.at ?? '-'} | 置信度: {typeof row.evidenceConfidence === 'number' ? row.evidenceConfidence.toFixed(2) : '-'}
-                  </p>
-                  <p className="mt-1 text-slate-500">
-                    recipient={row.recipientTextCheck ?? '-'} | send={row.sendStatusCheck ?? '-'} | receipt={row.receiptStatus ?? '-'} | simulation={row.simulationStatus ?? '-'}
-                  </p>
-                  {Array.isArray(row.evidenceLimitations) && row.evidenceLimitations.length > 0 ? (
-                    <p className="mt-1 text-amber-700">limitations: {row.evidenceLimitations.join(', ')}</p>
-                  ) : null}
-                  {row.semanticSummary?.conclusion ? (
-                    <p className="mt-1 text-slate-600">结论: {row.semanticSummary.conclusion}</p>
-                  ) : null}
-                  {row.id ? (
-                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <img
-                        src={evidenceImageUrl(row.id, 'pre')}
-                        alt="pre-send evidence"
-                        loading="lazy"
-                        className="max-h-44 w-full rounded border border-slate-200 object-cover"
-                      />
-                      <img
-                        src={evidenceImageUrl(row.id, 'post')}
-                        alt="post-send evidence"
-                        loading="lazy"
-                        className="max-h-44 w-full rounded border border-slate-200 object-cover"
-                      />
-                    </div>
-                  ) : null}
                 </div>
-              ))}
-            </div>
-          </article>
-        </section>
-        </div>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  当前降级原因：
+                  {guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() =>
+                      void runAction(async () => {
+                        await invokeGateway(
+                          'psyche.mode.set',
+                          psycheModeForm as unknown as Record<string, unknown>,
+                        );
+                      }, '守门员开关已保存')
+                    }
+                    className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
+                  >
+                    保存守门员设置
+                  </button>
+                </div>
+              </article>
+            </section>
+
+            <section className="hidden grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">能力域状态</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  可直接暂停/恢复单个能力域。
+                </p>
+                <div className="mt-3 space-y-2">
+                  {domains.map((domain) => (
+                    <div
+                      key={domain.domain}
+                      className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs"
+                    >
+                      <div>
+                        <p className="font-medium">
+                          {domainLabel(domain.domain)}
+                        </p>
+                        <p className={statusTone(domain.status)}>
+                          {domain.status === 'running' ? '运行中' : '已暂停'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() =>
+                          void runAction(
+                            async () => {
+                              await invokeGateway(
+                                domain.status === 'running'
+                                  ? 'policy.domain.pause'
+                                  : 'policy.domain.resume',
+                                { domain: domain.domain },
+                              );
+                            },
+                            `${domainLabel(domain.domain)} 已${domain.status === 'running' ? '暂停' : '恢复'}`,
+                          )
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
+                      >
+                        {domain.status === 'running' ? '暂停' : '恢复'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  策略哈希：{snapshot.policyHash ?? '暂无'}
+                </p>
+              </article>
+
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">节点状态</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  在线节点 {snapshot.nodes?.connected ?? 0} /{' '}
+                  {snapshot.nodes?.total ?? 0}
+                </p>
+                <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
+                  {(snapshot.nodes?.list ?? []).map((node, index) => (
+                    <div
+                      key={
+                        node.id ??
+                        `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`
+                      }
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      <p className="font-medium">
+                        {node.label || node.id || '未命名节点'}
+                      </p>
+                      <p
+                        className={
+                          node.connected ? 'text-emerald-700' : 'text-rose-700'
+                        }
+                      >
+                        {node.connected ? '在线' : '离线'}
+                      </p>
+                      <p className="text-slate-500">
+                        平台：{node.platform || '未知'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </section>
+
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">最近任务执行</h2>
+                <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
+                  {(snapshot.jobs?.recentRuns ?? []).map((run, index) => (
+                    <div
+                      key={`${run.id ?? 'run'}-${index}`}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      <p className="font-medium">{run.id ?? '任务'}</p>
+                      <p className={statusTone(run.status)}>
+                        {run.status ?? '未知状态'}
+                      </p>
+                      <p className="text-slate-500">
+                        触发方式：{run.trigger ?? '手动'} / 更新时间：
+                        {run.updatedAt ?? '暂无'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">系统时间线</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  人工干预后建议写一条备注，后续排障更快。
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={insightText}
+                    onChange={(event) => setInsightText(event.target.value)}
+                    className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                    placeholder="例如：已手工暂停外发，等本人确认。"
+                  />
+                  <button
+                    type="button"
+                    disabled={loading || !insightText.trim()}
+                    onClick={() =>
+                      void runAction(async () => {
+                        await invokeGateway('insight.append', {
+                          text: insightText.trim(),
+                        });
+                        setInsightText('');
+                      }, '备注已写入时间线')
+                    }
+                    className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                  >
+                    记录
+                  </button>
+                </div>
+                <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
+                  {(snapshot.nexus?.insights ?? []).map((item, index) => (
+                    <div
+                      key={`${item.at ?? 'ins'}-${index}`}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      <p className="text-slate-700">{item.text ?? '无内容'}</p>
+                      <p className="text-slate-500">
+                        {item.at ?? '暂无'}{' '}
+                        {item.auditID ? `| ${item.auditID}` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </section>
+
+            <section className="hidden grid grid-cols-1 gap-4">
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  Evidence Pack V5（外发证据预览）
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  用于审批前快速核验：目标、发送状态、截图、限制项。
+                </p>
+                <div className="mt-3 max-h-[28rem] space-y-3 overflow-auto pr-1">
+                  {(snapshot.channels?.recentOutbound ?? [])
+                    .slice(0, 10)
+                    .map((row, index) => (
+                      <div
+                        key={`${row.id ?? 'audit'}-${index}`}
+                        className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">
+                            {row.channel ?? 'channel'}
+                            {' -> '}
+                            {row.destination ?? 'unknown'}
+                          </p>
+                          <span
+                            className={
+                              row.sent ? 'text-emerald-700' : 'text-rose-700'
+                            }
+                          >
+                            {row.sent ? '已发送' : '已阻断'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-slate-600">
+                          {row.message ?? '-'}
+                        </p>
+                        <p className="mt-1 text-slate-500">
+                          审计ID: {row.id ?? '-'} | 时间: {row.at ?? '-'} |
+                          置信度:{' '}
+                          {typeof row.evidenceConfidence === 'number'
+                            ? row.evidenceConfidence.toFixed(2)
+                            : '-'}
+                        </p>
+                        <p className="mt-1 text-slate-500">
+                          recipient={row.recipientTextCheck ?? '-'} | send=
+                          {row.sendStatusCheck ?? '-'} | receipt=
+                          {row.receiptStatus ?? '-'} | simulation=
+                          {row.simulationStatus ?? '-'}
+                        </p>
+                        {Array.isArray(row.evidenceLimitations) &&
+                        row.evidenceLimitations.length > 0 ? (
+                          <p className="mt-1 text-amber-700">
+                            limitations: {row.evidenceLimitations.join(', ')}
+                          </p>
+                        ) : null}
+                        {row.semanticSummary?.conclusion ? (
+                          <p className="mt-1 text-slate-600">
+                            结论: {row.semanticSummary.conclusion}
+                          </p>
+                        ) : null}
+                        {row.id ? (
+                          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                            <img
+                              src={evidenceImageUrl(row.id, 'pre')}
+                              alt="pre-send evidence"
+                              loading="lazy"
+                              className="max-h-44 w-full rounded border border-slate-200 object-cover"
+                            />
+                            <img
+                              src={evidenceImageUrl(row.id, 'post')}
+                              alt="post-send evidence"
+                              loading="lazy"
+                              className="max-h-44 w-full rounded border border-slate-200 object-cover"
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                </div>
+              </article>
+            </section>
+          </div>
         </main>
       </div>
     </div>

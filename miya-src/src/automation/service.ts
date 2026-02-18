@@ -4,9 +4,9 @@ import {
   createApproval,
   createHistoryId,
   createJobId,
-  removeHistoryRecord,
   readAutomationState,
   readHistoryRecords,
+  removeHistoryRecord,
   touchJob,
   writeAutomationState,
 } from './store';
@@ -243,7 +243,9 @@ export class MiyaAutomationService {
     const state = readAutomationState(this.projectDir);
     const before = state.jobs.length;
     state.jobs = state.jobs.filter((job) => job.id !== jobId);
-    state.approvals = state.approvals.filter((approval) => approval.jobId !== jobId);
+    state.approvals = state.approvals.filter(
+      (approval) => approval.jobId !== jobId,
+    );
     const changed = state.jobs.length !== before;
     if (changed) writeAutomationState(this.projectDir, state);
     return changed;
@@ -272,7 +274,10 @@ export class MiyaAutomationService {
 
   async approveAndRun(
     approvalId: string,
-  ): Promise<{ approval: MiyaApprovalRequest; result: MiyaJobRunResult | null } | null> {
+  ): Promise<{
+    approval: MiyaApprovalRequest;
+    result: MiyaJobRunResult | null;
+  } | null> {
     const state = readAutomationState(this.projectDir);
     const approval = state.approvals.find((item) => item.id === approvalId);
     if (!approval || approval.status !== 'pending') return null;
@@ -280,7 +285,11 @@ export class MiyaAutomationService {
     approval.status = 'approved';
     approval.resolvedAt = nowIso();
 
-    const result = await this.executeJobInState(state, approval.jobId, 'approval');
+    const result = await this.executeJobInState(
+      state,
+      approval.jobId,
+      'approval',
+    );
     writeAutomationState(this.projectDir, state);
     return { approval, result };
   }
@@ -306,7 +315,11 @@ export class MiyaAutomationService {
     if (!job.enabled && trigger !== 'manual') return null;
 
     const timeoutMs = job.action.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
-    const result = await runCommand(job.action.command, job.action.cwd, timeoutMs);
+    const result = await runCommand(
+      job.action.command,
+      job.action.cwd,
+      timeoutMs,
+    );
 
     job.lastRunAt = result.endedAt;
     job.lastStatus = result.status;

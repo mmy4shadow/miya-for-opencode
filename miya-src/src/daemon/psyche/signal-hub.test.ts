@@ -76,7 +76,9 @@ describe('psyche native signal hub', () => {
     expect(warm.signals.foreground).toBe('ide');
     expect(fallback.signals.foreground).toBe('ide');
     expect(
-      (fallback.captureLimitations ?? []).some((item) => item.includes('signal_hub_collect_failed')),
+      (fallback.captureLimitations ?? []).some((item) =>
+        item.includes('signal_hub_collect_failed'),
+      ),
     ).toBe(true);
   });
 });

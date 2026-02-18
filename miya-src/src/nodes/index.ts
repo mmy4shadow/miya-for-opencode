@@ -1,6 +1,11 @@
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export type NodeType = 'cli' | 'desktop' | 'mobile' | 'browser';
@@ -149,16 +154,26 @@ function inferPermissionsFromCapabilities(
   };
 }
 
-function hasCapability(node: NodeRecord, matcher: (value: string) => boolean): boolean {
+function hasCapability(
+  node: NodeRecord,
+  matcher: (value: string) => boolean,
+): boolean {
   return node.capabilities.some((capability) => matcher(capability));
 }
 
-function capabilityStartsWith(capability: string, prefixes: readonly string[]): boolean {
+function capabilityStartsWith(
+  capability: string,
+  prefixes: readonly string[],
+): boolean {
   return prefixes.some((prefix) => capability.startsWith(prefix));
 }
 
-export function classifyNodeCapabilities(capabilities: string[]): NodeCapabilityGroups {
-  const normalized = [...new Set(capabilities.map((item) => String(item).trim()).filter(Boolean))].sort();
+export function classifyNodeCapabilities(
+  capabilities: string[],
+): NodeCapabilityGroups {
+  const normalized = [
+    ...new Set(capabilities.map((item) => String(item).trim()).filter(Boolean)),
+  ].sort();
   const groups: NodeCapabilityGroups = {
     readOnly: [],
     execute: [],
@@ -184,12 +199,25 @@ export function classifyNodeCapabilities(capabilities: string[]): NodeCapability
       continue;
     }
     if (
-      capabilityStartsWith(capability, ['perm.screenRecording', 'perm.accessibility', 'desktop.', 'uia.', 'canvas.'])
+      capabilityStartsWith(capability, [
+        'perm.screenRecording',
+        'perm.accessibility',
+        'desktop.',
+        'uia.',
+        'canvas.',
+      ])
     ) {
       groups.desktopAutomation.push(capability);
       continue;
     }
-    if (capabilityStartsWith(capability, ['perm.network', 'network.', 'http.', 'ws.'])) {
+    if (
+      capabilityStartsWith(capability, [
+        'perm.network',
+        'network.',
+        'http.',
+        'ws.',
+      ])
+    ) {
       groups.networking.push(capability);
       continue;
     }
@@ -201,10 +229,23 @@ export function classifyNodeCapabilities(capabilities: string[]): NodeCapability
 
 export function mapNodePermissions(node: NodeRecord): NodePermissionMapping {
   const reasons: string[] = [];
-  const canRun = hasCapability(node, (capability) => capability === 'system.run' || capabilityStartsWith(capability, ['exec.', 'run.']));
-  const canRead = hasCapability(node, (capability) => capability === 'system.info' || capability === 'system.which' || capabilityStartsWith(capability, ['read.', 'query.']));
-  const desktopSignals = node.permissions.screenRecording || node.permissions.accessibility;
-  const desktopStrong = node.permissions.screenRecording && node.permissions.accessibility;
+  const canRun = hasCapability(
+    node,
+    (capability) =>
+      capability === 'system.run' ||
+      capabilityStartsWith(capability, ['exec.', 'run.']),
+  );
+  const canRead = hasCapability(
+    node,
+    (capability) =>
+      capability === 'system.info' ||
+      capability === 'system.which' ||
+      capabilityStartsWith(capability, ['read.', 'query.']),
+  );
+  const desktopSignals =
+    node.permissions.screenRecording || node.permissions.accessibility;
+  const desktopStrong =
+    node.permissions.screenRecording && node.permissions.accessibility;
 
   const bash: NodePermissionDecision = !canRun
     ? 'deny'
@@ -216,12 +257,16 @@ export function mapNodePermissions(node: NodeRecord): NodePermissionMapping {
   if (!node.connected) reasons.push('node_disconnected');
 
   let edit: NodePermissionDecision = 'deny';
-  if (node.permissions.filesystem === 'full') edit = node.paired ? 'allow' : 'ask';
+  if (node.permissions.filesystem === 'full')
+    edit = node.paired ? 'allow' : 'ask';
   else if (node.permissions.filesystem === 'read' || canRead) edit = 'ask';
-  if (node.permissions.filesystem !== 'none') reasons.push(`filesystem=${node.permissions.filesystem}`);
+  if (node.permissions.filesystem !== 'none')
+    reasons.push(`filesystem=${node.permissions.filesystem}`);
 
   const externalDirectory: NodePermissionDecision =
-    node.permissions.filesystem === 'full' && node.permissions.network && node.paired
+    node.permissions.filesystem === 'full' &&
+    node.permissions.network &&
+    node.paired
       ? 'allow'
       : node.permissions.filesystem !== 'none' || node.permissions.network
         ? 'ask'
@@ -252,7 +297,8 @@ export function mapNodePermissions(node: NodeRecord): NodePermissionMapping {
   if (desktopControl === 'allow') riskScore += 2;
   else if (desktopControl === 'ask') riskScore += 1;
   if (network === 'allow') riskScore += 1;
-  if (node.permissions.filesystem === 'full' && node.permissions.network) riskScore += 2;
+  if (node.permissions.filesystem === 'full' && node.permissions.network)
+    riskScore += 2;
   if (!node.paired) riskScore += 1;
   if (!node.connected) riskScore += 1;
 
@@ -294,8 +340,10 @@ export function summarizeNodeGovernance(
     else risk.high += 1;
     if (mapped.bash === 'allow') permissionCoverage.bashAllow += 1;
     if (mapped.edit === 'allow') permissionCoverage.editAllow += 1;
-    if (mapped.externalDirectory === 'allow') permissionCoverage.externalDirectoryAllow += 1;
-    if (mapped.desktopControl === 'allow') permissionCoverage.desktopControlAllow += 1;
+    if (mapped.externalDirectory === 'allow')
+      permissionCoverage.externalDirectoryAllow += 1;
+    if (mapped.desktopControl === 'allow')
+      permissionCoverage.desktopControlAllow += 1;
     if (mapped.network === 'allow') permissionCoverage.networkAllow += 1;
   }
 
@@ -317,7 +365,10 @@ function normalizeNodeRecord(partial: Partial<NodeRecord>): NodeRecord {
         .sort()
     : [];
   const fallbackHeartbeat = String(partial.lastSeenAt ?? nowIso());
-  const permissions = inferPermissionsFromCapabilities(capabilityList, partial.permissions);
+  const permissions = inferPermissionsFromCapabilities(
+    capabilityList,
+    partial.permissions,
+  );
   const status: NodeStatus = partial.connected ? 'online' : 'offline';
   return {
     nodeID: String(partial.nodeID ?? ''),
@@ -341,9 +392,12 @@ function normalizeNodeRecord(partial: Partial<NodeRecord>): NodeRecord {
       partial.status === 'error'
         ? partial.status
         : status,
-    tokenHash: typeof partial.tokenHash === 'string' ? partial.tokenHash : undefined,
+    tokenHash:
+      typeof partial.tokenHash === 'string' ? partial.tokenHash : undefined,
     tokenIssuedAt:
-      typeof partial.tokenIssuedAt === 'string' ? partial.tokenIssuedAt : undefined,
+      typeof partial.tokenIssuedAt === 'string'
+        ? partial.tokenIssuedAt
+        : undefined,
     tokenLastUsedAt:
       typeof partial.tokenLastUsedAt === 'string'
         ? partial.tokenLastUsedAt
@@ -394,7 +448,9 @@ function readStore(projectDir: string): NodeStore {
     };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<NodeStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<NodeStore>;
     const rawNodes = parsed.nodes ?? {};
     const nodes: Record<string, NodeRecord> = {};
     for (const [nodeID, node] of Object.entries(rawNodes)) {
@@ -504,7 +560,10 @@ export function registerNode(
   return node;
 }
 
-export function touchNodeHeartbeat(projectDir: string, nodeID: string): NodeRecord | null {
+export function touchNodeHeartbeat(
+  projectDir: string,
+  nodeID: string,
+): NodeRecord | null {
   const store = readStore(projectDir);
   const node = store.nodes[nodeID];
   if (!node) return null;
@@ -542,7 +601,10 @@ export function listDevices(projectDir: string): DeviceRecord[] {
   );
 }
 
-export function describeNode(projectDir: string, nodeID: string): NodeRecord | null {
+export function describeNode(
+  projectDir: string,
+  nodeID: string,
+): NodeRecord | null {
   const store = readStoreWithHealth(projectDir);
   return store.nodes[nodeID] ?? null;
 }
@@ -596,7 +658,9 @@ export function listNodePairs(
   const pairs = status
     ? store.pairs.filter((item) => item.status === status)
     : store.pairs;
-  return [...pairs].sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt));
+  return [...pairs].sort(
+    (a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt),
+  );
 }
 
 export function resolveNodePair(
@@ -650,7 +714,10 @@ export function createInvokeRequest(
   return invoke;
 }
 
-export function markInvokeSent(projectDir: string, invokeID: string): NodeInvokeRequest | null {
+export function markInvokeSent(
+  projectDir: string,
+  invokeID: string,
+): NodeInvokeRequest | null {
   const store = readStore(projectDir);
   const invoke = store.invokes[invokeID];
   if (!invoke) return null;
@@ -681,7 +748,10 @@ export function resolveInvokeResult(
   return invoke;
 }
 
-export function listInvokeRequests(projectDir: string, limit = 50): NodeInvokeRequest[] {
+export function listInvokeRequests(
+  projectDir: string,
+  limit = 50,
+): NodeInvokeRequest[] {
   const store = readStore(projectDir);
   return Object.values(store.invokes)
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))

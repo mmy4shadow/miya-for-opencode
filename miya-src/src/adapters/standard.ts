@@ -52,4 +52,3 @@ export function toAdapterEvidence(input: {
     diagnostics: input.diagnostics,
   };
 }
-

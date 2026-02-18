@@ -45,14 +45,21 @@ function setupSkillRepoFixture(): {
   git(['init', seedDir], rootDir);
   git(['config', 'user.email', 'miya-sync@example.test'], seedDir);
   git(['config', 'user.name', 'Miya Sync Test'], seedDir);
-  fs.writeFileSync(path.join(seedDir, 'SKILL.md'), '# skill fixture\n', 'utf-8');
+  fs.writeFileSync(
+    path.join(seedDir, 'SKILL.md'),
+    '# skill fixture\n',
+    'utf-8',
+  );
   fs.writeFileSync(path.join(seedDir, 'README.md'), 'fixture\n', 'utf-8');
   git(['add', '.'], seedDir);
   git(['commit', '-m', 'init'], seedDir);
   git(['branch', '-M', 'main'], seedDir);
   git(['remote', 'add', 'origin', remoteDir], seedDir);
   git(['push', '-u', 'origin', 'main'], seedDir);
-  git(['--git-dir', remoteDir, 'symbolic-ref', 'HEAD', 'refs/heads/main'], rootDir);
+  git(
+    ['--git-dir', remoteDir, 'symbolic-ref', 'HEAD', 'refs/heads/main'],
+    rootDir,
+  );
   git(['clone', remoteDir, cloneDir], rootDir);
 
   return { rootDir, projectDir, seedDir, remoteDir, cloneDir };
@@ -79,24 +86,45 @@ describe('ecosystem bridge sync', () => {
       const initialRevision = sourcePack.headRevision;
 
       const latestRemoteRevision = pushRemoteUpdate(fixture.seedDir);
-      const pulled = pullSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
+      const pulled = pullSourcePack(
+        fixture.projectDir,
+        sourcePack.sourcePackID,
+        options,
+      );
       expect(pulled.latestRevision).toBe(latestRemoteRevision);
       expect(pulled.governance?.lock.revision).toBe(latestRemoteRevision);
       expect(pulled.governance?.smoke.ok).toBe(true);
 
-      const diff = diffSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
+      const diff = diffSourcePack(
+        fixture.projectDir,
+        sourcePack.sourcePackID,
+        options,
+      );
       expect(diff.behind).toBeGreaterThanOrEqual(1);
       expect(diff.compareRevision).toBe(latestRemoteRevision);
 
-      const applied = applySourcePack(fixture.projectDir, sourcePack.sourcePackID, {}, options);
+      const applied = applySourcePack(
+        fixture.projectDir,
+        sourcePack.sourcePackID,
+        {},
+        options,
+      );
       expect(applied.appliedRevision).toBe(latestRemoteRevision);
       expect(applied.detachedHead).toBe(true);
       expect(applied.governance?.signature.digest.length).toBeGreaterThan(20);
 
-      const stable = diffSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
+      const stable = diffSourcePack(
+        fixture.projectDir,
+        sourcePack.sourcePackID,
+        options,
+      );
       expect(stable.behind).toBe(0);
 
-      const rolledBack = rollbackSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
+      const rolledBack = rollbackSourcePack(
+        fixture.projectDir,
+        sourcePack.sourcePackID,
+        options,
+      );
       expect(rolledBack.rolledBackTo).toBe(initialRevision);
       expect(rolledBack.detachedHead).toBe(true);
       expect(rolledBack.governance?.lock.revision).toBe(initialRevision);
@@ -126,7 +154,11 @@ describe('ecosystem bridge sync', () => {
       };
       const listed = listEcosystemBridge(fixture.projectDir, options);
       const sourcePack = listed.sourcePacks[0];
-      fs.writeFileSync(path.join(fixture.cloneDir, 'dirty.txt'), 'dirty\n', 'utf-8');
+      fs.writeFileSync(
+        path.join(fixture.cloneDir, 'dirty.txt'),
+        'dirty\n',
+        'utf-8',
+      );
       expect(() =>
         applySourcePack(
           fixture.projectDir,
@@ -146,7 +178,11 @@ describe('ecosystem bridge sync', () => {
       const options = {
         sourceRoots: [path.join(fixture.projectDir, 'skills')],
       };
-      const secondClone = path.join(fixture.projectDir, 'skills', 'ecosystem-pack-copy');
+      const secondClone = path.join(
+        fixture.projectDir,
+        'skills',
+        'ecosystem-pack-copy',
+      );
       git(['clone', fixture.remoteDir, secondClone], fixture.rootDir);
 
       const listed = listEcosystemBridge(fixture.projectDir, options);
@@ -167,7 +203,11 @@ describe('ecosystem bridge sync', () => {
       };
       const listed = listEcosystemBridge(fixture.projectDir, options);
       const sourcePack = listed.sourcePacks[0];
-      const pulled = pullSourcePack(fixture.projectDir, sourcePack.sourcePackID, options);
+      const pulled = pullSourcePack(
+        fixture.projectDir,
+        sourcePack.sourcePackID,
+        options,
+      );
       expect(pulled.governance?.smoke.ok).toBe(true);
 
       const preflight = preflightSourcePackGovernance(

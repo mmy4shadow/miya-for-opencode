@@ -3,8 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  analyzeRouteSemantics,
   addRouteFeedback,
+  analyzeRouteSemantics,
   classifyIntent,
   rankAgentsByFeedback,
   readRouteLearningWeights,
@@ -26,15 +26,21 @@ describe('router feedback learning', () => {
   });
 
   test('extracts semantic evidence for routing confidence', () => {
-    const signal = analyzeRouteSemantics('请查找并修复这个 compile failing 问题，附上 docs 引用');
+    const signal = analyzeRouteSemantics(
+      '请查找并修复这个 compile failing 问题，附上 docs 引用',
+    );
     expect(signal.intent).toBe('code_fix');
     expect(signal.confidence).toBeGreaterThan(0);
     expect(signal.evidence.length).toBeGreaterThan(0);
-    expect(signal.evidence.some((item) => item.startsWith('light_model:'))).toBe(true);
+    expect(
+      signal.evidence.some((item) => item.startsWith('light_model:')),
+    ).toBe(true);
   });
 
   test('light model disambiguates architecture intent with workflow wording', () => {
-    const signal = analyzeRouteSemantics('给我一个 plan -> exec -> verify -> fix 的统一状态图和失败预算');
+    const signal = analyzeRouteSemantics(
+      '给我一个 plan -> exec -> verify -> fix 的统一状态图和失败预算',
+    );
     expect(signal.intent).toBe('architecture');
     expect(signal.confidence).toBeGreaterThan(0.4);
   });
@@ -77,6 +83,8 @@ describe('router feedback learning', () => {
     });
     const loaded = readRouteLearningWeights(projectDir);
     expect(next.accept).toBe(loaded.accept);
-    expect(loaded.accept + loaded.success + loaded.cost + loaded.risk).toBeCloseTo(1, 4);
+    expect(
+      loaded.accept + loaded.success + loaded.cost + loaded.risk,
+    ).toBeCloseTo(1, 4);
   });
 });

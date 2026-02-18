@@ -1,5 +1,5 @@
 import type { PluginInput } from '@opencode-ai/plugin';
-import { type SafetyTier } from './tier';
+import type { SafetyTier } from './tier';
 
 export interface VerifierInput {
   sessionID: string;
@@ -84,8 +84,11 @@ export async function runVerifier(
       query: { directory: ctx.directory },
     });
     const text = extractText(
-      ((response as { data?: { parts?: Array<{ type?: string; text?: string }> } }).data
-        ?.parts ?? []) as Array<{ type?: string; text?: string }>,
+      ((
+        response as {
+          data?: { parts?: Array<{ type?: string; text?: string }> };
+        }
+      ).data?.parts ?? []) as Array<{ type?: string; text?: string }>,
     );
     if (!text) {
       return {

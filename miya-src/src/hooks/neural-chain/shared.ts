@@ -33,7 +33,9 @@ export function normalizeSessionID(sessionID?: string): string {
   return normalized || 'main';
 }
 
-export function findLastUserTextPart(messages: MessageWithParts[]): LastUserTextPart | null {
+export function findLastUserTextPart(
+  messages: MessageWithParts[],
+): LastUserTextPart | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.info.role !== 'user') continue;
@@ -67,7 +69,8 @@ export function extractUserIntentText(text: string): string {
     .split(/\n\s*---\s*\n/g)
     .map((item) => item.trim())
     .filter(Boolean);
-  const raw = chunks.length > 0 ? chunks[chunks.length - 1] : String(text ?? '');
+  const raw =
+    chunks.length > 0 ? chunks[chunks.length - 1] : String(text ?? '');
   const withoutReminder = raw.replace(/<reminder>[\s\S]*?<\/reminder>/gi, ' ');
   const cleaned = withoutReminder
     .split(/\r?\n/g)
@@ -89,7 +92,9 @@ function parseMode(mode: string): GatewayMode | null {
 }
 
 export function parseModeKernelMeta(text: string): ParsedModeKernelMeta | null {
-  const match = text.match(/\[MIYA_MODE_KERNEL v1\]([\s\S]*?)\[\/MIYA_MODE_KERNEL\]/);
+  const match = text.match(
+    /\[MIYA_MODE_KERNEL v1\]([\s\S]*?)\[\/MIYA_MODE_KERNEL\]/,
+  );
   if (!match) return null;
   const body = match[1] ?? '';
   const modeMatch = body.match(/mode=(work|chat|mixed)/);

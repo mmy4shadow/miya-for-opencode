@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { getMiyaClient } from '../../daemon/client';
 import { venvPythonPath } from '../../daemon/python-runtime';
-import type { AdapterRpcRequest, AdapterRpcResponse, EvidenceBundle, MiyaAdapter } from '../standard';
+import type {
+  AdapterRpcRequest,
+  AdapterRpcResponse,
+  EvidenceBundle,
+  MiyaAdapter,
+} from '../standard';
 import { toAdapterEvidence } from '../standard';
 
 export interface OpenClawAdapterInput {
@@ -17,11 +22,17 @@ interface OpenClawAdapterOutput {
   error?: { code: string; message: string; details?: unknown };
 }
 
-export class OpenClawAdapter implements MiyaAdapter<OpenClawAdapterInput, OpenClawAdapterOutput> {
+export class OpenClawAdapter
+  implements MiyaAdapter<OpenClawAdapterInput, OpenClawAdapterOutput>
+{
   constructor(private readonly projectDir: string) {}
 
   validateInput(input: OpenClawAdapterInput): boolean {
-    return Boolean(input && typeof input.method === 'string' && input.method.trim().length > 0);
+    return Boolean(
+      input &&
+        typeof input.method === 'string' &&
+        input.method.trim().length > 0,
+    );
   }
 
   injectPermission(auditID: string): Record<string, unknown> {
@@ -49,7 +60,14 @@ export class OpenClawAdapter implements MiyaAdapter<OpenClawAdapterInput, OpenCl
     };
     const daemon = getMiyaClient(this.projectDir);
     const py = venvPythonPath(this.projectDir);
-    const server = path.join(this.projectDir, 'miya-src', 'src', 'adapters', 'openclaw', 'server.py');
+    const server = path.join(
+      this.projectDir,
+      'miya-src',
+      'src',
+      'adapters',
+      'openclaw',
+      'server.py',
+    );
     const proc = await daemon.runIsolatedProcess({
       kind: 'shell.exec',
       command: py,
@@ -73,7 +91,8 @@ export class OpenClawAdapter implements MiyaAdapter<OpenClawAdapterInput, OpenCl
         ok: false,
         error: {
           code: 'adapter_subprocess_failed',
-          message: proc.stderr || proc.stdout || `exit_code_${String(proc.exitCode)}`,
+          message:
+            proc.stderr || proc.stdout || `exit_code_${String(proc.exitCode)}`,
         },
       };
     }
@@ -123,10 +142,11 @@ export class OpenClawAdapter implements MiyaAdapter<OpenClawAdapterInput, OpenCl
       adapter: 'openclaw',
       auditID,
       ok: raw.ok,
-      summary: raw.ok ? 'openclaw_adapter_ok' : `openclaw_adapter_failed:${raw.error?.code ?? 'unknown'}`,
+      summary: raw.ok
+        ? 'openclaw_adapter_ok'
+        : `openclaw_adapter_failed:${raw.error?.code ?? 'unknown'}`,
       raw,
       diagnostics: raw.ok ? undefined : { error: raw.error },
     });
   }
 }
-

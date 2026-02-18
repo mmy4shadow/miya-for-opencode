@@ -8,7 +8,9 @@ export const desktopPerceptionRouteSchemaV2 = z.enum([
   'L3_SOM_VLM',
 ]);
 
-export type DesktopPerceptionRouteV2 = z.infer<typeof desktopPerceptionRouteSchemaV2>;
+export type DesktopPerceptionRouteV2 = z.infer<
+  typeof desktopPerceptionRouteSchemaV2
+>;
 
 export const desktopActionKindSchema = z.enum([
   'focus',
@@ -33,7 +35,9 @@ export const desktopSingleStepActionSchema = z.enum([
   'done',
 ]);
 
-export type DesktopSingleStepAction = z.infer<typeof desktopSingleStepActionSchema>;
+export type DesktopSingleStepAction = z.infer<
+  typeof desktopSingleStepActionSchema
+>;
 
 const desktopSingleStepCoordinateSchema = z
   .object({
@@ -52,7 +56,11 @@ const desktopSingleStepDecisionSchemaInternal = z
   .superRefine((value, ctx) => {
     const hasCoordinate = Boolean(value.coordinate);
     const hasContent = value.content.trim().length > 0;
-    if ((value.action === 'focus' || value.action === 'click') && !hasCoordinate && !hasContent) {
+    if (
+      (value.action === 'focus' || value.action === 'click') &&
+      !hasCoordinate &&
+      !hasContent
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `${value.action} requires coordinate or content`,
@@ -66,9 +74,12 @@ const desktopSingleStepDecisionSchemaInternal = z
     }
   });
 
-export const desktopSingleStepDecisionSchema = desktopSingleStepDecisionSchemaInternal;
+export const desktopSingleStepDecisionSchema =
+  desktopSingleStepDecisionSchemaInternal;
 
-export type DesktopSingleStepDecision = z.infer<typeof desktopSingleStepDecisionSchema>;
+export type DesktopSingleStepDecision = z.infer<
+  typeof desktopSingleStepDecisionSchema
+>;
 
 export interface DesktopSingleStepPromptKit {
   protocol: 'desktop_single_step_prompt.v1';
@@ -128,7 +139,9 @@ function normalizeSingleStepAction(raw: string): DesktopSingleStepAction {
   return action;
 }
 
-export function parseDesktopSingleStepDecision(input: unknown): DesktopSingleStepDecision {
+export function parseDesktopSingleStepDecision(
+  input: unknown,
+): DesktopSingleStepDecision {
   const rawObject =
     typeof input === 'string'
       ? parseJsonObjectFromText(input)
@@ -146,7 +159,8 @@ export function parseDesktopSingleStepDecision(input: unknown): DesktopSingleSte
   const normalized = {
     action: normalizeSingleStepAction(String(raw.action ?? '')),
     coordinate: raw.coordinate == null ? null : raw.coordinate,
-    content: typeof raw.content === 'string' ? raw.content : String(raw.content ?? ''),
+    content:
+      typeof raw.content === 'string' ? raw.content : String(raw.content ?? ''),
   };
   return desktopSingleStepDecisionSchema.parse(normalized);
 }
@@ -270,20 +284,30 @@ export const desktopActionSchema = z
         message: 'type action requires text',
       });
     }
-    if (action.kind === 'hotkey' && (!action.keys || action.keys.length === 0)) {
+    if (
+      action.kind === 'hotkey' &&
+      (!action.keys || action.keys.length === 0)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'hotkey action requires keys',
       });
     }
-    if (action.kind === 'scroll' && (!Number.isFinite(action.scrollDeltaY) || action.scrollDeltaY === 0)) {
+    if (
+      action.kind === 'scroll' &&
+      (!Number.isFinite(action.scrollDeltaY) || action.scrollDeltaY === 0)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'scroll action requires non-zero scrollDeltaY',
       });
     }
     if (action.kind === 'drag') {
-      if (!action.target || action.target.mode !== 'coordinates' || !action.target.point) {
+      if (
+        !action.target ||
+        action.target.mode !== 'coordinates' ||
+        !action.target.point
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: 'drag action requires coordinates target',
@@ -343,11 +367,14 @@ export function buildDesktopActionFromSingleStepDecision(input: {
   routeLevel?: DesktopPerceptionRouteV2;
   stepID?: string;
   fallbackHint?: string;
-}): { executable: true; action: DesktopActionV2 } | { executable: false; status: 'retry' | 'done' } {
+}):
+  | { executable: true; action: DesktopActionV2 }
+  | { executable: false; status: 'retry' | 'done' } {
   const routeLevel = input.routeLevel ?? 'L1_UIA';
   const stepID = input.stepID?.trim() || 'single_step_action';
   const decision = input.decision;
-  if (decision.action === 'retry') return { executable: false, status: 'retry' };
+  if (decision.action === 'retry')
+    return { executable: false, status: 'retry' };
   if (decision.action === 'done') return { executable: false, status: 'done' };
   if (decision.action === 'focus') {
     return {
@@ -497,7 +524,10 @@ function normalizePlanAction(
   index: number,
   routeLevel?: DesktopPerceptionRouteV2,
 ): DesktopActionV2 {
-  const raw = action && typeof action === 'object' ? (action as Record<string, unknown>) : {};
+  const raw =
+    action && typeof action === 'object'
+      ? (action as Record<string, unknown>)
+      : {};
   const withID = {
     ...raw,
     id:
@@ -505,9 +535,10 @@ function normalizePlanAction(
         ? raw.id.trim()
         : `action_${index + 1}`,
     route:
-      typeof raw.route === 'string' && desktopPerceptionRouteSchemaV2.safeParse(raw.route).success
+      typeof raw.route === 'string' &&
+      desktopPerceptionRouteSchemaV2.safeParse(raw.route).success
         ? raw.route
-        : routeLevel ?? 'L1_UIA',
+        : (routeLevel ?? 'L1_UIA'),
   };
   return desktopActionSchema.parse(withID);
 }
@@ -548,7 +579,9 @@ export function buildDesktopActionPlanV2FromRequest(
   const routeLevel = request.routeLevel;
   const actions =
     Array.isArray(request.actions) && request.actions.length > 0
-      ? request.actions.map((item, index) => normalizePlanAction(item, index, routeLevel))
+      ? request.actions.map((item, index) =>
+          normalizePlanAction(item, index, routeLevel),
+        )
       : defaultActions({
           appName: request.appName,
           windowHint: request.windowHint,

@@ -15,16 +15,24 @@ function digest(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
-function replayToken(bundleID: string, eventID: string, action: string): string {
+function replayToken(
+  bundleID: string,
+  eventID: string,
+  action: string,
+): string {
   const secret =
-    process.env.MIYA_PLANBUNDLE_REPLAY_SECRET?.trim() || `miya-planbundle-v1:${bundleID}`;
-  return createHmac('sha256', secret).update(`${bundleID}:${eventID}:${action}`).digest('hex');
+    process.env.MIYA_PLANBUNDLE_REPLAY_SECRET?.trim() ||
+    `miya-planbundle-v1:${bundleID}`;
+  return createHmac('sha256', secret)
+    .update(`${bundleID}:${eventID}:${action}`)
+    .digest('hex');
 }
 
 function summarize(value: unknown): string {
   if (value === null || value === undefined) return 'null';
   if (typeof value === 'string') return value.slice(0, 240);
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return String(value);
   try {
     return JSON.stringify(value).slice(0, 320);
   } catch {
@@ -133,7 +141,11 @@ export function createPlanBundleV1(input: {
         .filter(Boolean)
     : ['bash'];
   const status: PlanBundleV1['status'] =
-    approvalRequired && !autoApprove ? 'pending_approval' : approvalRequired ? 'approved' : 'draft';
+    approvalRequired && !autoApprove
+      ? 'pending_approval'
+      : approvalRequired
+        ? 'approved'
+        : 'draft';
   const lifecycleState: PlanBundleV1['lifecycleState'] =
     status === 'approved'
       ? 'approved'
@@ -173,7 +185,9 @@ export function createPlanBundleV1(input: {
     approval: {
       required: approvalRequired,
       approved: !approvalRequired || autoApprove,
-      approver: autoApprove ? input.runInput.approval?.approver || 'auto' : undefined,
+      approver: autoApprove
+        ? input.runInput.approval?.approver || 'auto'
+        : undefined,
       reason: input.runInput.approval?.reason,
       policyHash,
       requestedAt: approvalRequired ? createdAt : undefined,
@@ -195,7 +209,9 @@ export function createPlanBundleV1(input: {
       stepCount: bundle.plan.steps.length,
       commandCount: input.runInput.commands.length,
     },
-    approvalBasis: approvalRequired ? 'approval_required' : 'approval_not_required',
+    approvalBasis: approvalRequired
+      ? 'approval_required'
+      : 'approval_not_required',
     result: { status: bundle.status },
   });
   if (approvalRequired && autoApprove) {
@@ -249,7 +265,8 @@ export function markPlanBundleRunning(bundle: PlanBundleV1): void {
     stage: 'execution',
     action: 'execution_started',
     inputSummary: {
-      commands: bundle.plan.steps.filter((step) => step.kind === 'execution').length,
+      commands: bundle.plan.steps.filter((step) => step.kind === 'execution')
+        .length,
     },
     approvalBasis: bundle.approval.approved ? 'approved' : 'not_required',
     result: { status: bundle.status },
@@ -342,7 +359,11 @@ export function markPlanBundleFinalized(
   bundle: PlanBundleV1,
   input: { success: boolean; summary: string },
 ): void {
-  bundle.status = input.success ? 'completed' : bundle.status === 'rolled_back' ? 'rolled_back' : 'failed';
+  bundle.status = input.success
+    ? 'completed'
+    : bundle.status === 'rolled_back'
+      ? 'rolled_back'
+      : 'failed';
   bundle.lifecycleState = input.success ? 'done' : 'postmortem';
   bundle.updatedAt = nowIso();
   appendPlanBundleAudit(bundle, {

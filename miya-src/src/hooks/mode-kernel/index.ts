@@ -1,12 +1,12 @@
-import { evaluateModeKernel } from '../../gateway/mode-kernel';
 import { applyModeSafeWorkFallback } from '../../context/pipeline';
+import { evaluateModeKernel } from '../../gateway/mode-kernel';
 import {
   extractUserIntentText,
   findLastUserTextPart,
   hasBlock,
   isCommandBridgeText,
-  prependBlock,
   type MessageWithParts,
+  prependBlock,
 } from '../neural-chain/shared';
 
 interface ModeKernelHookConfig {
@@ -14,7 +14,9 @@ interface ModeKernelHookConfig {
   minConfidenceForSafeMode?: number;
 }
 
-function resolveConfig(input?: ModeKernelHookConfig): Required<ModeKernelHookConfig> {
+function resolveConfig(
+  input?: ModeKernelHookConfig,
+): Required<ModeKernelHookConfig> {
   return {
     enabled: input?.enabled ?? true,
     minConfidenceForSafeMode: Math.max(
@@ -25,7 +27,13 @@ function resolveConfig(input?: ModeKernelHookConfig): Required<ModeKernelHookCon
 }
 
 function toReasonLine(reasons: string[]): string {
-  return reasons.map((item) => item.trim()).filter(Boolean).slice(0, 8).join('|') || 'none';
+  return (
+    reasons
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 8)
+      .join('|') || 'none'
+  );
 }
 
 export function createModeKernelHook(rawConfig?: ModeKernelHookConfig) {
@@ -40,7 +48,9 @@ export function createModeKernelHook(rawConfig?: ModeKernelHookConfig) {
       const target = findLastUserTextPart(output.messages);
       if (!target) return;
 
-      const currentText = String(target.message.parts[target.partIndex].text ?? '');
+      const currentText = String(
+        target.message.parts[target.partIndex].text ?? '',
+      );
       if (!currentText.trim()) return;
       if (isCommandBridgeText(currentText)) return;
       if (hasBlock(currentText, '[MIYA_MODE_KERNEL v1]')) return;
@@ -51,10 +61,11 @@ export function createModeKernelHook(rawConfig?: ModeKernelHookConfig) {
       const modeKernelRaw = evaluateModeKernel({
         text: intentText,
       });
-      const { modeKernel, lowConfidenceSafeFallback } = applyModeSafeWorkFallback(
-        modeKernelRaw,
-        config.minConfidenceForSafeMode,
-      );
+      const { modeKernel, lowConfidenceSafeFallback } =
+        applyModeSafeWorkFallback(
+          modeKernelRaw,
+          config.minConfidenceForSafeMode,
+        );
 
       const block = [
         '[MIYA_MODE_KERNEL v1]',
@@ -69,7 +80,10 @@ export function createModeKernelHook(rawConfig?: ModeKernelHookConfig) {
         .filter(Boolean)
         .join('\n');
 
-      target.message.parts[target.partIndex].text = prependBlock(block, currentText);
+      target.message.parts[target.partIndex].text = prependBlock(
+        block,
+        currentText,
+      );
     },
   };
 }

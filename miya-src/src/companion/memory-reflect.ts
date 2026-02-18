@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getMiyaRuntimeDir } from '../workflow';
 import { createSkillDraftsFromReflect } from '../learning';
+import { getMiyaRuntimeDir } from '../workflow';
 import {
+  type CompanionMemoryVector,
   mergePendingMemoryConflicts,
   upsertCompanionMemoryVector,
-  type CompanionMemoryVector,
 } from './memory-vector';
 
 export interface MemoryShortTermLog {
@@ -87,7 +87,11 @@ function normalizeText(input: string): string {
   return input.trim().replace(/\s+/g, ' ');
 }
 
-function hashMessage(input: { text: string; sender: string; at: string }): string {
+function hashMessage(input: {
+  text: string;
+  sender: string;
+  at: string;
+}): string {
   return createHash('sha256')
     .update(`${input.sender}\n${input.at}\n${normalizeText(input.text)}`)
     .digest('hex');
@@ -125,7 +129,10 @@ function readReflectState(projectDir: string): ReflectState {
   }
 }
 
-function writeReflectState(projectDir: string, patch: Partial<ReflectState>): ReflectState {
+function writeReflectState(
+  projectDir: string,
+  patch: Partial<ReflectState>,
+): ReflectState {
   ensureDir(projectDir);
   const file = reflectStatePath(projectDir);
   const next: ReflectState = {
@@ -166,39 +173,116 @@ function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
   };
 
   const likes = text.match(/我(?:特别)?喜欢([^，。！？!?.]+)/);
-  if (likes?.[1]) add('UserPreference', 'User', 'likes', likes[1], 0.86, 'L2', 'preference');
+  if (likes?.[1])
+    add('UserPreference', 'User', 'likes', likes[1], 0.86, 'L2', 'preference');
 
   const dislikes = text.match(/我(?:很|真的)?不喜欢([^，。！？!?.]+)/);
-  if (dislikes?.[1]) add('UserPreference', 'User', 'dislikes', dislikes[1], 0.86, 'L2', 'preference');
+  if (dislikes?.[1])
+    add(
+      'UserPreference',
+      'User',
+      'dislikes',
+      dislikes[1],
+      0.86,
+      'L2',
+      'preference',
+    );
 
-  const prefers = text.match(/(?:以后|之后|从现在开始)?(?:只要|只喝|只用|优先)\s*([^，。！？!?.]+)/);
-  if (prefers?.[1]) add('UserPreference', 'User', 'prefers', prefers[1], 0.9, 'L2', 'preference');
+  const prefers = text.match(
+    /(?:以后|之后|从现在开始)?(?:只要|只喝|只用|优先)\s*([^，。！？!?.]+)/,
+  );
+  if (prefers?.[1])
+    add(
+      'UserPreference',
+      'User',
+      'prefers',
+      prefers[1],
+      0.9,
+      'L2',
+      'preference',
+    );
 
   const avoids = text.match(/(?:不要|别|避免)\s*([^，。！？!?.]+)/);
-  if (avoids?.[1]) add('UserPreference', 'User', 'avoids', avoids[1], 0.88, 'L2', 'preference');
+  if (avoids?.[1])
+    add(
+      'UserPreference',
+      'User',
+      'avoids',
+      avoids[1],
+      0.88,
+      'L2',
+      'preference',
+    );
 
   const needs = text.match(/我(?:需要|想要|要)([^，。！？!?.]+)/);
-  if (needs?.[1]) add('Fact', 'User', 'requires', needs[1], 0.7, 'L2', 'episodic');
+  if (needs?.[1])
+    add('Fact', 'User', 'requires', needs[1], 0.7, 'L2', 'episodic');
 
-  const blocks = text.match(/(?:卡在|被|遇到)([^，。！？!?.]+)(?:问题|错误|异常|报错)/);
-  if (blocks?.[1]) add('Insight', 'User', 'is_blocking', `${blocks[1]}问题`, 0.75, 'L2', 'semantic');
+  const blocks = text.match(
+    /(?:卡在|被|遇到)([^，。！？!?.]+)(?:问题|错误|异常|报错)/,
+  );
+  if (blocks?.[1])
+    add(
+      'Insight',
+      'User',
+      'is_blocking',
+      `${blocks[1]}问题`,
+      0.75,
+      'L2',
+      'semantic',
+    );
 
-  const anxiety = text.match(/(?:焦虑|着急|担心|压力很大|怕来不及)([^，。！？!?.]*)/);
-  if (anxiety) add('Insight', 'User', 'emotion_signal', `进度压力 ${anxiety[0]}`.trim(), 0.72, 'L3', 'semantic');
+  const anxiety = text.match(
+    /(?:焦虑|着急|担心|压力很大|怕来不及)([^，。！？!?.]*)/,
+  );
+  if (anxiety)
+    add(
+      'Insight',
+      'User',
+      'emotion_signal',
+      `进度压力 ${anxiety[0]}`.trim(),
+      0.72,
+      'L3',
+      'semantic',
+    );
 
-  const project = text.match(/(?:项目|仓库|repo|分支)\s*[:：]?\s*([^，。！？!?.]+)/i);
-  if (project?.[1]) add('Fact', 'User', 'project', project[1], 0.68, 'L2', 'semantic');
+  const project = text.match(
+    /(?:项目|仓库|repo|分支)\s*[:：]?\s*([^，。！？!?.]+)/i,
+  );
+  if (project?.[1])
+    add('Fact', 'User', 'project', project[1], 0.68, 'L2', 'semantic');
 
-  const apiRef = text.match(/(?:API|文档|doc|docs?)\s*[:：]?\s*([^，。！？!?.]+)/i);
-  if (apiRef?.[1]) add('Fact', 'User', 'api_reference', apiRef[1], 0.64, 'L3', 'semantic');
+  const apiRef = text.match(
+    /(?:API|文档|doc|docs?)\s*[:：]?\s*([^，。！？!?.]+)/i,
+  );
+  if (apiRef?.[1])
+    add('Fact', 'User', 'api_reference', apiRef[1], 0.64, 'L3', 'semantic');
 
-  const toolTrace = text.match(/(?:执行|运行|run|bash|shell|命令|traceback|stack\\s*trace|stderr|stdout)([^，。！？!?.]{0,120})/i);
+  const toolTrace = text.match(
+    /(?:执行|运行|run|bash|shell|命令|traceback|stack\\s*trace|stderr|stdout)([^，。！？!?.]{0,120})/i,
+  );
   if (toolTrace) {
-    add('Fact', log.sender === 'assistant' ? 'Miya' : 'User', 'tool_trace', toolTrace[0], 0.78, 'L2', 'tool_trace');
+    add(
+      'Fact',
+      log.sender === 'assistant' ? 'Miya' : 'User',
+      'tool_trace',
+      toolTrace[0],
+      0.78,
+      'L2',
+      'tool_trace',
+    );
   }
 
   if (triplets.length === 0 && text.length <= 120) {
-    add('Fact', log.sender === 'assistant' ? 'Miya' : 'User', 'stated', text, 0.55, 'L3', 'episodic');
+    add(
+      'Fact',
+      log.sender === 'assistant' ? 'Miya' : 'User',
+      'stated',
+      text,
+      0.55,
+      'L3',
+      'episodic',
+    );
   }
 
   return triplets;
@@ -221,7 +305,8 @@ export function appendShortTermMemoryLog(
   const text = normalizeText(input.text);
   if (!text) return null;
   const at = input.at ?? nowIso();
-  const messageHash = input.messageID || hashMessage({ text, sender: input.sender, at });
+  const messageHash =
+    input.messageID || hashMessage({ text, sender: input.sender, at });
   ensureDir(projectDir);
   const file = shortTermLogPath(projectDir);
   const rows = parseJsonlRows<MemoryShortTermLog>(file);
@@ -266,7 +351,10 @@ export function reflectCompanionMemory(
   ensureDir(projectDir);
   const state = readReflectState(projectDir);
   const now = nowIso();
-  if (input?.idempotencyKey && state.lastReflectIdempotencyKey === input.idempotencyKey) {
+  if (
+    input?.idempotencyKey &&
+    state.lastReflectIdempotencyKey === input.idempotencyKey
+  ) {
     if (state.lastReflectResult) return state.lastReflectResult;
   }
   const cooldownMinutes = Math.max(0, input?.cooldownMinutes ?? 0);
@@ -314,8 +402,12 @@ export function reflectCompanionMemory(
   const maxWrites = Math.max(1, maxWritesCandidate);
   const writableTriplets = triplets.slice(0, maxWrites);
   const generatedFacts = triplets.filter((item) => item.kind === 'Fact').length;
-  const generatedInsights = triplets.filter((item) => item.kind === 'Insight').length;
-  const generatedPreferences = triplets.filter((item) => item.kind === 'UserPreference').length;
+  const generatedInsights = triplets.filter(
+    (item) => item.kind === 'Insight',
+  ).length;
+  const generatedPreferences = triplets.filter(
+    (item) => item.kind === 'UserPreference',
+  ).length;
   const createdMemories = writableTriplets.map((triplet) =>
     upsertCompanionMemoryVector(projectDir, {
       text: tripletText(triplet),
@@ -341,7 +433,9 @@ export function reflectCompanionMemory(
   const nextRows = rows.filter((row) => !pickedIdSet.has(row.id));
   writeJsonlRows(shortTermLogPath(projectDir), nextRows);
 
-  const archived = parseJsonlRows<MemoryShortTermLog>(archiveLogPath(projectDir));
+  const archived = parseJsonlRows<MemoryShortTermLog>(
+    archiveLogPath(projectDir),
+  );
   const moved = picked.map((row) => ({ ...row, processedAt }));
   writeJsonlRows(archiveLogPath(projectDir), [...archived, ...moved]);
 
@@ -358,7 +452,11 @@ export function reflectCompanionMemory(
   createSkillDraftsFromReflect(projectDir, {
     createdMemories,
   });
-  fs.appendFileSync(reflectJobPath(projectDir), `${JSON.stringify({ ...result, at: processedAt })}\n`, 'utf-8');
+  fs.appendFileSync(
+    reflectJobPath(projectDir),
+    `${JSON.stringify({ ...result, at: processedAt })}\n`,
+    'utf-8',
+  );
   writeReflectState(projectDir, {
     lastReflectAt: now,
     lastReflectIdempotencyKey: input?.idempotencyKey,
@@ -390,7 +488,8 @@ export function maybeAutoReflectCompanionMemory(
 
   if (status.lastReflectAt) {
     const cooldownMs = nowMs - Date.parse(status.lastReflectAt);
-    if (Number.isFinite(cooldownMs) && cooldownMs < cooldownMinutes * 60 * 1000) return null;
+    if (Number.isFinite(cooldownMs) && cooldownMs < cooldownMinutes * 60 * 1000)
+      return null;
   }
 
   return reflectCompanionMemory(projectDir, {

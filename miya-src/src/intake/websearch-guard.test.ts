@@ -40,4 +40,3 @@ describe('websearch intake guard', () => {
     expect(result.intercept).toBe(false);
   });
 });
-

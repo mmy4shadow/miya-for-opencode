@@ -14,7 +14,12 @@ mock.module('../ralph', () => ({
         {
           iteration: 1,
           type: 'verify',
-          result: { ok: false, exitCode: 1, stdout: '', stderr: 'TS2339 error' },
+          result: {
+            ok: false,
+            exitCode: 1,
+            stdout: '',
+            stderr: 'TS2339 error',
+          },
           noProgress: false,
         },
       ],

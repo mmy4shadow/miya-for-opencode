@@ -21,7 +21,9 @@ type RequiredHookKey = (typeof REQUIRED_HOOK_KEYS)[number];
 export function assertRequiredHookHandlers(
   hooks: Partial<Record<RequiredHookKey, unknown>>,
 ): void {
-  const missing = REQUIRED_HOOK_KEYS.filter((key) => typeof hooks[key] !== 'function');
+  const missing = REQUIRED_HOOK_KEYS.filter(
+    (key) => typeof hooks[key] !== 'function',
+  );
   if (missing.length > 0) {
     throw new Error(`miya_hook_contract_missing:${missing.join(',')}`);
   }

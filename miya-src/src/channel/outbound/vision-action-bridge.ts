@@ -1,15 +1,19 @@
+import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { getMiyaRuntimeDir } from '../../workflow';
 import {
   buildDesktopOutboundHumanActions,
   desktopActionSchema,
 } from '../../desktop/action-engine';
+import { getMiyaRuntimeDir } from '../../workflow';
 
-export type DesktopPerceptionRoute = 'L0_ACTION_MEMORY' | 'L1_UIA' | 'L2_OCR' | 'L3_SOM_VLM';
+export type DesktopPerceptionRoute =
+  | 'L0_ACTION_MEMORY'
+  | 'L1_UIA'
+  | 'L2_OCR'
+  | 'L3_SOM_VLM';
 export type AutomationRisk = 'LOW' | 'MEDIUM' | 'HIGH';
 
 const desktopIntentSchema = z.object({
@@ -54,7 +58,15 @@ const ocrBoxSchema = z.object({
 
 const desktopScreenStateSchema = z.object({
   windowFingerprint: z.string().trim().max(240).optional(),
-  captureMethod: z.enum(['wgc_hwnd', 'print_window', 'dxgi_duplication', 'uia_only', 'unknown']).default('unknown'),
+  captureMethod: z
+    .enum([
+      'wgc_hwnd',
+      'print_window',
+      'dxgi_duplication',
+      'uia_only',
+      'unknown',
+    ])
+    .default('unknown'),
   display: z.object({
     width: z.number().int().min(640).max(16_384),
     height: z.number().int().min(480).max(16_384),
@@ -80,7 +92,9 @@ const actionPlanStepSchema = z.object({
     'verify_receipt',
   ]),
   via: z.enum(['L0_ACTION_MEMORY', 'L1_UIA', 'L2_OCR', 'L3_SOM_VLM']),
-  verify: z.array(z.enum(['uia_hit_test', 'pixel_fingerprint', 'window_fingerprint'])).max(3),
+  verify: z
+    .array(z.enum(['uia_hit_test', 'pixel_fingerprint', 'window_fingerprint']))
+    .max(3),
 });
 
 const desktopActionPlanSchema = z.object({
@@ -245,7 +259,10 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function normalizeDestination(value: string): string {
-  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }
 
 function runtimeDir(projectDir: string): string {
@@ -283,7 +300,10 @@ function buildMemoryKey(intent: DesktopAutomationIntent): string {
   return [
     intent.channel,
     intent.appName.toLowerCase(),
-    createHash('sha1').update(normalizeDestination(intent.destination)).digest('hex').slice(0, 10),
+    createHash('sha1')
+      .update(normalizeDestination(intent.destination))
+      .digest('hex')
+      .slice(0, 10),
   ].join('|');
 }
 
@@ -294,14 +314,21 @@ function normalizeMemoryStore(raw: ActionMemoryStore): ActionMemoryStore {
     .map((row) => ({
       id: String(row.id ?? randomUUID()),
       key: String(row.key ?? ''),
-      channel: (row.channel === 'wechat' ? 'wechat' : 'qq') as ActionMemoryRecord['channel'],
-      appName: (row.appName === 'WeChat' ? 'WeChat' : 'QQ') as ActionMemoryRecord['appName'],
+      channel: (row.channel === 'wechat'
+        ? 'wechat'
+        : 'qq') as ActionMemoryRecord['channel'],
+      appName: (row.appName === 'WeChat'
+        ? 'WeChat'
+        : 'QQ') as ActionMemoryRecord['appName'],
       destination: String(row.destination ?? ''),
       routeLevel: normalizeRoute(row.routeLevel),
       replaySkillId: String(row.replaySkillId ?? ''),
-      windowFingerprint: row.windowFingerprint ? String(row.windowFingerprint) : undefined,
+      windowFingerprint: row.windowFingerprint
+        ? String(row.windowFingerprint)
+        : undefined,
       somCandidateId:
-        typeof row.somCandidateId === 'number' && Number.isFinite(row.somCandidateId)
+        typeof row.somCandidateId === 'number' &&
+        Number.isFinite(row.somCandidateId)
           ? Math.floor(row.somCandidateId)
           : undefined,
       successCount: Math.max(0, Math.floor(Number(row.successCount ?? 0) || 0)),
@@ -325,7 +352,9 @@ function normalizeRoute(value: unknown): DesktopPerceptionRoute {
 }
 
 function readActionMemory(projectDir: string): ActionMemoryStore {
-  const store = readJsonFile<ActionMemoryStore>(actionMemoryFile(projectDir), { records: [] });
+  const store = readJsonFile<ActionMemoryStore>(actionMemoryFile(projectDir), {
+    records: [],
+  });
   const normalized = normalizeMemoryStore(store);
   writeJsonFile(actionMemoryFile(projectDir), normalized);
   return normalized;
@@ -335,7 +364,9 @@ function writeActionMemory(projectDir: string, store: ActionMemoryStore): void {
   writeJsonFile(actionMemoryFile(projectDir), normalizeMemoryStore(store));
 }
 
-function normalizeReplaySkillStore(raw: DesktopReplaySkillStore): DesktopReplaySkillStore {
+function normalizeReplaySkillStore(
+  raw: DesktopReplaySkillStore,
+): DesktopReplaySkillStore {
   if (!raw || !Array.isArray(raw.records)) return { records: [] };
   const normalized = raw.records
     .filter((row) => row && typeof row === 'object')
@@ -344,64 +375,96 @@ function normalizeReplaySkillStore(raw: DesktopReplaySkillStore): DesktopReplayS
         ? row.stepKinds
             .map((item) => String(item ?? '').trim())
             .filter(Boolean)
-            .filter((item): item is z.infer<typeof actionPlanStepSchema>['kind'] =>
-              actionPlanStepSchema.shape.kind.options.includes(
-                item as z.infer<typeof actionPlanStepSchema>['kind'],
-              ),
+            .filter(
+              (item): item is z.infer<typeof actionPlanStepSchema>['kind'] =>
+                actionPlanStepSchema.shape.kind.options.includes(
+                  item as z.infer<typeof actionPlanStepSchema>['kind'],
+                ),
             )
         : [];
       const verifyPolicy = Array.isArray(row.verifyPolicy)
-        ? [...new Set(row.verifyPolicy.map((item) => String(item ?? '').trim()).filter(Boolean))]
+        ? [
+            ...new Set(
+              row.verifyPolicy
+                .map((item) => String(item ?? '').trim())
+                .filter(Boolean),
+            ),
+          ]
         : [];
       return {
         id: String(row.id ?? randomUUID()),
         key: String(row.key ?? ''),
-        channel: (row.channel === 'wechat' ? 'wechat' : 'qq') as DesktopReplaySkillRecord['channel'],
-        appName: (row.appName === 'WeChat' ? 'WeChat' : 'QQ') as DesktopReplaySkillRecord['appName'],
+        channel: (row.channel === 'wechat'
+          ? 'wechat'
+          : 'qq') as DesktopReplaySkillRecord['channel'],
+        appName: (row.appName === 'WeChat'
+          ? 'WeChat'
+          : 'QQ') as DesktopReplaySkillRecord['appName'],
         destination: normalizeDestination(String(row.destination ?? '')),
         routeLevel: normalizeRoute(row.routeLevel),
         stepKinds,
         verifyPolicy,
         somCandidateId:
-          typeof row.somCandidateId === 'number' && Number.isFinite(row.somCandidateId)
+          typeof row.somCandidateId === 'number' &&
+          Number.isFinite(row.somCandidateId)
             ? Math.floor(row.somCandidateId)
             : undefined,
-        windowFingerprint: row.windowFingerprint ? String(row.windowFingerprint) : undefined,
-        successCount: Math.max(0, Math.floor(Number(row.successCount ?? 0) || 0)),
+        windowFingerprint: row.windowFingerprint
+          ? String(row.windowFingerprint)
+          : undefined,
+        successCount: Math.max(
+          0,
+          Math.floor(Number(row.successCount ?? 0) || 0),
+        ),
         avgLatencyMs: clamp(Number(row.avgLatencyMs ?? 0), 0, 60_000),
         createdAt: String(row.createdAt ?? nowIso()),
         updatedAt: String(row.updatedAt ?? nowIso()),
-        lastSuccessAt: row.lastSuccessAt ? String(row.lastSuccessAt) : undefined,
+        lastSuccessAt: row.lastSuccessAt
+          ? String(row.lastSuccessAt)
+          : undefined,
       } satisfies DesktopReplaySkillRecord;
     })
     .filter((row) => row.key.length > 0)
     .slice(0, 1_000);
   return {
-    records: normalized.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+    records: normalized.sort(
+      (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+    ),
   };
 }
 
 function readReplaySkills(projectDir: string): DesktopReplaySkillStore {
-  const store = readJsonFile<DesktopReplaySkillStore>(replaySkillFile(projectDir), { records: [] });
+  const store = readJsonFile<DesktopReplaySkillStore>(
+    replaySkillFile(projectDir),
+    { records: [] },
+  );
   const normalized = normalizeReplaySkillStore(store);
   writeJsonFile(replaySkillFile(projectDir), normalized);
   return normalized;
 }
 
-function writeReplaySkills(projectDir: string, store: DesktopReplaySkillStore): void {
+function writeReplaySkills(
+  projectDir: string,
+  store: DesktopReplaySkillStore,
+): void {
   writeJsonFile(replaySkillFile(projectDir), normalizeReplaySkillStore(store));
 }
 
-function promoteSlowBrainReplaySkill(projectDir: string, input: {
-  intent: DesktopAutomationIntent;
-  screenState: DesktopScreenState;
-  actionPlan: DesktopActionPlan;
-  latencyMs: number;
-  sent: boolean;
-}): void {
+function promoteSlowBrainReplaySkill(
+  projectDir: string,
+  input: {
+    intent: DesktopAutomationIntent;
+    screenState: DesktopScreenState;
+    actionPlan: DesktopActionPlan;
+    latencyMs: number;
+    sent: boolean;
+  },
+): void {
   if (!input.sent) return;
   if (input.actionPlan.action_plan.memoryHit) return;
-  const replaySkillId = String(input.actionPlan.action_plan.replaySkillId ?? '').trim();
+  const replaySkillId = String(
+    input.actionPlan.action_plan.replaySkillId ?? '',
+  ).trim();
   if (!replaySkillId) return;
   const key = buildMemoryKey(input.intent);
   const routeLevel = input.actionPlan.action_plan.routeLevel;
@@ -411,13 +474,21 @@ function promoteSlowBrainReplaySkill(projectDir: string, input: {
   const now = nowIso();
 
   const store = readReplaySkills(projectDir);
-  const index = store.records.findIndex((row) => row.id === replaySkillId || row.key === key);
+  const index = store.records.findIndex(
+    (row) => row.id === replaySkillId || row.key === key,
+  );
   const existing = index >= 0 ? store.records[index] : undefined;
   const previousRuns = existing?.successCount ?? 0;
   const avgLatencyMs =
     previousRuns <= 0
       ? input.latencyMs
-      : Number((((existing?.avgLatencyMs ?? input.latencyMs) * previousRuns + input.latencyMs) / (previousRuns + 1)).toFixed(2));
+      : Number(
+          (
+            ((existing?.avgLatencyMs ?? input.latencyMs) * previousRuns +
+              input.latencyMs) /
+            (previousRuns + 1)
+          ).toFixed(2),
+        );
   const next: DesktopReplaySkillRecord = {
     id: existing?.id ?? replaySkillId,
     key,
@@ -427,8 +498,11 @@ function promoteSlowBrainReplaySkill(projectDir: string, input: {
     routeLevel,
     stepKinds,
     verifyPolicy,
-    somCandidateId: input.actionPlan.action_plan.som.selectedCandidateId ?? existing?.somCandidateId,
-    windowFingerprint: input.screenState.windowFingerprint ?? existing?.windowFingerprint,
+    somCandidateId:
+      input.actionPlan.action_plan.som.selectedCandidateId ??
+      existing?.somCandidateId,
+    windowFingerprint:
+      input.screenState.windowFingerprint ?? existing?.windowFingerprint,
     successCount: previousRuns + 1,
     avgLatencyMs,
     createdAt: existing?.createdAt ?? now,
@@ -440,29 +514,46 @@ function promoteSlowBrainReplaySkill(projectDir: string, input: {
   writeReplaySkills(projectDir, store);
 }
 
-export function listDesktopReplaySkills(projectDir: string, limit = 100): DesktopReplaySkillRecord[] {
-  const normalizedLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 100)));
+export function listDesktopReplaySkills(
+  projectDir: string,
+  limit = 100,
+): DesktopReplaySkillRecord[] {
+  const normalizedLimit = Math.max(
+    1,
+    Math.min(500, Math.floor(Number(limit) || 100)),
+  );
   return readReplaySkills(projectDir).records.slice(0, normalizedLimit);
 }
 
 function memoryExpiryMs(): number {
-  const raw = Number(process.env.MIYA_DESKTOP_ACTION_MEMORY_TTL_MS ?? 30 * 24 * 3600 * 1000);
+  const raw = Number(
+    process.env.MIYA_DESKTOP_ACTION_MEMORY_TTL_MS ?? 30 * 24 * 3600 * 1000,
+  );
   if (!Number.isFinite(raw)) return 30 * 24 * 3600 * 1000;
   return Math.max(3_600_000, Math.min(180 * 24 * 3600 * 1000, Math.floor(raw)));
 }
 
-function isMemoryRecordHot(record: ActionMemoryRecord, screen: DesktopScreenState): boolean {
+function isMemoryRecordHot(
+  record: ActionMemoryRecord,
+  screen: DesktopScreenState,
+): boolean {
   const updatedAt = Date.parse(record.updatedAt);
   if (!Number.isFinite(updatedAt)) return false;
   if (Date.now() - updatedAt > memoryExpiryMs()) return false;
   if (record.failCount > record.successCount + 1) return false;
-  if (record.windowFingerprint && screen.windowFingerprint && record.windowFingerprint !== screen.windowFingerprint) {
+  if (
+    record.windowFingerprint &&
+    screen.windowFingerprint &&
+    record.windowFingerprint !== screen.windowFingerprint
+  ) {
     return false;
   }
   return true;
 }
 
-function defaultSomCandidates(screen: DesktopScreenState): DesktopSomCandidate[] {
+function defaultSomCandidates(
+  screen: DesktopScreenState,
+): DesktopSomCandidate[] {
   const width = screen.display.width;
   const height = screen.display.height;
   const cellW = Math.max(1, Math.floor(width / 10));
@@ -493,7 +584,9 @@ function defaultSomCandidates(screen: DesktopScreenState): DesktopSomCandidate[]
   return candidates;
 }
 
-function normalizeSomCandidates(input: DesktopScreenState): DesktopSomCandidate[] {
+function normalizeSomCandidates(
+  input: DesktopScreenState,
+): DesktopSomCandidate[] {
   const base =
     Array.isArray(input.somCandidates) && input.somCandidates.length > 0
       ? input.somCandidates
@@ -511,10 +604,20 @@ function chooseSomCandidateByHeuristic(
   intent: DesktopAutomationIntent,
 ): number | undefined {
   const destination = normalizeDestination(intent.destination);
-  const sendHints = ['send', '发送', '发 送', 'sent', 'deliver', '提交', '确认'];
+  const sendHints = [
+    'send',
+    '发送',
+    '发 送',
+    'sent',
+    'deliver',
+    '提交',
+    '确认',
+  ];
   const destinationMatch = candidates.find((item) => {
     const label = normalizeDestination(item.label ?? '');
-    return label.length > 0 && destination.length > 0 && label.includes(destination);
+    return (
+      label.length > 0 && destination.length > 0 && label.includes(destination)
+    );
   });
   if (destinationMatch) return destinationMatch.id;
   const sendMatch = candidates.find((item) => {
@@ -547,10 +650,22 @@ function candidatesFromOcr(input: DesktopScreenState): DesktopSomCandidate[] {
   let id = 1001;
   return boxes
     .map((box) => {
-      const centerX = Math.max(0, Math.min(width - 1, box.x + Math.floor(box.width / 2)));
-      const centerY = Math.max(0, Math.min(height - 1, box.y + Math.floor(box.height / 2)));
-      const row = Math.max(0, Math.min(9, Math.floor((centerY / Math.max(1, height)) * 10)));
-      const col = Math.max(0, Math.min(9, Math.floor((centerX / Math.max(1, width)) * 10)));
+      const centerX = Math.max(
+        0,
+        Math.min(width - 1, box.x + Math.floor(box.width / 2)),
+      );
+      const centerY = Math.max(
+        0,
+        Math.min(height - 1, box.y + Math.floor(box.height / 2)),
+      );
+      const row = Math.max(
+        0,
+        Math.min(9, Math.floor((centerY / Math.max(1, height)) * 10)),
+      );
+      const col = Math.max(
+        0,
+        Math.min(9, Math.floor((centerX / Math.max(1, width)) * 10)),
+      );
       return {
         id: id++,
         label: box.text.slice(0, 120),
@@ -562,7 +677,10 @@ function candidatesFromOcr(input: DesktopScreenState): DesktopSomCandidate[] {
           height: Math.max(1, Math.min(box.height, height - box.y)),
         },
         center: { x: centerX, y: centerY },
-        confidence: typeof box.confidence === 'number' ? clamp(box.confidence, 0, 1) : undefined,
+        confidence:
+          typeof box.confidence === 'number'
+            ? clamp(box.confidence, 0, 1)
+            : undefined,
       } satisfies DesktopSomCandidate;
     })
     .slice(0, 80);
@@ -573,8 +691,18 @@ function chooseSomCandidateFromOcr(
   intent: DesktopAutomationIntent,
   screenState: DesktopScreenState,
 ): number | undefined {
-  if (!Array.isArray(screenState.ocrBoxes) || screenState.ocrBoxes.length === 0) return undefined;
-  const sendHints = ['send', '发送', 'sent', 'deliver', '提交', '确认', '发送给', 'send to'];
+  if (!Array.isArray(screenState.ocrBoxes) || screenState.ocrBoxes.length === 0)
+    return undefined;
+  const sendHints = [
+    'send',
+    '发送',
+    'sent',
+    'deliver',
+    '提交',
+    '确认',
+    '发送给',
+    'send to',
+  ];
   const destination = intent.destination;
   const scored = candidates.map((item) => {
     const label = String(item.label ?? '');
@@ -582,8 +710,8 @@ function chooseSomCandidateFromOcr(
     if (containsNormalized(label, destination)) score += 2.2;
     if (sendHints.some((hint) => containsNormalized(label, hint))) score += 1.6;
     // Prefer bottom-right controls for send buttons when OCR signals are weak.
-    score += ((item.center.y / Math.max(1, screenState.display.height)) * 0.45);
-    score += ((item.center.x / Math.max(1, screenState.display.width)) * 0.25);
+    score += (item.center.y / Math.max(1, screenState.display.height)) * 0.45;
+    score += (item.center.x / Math.max(1, screenState.display.width)) * 0.25;
     if (typeof item.confidence === 'number') score += item.confidence * 0.4;
     return { id: item.id, score };
   });
@@ -593,7 +721,9 @@ function chooseSomCandidateFromOcr(
   return top.id;
 }
 
-function parseCommandSpec(raw: string): { command: string; args: string[] } | null {
+function parseCommandSpec(
+  raw: string,
+): { command: string; args: string[] } | null {
   const input = raw.trim();
   if (!input) return null;
   const tokens: string[] = [];
@@ -617,7 +747,11 @@ function parseCommandSpec(raw: string): { command: string; args: string[] } | nu
   return { command: tokens[0] as string, args: tokens.slice(1) };
 }
 
-function resolveSomVlmCommand(): { command: string; args: string[]; shell: boolean } | null {
+function resolveSomVlmCommand(): {
+  command: string;
+  args: string[];
+  shell: boolean;
+} | null {
   const explicit = String(process.env.MIYA_VISION_LOCAL_CMD ?? '').trim();
   if (explicit) {
     const parsed = parseCommandSpec(explicit);
@@ -643,8 +777,12 @@ function runSomVlmSelector(input: {
   if (!command || input.candidates.length === 0 || input.maxCalls <= 0) {
     return { selectedCandidateId: undefined, callsUsed: 0 };
   }
-  const timeoutMsRaw = Number(process.env.MIYA_DESKTOP_VLM_SELECTOR_TIMEOUT_MS ?? 2_800);
-  const timeoutMs = Number.isFinite(timeoutMsRaw) ? Math.max(600, Math.min(12_000, Math.floor(timeoutMsRaw))) : 2_800;
+  const timeoutMsRaw = Number(
+    process.env.MIYA_DESKTOP_VLM_SELECTOR_TIMEOUT_MS ?? 2_800,
+  );
+  const timeoutMs = Number.isFinite(timeoutMsRaw)
+    ? Math.max(600, Math.min(12_000, Math.floor(timeoutMsRaw)))
+    : 2_800;
   const attempts = Math.max(1, Math.min(2, input.maxCalls));
   let callsUsed = 0;
   for (let i = 0; i < attempts; i += 1) {
@@ -701,7 +839,10 @@ function runSomVlmSelector(input: {
         id?: number;
       };
       const candidateIdRaw = Number(
-        parsed.candidateId ?? parsed.selectedCandidateId ?? parsed.id ?? Number.NaN,
+        parsed.candidateId ??
+          parsed.selectedCandidateId ??
+          parsed.id ??
+          Number.NaN,
       );
       if (!Number.isFinite(candidateIdRaw)) continue;
       const candidateId = Math.max(1, Math.floor(candidateIdRaw));
@@ -711,14 +852,15 @@ function runSomVlmSelector(input: {
           callsUsed,
         };
       }
-    } catch {
-      continue;
-    }
+    } catch {}
   }
   return { selectedCandidateId: undefined, callsUsed };
 }
 
-function buildSteps(route: DesktopPerceptionRoute, intent: DesktopAutomationIntent) {
+function buildSteps(
+  route: DesktopPerceptionRoute,
+  intent: DesktopAutomationIntent,
+) {
   const steps: z.infer<typeof actionPlanStepSchema>[] = [
     {
       id: 'focus_window',
@@ -785,7 +927,9 @@ export function buildDesktopActionPlan(input: {
   const screenState = desktopScreenStateSchema.parse(input.screenState);
   const memory = readActionMemory(input.projectDir);
   const memoryKey = buildMemoryKey(intent);
-  const matchedMemory = memory.records.find((row) => row.key === memoryKey && isMemoryRecordHot(row, screenState));
+  const matchedMemory = memory.records.find(
+    (row) => row.key === memoryKey && isMemoryRecordHot(row, screenState),
+  );
   const somCandidates = normalizeSomCandidates(screenState);
 
   let routeLevel: DesktopPerceptionRoute = 'L3_SOM_VLM';
@@ -793,7 +937,7 @@ export function buildDesktopActionPlan(input: {
   else if (screenState.uiaAvailable) routeLevel = 'L1_UIA';
   else if (screenState.ocrAvailable) routeLevel = 'L2_OCR';
 
-  let selectedCandidateId: number | undefined = undefined;
+  let selectedCandidateId: number | undefined;
   let selectionSource: 'memory' | 'heuristic' | 'vlm' | 'none' = 'none';
   let vlmCallsPlanned = 0;
   let maxVlmCallsPerStep = 2;
@@ -808,7 +952,11 @@ export function buildDesktopActionPlan(input: {
     }
   }
   if (routeLevel === 'L2_OCR' && !selectedCandidateId) {
-    const ocrSelected = chooseSomCandidateFromOcr(somCandidates, intent, screenState);
+    const ocrSelected = chooseSomCandidateFromOcr(
+      somCandidates,
+      intent,
+      screenState,
+    );
     if (ocrSelected) {
       selectedCandidateId = ocrSelected;
       selectionSource = 'heuristic';
@@ -836,14 +984,18 @@ export function buildDesktopActionPlan(input: {
     }
   }
   const vlmCallsBudget =
-    routeLevel === 'L3_SOM_VLM' ? Math.max(0, maxVlmCallsPerStep - vlmCallsPlanned) : 0;
+    routeLevel === 'L3_SOM_VLM'
+      ? Math.max(0, maxVlmCallsPerStep - vlmCallsPlanned)
+      : 0;
   const replaySkillId =
     matchedMemory?.replaySkillId ||
     `desktop_replay_${intent.channel}_${createHash('sha1').update(memoryKey).digest('hex').slice(0, 8)}`;
   const somCandidatesForPlan =
     routeLevel === 'L2_OCR' || routeLevel === 'L3_SOM_VLM' ? somCandidates : [];
-  const fastBrainActive = routeLevel === 'L0_ACTION_MEMORY' && Boolean(matchedMemory);
-  const slowBrainRoute = routeLevel === 'L0_ACTION_MEMORY' ? undefined : routeLevel;
+  const fastBrainActive =
+    routeLevel === 'L0_ACTION_MEMORY' && Boolean(matchedMemory);
+  const slowBrainRoute =
+    routeLevel === 'L0_ACTION_MEMORY' ? undefined : routeLevel;
 
   return desktopActionPlanSchema.parse({
     protocol: 'vision_action_bridge.v1',
@@ -894,7 +1046,9 @@ export function buildDesktopActionPlan(input: {
   });
 }
 
-function normalizeMetrics(raw: DesktopAutomationMetricsStore): DesktopAutomationMetricsStore {
+function normalizeMetrics(
+  raw: DesktopAutomationMetricsStore,
+): DesktopAutomationMetricsStore {
   const fallbackNow = nowIso();
   const asNumArray = (rows: unknown): number[] =>
     Array.isArray(rows)
@@ -907,12 +1061,21 @@ function normalizeMetrics(raw: DesktopAutomationMetricsStore): DesktopAutomation
     createdAt: String(raw.createdAt ?? fallbackNow),
     updatedAt: String(raw.updatedAt ?? fallbackNow),
     totalRuns: Math.max(0, Math.floor(Number(raw.totalRuns ?? 0) || 0)),
-    successfulRuns: Math.max(0, Math.floor(Number(raw.successfulRuns ?? 0) || 0)),
+    successfulRuns: Math.max(
+      0,
+      Math.floor(Number(raw.successfulRuns ?? 0) || 0),
+    ),
     vlmCalls: Math.max(0, Math.floor(Number(raw.vlmCalls ?? 0) || 0)),
     somRuns: Math.max(0, Math.floor(Number(raw.somRuns ?? 0) || 0)),
-    somSuccessRuns: Math.max(0, Math.floor(Number(raw.somSuccessRuns ?? 0) || 0)),
+    somSuccessRuns: Math.max(
+      0,
+      Math.floor(Number(raw.somSuccessRuns ?? 0) || 0),
+    ),
     highRiskRuns: Math.max(0, Math.floor(Number(raw.highRiskRuns ?? 0) || 0)),
-    highRiskMisfireRuns: Math.max(0, Math.floor(Number(raw.highRiskMisfireRuns ?? 0) || 0)),
+    highRiskMisfireRuns: Math.max(
+      0,
+      Math.floor(Number(raw.highRiskMisfireRuns ?? 0) || 0),
+    ),
     reuseRuns: Math.max(0, Math.floor(Number(raw.reuseRuns ?? 0) || 0)),
     firstRuns: Math.max(0, Math.floor(Number(raw.firstRuns ?? 0) || 0)),
     reuseLatencyMs: asNumArray(raw.reuseLatencyMs).slice(-500),
@@ -936,13 +1099,19 @@ function readMetrics(projectDir: string): DesktopAutomationMetricsStore {
     reuseLatencyMs: [],
     firstLatencyMs: [],
   };
-  const parsed = readJsonFile<DesktopAutomationMetricsStore>(metricsFile(projectDir), fallback);
+  const parsed = readJsonFile<DesktopAutomationMetricsStore>(
+    metricsFile(projectDir),
+    fallback,
+  );
   const normalized = normalizeMetrics(parsed);
   writeJsonFile(metricsFile(projectDir), normalized);
   return normalized;
 }
 
-function writeMetrics(projectDir: string, metrics: DesktopAutomationMetricsStore): void {
+function writeMetrics(
+  projectDir: string,
+  metrics: DesktopAutomationMetricsStore,
+): void {
   writeJsonFile(metricsFile(projectDir), normalizeMetrics(metrics));
 }
 
@@ -954,13 +1123,24 @@ function pushLatency(rows: number[], value: number): number[] {
 function p95(rows: number[]): number {
   if (rows.length === 0) return 0;
   const sorted = [...rows].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.ceil(sorted.length * 0.95) - 1,
+  );
   return sorted[index] ?? 0;
 }
 
 function readAcceptanceThresholds() {
-  const maxVlmCallRatio = clamp(Number(process.env.MIYA_DESKTOP_KPI_MAX_VLM_RATIO ?? 0.2), 0, 1);
-  const minSomPathHitRate = clamp(Number(process.env.MIYA_DESKTOP_KPI_MIN_SOM_HIT_RATE ?? 0.95), 0, 1);
+  const maxVlmCallRatio = clamp(
+    Number(process.env.MIYA_DESKTOP_KPI_MAX_VLM_RATIO ?? 0.2),
+    0,
+    1,
+  );
+  const minSomPathHitRate = clamp(
+    Number(process.env.MIYA_DESKTOP_KPI_MIN_SOM_HIT_RATE ?? 0.95),
+    0,
+    1,
+  );
   const maxReuseTaskP95Ms = clamp(
     Number(process.env.MIYA_DESKTOP_KPI_MAX_REUSE_P95_MS ?? 1_500),
     200,
@@ -985,14 +1165,29 @@ function evaluateDesktopAutomationAcceptance(
 ): DesktopAutomationAcceptanceSnapshot {
   const thresholds = readAcceptanceThresholds();
   const checks = {
-    vlmCallRatio: metrics.totalRuns === 0 ? true : kpi.vlmCallRatio <= thresholds.maxVlmCallRatio,
-    somPathHitRate: metrics.somRuns === 0 ? true : kpi.somPathHitRate >= thresholds.minSomPathHitRate,
-    reuseTaskP95Ms: metrics.reuseRuns === 0 ? true : kpi.reuseTaskP95Ms <= thresholds.maxReuseTaskP95Ms,
+    vlmCallRatio:
+      metrics.totalRuns === 0
+        ? true
+        : kpi.vlmCallRatio <= thresholds.maxVlmCallRatio,
+    somPathHitRate:
+      metrics.somRuns === 0
+        ? true
+        : kpi.somPathHitRate >= thresholds.minSomPathHitRate,
+    reuseTaskP95Ms:
+      metrics.reuseRuns === 0
+        ? true
+        : kpi.reuseTaskP95Ms <= thresholds.maxReuseTaskP95Ms,
     highRiskMisfireRate:
-      metrics.highRiskRuns === 0 ? true : kpi.highRiskMisfireRate <= thresholds.maxHighRiskMisfireRate,
+      metrics.highRiskRuns === 0
+        ? true
+        : kpi.highRiskMisfireRate <= thresholds.maxHighRiskMisfireRate,
   };
   return {
-    pass: checks.vlmCallRatio && checks.somPathHitRate && checks.reuseTaskP95Ms && checks.highRiskMisfireRate,
+    pass:
+      checks.vlmCallRatio &&
+      checks.somPathHitRate &&
+      checks.reuseTaskP95Ms &&
+      checks.highRiskMisfireRate,
     thresholds,
     checks,
     sample: {
@@ -1004,7 +1199,10 @@ function evaluateDesktopAutomationAcceptance(
   };
 }
 
-export function recordDesktopActionOutcome(projectDir: string, input: DesktopActionOutcomeInput): void {
+export function recordDesktopActionOutcome(
+  projectDir: string,
+  input: DesktopActionOutcomeInput,
+): void {
   const intent = desktopIntentSchema.parse(input.intent);
   const screenState = desktopScreenStateSchema.parse(input.screenState);
   const plan = desktopActionPlanSchema.parse(input.actionPlan);
@@ -1014,13 +1212,24 @@ export function recordDesktopActionOutcome(projectDir: string, input: DesktopAct
   const key = buildMemoryKey(intent);
   const existingIndex = memory.records.findIndex((row) => row.key === key);
   const now = nowIso();
-  const existing = existingIndex >= 0 ? memory.records[existingIndex] : undefined;
+  const existing =
+    existingIndex >= 0 ? memory.records[existingIndex] : undefined;
   const successCount = (existing?.successCount ?? 0) + (input.sent ? 1 : 0);
   const failCount = (existing?.failCount ?? 0) + (input.sent ? 0 : 1);
   const previousAvg = existing?.avgLatencyMs ?? latencyMs;
-  const previousRuns = Math.max(0, (existing?.successCount ?? 0) + (existing?.failCount ?? 0));
+  const previousRuns = Math.max(
+    0,
+    (existing?.successCount ?? 0) + (existing?.failCount ?? 0),
+  );
   const avgLatencyMs =
-    previousRuns <= 0 ? latencyMs : Number(((previousAvg * previousRuns + latencyMs) / (previousRuns + 1)).toFixed(2));
+    previousRuns <= 0
+      ? latencyMs
+      : Number(
+          (
+            (previousAvg * previousRuns + latencyMs) /
+            (previousRuns + 1)
+          ).toFixed(2),
+        );
   const nextRecord: ActionMemoryRecord = {
     id: existing?.id ?? randomUUID(),
     key,
@@ -1032,10 +1241,10 @@ export function recordDesktopActionOutcome(projectDir: string, input: DesktopAct
       plan.action_plan.replaySkillId ??
       existing?.replaySkillId ??
       `desktop_replay_${intent.channel}_${createHash('sha1').update(key).digest('hex').slice(0, 8)}`,
-    windowFingerprint: screenState.windowFingerprint || existing?.windowFingerprint,
+    windowFingerprint:
+      screenState.windowFingerprint || existing?.windowFingerprint,
     somCandidateId:
-      plan.action_plan.som.selectedCandidateId ??
-      existing?.somCandidateId,
+      plan.action_plan.som.selectedCandidateId ?? existing?.somCandidateId,
     successCount,
     failCount,
     createdAt: existing?.createdAt ?? now,
@@ -1061,13 +1270,19 @@ export function recordDesktopActionOutcome(projectDir: string, input: DesktopAct
   metrics.updatedAt = now;
   metrics.totalRuns += 1;
   if (input.sent) metrics.successfulRuns += 1;
-  const vlmCallsUsed = Math.max(0, Math.min(2, Math.floor(Number(input.vlmCallsUsed ?? 0) || 0)));
+  const vlmCallsUsed = Math.max(
+    0,
+    Math.min(2, Math.floor(Number(input.vlmCallsUsed ?? 0) || 0)),
+  );
   metrics.vlmCalls += vlmCallsUsed;
   if (intent.risk === 'HIGH') {
     metrics.highRiskRuns += 1;
     if (input.highRiskMisfire) metrics.highRiskMisfireRuns += 1;
   }
-  if (plan.action_plan.routeLevel === 'L2_OCR' || plan.action_plan.routeLevel === 'L3_SOM_VLM') {
+  if (
+    plan.action_plan.routeLevel === 'L2_OCR' ||
+    plan.action_plan.routeLevel === 'L3_SOM_VLM'
+  ) {
     metrics.somRuns += 1;
     if (input.somSucceeded) metrics.somSuccessRuns += 1;
   }
@@ -1081,7 +1296,9 @@ export function recordDesktopActionOutcome(projectDir: string, input: DesktopAct
   writeMetrics(projectDir, metrics);
 }
 
-export function readDesktopAutomationKpi(projectDir: string): DesktopAutomationKpiSnapshot {
+export function readDesktopAutomationKpi(
+  projectDir: string,
+): DesktopAutomationKpiSnapshot {
   const metrics = readMetrics(projectDir);
   const totalRuns = metrics.totalRuns > 0 ? metrics.totalRuns : 1;
   const somRuns = metrics.somRuns > 0 ? metrics.somRuns : 1;
@@ -1093,7 +1310,9 @@ export function readDesktopAutomationKpi(projectDir: string): DesktopAutomationK
     somPathHitRate: Number((metrics.somSuccessRuns / somRuns).toFixed(4)),
     reuseTaskP95Ms: p95(metrics.reuseLatencyMs),
     firstTaskP95Ms: p95(metrics.firstLatencyMs),
-    highRiskMisfireRate: Number((metrics.highRiskMisfireRuns / highRiskRuns).toFixed(4)),
+    highRiskMisfireRate: Number(
+      (metrics.highRiskMisfireRuns / highRiskRuns).toFixed(4),
+    ),
     reuseRuns: metrics.reuseRuns,
     firstRuns: metrics.firstRuns,
   };
@@ -1103,21 +1322,25 @@ export function readDesktopAutomationKpi(projectDir: string): DesktopAutomationK
   };
 }
 
-export function readDesktopAutomationAcceptance(projectDir: string): DesktopAutomationAcceptanceSnapshot {
-  return readDesktopAutomationKpi(projectDir).acceptance ?? {
-    pass: true,
-    thresholds: readAcceptanceThresholds(),
-    checks: {
-      vlmCallRatio: true,
-      somPathHitRate: true,
-      reuseTaskP95Ms: true,
-      highRiskMisfireRate: true,
-    },
-    sample: {
-      totalRuns: 0,
-      somRuns: 0,
-      reuseRuns: 0,
-      highRiskRuns: 0,
-    },
-  };
+export function readDesktopAutomationAcceptance(
+  projectDir: string,
+): DesktopAutomationAcceptanceSnapshot {
+  return (
+    readDesktopAutomationKpi(projectDir).acceptance ?? {
+      pass: true,
+      thresholds: readAcceptanceThresholds(),
+      checks: {
+        vlmCallRatio: true,
+        somPathHitRate: true,
+        reuseTaskP95Ms: true,
+        highRiskMisfireRate: true,
+      },
+      sample: {
+        totalRuns: 0,
+        somRuns: 0,
+        reuseRuns: 0,
+        highRiskRuns: 0,
+      },
+    }
+  );
 }

@@ -162,9 +162,7 @@ function assertNoUnresolvedStatusRows(planning: string): void {
       .filter((item) => item.length > 0);
     if (cells.length < 2) continue;
     const statusCell = cells[1] ?? '';
-    if (
-      !UNRESOLVED_STATUS_TOKENS.some((token) => statusCell.includes(token))
-    ) {
+    if (!UNRESOLVED_STATUS_TOKENS.some((token) => statusCell.includes(token))) {
       continue;
     }
     violations.push({
@@ -192,10 +190,14 @@ if (existsSync(pluginEntryPath)) {
   const source = readFileSync(pluginEntryPath, 'utf8');
   requireText(source, "'tool.execute.before'", 'hook.before', 'src/index.ts');
   requireText(source, "'tool.execute.after'", 'hook.after', 'src/index.ts');
-  if (!source.includes("'permission.ask'") && !source.includes('PERMISSION_OBSERVED_HOOK')) {
+  if (
+    !source.includes("'permission.ask'") &&
+    !source.includes('PERMISSION_OBSERVED_HOOK')
+  ) {
     violations.push({
       code: 'hook.permission',
-      message: 'src/index.ts missing permission hook wiring (permission.ask/PERMISSION_OBSERVED_HOOK)',
+      message:
+        'src/index.ts missing permission hook wiring (permission.ask/PERMISSION_OBSERVED_HOOK)',
     });
   }
   for (const legacyKey of ['tool.use.before', 'tool.use.after']) {

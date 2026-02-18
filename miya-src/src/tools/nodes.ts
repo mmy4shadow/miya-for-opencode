@@ -26,7 +26,10 @@ export function createNodeTools(
         .array(z.string())
         .optional()
         .describe('Capability list exposed by this node'),
-      token: z.string().optional().describe('Optional node token for registration'),
+      token: z
+        .string()
+        .optional()
+        .describe('Optional node token for registration'),
       permissions: z
         .object({
           screenRecording: z.boolean().optional(),
@@ -174,7 +177,8 @@ export function createNodeTools(
   });
 
   const miya_node_governance = tool({
-    description: 'Return node governance summary with permission/risk coverage.',
+    description:
+      'Return node governance summary with permission/risk coverage.',
     args: {},
     async execute() {
       const nodes = nodeService.list();

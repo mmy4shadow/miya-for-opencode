@@ -46,7 +46,10 @@ function nowIso(): string {
 }
 
 function filePath(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'companion-persona-world.json');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'companion-persona-world.json',
+  );
 }
 
 function defaultStore(): PersonaWorldStore {
@@ -69,7 +72,8 @@ function defaultStore(): PersonaWorldStore {
       {
         id: 'world_default',
         name: 'Default Workspace',
-        summary: 'Generic software delivery context with safety-first collaboration.',
+        summary:
+          'Generic software delivery context with safety-first collaboration.',
         rules: ['No irreversible action without explicit approval.'],
         tags: ['software', 'productivity'],
         risk: 'low',
@@ -85,11 +89,15 @@ function readStore(projectDir: string): PersonaWorldStore {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) return defaultStore();
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<PersonaWorldStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<PersonaWorldStore>;
     const base = defaultStore();
     return {
       version: 1,
-      personas: Array.isArray(parsed.personas) ? parsed.personas : base.personas,
+      personas: Array.isArray(parsed.personas)
+        ? parsed.personas
+        : base.personas,
       worlds: Array.isArray(parsed.worlds) ? parsed.worlds : base.worlds,
       bindings:
         parsed.bindings && typeof parsed.bindings === 'object'
@@ -101,7 +109,10 @@ function readStore(projectDir: string): PersonaWorldStore {
   }
 }
 
-function writeStore(projectDir: string, store: PersonaWorldStore): PersonaWorldStore {
+function writeStore(
+  projectDir: string,
+  store: PersonaWorldStore,
+): PersonaWorldStore {
   const file = filePath(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
@@ -146,7 +157,10 @@ export function upsertPersonaPreset(
     createdAt: current?.createdAt ?? now,
     updatedAt: now,
   };
-  store.personas = [next, ...store.personas.filter((item) => item.id !== id)].slice(0, 120);
+  store.personas = [
+    next,
+    ...store.personas.filter((item) => item.id !== id),
+  ].slice(0, 120);
   writeStore(projectDir, store);
   return next;
 }
@@ -170,13 +184,20 @@ export function upsertWorldPreset(
     id,
     name: input.name.trim(),
     summary: input.summary.trim(),
-    rules: Array.isArray(input.rules) ? input.rules.map((item) => String(item).trim()).filter(Boolean) : [],
-    tags: Array.isArray(input.tags) ? input.tags.map((item) => String(item).trim()).filter(Boolean) : [],
+    rules: Array.isArray(input.rules)
+      ? input.rules.map((item) => String(item).trim()).filter(Boolean)
+      : [],
+    tags: Array.isArray(input.tags)
+      ? input.tags.map((item) => String(item).trim()).filter(Boolean)
+      : [],
     risk: normalizeRisk(input.risk),
     createdAt: current?.createdAt ?? now,
     updatedAt: now,
   };
-  store.worlds = [next, ...store.worlds.filter((item) => item.id !== id)].slice(0, 120);
+  store.worlds = [next, ...store.worlds.filter((item) => item.id !== id)].slice(
+    0,
+    120,
+  );
   writeStore(projectDir, store);
   return next;
 }
@@ -202,7 +223,10 @@ export function bindSessionPersonaWorld(
   return binding;
 }
 
-export function resolveSessionPersonaWorld(projectDir: string, sessionID: string): {
+export function resolveSessionPersonaWorld(
+  projectDir: string,
+  sessionID: string,
+): {
   binding: SessionPersonaWorldBinding;
   persona?: PersonaPreset;
   world?: WorldPreset;
@@ -210,13 +234,16 @@ export function resolveSessionPersonaWorld(projectDir: string, sessionID: string
 } {
   const store = readStore(projectDir);
   const binding =
-    store.bindings[sessionID] ?? ({
+    store.bindings[sessionID] ??
+    ({
       sessionID,
       personaPresetID: 'persona_default',
       worldPresetID: 'world_default',
       updatedAt: nowIso(),
     } satisfies SessionPersonaWorldBinding);
-  const persona = store.personas.find((item) => item.id === binding.personaPresetID);
+  const persona = store.personas.find(
+    (item) => item.id === binding.personaPresetID,
+  );
   const world = store.worlds.find((item) => item.id === binding.worldPresetID);
   const risk =
     persona?.risk === 'high' || world?.risk === 'high'
@@ -232,7 +259,10 @@ export function resolveSessionPersonaWorld(projectDir: string, sessionID: string
   };
 }
 
-export function buildPersonaWorldPrompt(projectDir: string, sessionID: string): string {
+export function buildPersonaWorldPrompt(
+  projectDir: string,
+  sessionID: string,
+): string {
   const resolved = resolveSessionPersonaWorld(projectDir, sessionID);
   const blocks: string[] = [];
   if (resolved.persona) {

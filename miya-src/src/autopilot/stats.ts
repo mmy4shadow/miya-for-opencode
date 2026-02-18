@@ -39,7 +39,9 @@ export function readAutopilotStats(projectDir: string): AutopilotStats {
   const file = statsFile(projectDir);
   if (!fs.existsSync(file)) return defaultStats();
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AutopilotStats>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<AutopilotStats>;
     return {
       ...defaultStats(),
       ...parsed,
@@ -60,7 +62,8 @@ export function readAutopilotStats(projectDir: string): AutopilotStats {
           }))
         : [],
       updatedAt:
-        typeof parsed.updatedAt === 'string' && parsed.updatedAt.trim().length > 0
+        typeof parsed.updatedAt === 'string' &&
+        parsed.updatedAt.trim().length > 0
           ? parsed.updatedAt
           : nowIso(),
     };
@@ -87,8 +90,10 @@ export function recordAutopilotRunDigest(
     successRuns: current.successRuns + (success ? 1 : 0),
     failedRuns: current.failedRuns + (success ? 0 : 1),
     rollbackRuns: current.rollbackRuns + (rollbackAttempted ? 1 : 0),
-    rollbackSuccessRuns: current.rollbackSuccessRuns + (rollbackSucceeded ? 1 : 0),
-    verificationRuns: current.verificationRuns + (verificationAttempted ? 1 : 0),
+    rollbackSuccessRuns:
+      current.rollbackSuccessRuns + (rollbackSucceeded ? 1 : 0),
+    verificationRuns:
+      current.verificationRuns + (verificationAttempted ? 1 : 0),
     verificationFailedRuns:
       current.verificationFailedRuns +
       (verificationAttempted && !verificationPassed ? 1 : 0),

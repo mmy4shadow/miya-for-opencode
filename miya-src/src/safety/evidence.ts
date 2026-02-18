@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { type SafetyTier } from './tier';
+import type { SafetyTier } from './tier';
 
 const MAX_OUTPUT = 8_000;
 const LARGE_FILE_LIMIT = 2 * 1024 * 1024;
@@ -84,13 +84,15 @@ export async function collectSafetyEvidence(
   checks.push('git status --porcelain');
   evidence.push(`git_status_exit=${status.code}`);
   if (status.stdout) evidence.push(`git_status:\n${status.stdout}`);
-  if (!status.ok) issues.push(`git status failed: ${status.stderr || status.code}`);
+  if (!status.ok)
+    issues.push(`git status failed: ${status.stderr || status.code}`);
 
   const diffStat = await runCommand(projectDir, ['git', 'diff', '--stat']);
   checks.push('git diff --stat');
   evidence.push(`git_diff_stat_exit=${diffStat.code}`);
   if (diffStat.stdout) evidence.push(`git_diff_stat:\n${diffStat.stdout}`);
-  if (!diffStat.ok) issues.push(`git diff --stat failed: ${diffStat.stderr || diffStat.code}`);
+  if (!diffStat.ok)
+    issues.push(`git diff --stat failed: ${diffStat.stderr || diffStat.code}`);
 
   const changed = await runCommand(projectDir, ['git', 'diff', '--name-only']);
   const changedFiles = changed.stdout
@@ -99,7 +101,11 @@ export async function collectSafetyEvidence(
     .filter((line) => line.length > 0);
 
   if (changedFiles.some((file) => file.startsWith('miya-src/'))) {
-    const test = await runCommand(projectDir, ['bun', '--cwd', 'miya-src', 'test'], 120_000);
+    const test = await runCommand(
+      projectDir,
+      ['bun', '--cwd', 'miya-src', 'test'],
+      120_000,
+    );
     checks.push('bun --cwd miya-src test');
     evidence.push(`miya_test_exit=${test.code}`);
     if (test.stdout) evidence.push(`miya_test_stdout:\n${test.stdout}`);

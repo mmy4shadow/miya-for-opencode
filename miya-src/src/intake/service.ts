@@ -1,7 +1,4 @@
-import {
-  flattenConfig,
-  readConfig,
-} from '../settings';
+import { flattenConfig, readConfig } from '../settings';
 import { createIntakeId, readIntakeState, writeIntakeState } from './store';
 import type {
   IntakeEvaluationEvent,
@@ -294,7 +291,9 @@ function addUniqueRule(
   value: string,
   reason: string,
 ): IntakeListEntry {
-  const existing = list.find((entry) => entry.scope === scope && entry.value === value);
+  const existing = list.find(
+    (entry) => entry.scope === scope && entry.value === value,
+  );
   if (existing) return existing;
   const next: IntakeListEntry = {
     id: createIntakeId('rule'),
@@ -307,7 +306,10 @@ function addUniqueRule(
   return next;
 }
 
-function scopeValueFromSource(scope: IntakeScope, source: ResolvedSource): string {
+function scopeValueFromSource(
+  scope: IntakeScope,
+  source: ResolvedSource,
+): string {
   if (scope === 'CONTENT_FINGERPRINT') return source.fingerprint;
   if (scope === 'PAGE') return source.pageKey;
   if (scope === 'PATH_PREFIX') return source.pathPrefixKey;
@@ -327,11 +329,16 @@ function appendEvent(
   return next;
 }
 
-function findProposal(state: IntakeState, proposalId: string): IntakeProposal | undefined {
+function findProposal(
+  state: IntakeState,
+  proposalId: string,
+): IntakeProposal | undefined {
   return state.proposals.find((proposal) => proposal.id === proposalId);
 }
 
-function decideOutcome(decision: DecideIntakeInput['decision']): IntakeEvaluationEvent['outcome'] {
+function decideOutcome(
+  decision: DecideIntakeInput['decision'],
+): IntakeEvaluationEvent['outcome'] {
   if (decision === 'trial_once') return 'trial';
   if (decision.startsWith('approve')) return 'useful';
   return 'rejected';
@@ -342,10 +349,16 @@ function evaluateStatsForEvents(
   sourceUnitKey: string,
   events: IntakeEvaluationEvent[],
 ): IntakeStatsResult {
-  const related = events.filter((event) => event.sourceUnitKey === sourceUnitKey);
+  const related = events.filter(
+    (event) => event.sourceUnitKey === sourceUnitKey,
+  );
   const window = related.slice(0, config.windowN);
-  const usefulCount = window.filter((event) => event.outcome === 'useful').length;
-  const rejectedCount = window.filter((event) => event.outcome === 'rejected').length;
+  const usefulCount = window.filter(
+    (event) => event.outcome === 'useful',
+  ).length;
+  const rejectedCount = window.filter(
+    (event) => event.outcome === 'rejected',
+  ).length;
   const trialCount = window.filter((event) => event.outcome === 'trial').length;
   const considered = usefulCount + rejectedCount;
 
@@ -399,13 +412,19 @@ export function proposeIntake(
   const config = readIntakeConfig(projectDir);
   const state = readIntakeState(projectDir);
   const source = resolveSource(config, input.source);
-  const stats = evaluateStatsForEvents(config, source.sourceUnitKey, state.events);
+  const stats = evaluateStatsForEvents(
+    config,
+    source.sourceUnitKey,
+    state.events,
+  );
 
   if (!config.enabled) {
     return { status: 'disabled', stats };
   }
 
-  const blackRule = state.blacklist.find((entry) => matchListEntry(entry, source));
+  const blackRule = state.blacklist.find((entry) =>
+    matchListEntry(entry, source),
+  );
   if (blackRule) {
     const proposal: IntakeProposal = {
       id: createIntakeId('intake'),
@@ -434,7 +453,9 @@ export function proposeIntake(
     return { status: 'auto_rejected', proposal, matchedRule: blackRule, stats };
   }
 
-  const whiteRule = state.whitelist.find((entry) => matchListEntry(entry, source));
+  const whiteRule = state.whitelist.find((entry) =>
+    matchListEntry(entry, source),
+  );
   if (whiteRule) {
     const proposal: IntakeProposal = {
       id: createIntakeId('intake'),
@@ -501,7 +522,11 @@ export function decideIntake(
     return { ok: false, message: 'proposal_not_found' };
   }
   if (proposal.status !== 'pending') {
-    return { ok: false, message: `proposal_not_pending:${proposal.status}`, proposal };
+    return {
+      ok: false,
+      message: `proposal_not_pending:${proposal.status}`,
+      proposal,
+    };
   }
 
   const resolvedSource = resolveSource(config, proposal.source);
@@ -579,7 +604,11 @@ export function decideIntake(
     decision: input.decision,
   });
 
-  const stats = evaluateStatsForEvents(config, proposal.sourceUnitKey, state.events);
+  const stats = evaluateStatsForEvents(
+    config,
+    proposal.sourceUnitKey,
+    state.events,
+  );
   writeIntakeState(projectDir, state);
 
   return {
@@ -626,4 +655,3 @@ export function intakeSummary(projectDir: string): {
       .slice(0, 20),
   };
 }
-

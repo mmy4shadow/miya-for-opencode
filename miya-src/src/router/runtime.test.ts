@@ -4,8 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildRouteExecutionPlan,
-  getRouterSessionState,
   getRouteCostSummary,
+  getRouterSessionState,
   prepareRoutePayload,
   readRouterModeConfig,
   recordRouteExecutionOutcome,
@@ -78,7 +78,9 @@ describe('router runtime planning', () => {
       availableAgents: AVAILABLE,
     });
     expect(plan.stage).toBe('high');
-    expect(plan.reasons.some((item) => item.startsWith('failure_escalation'))).toBe(true);
+    expect(
+      plan.reasons.some((item) => item.startsWith('failure_escalation')),
+    ).toBe(true);
   });
 
   test('routes to human gate when fixability is impossible', () => {
@@ -123,7 +125,9 @@ describe('router runtime planning', () => {
     });
     expect(payload.compressed).toBe(true);
     expect(payload.totalTokensEstimate).toBeGreaterThan(0);
-    expect(payload.baselineHighTokensEstimate).toBeGreaterThan(payload.totalTokensEstimate);
+    expect(payload.baselineHighTokensEstimate).toBeGreaterThan(
+      payload.totalTokensEstimate,
+    );
 
     recordRouteExecutionOutcome({
       projectDir,
