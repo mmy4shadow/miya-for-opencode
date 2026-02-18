@@ -1,7 +1,8 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Plugin, ToolDefinition } from '@opencode-ai/plugin';
 import { getAgentConfigs } from './agents';
 import { MiyaAutomationService } from './automation';
@@ -434,12 +435,131 @@ function readRuntimeGatewayState(projectDir: string): GatewayState | null {
   }
 }
 
+interface GatewaySupervisorState {
+  pid: number;
+  status: string;
+}
+
+function runtimeGatewaySupervisorFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-supervisor.json');
+}
+
+function runtimeGatewaySupervisorStopFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-supervisor.stop');
+}
+
+function readGatewaySupervisorState(
+  projectDir: string,
+): GatewaySupervisorState | null {
+  const file = runtimeGatewaySupervisorFile(projectDir);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      pid?: unknown;
+      status?: unknown;
+    };
+    const pid = Number(parsed.pid);
+    const status = String(parsed.status ?? '').trim().toLowerCase();
+    if (!Number.isFinite(pid) || pid <= 0 || !status) return null;
+    return { pid: Math.floor(pid), status };
+  } catch {
+    return null;
+  }
+}
+
+function resolveGatewaySupervisorScript(projectDir: string): string | null {
+  const bundled = fileURLToPath(
+    new URL('./cli/gateway-supervisor.node.js', import.meta.url),
+  );
+  if (fs.existsSync(bundled)) return bundled;
+  const candidates = [
+    path.join(projectDir, 'miya-src', 'dist', 'cli', 'gateway-supervisor.node.js'),
+    path.join(projectDir, 'dist', 'cli', 'gateway-supervisor.node.js'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveGatewaySupervisorNodeBin(): string | null {
+  const nodeBin = String(process.env.MIYA_GATEWAY_NODE_BIN ?? 'node').trim();
+  if (!nodeBin) return null;
+  try {
+    const probe = spawnSync(nodeBin, ['--version'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    if (probe.error || probe.status !== 0) return null;
+    return nodeBin;
+  } catch {
+    return null;
+  }
+}
+
+function startGatewaySupervisorDetached(projectDir: string): boolean {
+  const script = resolveGatewaySupervisorScript(projectDir);
+  const nodeBin = resolveGatewaySupervisorNodeBin();
+  if (!script || !nodeBin) return false;
+  try {
+    fs.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
+  } catch {}
+  const child = spawn(nodeBin, [script, '--workspace', projectDir], {
+    cwd: projectDir,
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+  return true;
+}
+
+async function waitGatewayRuntimeHealthy(
+  projectDir: string,
+  timeoutMs = 12_000,
+): Promise<GatewayState | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = readRuntimeGatewayState(projectDir);
+    if (state && isPidAlive(state.pid)) {
+      const healthy = await probeGatewayAlive(state.url, 1_000);
+      if (healthy) return state;
+    }
+    await sleep(400);
+  }
+  return null;
+}
+
+async function ensureGatewayBackgroundSupervisor(
+  projectDir: string,
+): Promise<GatewayState | null> {
+  if (process.env.MIYA_GATEWAY_BACKGROUND_ENABLE === '0') return null;
+  const existing = await waitGatewayRuntimeHealthy(projectDir, 1_000);
+  if (existing) return existing;
+
+  const supervisor = readGatewaySupervisorState(projectDir);
+  if (!supervisor || !isPidAlive(supervisor.pid)) {
+    const started = startGatewaySupervisorDetached(projectDir);
+    if (!started) return null;
+  }
+
+  return await waitGatewayRuntimeHealthy(projectDir, 15_000);
+}
+
 async function attachGatewayWithRetry(projectDir: string): Promise<{
   attached: boolean;
   owner: boolean;
   state?: GatewayState;
   error?: string;
 }> {
+  const externalState = await ensureGatewayBackgroundSupervisor(projectDir);
+  if (externalState) {
+    return {
+      attached: true,
+      owner: false,
+      state: externalState,
+    };
+  }
   const maxAttempts = 6;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -582,7 +702,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
             Math.floor(Number(dashboardConfig.autoOpenCooldownMs)),
           ),
         )
-      : 10 * 60_000;
+      : 15_000;
   const dockAutoLaunch =
     process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
     (process.env.MIYA_DOCK_AUTO_LAUNCH !== '0' &&
