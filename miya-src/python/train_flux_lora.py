@@ -49,6 +49,26 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     return value
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = _env(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = _env(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except Exception:
+        return default
+
+
 def _parse_size(value: str) -> tuple[int, int]:
     parts = value.lower().replace(" ", "").split("x")
     if len(parts) != 2:
@@ -214,15 +234,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--checkpoint-path", default=_env("MIYA_TRAIN_CHECKPOINT_PATH"))
     p.add_argument("--job-id", default=_env("MIYA_TRAIN_JOB_ID", "manual_flux_train"))
     p.add_argument("--tier", default=_env("MIYA_TRAIN_TIER", "lora"), choices=["lora", "embedding", "reference"])
-    p.add_argument("--steps", type=int, default=int(_env("MIYA_TRAIN_STEPS", "80")))
-    p.add_argument("--resume-step", type=int, default=int(_env("MIYA_TRAIN_RESUME_STEP", "0")))
-    p.add_argument("--batch-size", type=int, default=int(_env("MIYA_BATCH_SIZE", "1")))
-    p.add_argument("--learning-rate", type=float, default=float(_env("MIYA_LR", "1e-4")))
+    p.add_argument("--steps", type=int, default=_env_int("MIYA_TRAIN_STEPS", 80))
+    p.add_argument(
+        "--resume-step", type=int, default=_env_int("MIYA_TRAIN_RESUME_STEP", 0)
+    )
+    p.add_argument("--batch-size", type=int, default=_env_int("MIYA_BATCH_SIZE", 1))
+    p.add_argument("--learning-rate", type=float, default=_env_float("MIYA_LR", 1e-4))
     p.add_argument("--resolution", default=_env("MIYA_FLUX_RESOLUTION", "1024x1024"))
     p.add_argument("--precision", choices=["fp16", "fp32"], default=_env("MIYA_PRECISION", "fp16"))
-    p.add_argument("--vram-limit-mb", type=int, default=int(_env("MIYA_VRAM_LIMIT_MB", "8192")))
-    p.add_argument("--checkpoint-interval", type=int, default=int(_env("MIYA_CHECKPOINT_INTERVAL", "50")))
-    p.add_argument("--gpu-log-interval", type=float, default=float(_env("MIYA_GPU_LOG_INTERVAL", "5")))
+    p.add_argument(
+        "--vram-limit-mb", type=int, default=_env_int("MIYA_VRAM_LIMIT_MB", 8192)
+    )
+    p.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=_env_int("MIYA_CHECKPOINT_INTERVAL", 50),
+    )
+    p.add_argument(
+        "--gpu-log-interval", type=float, default=_env_float("MIYA_GPU_LOG_INTERVAL", 5.0)
+    )
     p.add_argument("--dry-run", action="store_true")
     return p
 

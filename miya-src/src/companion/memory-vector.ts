@@ -328,9 +328,41 @@ function readStore(projectDir: string): MemoryVectorStore {
               item.sourceType === 'direct_correction'
                 ? item.sourceType
                 : 'manual';
-            const text = typeof item.text === 'string' ? item.text : '';
+            const text = normalizeText(
+              typeof item.text === 'string' ? item.text : '',
+            );
+            const embedding = Array.isArray(item.embedding)
+              ? item.embedding
+                  .map((entry) => {
+                    if (typeof entry === 'number' && Number.isFinite(entry)) {
+                      return entry;
+                    }
+                    if (typeof entry === 'string') {
+                      const parsed = Number(entry);
+                      return Number.isFinite(parsed) ? parsed : Number.NaN;
+                    }
+                    return Number.NaN;
+                  })
+                  .filter((entry) => Number.isFinite(entry))
+                  .slice(0, 4096)
+              : [];
+            const now = nowIso();
             return {
               ...item,
+              id:
+                typeof item.id === 'string' && item.id.trim().length > 0
+                  ? item.id
+                  : `mem_${randomUUID()}`,
+              text,
+              source:
+                typeof item.source === 'string' && item.source.trim()
+                  ? item.source
+                  : 'manual',
+              embedding,
+              score:
+                typeof item.score === 'number' && Number.isFinite(item.score)
+                  ? Math.max(0, Math.min(2, item.score))
+                  : 1,
               confidence:
                 typeof item.confidence === 'number' &&
                 Number.isFinite(item.confidence)
@@ -400,6 +432,21 @@ function readStore(projectDir: string): MemoryVectorStore {
                   : 'local-hash',
               isArchived:
                 typeof item.isArchived === 'boolean' ? item.isArchived : false,
+              createdAt:
+                typeof item.createdAt === 'string' && item.createdAt.trim()
+                  ? item.createdAt
+                  : now,
+              updatedAt:
+                typeof item.updatedAt === 'string' && item.updatedAt.trim()
+                  ? item.updatedAt
+                  : now,
+              lastAccessedAt:
+                typeof item.lastAccessedAt === 'string' &&
+                item.lastAccessedAt.trim()
+                  ? item.lastAccessedAt
+                  : typeof item.updatedAt === 'string' && item.updatedAt.trim()
+                    ? item.updatedAt
+                    : now,
             } as CompanionMemoryVector;
           })
         : [],

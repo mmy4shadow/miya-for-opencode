@@ -50,8 +50,16 @@ function applyOverrides(
     agent.config.model = override.model.trim();
   }
   // Apply temperature override
-  if (override.temperature !== undefined)
-    agent.config.temperature = override.temperature;
+  if (override.temperature !== undefined) {
+    const safeTemperature =
+      typeof override.temperature === 'number' &&
+      Number.isFinite(override.temperature)
+        ? Math.max(0, Math.min(2, override.temperature))
+        : agent.config.temperature;
+    if (safeTemperature !== undefined) {
+      agent.config.temperature = safeTemperature;
+    }
+  }
   if (override.variant && override.variant.trim().length > 0) {
     (agent.config as Record<string, unknown>).variant = override.variant.trim();
   }

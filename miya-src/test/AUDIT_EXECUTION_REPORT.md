@@ -10,6 +10,55 @@
 - `opencode debug config`：PASS
 - `opencode debug skill`：PASS
 - `opencode debug paths`：PASS
+
+---
+
+# 三专项审计补充报告（2026-02-19，第二轮）
+
+## 审计范围
+- 多智能体编排 (Multi-Agent Orchestration)
+- 内存系统架构 (Memory System Architecture)
+- 训练管道安全与完整 (Training Pipeline Security & Integrity)
+
+## 发现与修复
+
+### P1（高）内存存档损坏可触发检索链路崩溃
+- 文件: `miya-src/src/companion/memory-vector.ts`
+- 问题:
+  - 反序列化阶段存在字段回填缺口，损坏 `text` 类型可能透传到检索阶段。
+  - `embedding` 缺少严格清洗，异常值可污染相似度与排序通道。
+- 修复:
+  - 读盘阶段对 `id/text/source/embedding/score/timestamps` 做强制规范化与兜底。
+  - `embedding` 仅保留有限数或可解析数字字符串。
+
+### P1（高）训练脚本对坏环境变量无容错，入口会直接异常退出
+- 文件:
+  - `miya-src/python/train_sovits.py`
+  - `miya-src/python/train_flux_lora.py`
+- 问题:
+  - `int(_env(...)) / float(_env(...))` 在非法输入下触发 parser 构建期崩溃。
+- 修复:
+  - 新增 `_env_int/_env_float` 安全解析，非法值回退默认值，保证流水线稳定可继续。
+
+### P2（中）多智能体 override 温度缺少运行时硬化
+- 文件: `miya-src/src/agents/index.ts`
+- 问题:
+  - `temperature` 仅判空，未处理 `NaN/Infinity` 与越界值，运行时非 schema 路径存在污染风险。
+- 修复:
+  - 增加 finite 检查并 clamp 到 `[0, 2]`，非法值保持原温度。
+
+## 新增测试（全部放 `test`）
+- `miya-src/test/unit/multi-agent-orchestration.test.ts`
+- `miya-src/test/unit/memory-system-architecture.test.ts`
+- `miya-src/test/unit/training-pipeline-integrity.test.ts`
+
+## 回归结果
+- `bun test test/unit/multi-agent-orchestration.test.ts test/unit/memory-system-architecture.test.ts test/unit/training-pipeline-integrity.test.ts --timeout 30000`：PASS
+- `bun run typecheck`：PASS
+- `bun run lint`：PASS
+- `opencode debug config`：PASS
+- `opencode debug skill`：PASS
+- `opencode debug paths`：PASS
 - `bun run typecheck`：PASS
 - `bun run lint`：PASS
 - `bun run doc:lint`：PASS
