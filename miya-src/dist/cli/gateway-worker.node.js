@@ -45712,7 +45712,7 @@ async function generateImage(projectDir, input) {
   const daemon = getMiyaClient(projectDir);
   const prompt = sanitizePrompt(input.prompt);
   if (!prompt)
-    throw new Error("invalid_prompt");
+    throw new Error("invalid_prompt:prompt must not be empty");
   const model = input.model?.trim() || DEFAULT_IMAGE_MODEL;
   const size = input.size?.trim() || DEFAULT_IMAGE_SIZE;
   const referenceMediaIDs = (input.referenceMediaIDs ?? []).filter(Boolean);
@@ -45985,7 +45985,7 @@ async function synthesizeVoiceOutput(projectDir, input) {
   const daemon = getMiyaClient(projectDir);
   const text = input.text.trim();
   if (!text)
-    throw new Error("invalid_tts_text");
+    throw new Error("invalid_tts_text:text must not be empty");
   const voice = input.voice?.trim() || DEFAULT_VOICE;
   const model = input.model?.trim() || DEFAULT_TTS_MODEL;
   const format = normalizeFormat(input.format);
@@ -50452,10 +50452,11 @@ function resolveRootState(projectDir) {
     return { kind: "invalid", path: envRoot };
   return { kind: "missing" };
 }
-function createControlUiRequestOptions(projectDir) {
+function createControlUiRequestOptions(projectDir, authToken) {
   return {
     basePath: normalizeControlUiBasePath(process.env.MIYA_GATEWAY_UI_BASE_PATH),
-    root: resolveRootState(projectDir)
+    root: resolveRootState(projectDir),
+    authToken
   };
 }
 function handleControlUiHttpRequest(request, opts) {
@@ -50467,6 +50468,14 @@ function handleControlUiHttpRequest(request, opts) {
   const requestedFile = resolveRequestedFile(pathname, basePath);
   if (!requestedFile)
     return null;
+  const isHtmlEntry = requestedFile === "index.html";
+  const currentToken = url3.searchParams.get("token")?.trim() ?? "";
+  const authToken = String(opts?.authToken ?? "").trim();
+  if (isHtmlEntry && authToken && !currentToken) {
+    const nextUrl = new URL(request.url);
+    nextUrl.searchParams.set("token", authToken);
+    return Response.redirect(nextUrl.toString(), 302);
+  }
   if (!isSafeRelativePath(requestedFile)) {
     return textResponse(404, "Not Found");
   }
@@ -58503,8 +58512,8 @@ function ensureGatewayRunning(projectDir) {
   }
   let runtime;
   const methods = new GatewayMethodRegistry;
-  const controlUi = createControlUiRequestOptions(projectDir);
   const authConfig = resolveGatewayAuthConfig(projectDir);
+  const controlUi = createControlUiRequestOptions(projectDir, authConfig.token);
   const channelRuntime = new ChannelRuntime(projectDir, {
     onInbound: async (message) => {
       await onInboundMessage(projectDir, runtime, message);
@@ -58527,7 +58536,7 @@ function ensureGatewayRunning(projectDir) {
   const createGatewayServer = (port) => Bun.serve({
     hostname: listen.hostname,
     port,
-    fetch(request, currentServer) {
+    async fetch(request, currentServer) {
       const url3 = new URL(request.url);
       const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
       const pathWithBase = (suffix) => uiBasePath ? `${uiBasePath}${suffix}` : suffix;
@@ -58631,6 +58640,72 @@ function ensureGatewayRunning(projectDir) {
         });
       }
       const isWebhookPath = isPathPrefixMatch("/api/webhooks/");
+      const isHttpRpcPath = isPathMatch("/api/rpc");
+      if (isHttpRpcPath) {
+        if (request.method !== "POST") {
+          return new Response("Method Not Allowed", {
+            status: 405,
+            headers: {
+              "content-type": "text/plain; charset=utf-8",
+              "cache-control": "no-store"
+            }
+          });
+        }
+        const headerToken = request.headers.get("x-miya-gateway-token")?.trim() ?? request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+        const queryToken = url3.searchParams.get("token")?.trim() ?? "";
+        const incomingToken = headerToken || queryToken;
+        if (!incomingToken || incomingToken !== runtime.auth.token) {
+          return Response.json({
+            ok: false,
+            error: "invalid_gateway_token"
+          }, {
+            status: 401,
+            headers: {
+              "cache-control": "no-store"
+            }
+          });
+        }
+        try {
+          const body = await request.json();
+          const method = parseText2(body?.method);
+          if (!method) {
+            return Response.json({
+              ok: false,
+              error: "invalid_gateway_method"
+            }, {
+              status: 400,
+              headers: {
+                "cache-control": "no-store"
+              }
+            });
+          }
+          const result = await invokeGatewayMethod(projectDir, runtime, method, body?.params ?? {}, {
+            clientID: "http-ui",
+            role: "ui"
+          });
+          if (method !== "gateway.status.get") {
+            maybeBroadcast(projectDir, runtime);
+          }
+          return Response.json({
+            ok: true,
+            result
+          }, {
+            headers: {
+              "cache-control": "no-store"
+            }
+          });
+        } catch (error92) {
+          return Response.json({
+            ok: false,
+            error: error92 instanceof Error ? error92.message : String(error92 ?? "")
+          }, {
+            status: 500,
+            headers: {
+              "cache-control": "no-store"
+            }
+          });
+        }
+      }
       if (isWebhookPath) {
         return new Response("HTTP control API disabled; use WebSocket RPC (/ws).", {
           status: 410,

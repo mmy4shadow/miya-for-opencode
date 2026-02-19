@@ -10,6 +10,7 @@ type ControlUiRootState =
 type ControlUiRequestOptions = {
   basePath?: string;
   root?: ControlUiRootState;
+  authToken?: string;
 };
 
 function contentTypeForExt(ext: string): string {
@@ -120,10 +121,12 @@ function resolveRootState(projectDir: string): ControlUiRootState {
 
 export function createControlUiRequestOptions(
   projectDir: string,
+  authToken?: string,
 ): ControlUiRequestOptions {
   return {
     basePath: normalizeControlUiBasePath(process.env.MIYA_GATEWAY_UI_BASE_PATH),
     root: resolveRootState(projectDir),
+    authToken,
   };
 }
 
@@ -137,6 +140,14 @@ export function handleControlUiHttpRequest(
   const basePath = normalizeControlUiBasePath(opts?.basePath);
   const requestedFile = resolveRequestedFile(pathname, basePath);
   if (!requestedFile) return null;
+  const isHtmlEntry = requestedFile === 'index.html';
+  const currentToken = url.searchParams.get('token')?.trim() ?? '';
+  const authToken = String(opts?.authToken ?? '').trim();
+  if (isHtmlEntry && authToken && !currentToken) {
+    const nextUrl = new URL(request.url);
+    nextUrl.searchParams.set('token', authToken);
+    return Response.redirect(nextUrl.toString(), 302);
+  }
   if (!isSafeRelativePath(requestedFile)) {
     return textResponse(404, 'Not Found');
   }

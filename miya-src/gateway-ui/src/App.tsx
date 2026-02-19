@@ -284,6 +284,14 @@ interface MemoryRecord {
   lastAccessedAt?: string;
 }
 
+function safeDecodeRouteSegment(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function parseRoute(pathname: string): {
   view: ControlView;
   taskId?: string;
@@ -295,7 +303,7 @@ function parseRoute(pathname: string): {
   if (matched) {
     return {
       view: matched[2] ? 'tasks-detail' : 'tasks-list',
-      taskId: matched[2] ? decodeURIComponent(matched[2]) : undefined,
+      taskId: matched[2] ? safeDecodeRouteSegment(matched[2]) : undefined,
       basePath: matched[1] || '',
     };
   }
@@ -304,7 +312,7 @@ function parseRoute(pathname: string): {
     return {
       view: memoryMatched[2] ? 'memory-detail' : 'memory-list',
       memoryId: memoryMatched[2]
-        ? decodeURIComponent(memoryMatched[2])
+        ? safeDecodeRouteSegment(memoryMatched[2])
         : undefined,
       basePath: memoryMatched[1] || '',
     };
@@ -532,6 +540,7 @@ function getGatewayClient(): GatewayRpcClient {
     cachedGatewayClient?.dispose();
     cachedGatewayClient = new GatewayRpcClient({
       wsPath,
+      httpRpcPath: withGatewayBasePath('/api/rpc'),
       tokenProvider: resolveGatewayToken,
     });
     cachedGatewayClientKey = key;

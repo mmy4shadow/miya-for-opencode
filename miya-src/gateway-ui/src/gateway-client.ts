@@ -1,5 +1,6 @@
 interface GatewayRpcClientOptions {
   wsPath: string;
+  httpRpcPath?: string;
   tokenProvider: () => string;
   connectTimeoutMs?: number;
   requestTimeoutMs?: number;
@@ -57,14 +58,18 @@ export class GatewayRpcClient {
   private seq = 0;
   private activeUrl = '';
   private connectEpoch = 0;
-  private readonly options: Required<
-    Pick<GatewayRpcClientOptions, 'connectTimeoutMs' | 'requestTimeoutMs'>
-  > &
-    Pick<GatewayRpcClientOptions, 'wsPath' | 'tokenProvider'>;
+  private readonly options: {
+    wsPath: string;
+    httpRpcPath: string;
+    tokenProvider: () => string;
+    connectTimeoutMs: number;
+    requestTimeoutMs: number;
+  };
 
   constructor(options: GatewayRpcClientOptions) {
     this.options = {
       wsPath: options.wsPath,
+      httpRpcPath: options.httpRpcPath ?? '/api/rpc',
       tokenProvider: options.tokenProvider,
       connectTimeoutMs: Math.max(2000, options.connectTimeoutMs ?? 5000),
       requestTimeoutMs: Math.max(2000, options.requestTimeoutMs ?? 10000),
@@ -75,38 +80,95 @@ export class GatewayRpcClient {
     method: string,
     params: Record<string, unknown> = {},
   ): Promise<unknown> {
-    await this.ensureConnected();
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('gateway_ws_not_connected');
-    }
-    const requestId = `ui-${Date.now()}-${++this.seq}`;
-    return await new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        reject(new Error(`gateway_request_timeout:${method}`));
-      }, this.options.requestTimeoutMs);
-      this.pending.set(requestId, { resolve, reject, timer });
-      try {
-        this.ws?.send(
-          JSON.stringify({
-            type: 'request',
-            id: requestId,
-            method,
-            params,
-          }),
-        );
-      } catch (error) {
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        reject(
-          new Error(
-            error instanceof Error
-              ? error.message
-              : 'gateway_ws_send_request_failed',
-          ),
-        );
+    try {
+      await this.ensureConnected();
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        throw new Error('gateway_ws_not_connected');
       }
+      const requestId = `ui-${Date.now()}-${++this.seq}`;
+      return await new Promise<unknown>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(requestId);
+          reject(new Error(`gateway_request_timeout:${method}`));
+        }, this.options.requestTimeoutMs);
+        this.pending.set(requestId, { resolve, reject, timer });
+        try {
+          this.ws?.send(
+            JSON.stringify({
+              type: 'request',
+              id: requestId,
+              method,
+              params,
+            }),
+          );
+        } catch (error) {
+          clearTimeout(timer);
+          this.pending.delete(requestId);
+          reject(
+            new Error(
+              error instanceof Error
+                ? error.message
+                : 'gateway_ws_send_request_failed',
+            ),
+          );
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      if (this.shouldFallbackToHttp(message)) {
+        return await this.requestViaHttp(method, params);
+      }
+      throw error instanceof Error ? error : new Error(message);
+    }
+  }
+
+  private shouldFallbackToHttp(message: string): boolean {
+    const text = String(message ?? '').toLowerCase();
+    if (text.includes('invalid_gateway_token')) return false;
+    return (
+      text.includes('gateway_ws_') ||
+      text.includes('gateway_request_timeout') ||
+      text.includes('failed to fetch') ||
+      text.includes('networkerror')
+    );
+  }
+
+  private async requestViaHttp(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const token = this.options.tokenProvider();
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+    };
+    if (token) {
+      headers['x-miya-gateway-token'] = token;
+    }
+    const response = await fetch(this.options.httpRpcPath, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        method,
+        params,
+      }),
+      cache: 'no-store',
     });
+    let payload: {
+      ok?: boolean;
+      result?: unknown;
+      error?: string;
+    } = {};
+    try {
+      payload = (await response.json()) as typeof payload;
+    } catch {}
+    if (!response.ok || !payload.ok) {
+      const message =
+        payload.error ||
+        `gateway_http_rpc_failed:${response.status}:${response.statusText}`;
+      throw new Error(message);
+    }
+    return payload.result;
   }
 
   dispose(): void {
