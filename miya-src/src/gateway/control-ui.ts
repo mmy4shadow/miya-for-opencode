@@ -75,28 +75,51 @@ function isSafeRelativePath(relPath: string): boolean {
 function resolveRequestedFile(
   pathname: string,
   basePath: string,
-): string | null {
+):
+  | {
+      requestedFile: string;
+      isAssetRequest: boolean;
+      decodeFailed: boolean;
+    }
+  | null {
   if (basePath) {
-    if (pathname === basePath) return 'index.html';
+    if (pathname === basePath) {
+      return {
+        requestedFile: 'index.html',
+        isAssetRequest: false,
+        decodeFailed: false,
+      };
+    }
     if (!pathname.startsWith(`${basePath}/`)) return null;
     pathname = pathname.slice(basePath.length);
   }
 
   if (!pathname.startsWith('/')) return null;
-  if (pathname === '/' || pathname === '') return 'index.html';
+  if (pathname === '/' || pathname === '') {
+    return {
+      requestedFile: 'index.html',
+      isAssetRequest: false,
+      decodeFailed: false,
+    };
+  }
 
   const assetsIndex = pathname.indexOf('/assets/');
+  const isAssetRequest = assetsIndex >= 0;
   const rel =
     assetsIndex >= 0 ? pathname.slice(assetsIndex + 1) : pathname.slice(1);
   const requested = rel && !rel.endsWith('/') ? rel : `${rel}index.html`;
-  const decodedRequested = (() => {
+  const decoded = (() => {
     try {
-      return decodeURIComponent(requested);
+      return { value: decodeURIComponent(requested), failed: false };
     } catch {
-      return '';
+      return { value: '', failed: true };
     }
   })();
-  return decodedRequested || 'index.html';
+  return {
+    requestedFile: decoded.value || 'index.html',
+    isAssetRequest,
+    decodeFailed: decoded.failed,
+  };
 }
 
 function resolveRootState(projectDir: string): ControlUiRootState {
@@ -138,8 +161,12 @@ export function handleControlUiHttpRequest(
   const url = new URL(request.url);
   const pathname = url.pathname;
   const basePath = normalizeControlUiBasePath(opts?.basePath);
-  const requestedFile = resolveRequestedFile(pathname, basePath);
-  if (!requestedFile) return null;
+  const resolvedRequest = resolveRequestedFile(pathname, basePath);
+  if (!resolvedRequest) return null;
+  if (resolvedRequest.decodeFailed) {
+    return textResponse(400, 'Bad Request');
+  }
+  const requestedFile = resolvedRequest.requestedFile;
   const isHtmlEntry = requestedFile === 'index.html';
   const currentToken = url.searchParams.get('token')?.trim() ?? '';
   const authToken = String(opts?.authToken ?? '').trim();
@@ -174,10 +201,12 @@ export function handleControlUiHttpRequest(
   }
 
   const indexPath = path.join(root.path, 'index.html');
-  const resolvedPath =
-    fs.existsSync(filePath) && fs.statSync(filePath).isFile()
-      ? filePath
-      : indexPath;
+  const hasRequestedFile =
+    fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+  if (!hasRequestedFile && resolvedRequest.isAssetRequest) {
+    return textResponse(404, 'Asset Not Found');
+  }
+  const resolvedPath = hasRequestedFile ? filePath : indexPath;
   if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
     return textResponse(404, 'Not Found');
   }

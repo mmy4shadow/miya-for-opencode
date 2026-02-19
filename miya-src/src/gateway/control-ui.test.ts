@@ -79,4 +79,37 @@ describe('handleControlUiHttpRequest', () => {
     });
     expect(response?.status).toBe(404);
   });
+
+  test('returns 404 for missing asset path instead of SPA fallback html', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'miya-ui-'));
+    mkdirSync(path.join(root, 'assets'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<html><body>spa</body></html>',
+      'utf-8',
+    );
+
+    const request = new Request('http://127.0.0.1/assets/missing.js');
+    const response = handleControlUiHttpRequest(request, {
+      root: { kind: 'resolved', path: root },
+    });
+    expect(response?.status).toBe(404);
+    expect(await response?.text()).toContain('Asset Not Found');
+  });
+
+  test('returns 400 for malformed encoded route to keep error feedback explicit', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'miya-ui-'));
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<html><body>spa</body></html>',
+      'utf-8',
+    );
+
+    const request = new Request('http://127.0.0.1/%E0%A4%A');
+    const response = handleControlUiHttpRequest(request, {
+      root: { kind: 'resolved', path: root },
+    });
+    expect(response?.status).toBe(400);
+    expect(await response?.text()).toContain('Bad Request');
+  });
 });

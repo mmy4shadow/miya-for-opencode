@@ -60,6 +60,10 @@ const BASE_STATUS_SNAPSHOT = {
   channels: {
     recentOutbound: [],
   },
+  skills: {
+    enabled: [],
+    discovered: [],
+  },
 } as const;
 
 function resetBrowserState(pathname: string): void {
@@ -177,5 +181,91 @@ describe('App component behavior', () => {
     });
     expect(screen.queryByText(updatedAt)).not.toBeInTheDocument();
     expect(document.documentElement.lang).toBe('en-US');
+  });
+
+  test('shows completeness panels for workflow, recovery, transparency and audit', async () => {
+    resetBrowserState('/');
+    requestMock.mockImplementation(async (method: string) => {
+      if (method === 'gateway.status.get') {
+        return {
+          ...BASE_STATUS_SNAPSHOT,
+          daemon: {
+            connected: true,
+            activeJobID: 'train.voice',
+            activeJobProgress: 0.63,
+          },
+          statusError: {
+            message: 'daemon reconnect required',
+          },
+          nexus: {
+            killSwitchMode: 'off',
+            pendingTickets: 2,
+            permission: 'desktop_control',
+            insights: [
+              {
+                at: '2026-07-04T12:01:00.000Z',
+                text: 'manual intervention note',
+                auditID: 'audit-1',
+              },
+            ],
+          },
+          channels: {
+            recentOutbound: [
+              {
+                id: 'audit-1',
+                channel: 'qq',
+                destination: 'owner-001',
+                message: 'outbound_blocked:psyche_deferred',
+                recipientTextCheck: 'ok',
+                sendStatusCheck: 'blocked',
+                receiptStatus: 'none',
+              },
+            ],
+          },
+          skills: {
+            enabled: ['skill-a', 'skill-b'],
+            discovered: [{ id: 'skill-a' }, { id: 'skill-b' }, { id: 'skill-c' }],
+          },
+        };
+      }
+      if (method === 'policy.domains.list') {
+        return {
+          domains: [{ domain: 'outbound_send', status: 'running' }],
+        };
+      }
+      if (method === 'cron.list') return [{ id: 'train.voice', name: 'Voice Train' }];
+      if (method === 'cron.runs.list') return [];
+      if (method === 'security.identity.status') return { mode: 'owner' };
+      if (method === 'companion.memory.vector.list') return [];
+      return {};
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', {
+          name: '用户工作流完整性与权限请求清晰度',
+        }),
+      ).toBeVisible();
+    });
+    expect(
+      screen.getByRole('heading', {
+        name: '错误恢复路径完整性与配置可发现性',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', {
+        name: '训练进度可见性与技能管理用户体验',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('heading', {
+        name: '桌面控制操作透明度与审计追踪',
+      }),
+    ).toBeVisible();
+    expect(screen.getByText('系统时间线')).toBeVisible();
+    expect(screen.getByText('Evidence Pack V5（外发证据预览）')).toBeVisible();
+    expect(screen.getByText('进度：63%')).toBeVisible();
   });
 });

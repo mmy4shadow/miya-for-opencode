@@ -140,6 +140,15 @@ interface GatewaySnapshot {
       };
     }>;
   };
+  skills?: {
+    enabled?: string[];
+    discovered?: Array<{
+      id?: string;
+      title?: string;
+      source?: string;
+      status?: string;
+    }>;
+  };
   statusError?: {
     code?: string;
     message?: string;
@@ -398,6 +407,15 @@ function domainLabel(domain: string): string {
   if (domain === 'desktop_control') return '桌面控制';
   if (domain === 'memory_read') return '记忆读取';
   return domain;
+}
+
+function permissionLabel(permission?: string): string {
+  const normalized = String(permission ?? '').trim();
+  if (!normalized) return '暂无';
+  if (normalized === 'outbound_send') return '消息外发';
+  if (normalized === 'desktop_control') return '桌面控制';
+  if (normalized === 'memory_read') return '记忆读取';
+  return normalized;
 }
 
 function memoryDomainLabel(domain: MemoryRecord['domain']): string {
@@ -929,6 +947,47 @@ export default function App() {
     }
     return 45;
   }, [selectedTask, snapshot.daemon?.activeJobProgress]);
+
+  const activeTrainingSummary = useMemo(() => {
+    const activeJobID = String(snapshot.daemon?.activeJobID ?? '').trim();
+    const rawProgress = snapshot.daemon?.activeJobProgress;
+    const progressPct =
+      typeof rawProgress === 'number' && Number.isFinite(rawProgress)
+        ? Math.max(0, Math.min(100, Math.floor(rawProgress * 100)))
+        : undefined;
+    if (!activeJobID) {
+      return {
+        running: false,
+        title: '当前无活跃训练/任务',
+        progressText: '等待新任务',
+      };
+    }
+    return {
+      running: true,
+      title: `执行中：${jobNameMap.get(activeJobID) ?? activeJobID}`,
+      progressText:
+        typeof progressPct === 'number' ? `${progressPct}%` : '执行中（进度未知）',
+    };
+  }, [jobNameMap, snapshot.daemon?.activeJobID, snapshot.daemon?.activeJobProgress]);
+
+  const latestOutbound = useMemo(
+    () => (snapshot.channels?.recentOutbound ?? [])[0],
+    [snapshot.channels?.recentOutbound],
+  );
+
+  const skillSummary = useMemo(() => {
+    const enabled = Array.isArray(snapshot.skills?.enabled)
+      ? snapshot.skills?.enabled
+      : [];
+    const discovered = Array.isArray(snapshot.skills?.discovered)
+      ? snapshot.skills?.discovered
+      : [];
+    return {
+      enabled,
+      discoveredCount: discovered.length,
+      topEnabled: enabled.slice(0, 3),
+    };
+  }, [snapshot.skills?.discovered, snapshot.skills?.enabled]);
 
   const memoryRecords = useMemo(
     () =>
@@ -1844,6 +1903,112 @@ export default function App() {
 
             <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  用户工作流完整性与权限请求清晰度
+                </h2>
+                <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">待处理权限票据</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-800">
+                      {snapshot.nexus?.pendingTickets ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">当前请求能力域</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-800">
+                      {permissionLabel(snapshot.nexus?.permission)}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  建议处理顺序：先在「能力域状态」确认暂停/恢复，再处理外发与桌控审批，最后写入系统时间线备注。
+                </p>
+              </article>
+
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  错误恢复路径完整性与配置可发现性
+                </h2>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                  <p>
+                    恢复路径：1) 点击「刷新」复检状态 2) 复制并执行代理修复命令 3) 检查网关/daemon
+                    进程 4) 运行诊断命令。
+                  </p>
+                  <div className="mt-2 space-y-1 rounded bg-white p-2 font-mono text-[11px] text-slate-600">
+                    <p>opencode debug config</p>
+                    <p>opencode debug skill</p>
+                    <p>opencode debug paths</p>
+                  </div>
+                  {snapshot.statusError?.message ? (
+                    <p className="mt-2 text-rose-700">
+                      最近错误：{snapshot.statusError.message}
+                    </p>
+                  ) : null}
+                </div>
+              </article>
+
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  训练进度可见性与技能管理用户体验
+                </h2>
+                <div className="mt-3 space-y-2 text-xs">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">训练/任务状态</p>
+                    <p className="mt-1 font-medium text-slate-800">
+                      {activeTrainingSummary.title}
+                    </p>
+                    <p
+                      className={`mt-1 ${activeTrainingSummary.running ? 'text-sky-700' : 'text-slate-500'}`}
+                    >
+                      进度：{activeTrainingSummary.progressText}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">已启用技能</p>
+                    <p className="mt-1 text-slate-800">
+                      {skillSummary.enabled.length} / 已发现{' '}
+                      {skillSummary.discoveredCount}
+                    </p>
+                    <p className="mt-1 text-slate-600">
+                      {skillSummary.topEnabled.length > 0
+                        ? skillSummary.topEnabled.join(', ')
+                        : '暂无启用技能'}
+                    </p>
+                  </div>
+                </div>
+              </article>
+
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  桌面控制操作透明度与审计追踪
+                </h2>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+                  {latestOutbound ? (
+                    <>
+                      <p className="font-medium text-slate-800">
+                        最近外发：{latestOutbound.channel ?? '-'} {'->'}{' '}
+                        {latestOutbound.destination ?? '-'}
+                      </p>
+                      <p className="mt-1 text-slate-600">
+                        结果：{latestOutbound.message ?? '-'}
+                      </p>
+                      <p className="mt-1 text-slate-500">
+                        recipient={latestOutbound.recipientTextCheck ?? '-'} |
+                        send={latestOutbound.sendStatusCheck ?? '-'} |
+                        receipt={latestOutbound.receiptStatus ?? '-'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-slate-500">
+                      暂无最近外发记录，执行一次桌控/外发后可在此查看透明审计摘要。
+                    </p>
+                  )}
+                </div>
+              </article>
+            </section>
+
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <article className={panelClass}>
                 <h2 className="text-base font-semibold text-slate-800">
                   守门员信号中心（Psyche Signal Hub）
                 </h2>
@@ -2395,7 +2560,7 @@ export default function App() {
               </article>
             </section>
 
-            <section className="hidden grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <article className={panelClass}>
                 <h2 className="text-sm font-semibold">最近任务执行</h2>
                 <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
@@ -2462,7 +2627,7 @@ export default function App() {
               </article>
             </section>
 
-            <section className="hidden grid grid-cols-1 gap-4">
+            <section className="grid grid-cols-1 gap-4">
               <article className={panelClass}>
                 <h2 className="text-sm font-semibold">
                   Evidence Pack V5（外发证据预览）
