@@ -67,3 +67,55 @@
 ## 160 需求冒烟结论
 - 本轮阻断项已清空，基础诊断链路、测试链路、覆盖率链路、集成报告链路均可执行。
 - 现阶段可继续进入“需求逐条验收型深测”（非冒烟）。
+
+---
+
+# 六维审计补充报告（2026-02-19）
+
+## 审计范围
+- 架构完整性验证 (Architecture Integrity Validation)
+- 安全合规审计 (Security Compliance Audit)
+- 功能完整性测试 (Functional Completeness Testing)
+- 性能和资源管理 (Performance and Resource Management)
+- 代码质量标准 (Code Quality Standards)
+- 用户体验验证 (User Experience Validation)
+
+## 发现与结论
+
+### P1（高）自动化任务执行面缺少 `cwd` 约束与参数归一化
+- 影响维度: 安全合规 / 架构完整性 / 用户体验
+- 文件: `miya-src/src/automation/service.ts`
+- 风险说明:
+  - 可通过任务配置将执行目录切到项目外路径，扩大命令执行影响面。
+  - `timeoutMs` 可写入异常值，造成秒超时或异常等待行为。
+  - 空命令在调度层未拦截，错误反馈延迟到执行阶段。
+- 修复措施:
+  - 增加任务输入校验（name/command 非空）。
+  - `cwd` 强制限制到项目目录内；越界在创建阶段拒绝。
+  - 运行阶段对历史遗留越界 `cwd` 自动回退到项目目录并记录告警。
+  - `timeoutMs` 增加统一边界归一化（1000ms~6h）。
+
+## 新增测试（放置于 `test`）
+- 文件: `miya-src/test/unit/automation-service.test.ts`
+- 用例:
+  - 越界 `cwd` 创建被拒绝。
+  - 相对 `cwd` 与 `timeoutMs` 被正确归一化并可执行。
+  - 遗留不安全 `cwd` 在运行时被降级到项目目录且有告警。
+  - 空命令在创建阶段被拒绝。
+
+## 回归结果
+- `bun test test/unit/automation-service.test.ts --timeout 30000`：PASS
+- `bun run test:unit`：PASS
+- `bun run typecheck`：PASS
+- `bun run lint`：PASS
+- `opencode debug config`：PASS
+- `opencode debug skill`：PASS
+- `opencode debug paths`：PASS
+
+## 六维状态汇总
+- 架构完整性: 通过（执行边界与默认回退路径明确）
+- 安全合规: 改善（消除自动化任务越界 `cwd` 风险）
+- 功能完整性: 通过（新增失败前置校验 + 遗留兼容）
+- 性能与资源: 通过（超时参数归一化，避免异常配置导致资源行为失真）
+- 代码质量: 通过（新增可复现单测与输入归一化逻辑）
+- 用户体验: 改善（错误从“运行时失败”前移到“创建时明确拒绝”）

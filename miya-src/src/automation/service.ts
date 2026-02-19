@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import * as path from 'node:path';
 import {
   appendHistoryRecord,
   createApproval,
@@ -20,6 +21,8 @@ import type {
 
 const SCHEDULER_INTERVAL_MS = 30_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 20 * 60 * 1000;
+const MIN_COMMAND_TIMEOUT_MS = 1_000;
+const MAX_COMMAND_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -51,6 +54,41 @@ function computeNextDailyRun(time: string, from: Date = new Date()): string {
 function truncateOutput(text: string, maxLength = 20_000): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength)}\n...[truncated]`;
+}
+
+function normalizeCommandText(command: string): string {
+  return String(command ?? '').trim();
+}
+
+function normalizeTimeoutMs(timeoutMs: number | undefined): number {
+  const raw =
+    typeof timeoutMs === 'number' ? timeoutMs : DEFAULT_COMMAND_TIMEOUT_MS;
+  if (!Number.isFinite(raw)) return DEFAULT_COMMAND_TIMEOUT_MS;
+  return Math.max(
+    MIN_COMMAND_TIMEOUT_MS,
+    Math.min(MAX_COMMAND_TIMEOUT_MS, Math.floor(raw)),
+  );
+}
+
+function isSubPath(parentDir: string, targetDir: string): boolean {
+  const rel = path.relative(parentDir, targetDir);
+  if (!rel) return true;
+  if (rel.startsWith('..')) return false;
+  return !path.isAbsolute(rel);
+}
+
+function resolveAndValidateCwd(
+  projectDir: string,
+  cwd: string | undefined,
+): { cwd: string; wasSanitized: boolean } {
+  if (!cwd || cwd.trim().length === 0) {
+    return { cwd: projectDir, wasSanitized: false };
+  }
+  const resolved = path.resolve(projectDir, cwd);
+  if (!isSubPath(projectDir, resolved)) {
+    return { cwd: projectDir, wasSanitized: true };
+  }
+  return { cwd: resolved, wasSanitized: false };
 }
 
 async function runCommand(
@@ -212,21 +250,30 @@ export class MiyaAutomationService {
     timeoutMs?: number;
     requireApproval?: boolean;
   }): MiyaJob {
+    const name = String(input.name ?? '').trim();
+    if (!name) throw new Error('Job name cannot be empty.');
+    const command = normalizeCommandText(input.command);
+    if (!command) throw new Error('Command cannot be empty.');
+    const cwdResolved = resolveAndValidateCwd(this.projectDir, input.cwd);
+    if (input.cwd && cwdResolved.wasSanitized) {
+      throw new Error('Invalid cwd: must stay within project directory.');
+    }
+
     const now = new Date();
     const job: MiyaJob = {
       id: createJobId(),
-      name: input.name,
+      name,
       enabled: true,
       requireApproval: input.requireApproval ?? false,
       schedule: {
         type: 'daily',
-        time: input.time,
+        time: String(input.time ?? '').trim(),
       },
       action: {
         type: 'command',
-        command: input.command,
-        cwd: input.cwd,
-        timeoutMs: input.timeoutMs,
+        command,
+        cwd: cwdResolved.cwd,
+        timeoutMs: normalizeTimeoutMs(input.timeoutMs),
       },
       nextRunAt: computeNextDailyRun(input.time, now),
       createdAt: nowIso(),
@@ -314,12 +361,55 @@ export class MiyaAutomationService {
     if (!job) return null;
     if (!job.enabled && trigger !== 'manual') return null;
 
-    const timeoutMs = job.action.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
-    const result = await runCommand(
-      job.action.command,
-      job.action.cwd,
-      timeoutMs,
-    );
+    const command = normalizeCommandText(job.action.command);
+    const timeoutMs = normalizeTimeoutMs(job.action.timeoutMs);
+    const cwdResolved = resolveAndValidateCwd(this.projectDir, job.action.cwd);
+    const warning = cwdResolved.wasSanitized
+      ? 'Unsafe cwd detected; fell back to project directory.'
+      : '';
+    if (!command) {
+      const failedAt = nowIso();
+      const result: MiyaJobRunResult = {
+        status: 'failed',
+        exitCode: null,
+        timedOut: false,
+        stdout: '',
+        stderr: 'Empty command is not executable.',
+        startedAt: failedAt,
+        endedAt: failedAt,
+      };
+      job.lastRunAt = result.endedAt;
+      job.lastStatus = result.status;
+      job.lastExitCode = result.exitCode;
+      if (trigger !== 'scheduler') {
+        job.nextRunAt = computeNextDailyRun(job.schedule.time, new Date());
+      }
+      Object.assign(job, touchJob(job));
+      appendHistoryRecord(this.projectDir, {
+        id: createHistoryId(),
+        jobId: job.id,
+        jobName: job.name,
+        trigger,
+        startedAt: result.startedAt,
+        endedAt: result.endedAt,
+        status: result.status,
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      });
+      return result;
+    }
+
+    const result = await runCommand(command, cwdResolved.cwd, timeoutMs);
+    if (warning) {
+      result.stderr = truncateOutput(
+        result.stderr ? `${warning}\n${result.stderr}` : warning,
+      );
+    }
+    job.action.command = command;
+    job.action.cwd = cwdResolved.cwd;
+    job.action.timeoutMs = timeoutMs;
 
     job.lastRunAt = result.endedAt;
     job.lastStatus = result.status;
