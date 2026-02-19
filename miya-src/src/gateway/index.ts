@@ -2711,23 +2711,38 @@ async function routeSessionMessage(
     text: enrichedText,
     stage: plan.stage,
   });
+  const routedAgents = buildRoutedAgentSequence(plan, availableAgents);
+  let lastAttemptedAgent = routedAgents[0] ?? plan.agent;
 
   try {
-    await client.session.prompt({
-      path: { id: session.routing.opencodeSessionID },
-      body: {
-        agent: plan.agent,
-        parts: [{ type: 'text', text: payloadPlan.text }],
-      },
-      query: { directory: projectDir },
-    });
+    for (let index = 0; index < routedAgents.length; index++) {
+      const agent = routedAgents[index];
+      if (!agent) continue;
+      lastAttemptedAgent = agent;
+      const routedText = buildRoutedAgentPayload({
+        originalText: safeText,
+        payloadText: payloadPlan.text,
+        agent,
+        index,
+        total: routedAgents.length,
+        contextStrategy: plan.contextStrategy,
+      });
+      await client.session.prompt({
+        path: { id: session.routing.opencodeSessionID },
+        body: {
+          agent,
+          parts: [{ type: 'text', text: routedText }],
+        },
+        query: { directory: projectDir },
+      });
+    }
     recordRouteExecutionOutcome({
       projectDir,
       sessionID: input.sessionID,
       intent: plan.intent,
       complexity: plan.complexity,
       stage: plan.stage,
-      agent: plan.agent,
+      agent: lastAttemptedAgent,
       success: true,
       inputTokens: payloadPlan.inputTokens,
       outputTokensEstimate: payloadPlan.outputTokensEstimate,
@@ -2749,7 +2764,7 @@ async function routeSessionMessage(
       intent: plan.intent,
       complexity: plan.complexity,
       stage: plan.stage,
-      agent: plan.agent,
+      agent: lastAttemptedAgent,
       success: false,
       inputTokens: payloadPlan.inputTokens,
       outputTokensEstimate: payloadPlan.outputTokensEstimate,
@@ -2772,6 +2787,47 @@ async function routeSessionMessage(
       reason: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function buildRoutedAgentSequence(
+  plan: {
+    agent: string;
+    plannedAgents: string[];
+  },
+  availableAgents: string[],
+): string[] {
+  const source = plan.plannedAgents.length > 0 ? plan.plannedAgents : [plan.agent];
+  const filtered = source.filter((agent) => availableAgents.includes(agent));
+  const unique = filtered.filter((agent, index, arr) => arr.indexOf(agent) === index);
+  if (unique.length > 0) return unique;
+  return [plan.agent];
+}
+
+function buildRoutedAgentPayload(input: {
+  originalText: string;
+  payloadText: string;
+  agent: string;
+  index: number;
+  total: number;
+  contextStrategy: 'minimal' | 'summary' | 'full';
+}): string {
+  if (input.total <= 1) return input.payloadText;
+
+  const header =
+    `[MIYA_ROUTER_PIPELINE step=${input.index + 1}/${input.total} ` +
+    `agent=${input.agent} context=${input.contextStrategy}]`;
+
+  if (input.contextStrategy === 'full') {
+    return `${header}\n${input.payloadText}`;
+  }
+
+  if (input.contextStrategy === 'summary') {
+    const summary = input.originalText.trim().slice(0, 1500);
+    return `${header}\nTask summary:\n${summary}\n\nExecution hint: focus on this step and avoid repeating prior output.`;
+  }
+
+  const minimal = input.originalText.trim().slice(0, 700);
+  return `${header}\n${minimal}`;
 }
 
 function resolveApprovalTicket(input: {

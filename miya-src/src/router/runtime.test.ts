@@ -22,6 +22,7 @@ const AVAILABLE = [
   '4-architecture-advisor',
   '5-code-fixer',
   '6-ui-designer',
+  '7-code-simplicity-reviewer',
 ];
 
 describe('router runtime planning', () => {
@@ -112,5 +113,51 @@ describe('router runtime planning', () => {
     const summary = getRouteCostSummary(projectDir, 30);
     expect(summary.totalRecords).toBe(1);
     expect(summary.savingsPercentEstimate).toBeGreaterThan(0);
+  });
+
+  test('medium complexity includes multi-agent plan with summary context', () => {
+    const projectDir = tempProjectDir();
+    const plan = buildRouteExecutionPlan({
+      projectDir,
+      sessionID: 'm1',
+      text: '请先查找相关文件，再修复类型错误并给出验证步骤，同时评估架构风险。',
+      availableAgents: AVAILABLE,
+    });
+    expect(plan.complexity).toBe('medium');
+    expect(plan.maxAgents).toBe(3);
+    expect(plan.contextStrategy).toBe('summary');
+    expect(plan.requiresMultipleSteps).toBe(true);
+    expect(plan.plannedAgents.length).toBeGreaterThan(1);
+  });
+
+  test('pinned agent locks execution to a single planned agent', () => {
+    const projectDir = tempProjectDir();
+    const plan = buildRouteExecutionPlan({
+      projectDir,
+      sessionID: 'pin1',
+      text: '重构这个认证模块并评估风险。',
+      availableAgents: AVAILABLE,
+      pinnedAgent: '4-architecture-advisor',
+    });
+    expect(plan.agent).toBe('4-architecture-advisor');
+    expect(plan.plannedAgents).toEqual(['4-architecture-advisor']);
+    expect(plan.maxAgents).toBe(1);
+    expect(plan.contextStrategy).toBe('minimal');
+    expect(plan.reasons.includes('pinned_agent_lock')).toBe(true);
+  });
+
+  test('high complexity uses full context strategy with broad agent plan', () => {
+    const projectDir = tempProjectDir();
+    const plan = buildRouteExecutionPlan({
+      projectDir,
+      sessionID: 'h1',
+      text: '请并行执行多步骤重构，包含架构风险、性能、安全验证。```ts\nconst a = 1;\n```',
+      availableAgents: AVAILABLE,
+    });
+    expect(plan.complexity).toBe('high');
+    expect(plan.maxAgents).toBe(7);
+    expect(plan.contextStrategy).toBe('full');
+    expect(plan.requiresMultipleSteps).toBe(true);
+    expect(plan.plannedAgents.length).toBeGreaterThanOrEqual(3);
   });
 });

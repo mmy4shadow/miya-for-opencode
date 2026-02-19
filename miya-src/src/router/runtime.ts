@@ -7,6 +7,7 @@ import { rankAgentsByFeedback } from './learner';
 
 export type RouteComplexity = 'low' | 'medium' | 'high';
 export type RouteStage = 'low' | 'medium' | 'high';
+export type RouteContextStrategy = 'minimal' | 'summary' | 'full';
 
 export interface RouterModeConfig {
   ecoMode: boolean;
@@ -27,6 +28,11 @@ export interface RouteExecutionPlan {
   complexityScore: number;
   stage: RouteStage;
   agent: string;
+  plannedAgents: string[];
+  maxAgents: number;
+  contextStrategy: RouteContextStrategy;
+  requiresMultipleSteps: boolean;
+  enableEarlyExit: boolean;
   preferredAgent: string;
   fallbackAgent: string;
   feedbackScore: number;
@@ -84,6 +90,112 @@ const DEFAULT_MODE: RouterModeConfig = {
     high: 0.0032,
   },
 };
+
+const ORCHESTRATION_ORDER = [
+  '1-task-manager',
+  '2-code-search',
+  '3-docs-helper',
+  '4-architecture-advisor',
+  '5-code-fixer',
+  '6-ui-designer',
+  '7-code-simplicity-reviewer',
+] as const;
+
+function getComplexityProfile(complexity: RouteComplexity): {
+  maxAgents: number;
+  contextStrategy: RouteContextStrategy;
+  enableEarlyExit: boolean;
+} {
+  if (complexity === 'low') {
+    return { maxAgents: 1, contextStrategy: 'minimal', enableEarlyExit: true };
+  }
+  if (complexity === 'medium') {
+    return { maxAgents: 3, contextStrategy: 'summary', enableEarlyExit: true };
+  }
+  return { maxAgents: 7, contextStrategy: 'full', enableEarlyExit: false };
+}
+
+function primaryAgentForIntent(intent: RouteIntent): string {
+  if (intent === 'code_fix') return '5-code-fixer';
+  if (intent === 'code_search') return '2-code-search';
+  if (intent === 'docs_research') return '3-docs-helper';
+  if (intent === 'architecture') return '4-architecture-advisor';
+  if (intent === 'ui_design') return '6-ui-designer';
+  return '1-task-manager';
+}
+
+function buildAgentPlan(input: {
+  complexity: RouteComplexity;
+  intent: RouteIntent;
+  selectedAgent: string;
+  availableAgents: string[];
+  pinnedAgent?: string;
+}): {
+  plannedAgents: string[];
+  maxAgents: number;
+  contextStrategy: RouteContextStrategy;
+  requiresMultipleSteps: boolean;
+  enableEarlyExit: boolean;
+} {
+  const profile = getComplexityProfile(input.complexity);
+  const include = (target: string, list: string[]): string[] => {
+    if (!target || !input.availableAgents.includes(target) || list.includes(target)) return list;
+    return [...list, target];
+  };
+
+  if (input.pinnedAgent) {
+    return {
+      plannedAgents: [input.selectedAgent],
+      maxAgents: 1,
+      contextStrategy: 'minimal',
+      requiresMultipleSteps: false,
+      enableEarlyExit: true,
+    };
+  }
+
+  if (input.complexity === 'low') {
+    return {
+      plannedAgents: [input.selectedAgent],
+      maxAgents: profile.maxAgents,
+      contextStrategy: profile.contextStrategy,
+      requiresMultipleSteps: false,
+      enableEarlyExit: profile.enableEarlyExit,
+    };
+  }
+
+  if (input.complexity === 'medium') {
+    let plan: string[] = [];
+    plan = include('1-task-manager', plan);
+    plan = include(input.selectedAgent, plan);
+    plan = include(primaryAgentForIntent(input.intent), plan);
+    plan = include('5-code-fixer', plan);
+    return {
+      plannedAgents: plan.slice(0, profile.maxAgents),
+      maxAgents: profile.maxAgents,
+      contextStrategy: profile.contextStrategy,
+      requiresMultipleSteps: true,
+      enableEarlyExit: profile.enableEarlyExit,
+    };
+  }
+
+  const highPlan = [
+    '1-task-manager',
+    input.selectedAgent,
+    primaryAgentForIntent(input.intent),
+    ...ORCHESTRATION_ORDER,
+  ]
+    .filter((agent, index, arr) => arr.indexOf(agent) === index)
+    .filter((agent) => input.availableAgents.includes(agent))
+    .slice(0, profile.maxAgents);
+
+  return {
+    plannedAgents: highPlan,
+    maxAgents: profile.maxAgents,
+    contextStrategy: profile.contextStrategy,
+    requiresMultipleSteps: true,
+    enableEarlyExit: profile.enableEarlyExit,
+  };
+}
 
 function modeFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'router-mode.json');
@@ -382,12 +494,31 @@ export function buildRouteExecutionPlan(input: {
     }
   }
 
+  const agentPlan = buildAgentPlan({
+    complexity: complexity.complexity,
+    intent,
+    selectedAgent,
+    availableAgents: input.availableAgents,
+    pinnedAgent: pinnedAgent && input.availableAgents.includes(pinnedAgent) ? pinnedAgent : undefined,
+  });
+  if (agentPlan.plannedAgents.length > 1) {
+    reasons.push('multi_agent_plan');
+  }
+  if (pinnedAgent && input.availableAgents.includes(pinnedAgent)) {
+    reasons.push('pinned_agent_lock');
+  }
+
   return {
     intent,
     complexity: complexity.complexity,
     complexityScore: complexity.score,
     stage,
     agent: selectedAgent,
+    plannedAgents: agentPlan.plannedAgents,
+    maxAgents: agentPlan.maxAgents,
+    contextStrategy: agentPlan.contextStrategy,
+    requiresMultipleSteps: agentPlan.requiresMultipleSteps,
+    enableEarlyExit: agentPlan.enableEarlyExit,
     preferredAgent,
     fallbackAgent,
     feedbackScore,

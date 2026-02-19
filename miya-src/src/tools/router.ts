@@ -19,6 +19,7 @@ const DEFAULT_AVAILABLE_AGENTS = [
   '4-architecture-advisor',
   '5-code-fixer',
   '6-ui-designer',
+  '7-code-simplicity-reviewer',
 ];
 
 export function createRouterTools(
@@ -60,6 +61,11 @@ export function createRouterTools(
         `complexity_score=${plan.complexityScore}`,
         `route_stage=${plan.stage}`,
         `selected_agent=${plan.agent}`,
+        `planned_agents=${plan.plannedAgents.join(',')}`,
+        `max_agents=${plan.maxAgents}`,
+        `context_strategy=${plan.contextStrategy}`,
+        `requires_multiple_steps=${plan.requiresMultipleSteps}`,
+        `enable_early_exit=${plan.enableEarlyExit}`,
         `preferred_agent=${plan.preferredAgent}`,
         `fallback_agent=${plan.fallbackAgent}`,
         `feedback_score=${plan.feedbackScore}`,

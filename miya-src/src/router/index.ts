@@ -20,6 +20,7 @@ export {
   recordRouteExecutionOutcome,
   writeRouterModeConfig,
   type RouteComplexity,
+  type RouteContextStrategy,
   type RouteStage,
   type RouterModeConfig,
   type RouteExecutionPlan,
