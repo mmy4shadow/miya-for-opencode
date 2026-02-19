@@ -63,7 +63,9 @@ function textResponse(status: number, body: string): Response {
 
 function isSafeRelativePath(relPath: string): boolean {
   if (!relPath) return false;
+  if (relPath.includes('\\')) return false;
   const normalized = path.posix.normalize(relPath);
+  if (path.posix.isAbsolute(normalized)) return false;
   if (normalized.startsWith('../') || normalized === '..') return false;
   if (normalized.includes('\0')) return false;
   return true;
@@ -86,7 +88,14 @@ function resolveRequestedFile(
   const rel =
     assetsIndex >= 0 ? pathname.slice(assetsIndex + 1) : pathname.slice(1);
   const requested = rel && !rel.endsWith('/') ? rel : `${rel}index.html`;
-  return requested || 'index.html';
+  const decodedRequested = (() => {
+    try {
+      return decodeURIComponent(requested);
+    } catch {
+      return '';
+    }
+  })();
+  return decodedRequested || 'index.html';
 }
 
 function resolveRootState(projectDir: string): ControlUiRootState {
@@ -148,7 +157,8 @@ export function handleControlUiHttpRequest(
   if (!root || root.kind !== 'resolved') return null;
 
   const filePath = path.join(root.path, requestedFile);
-  if (!filePath.startsWith(root.path)) {
+  const relFromRoot = path.relative(root.path, filePath);
+  if (relFromRoot.startsWith('..') || path.isAbsolute(relFromRoot)) {
     return textResponse(404, 'Not Found');
   }
 

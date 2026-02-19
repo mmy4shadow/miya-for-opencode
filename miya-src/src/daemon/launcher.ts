@@ -145,11 +145,21 @@ export interface DaemonBackpressureStats {
 
 const runtimes = new Map<string, LauncherRuntime>();
 
+function toFiniteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toClampedInteger(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+): number {
+  return Math.max(minimum, Math.floor(toFiniteNumber(value, fallback)));
+}
+
 function launcherIdlePruneMs(): number {
-  return Math.max(
-    5_000,
-    Number(process.env.MIYA_DAEMON_IDLE_PRUNE_MS ?? 15_000),
-  );
+  return toClampedInteger(process.env.MIYA_DAEMON_IDLE_PRUNE_MS, 15_000, 5_000);
 }
 
 function touchRuntime(runtime: LauncherRuntime): void {
@@ -776,7 +786,7 @@ function daemonRequest(
         syncBackpressureSnapshot(runtime);
         reject(new Error('daemon_request_timeout'));
       },
-      Math.max(1_000, timeoutMs),
+      toClampedInteger(timeoutMs, 60_000, 1_000),
     );
     runtime.pending.set(id, { resolve, reject, timeout });
     syncBackpressureSnapshot(runtime);
@@ -1107,19 +1117,19 @@ export function ensureMiyaLauncher(
   const configuredMaxPending =
     typeof backpressure?.daemon_max_pending_requests === 'number'
       ? Number(backpressure.daemon_max_pending_requests)
-      : Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64);
+      : toFiniteNumber(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS, 64);
   const configuredMaxFailures =
     typeof backpressure?.daemon_max_consecutive_failures === 'number'
       ? Number(backpressure.daemon_max_consecutive_failures)
-      : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
+      : toFiniteNumber(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES, 5);
   const configuredManualStopCooldown =
     typeof backpressure?.daemon_manual_stop_cooldown_ms === 'number'
       ? Number(backpressure.daemon_manual_stop_cooldown_ms)
-      : Number(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS ?? 180_000);
+      : toFiniteNumber(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS, 180_000);
   const configuredRetryHaltCooldown =
     typeof backpressure?.daemon_retry_halt_cooldown_ms === 'number'
       ? Number(backpressure.daemon_retry_halt_cooldown_ms)
-      : Number(process.env.MIYA_DAEMON_RETRY_HALT_COOLDOWN_MS ?? 300_000);
+      : toFiniteNumber(process.env.MIYA_DAEMON_RETRY_HALT_COOLDOWN_MS, 300_000);
   const daemonToken =
     lifecycleMode === 'service_experimental'
       ? String(
@@ -1161,28 +1171,27 @@ export function ensureMiyaLauncher(
     connected: false,
     reqSeq: 0,
     pending: new Map(),
-    maxPendingRequests: Math.max(4, Math.floor(configuredMaxPending)),
+    maxPendingRequests: toClampedInteger(configuredMaxPending, 64, 4),
     rejectedRequests: 0,
     lastRejectReason: undefined,
     listeners: new Set(),
     lastSpawnAttemptAtMs: 0,
     launchCooldownUntilMs: 0,
     manualStopUntilMs: persisted.manualStopUntilMs,
-    manualStopCooldownMs: Math.max(
+    manualStopCooldownMs: toClampedInteger(
+      configuredManualStopCooldown,
+      180_000,
       10_000,
-      Math.floor(configuredManualStopCooldown),
     ),
     consecutiveLaunchFailures: persisted.consecutiveLaunchFailures,
     retryHalted: persisted.retryHalted,
     retryHaltedUntilMs: persisted.retryHaltedUntilMs,
-    retryHaltCooldownMs: Math.max(
+    retryHaltCooldownMs: toClampedInteger(
+      configuredRetryHaltCooldown,
+      300_000,
       30_000,
-      Math.floor(configuredRetryHaltCooldown),
     ),
-    maxConsecutiveLaunchFailures: Math.max(
-      1,
-      Math.floor(configuredMaxFailures),
-    ),
+    maxConsecutiveLaunchFailures: toClampedInteger(configuredMaxFailures, 5, 1),
     lastAccessAtMs: Date.now(),
     snapshot: {
       connected: false,
@@ -1254,7 +1263,7 @@ export function getLauncherBackpressureStats(
       connected: false,
       maxPendingRequests: Math.max(
         4,
-        Math.floor(Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64)),
+        Math.floor(toFiniteNumber(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS, 64)),
       ),
       pendingRequests: 0,
       rejectedRequests: 0,
@@ -1278,7 +1287,7 @@ export function stopMiyaLauncher(projectDir: string): void {
     const manualStopCooldownMs = Math.max(
       10_000,
       Math.floor(
-        Number(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS ?? 180_000),
+        toFiniteNumber(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS, 180_000),
       ),
     );
     safeWriteJson(daemonLauncherStoreFile(projectDir), {
@@ -1349,8 +1358,9 @@ export async function daemonInvoke(
   const runtime = runtimes.get(projectDir);
   if (!runtime) throw new Error('daemon_runtime_missing');
   touchRuntime(runtime);
-  await waitForDaemonConnection(runtime, Math.min(timeoutMs, 15_000));
-  return daemonRequest(runtime, method, params, timeoutMs);
+  const normalizedTimeoutMs = toClampedInteger(timeoutMs, 60_000, 1_000);
+  await waitForDaemonConnection(runtime, Math.min(normalizedTimeoutMs, 15_000));
+  return daemonRequest(runtime, method, params, normalizedTimeoutMs);
 }
 
 process.on('exit', () => {

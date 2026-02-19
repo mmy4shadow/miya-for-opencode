@@ -122,6 +122,58 @@
 
 ---
 
+# 三专项审计补充报告（2026-02-19）
+
+## 审计范围
+- 本地化和可访问性 (Localization and Accessibility)
+- 网关控制平面架构 (Gateway Control Plane Architecture)
+- 守护进程生命周期管理 (Daemon Lifecycle Management)
+
+## 发现与修复
+
+### P1（高）控制平面路径规范化与编码绕过校验不足
+- 文件:
+  - `miya-src/src/gateway/control-ui-shared.ts`
+  - `miya-src/src/gateway/control-ui.ts`
+- 风险说明:
+  - 基路径未拒绝 `..`/反斜杠等异常段，可能引入控制面路由边界歧义。
+  - 请求路径未先解码，编码后的 `..` + `\` 组合可能绕过简单字符串检查。
+- 修复措施:
+  - 基路径归一化新增段校验（拒绝 `.`/`..`/空字节，统一分隔符）。
+  - 请求目标文件先解码后校验，补强反斜杠与 root escape 检查（`path.relative` 判定）。
+
+### P1（高）daemon 生命周期参数受非法环境变量污染
+- 文件: `miya-src/src/daemon/launcher.ts`
+- 风险说明:
+  - `maxPendingRequests`、`manualStopCooldownMs`、`retryHaltCooldownMs`、超时参数在非法值场景可退化为 `NaN`，导致背压与冷却保护失效。
+- 修复措施:
+  - 新增 `toFiniteNumber` + `toClampedInteger` 统一归一化。
+  - pending/failure/cooldown/timeout 全链路应用最小值与默认值兜底。
+
+### P2（中）UI 本地化与可访问性语义不足
+- 文件: `miya-src/gateway-ui/src/App.tsx`
+- 风险说明:
+  - 日期格式固定 `zh-CN`，不随用户 locale 变化。
+  - 成功/复制反馈缺少合规 live region 语义，不利于屏幕阅读器感知状态变更。
+- 修复措施:
+  - 增加运行时 locale 解析并用 `Intl.DateTimeFormat(locale)` 统一格式化时间。
+  - 错误提示保持 `alert`，成功与复制提示改用语义 `output + aria-live`。
+
+## 新增/更新测试（全部放 `test` 或 `src/*test.ts`）
+- `miya-src/src/gateway/control-ui.test.ts`
+- `miya-src/src/daemon/launcher.test.ts`
+- `miya-src/test/unit/gateway-ui-a11y-localization.test.ts`
+
+## 本轮回归结果
+- `bun test src/gateway/control-ui.test.ts src/daemon/launcher.test.ts test/unit/gateway-ui-a11y-localization.test.ts --timeout 30000`：PASS
+- `bun run typecheck`：PASS
+- `bun run lint`：PASS
+- `opencode debug config`：PASS
+- `opencode debug skill`：PASS
+- `opencode debug paths`：PASS
+
+---
+
 # 五维审计补充报告（2026-02-19）
 
 ## 审计范围

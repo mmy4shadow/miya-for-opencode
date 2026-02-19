@@ -443,11 +443,26 @@ function evidenceImageUrl(
   return `${withGatewayBasePath('/api/evidence/image')}?${params.toString()}`;
 }
 
-function formatDateTime(input?: string): string {
+function resolveUiLocale(): string {
+  const fromDocument =
+    document.documentElement.lang || navigator.languages?.[0] || navigator.language;
+  const locale = String(fromDocument ?? '').trim();
+  return locale || 'zh-CN';
+}
+
+function formatDateTime(input?: string, locale = 'zh-CN'): string {
   if (!input) return '-';
   const date = new Date(input);
   if (!Number.isFinite(date.getTime())) return input;
-  return date.toLocaleString('zh-CN', { hour12: false });
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
 }
 
 function formatDuration(startedAt?: string, endedAt?: string): string {
@@ -538,6 +553,7 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<GatewaySnapshot>({});
   const [domains, setDomains] = useState<PolicyDomainRow[]>([]);
   const [jobs, setJobs] = useState<MiyaJob[]>([]);
+  const [uiLocale, setUiLocale] = useState(() => resolveUiLocale());
   const [taskRuns, setTaskRuns] = useState<MiyaJobRun[]>([]);
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -586,6 +602,14 @@ export default function App() {
   useEffect(() => {
     clearGatewayTokenInUrl();
   }, []);
+
+  useEffect(() => {
+    setUiLocale(resolveUiLocale());
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = uiLocale;
+  }, [uiLocale]);
 
   useEffect(() => {
     if (!successText) return;
@@ -1074,7 +1098,11 @@ export default function App() {
     <div className="min-h-screen bg-[#dfe7ec] text-slate-700">
       <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-[min(560px,92vw)] flex-col gap-2">
         {errorText ? (
-          <div className="pointer-events-auto rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 shadow-sm">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="pointer-events-auto rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 shadow-sm"
+          >
             错误：{errorText}
           </div>
         ) : null}
@@ -1099,14 +1127,20 @@ export default function App() {
           </div>
         ) : null}
         {successText ? (
-          <div className="pointer-events-auto rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-sm">
+          <output
+            aria-live="polite"
+            className="pointer-events-auto rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-sm"
+          >
             成功：{successText}
-          </div>
+          </output>
         ) : null}
         {copyHintText ? (
-          <div className="pointer-events-auto rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 shadow-sm">
+          <output
+            aria-live="polite"
+            className="pointer-events-auto rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 shadow-sm"
+          >
             {copyHintText}
-          </div>
+          </output>
         ) : null}
       </div>
 
@@ -1263,7 +1297,7 @@ export default function App() {
                             </span>
                           </span>
                           <span className="text-xs text-slate-600">
-                            {formatDateTime(task.startedAt)}
+                            {formatDateTime(task.startedAt, uiLocale)}
                           </span>
                           <span
                             className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium ${statusMeta.className}`}
@@ -1305,8 +1339,8 @@ export default function App() {
                   ) : null}
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  开始：{formatDateTime(selectedTask?.startedAt)} · 结束：
-                  {formatDateTime(selectedTask?.endedAt)} · 总时长：
+                  开始：{formatDateTime(selectedTask?.startedAt, uiLocale)} · 结束：
+                  {formatDateTime(selectedTask?.endedAt, uiLocale)} · 总时长：
                   {selectedTask?.durationText || '-'} · 触发：
                   {selectedTask?.trigger || '-'}
                 </p>
@@ -1422,7 +1456,7 @@ export default function App() {
                                 更新
                               </span>
                               <span className="text-slate-500">
-                                {formatDateTime(item.at)}
+                                {formatDateTime(item.at, uiLocale)}
                               </span>
                             </div>
                             <p className="mt-1 text-slate-700">
@@ -1579,7 +1613,7 @@ export default function App() {
                         {item.text}
                       </p>
                       <p className="mt-1 text-[11px] text-slate-500">
-                        更新时间：{formatDateTime(item.updatedAt)}
+                        更新时间：{formatDateTime(item.updatedAt, uiLocale)}
                       </p>
                     </button>
                   ))
@@ -1617,8 +1651,8 @@ export default function App() {
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
                       ID: {selectedMemory.id} · 创建：
-                      {formatDateTime(selectedMemory.createdAt)} · 最近访问：
-                      {formatDateTime(selectedMemory.lastAccessedAt)}
+                      {formatDateTime(selectedMemory.createdAt, uiLocale)} · 最近访问：
+                      {formatDateTime(selectedMemory.lastAccessedAt, uiLocale)}
                     </p>
                     <textarea
                       value={memoryEditText}

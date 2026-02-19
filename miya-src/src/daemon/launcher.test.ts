@@ -112,4 +112,42 @@ describe('daemon launcher snapshot', () => {
     expect(snapshot.lifecycleState).toBe('BACKOFF');
     stopMiyaLauncher(projectDir);
   });
+
+  test('falls back to sane defaults when daemon env values are invalid', () => {
+    const projectDir = tempProjectDir();
+    const prevMaxPending = process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS;
+    const prevManualCooldown = process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS;
+    process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS = 'NaN';
+    process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS = 'not-a-number';
+    try {
+      ensureMiyaLauncher(projectDir);
+      const stats = getLauncherBackpressureStats(projectDir);
+      expect(Number.isFinite(stats.maxPendingRequests)).toBe(true);
+      expect(stats.maxPendingRequests).toBeGreaterThanOrEqual(4);
+
+      stopMiyaLauncher(projectDir);
+      const runtimeStorePath = path.join(
+        getMiyaRuntimeDir(projectDir),
+        'daemon',
+        'launcher.runtime.json',
+      );
+      const store = JSON.parse(
+        fs.readFileSync(runtimeStorePath, 'utf-8'),
+      ) as Record<string, unknown>;
+      expect(typeof store.manualStopUntilMs).toBe('number');
+      expect(Number.isFinite(Number(store.manualStopUntilMs))).toBe(true);
+    } finally {
+      if (prevMaxPending === undefined) {
+        delete process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS;
+      } else {
+        process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS = prevMaxPending;
+      }
+      if (prevManualCooldown === undefined) {
+        delete process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS;
+      } else {
+        process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS = prevManualCooldown;
+      }
+      stopMiyaLauncher(projectDir);
+    }
+  });
 });

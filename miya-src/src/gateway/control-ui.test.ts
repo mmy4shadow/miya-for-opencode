@@ -11,6 +11,16 @@ describe('normalizeControlUiBasePath', () => {
     expect(normalizeControlUiBasePath('/')).toBe('');
     expect(normalizeControlUiBasePath('')).toBe('');
   });
+
+  test('rejects traversal-like or invalid base path', () => {
+    expect(normalizeControlUiBasePath('../ui')).toBe('');
+    expect(normalizeControlUiBasePath('/miya/../ui')).toBe('');
+  });
+
+  test('normalizes windows separators and duplicate slashes', () => {
+    expect(normalizeControlUiBasePath('\\miya\\\\ui\\')).toBe('/miya/ui');
+    expect(normalizeControlUiBasePath('///miya////ui///')).toBe('/miya/ui');
+  });
 });
 
 describe('handleControlUiHttpRequest', () => {
@@ -53,5 +63,20 @@ describe('handleControlUiHttpRequest', () => {
     });
     expect(response?.status).toBe(200);
     expect(await response?.text()).toContain('spa');
+  });
+
+  test('rejects encoded backslash traversal attempt', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'miya-ui-'));
+    writeFileSync(
+      path.join(root, 'index.html'),
+      '<html><body>safe</body></html>',
+      'utf-8',
+    );
+
+    const request = new Request('http://127.0.0.1/%2e%2e%5csecret.txt');
+    const response = handleControlUiHttpRequest(request, {
+      root: { kind: 'resolved', path: root },
+    });
+    expect(response?.status).toBe(404);
   });
 });
