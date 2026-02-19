@@ -542,6 +542,7 @@ export default function App() {
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [rpcConnected, setRpcConnected] = useState(false);
   const [hasRefreshedOnce, setHasRefreshedOnce] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [successText, setSuccessText] = useState('');
@@ -601,6 +602,7 @@ export default function App() {
   const refresh = useCallback(async () => {
     try {
       const status = (await invokeGateway('gateway.status.get')) as GatewaySnapshot;
+      setRpcConnected(true);
       setSnapshot(status);
       const rpcErrors: string[] = [];
       if (status.statusError?.message) {
@@ -716,6 +718,7 @@ export default function App() {
         setErrorText('');
       }
     } catch (error) {
+      setRpcConnected(false);
       setConnected(false);
       setErrorText(normalizeStatusFetchError(error));
     } finally {
@@ -1075,7 +1078,7 @@ export default function App() {
             错误：{errorText}
           </div>
         ) : null}
-        {!connected && hasRefreshedOnce ? (
+        {!rpcConnected && hasRefreshedOnce ? (
           <div className="pointer-events-auto rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 shadow-sm">
             <p>
               网关连接异常。若通过 OpenCode 同源反代访问，请检查 `/miya/*`

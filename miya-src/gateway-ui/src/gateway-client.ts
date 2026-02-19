@@ -28,14 +28,24 @@ function isLoopbackHost(hostname: string): boolean {
 
 function buildWsCandidates(wsPath: string): string[] {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const candidates: string[] = [`${proto}://${location.host}${wsPath}`];
+  const normalizedPath = wsPath.startsWith('/') ? wsPath : `/${wsPath}`;
+  const candidatePaths = [normalizedPath];
+  if (normalizedPath !== '/ws' && normalizedPath.endsWith('/ws')) {
+    candidatePaths.push('/ws');
+  }
+  const candidates: string[] = [];
+  for (const candidatePath of candidatePaths) {
+    candidates.push(`${proto}://${location.host}${candidatePath}`);
+  }
   if (!isLoopbackHost(location.hostname)) {
-    return candidates;
+    return [...new Set(candidates)];
   }
   const fallbackHosts = ['127.0.0.1', 'localhost', '[::1]'];
-  for (const host of fallbackHosts) {
-    const withPort = location.port ? `${host}:${location.port}` : host;
-    candidates.push(`${proto}://${withPort}${wsPath}`);
+  for (const candidatePath of candidatePaths) {
+    for (const host of fallbackHosts) {
+      const withPort = location.port ? `${host}:${location.port}` : host;
+      candidates.push(`${proto}://${withPort}${candidatePath}`);
+    }
   }
   return [...new Set(candidates)];
 }

@@ -135,6 +135,7 @@ import {
   shouldInjectPersonaWorldPrompt,
 } from '../context/pipeline';
 import {
+  ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
   getMiyaClient,
   stopMiyaLauncher,
@@ -9500,10 +9501,22 @@ async function _handleWebhook(
   return new Response('Not Found', { status: 404 });
 }
 
+function bootstrapDaemonLauncher(projectDir: string): void {
+  try {
+    ensureMiyaLauncher(projectDir);
+  } catch (error) {
+    log('[gateway] daemon launcher bootstrap failed', {
+      projectDir,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export function ensureGatewayRunning(projectDir: string): GatewayState {
   ensureLoopbackNoProxy();
   const existing = runtimes.get(projectDir);
   if (existing) {
+    bootstrapDaemonLauncher(projectDir);
     const owner = acquireGatewayOwner(projectDir);
     if (owner.owned) {
       touchOwnerLock(projectDir);
@@ -9604,17 +9617,24 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
         const pathWithBase = (suffix: `/${string}`): string =>
           uiBasePath ? `${uiBasePath}${suffix}` : suffix;
-        const isWsPath =
-          url.pathname === '/ws' || url.pathname === pathWithBase('/ws');
+        const pathVariants = (suffix: `/${string}`): string[] => {
+          const variants = [suffix, pathWithBase(suffix), `/miya${suffix}`];
+          return [...new Set(variants)];
+        };
+        const isPathMatch = (suffix: `/${string}`): boolean =>
+          pathVariants(suffix).includes(url.pathname);
+        const isPathPrefixMatch = (suffix: `/${string}`): boolean =>
+          pathVariants(suffix).some((candidate) =>
+            url.pathname.startsWith(candidate),
+          );
+        const isWsPath = isPathMatch('/ws');
         if (isWsPath) {
           const upgraded = currentServer.upgrade(request, { data: {} });
           if (upgraded) return;
           return new Response('websocket upgrade failed', { status: 400 });
         }
 
-        const isStatusPath =
-          url.pathname === '/api/status' ||
-          url.pathname === pathWithBase('/api/status');
+        const isStatusPath = isPathMatch('/api/status');
         if (isStatusPath) {
           try {
             return Response.json(buildSnapshot(projectDir, runtime), {
@@ -9634,8 +9654,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
             );
           }
         }
-        const isHealthPath =
-          url.pathname === '/health' || url.pathname === pathWithBase('/health');
+        const isHealthPath = isPathMatch('/health');
         if (isHealthPath) {
           return Response.json(
             {
@@ -9651,8 +9670,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
             },
           );
         }
-        const isSimpleStatusPath =
-          url.pathname === '/status' || url.pathname === pathWithBase('/status');
+        const isSimpleStatusPath = isPathMatch('/status');
         if (isSimpleStatusPath) {
           try {
             return Response.json(buildSnapshot(projectDir, runtime), {
@@ -9672,9 +9690,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
             );
           }
         }
-        const isEvidenceImagePath =
-          url.pathname === '/api/evidence/image' ||
-          url.pathname === pathWithBase('/api/evidence/image');
+        const isEvidenceImagePath = isPathMatch('/api/evidence/image');
         if (isEvidenceImagePath) {
           const auditID = String(url.searchParams.get('auditID') ?? '').trim();
           const slot = String(url.searchParams.get('slot') ?? '')
@@ -9725,9 +9741,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
           return controlUiResponse;
         }
 
-        const isWebchatPath =
-          url.pathname === '/webchat' ||
-          url.pathname === pathWithBase('/webchat');
+        const isWebchatPath = isPathMatch('/webchat');
         if (isWebchatPath) {
           return new Response(renderWebChatHtml(), {
             headers: {
@@ -9737,9 +9751,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
           });
         }
 
-        const isWebhookPath =
-          url.pathname.startsWith('/api/webhooks/') ||
-          url.pathname.startsWith(pathWithBase('/api/webhooks/'));
+        const isWebhookPath = isPathPrefixMatch('/api/webhooks/');
         if (isWebhookPath) {
           return new Response(
             'HTTP control API disabled; use WebSocket RPC (/ws).',
@@ -9753,9 +9765,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
           );
         }
 
-        const isLegacyConsolePath =
-          url.pathname === '/legacy-console' ||
-          url.pathname === pathWithBase('/legacy-console');
+        const isLegacyConsolePath = isPathMatch('/legacy-console');
         if (isLegacyConsolePath) {
           return new Response(
             renderConsoleHtml(buildSnapshot(projectDir, runtime)),
@@ -10245,6 +10255,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     },
   );
   void runtime.channelRuntime.start();
+  bootstrapDaemonLauncher(projectDir);
   log('[gateway] runtime started', {
     projectDir,
     state: toGatewayState(projectDir, runtime),

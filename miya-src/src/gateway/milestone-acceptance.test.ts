@@ -23,8 +23,9 @@ async function connectGatewayWithRole(
   url: string,
   token: string | undefined,
   role: 'ui' | 'admin' | 'node' | 'channel' | 'unknown',
+  wsPath = '/ws',
 ): Promise<GatewayWsClient> {
-  const wsUrl = `${url.replace('http://', 'ws://')}/ws`;
+  const wsUrl = `${url.replace('http://', 'ws://')}${wsPath}`;
   const ws = new WebSocket(wsUrl);
   let requestID = 0;
   const pending = new Map<
@@ -315,6 +316,26 @@ describe('gateway milestone acceptance', () => {
     try {
       await legacyHelloHandshake(state.url, state.authToken);
     } finally {
+      stopGateway(projectDir);
+    }
+  });
+
+  test('accepts websocket handshake on /miya/ws proxy alias', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGatewayWithRole(
+      state.url,
+      state.authToken,
+      'ui',
+      '/miya/ws',
+    );
+    try {
+      const snapshot = (await client.request('gateway.status.get')) as {
+        daemon?: { connected?: boolean };
+      };
+      expect(typeof snapshot.daemon?.connected).toBe('boolean');
+    } finally {
+      client.close();
       stopGateway(projectDir);
     }
   });
