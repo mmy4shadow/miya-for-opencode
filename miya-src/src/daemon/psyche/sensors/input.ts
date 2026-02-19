@@ -12,14 +12,21 @@ let previousIdleSec: number | undefined;
 function updateApm(
   input: { idleSec?: number; rawInputActive?: boolean },
   nowMs: number,
-): number {
-  const idle = Number.isFinite(input.idleSec)
-    ? Number(input.idleSec)
-    : undefined;
+): { apm: number; idleSec?: number; anomaly: boolean } {
+  let idle = Number.isFinite(input.idleSec) ? Number(input.idleSec) : undefined;
+  let anomaly = false;
   if (input.rawInputActive) {
     inputEventsMs.push(nowMs);
   }
   if (
+    idle !== undefined &&
+    previousIdleSec !== undefined &&
+    idle + 5 < previousIdleSec &&
+    !input.rawInputActive
+  ) {
+    anomaly = true;
+    idle = previousIdleSec;
+  } else if (
     idle !== undefined &&
     previousIdleSec !== undefined &&
     idle + 0.2 < previousIdleSec
@@ -30,7 +37,14 @@ function updateApm(
   while (inputEventsMs.length > 0 && nowMs - inputEventsMs[0] > 60_000) {
     inputEventsMs.shift();
   }
-  return inputEventsMs.length;
+  return {
+    apm: inputEventsMs.length,
+    idleSec:
+      typeof idle === 'number' && Number.isFinite(idle)
+        ? Number(idle.toFixed(2))
+        : undefined,
+    anomaly,
+  };
 }
 
 export function sampleInputSignal(nowMs = Date.now()): {
@@ -48,7 +62,7 @@ public static class MiyaInputSignal {
     public uint dwTime;
   }
   [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
-  [DllImport("kernel32.dll")] public static extern ulong GetTickCount64();
+  [DllImport("kernel32.dll")] public static extern uint GetTickCount();
   [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
 }
 "@
@@ -57,8 +71,8 @@ try {
   $lii = New-Object MiyaInputSignal+LASTINPUTINFO
   $lii.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type]'MiyaInputSignal+LASTINPUTINFO')
   if ([MiyaInputSignal]::GetLastInputInfo([ref]$lii)) {
-    $tick = [double][MiyaInputSignal]::GetTickCount64()
-    $delta = [Math]::Max(0, $tick - [double]$lii.dwTime)
+    [uint32]$tick = [MiyaInputSignal]::GetTickCount()
+    [uint32]$delta = $tick - [uint32]$lii.dwTime
     $idleSec = [Math]::Round($delta / 1000.0, 3)
   }
 } catch {}
@@ -84,7 +98,7 @@ foreach ($vk in $keys) {
   }
   const idleSec = Number(shell.value.idleSec ?? Number.NaN);
   const rawInputActive = Boolean(shell.value.rawInputActive);
-  const apm = updateApm(
+  const apmState = updateApm(
     {
       idleSec: Number.isFinite(idleSec) ? idleSec : undefined,
       rawInputActive,
@@ -93,12 +107,10 @@ foreach ($vk in $keys) {
   );
   return {
     signals: {
-      idleSec: Number.isFinite(idleSec)
-        ? Number(idleSec.toFixed(2))
-        : undefined,
+      idleSec: apmState.idleSec,
       rawInputActive,
-      apm,
+      apm: apmState.apm,
     },
-    limitations: [],
+    limitations: apmState.anomaly ? ['input_idle_clock_anomaly'] : [],
   };
 }

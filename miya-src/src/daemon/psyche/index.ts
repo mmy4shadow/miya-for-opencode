@@ -18,7 +18,32 @@ export {
   type PsycheRiskSummary,
   type PsycheUrgency,
 } from './consult';
+export {
+  buildProactivityContextVector,
+  type ProactivityContextInput,
+  type ProactivityContextVector,
+} from './proactivity/context-vector';
+export {
+  evaluateProactivityCounterfactual,
+  type CounterfactualInput,
+  type CounterfactualResult,
+  type ProactivityAction,
+} from './proactivity/counterfactual';
+export {
+  appendInteractionEvent,
+  readInteractionStats,
+  type InteractionEvent,
+  type InteractionEventType,
+  type InteractionStatsSnapshot,
+} from './proactivity/interaction-stats';
 export { appendPsycheObservation, appendPsycheOutcome } from './logger';
+export {
+  appendProactivityDecision,
+  resolveProactivityPolicy,
+  type ProactivityDecisionLog,
+  type ProactivityPolicyInput,
+  type ProactivityPolicyResult,
+} from './proactivity/policy';
 export { consumeProbeBudget, type ProbeBudgetConfig } from './probe-budget';
 export {
   runScreenProbe,

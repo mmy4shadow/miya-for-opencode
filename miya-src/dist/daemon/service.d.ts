@@ -1,5 +1,5 @@
 import type { ResourceTaskKind } from '../resource-scheduler';
-import { type PsycheConsultRequest, type PsycheConsultResult, type PsycheNativeSignalHubStatus, type PsycheOutcomeRequest, type PsycheOutcomeResult, readSlowBrainState, type SlowBrainRetrainResult, type SlowBrainRollbackResult } from './psyche';
+import { type PsycheConsultRequest, type PsycheConsultResult, PsycheConsultService, type PsycheNativeSignalHubStatus, type PsycheOutcomeRequest, type PsycheOutcomeResult, readSlowBrainState, type SlowBrainRetrainResult, type SlowBrainRollbackResult } from './psyche';
 import { type PythonRuntimeStatus } from './python-runtime';
 import type { DaemonJobProgressEvent, DaemonJobRequest, DaemonRunResult } from './types';
 type ModelTier = 'lora' | 'embedding' | 'reference';
@@ -48,6 +48,7 @@ export declare class MiyaDaemonService {
     constructor(projectDir: string, options?: {
         onProgress?: (event: DaemonJobProgressEvent) => void;
     });
+    private readPsycheAutoRetrainConfig;
     private cancelMarkerPath;
     requestTrainingCancel(jobID: string): void;
     private clearTrainingCancel;
@@ -72,6 +73,7 @@ export declare class MiyaDaemonService {
     registerPsycheOutcome(input: PsycheOutcomeRequest): PsycheOutcomeResult;
     getPsycheSignalHubStatus(): PsycheNativeSignalHubStatus;
     getPsycheSlowBrainState(): ReturnType<typeof readSlowBrainState>;
+    getPsycheProactivityStats(): ReturnType<PsycheConsultService['getProactivityStats']>;
     retrainPsycheSlowBrain(input?: {
         force?: boolean;
         minOutcomes?: number;

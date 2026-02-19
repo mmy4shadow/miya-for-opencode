@@ -3,7 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { MiyaAutomationService } from '../../src/automation/service';
-import { readHistoryRecords, writeAutomationState } from '../../src/automation/store';
+import {
+  readAutomationState,
+  readHistoryRecords,
+  writeAutomationState,
+} from '../../src/automation/store';
 import type { MiyaAutomationState } from '../../src/automation/types';
 
 function tempProjectDir(): string {
@@ -97,5 +101,45 @@ describe('MiyaAutomationService security and resilience', () => {
         command: '   ',
       }),
     ).toThrow('Command cannot be empty');
+  });
+
+  test('scheduler advances nextRunAt after execution to prevent repeated same-day reruns', async () => {
+    const projectDir = tempProjectDir();
+    const now = new Date();
+    const dueAt = new Date(now.getTime() - 60_000).toISOString();
+    const state: MiyaAutomationState = {
+      jobs: [
+        {
+          id: 'job-due-once',
+          name: 'due-once',
+          enabled: true,
+          requireApproval: false,
+          schedule: { type: 'daily', time: '00:00' },
+          action: {
+            type: 'command',
+            command: `"${process.execPath}" -e "process.stdout.write('ok')"`,
+            cwd: projectDir,
+            timeoutMs: 5_000,
+          },
+          nextRunAt: dueAt,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+      ],
+      approvals: [],
+    };
+    writeAutomationState(projectDir, state);
+
+    const service = new MiyaAutomationService(projectDir);
+    await service.tick();
+
+    const afterFirstTick = readAutomationState(projectDir);
+    const nextRunAt = Date.parse(afterFirstTick.jobs[0]?.nextRunAt ?? '');
+    expect(Number.isFinite(nextRunAt)).toBe(true);
+    expect(nextRunAt).toBeGreaterThan(Date.now());
+    expect(readHistoryRecords(projectDir, 10).length).toBe(1);
+
+    await service.tick();
+    expect(readHistoryRecords(projectDir, 10).length).toBe(1);
   });
 });

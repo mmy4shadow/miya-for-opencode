@@ -30,7 +30,7 @@ export interface ChannelOutboundAudit {
     sent: boolean;
     message: string;
     mediaPath?: string;
-    reason?: 'sent' | 'channel_blocked' | 'arch_advisor_denied' | 'allowlist_denied' | 'throttled' | 'duplicate_payload' | 'desktop_send_failed';
+    reason?: 'sent' | 'channel_blocked' | 'arch_advisor_denied' | 'approval_ticket_invalid' | 'allowlist_denied' | 'throttled' | 'duplicate_payload' | 'desktop_send_failed';
     riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
     archAdvisorApproved?: boolean;
     targetInAllowlist?: boolean;
@@ -195,6 +195,7 @@ export declare class ChannelRuntime {
     private markMutexTimeout;
     private clearMutexStrike;
     private checkSendFingerprint;
+    private validateApprovalTickets;
     private normalizeDesktopRuntimeError;
     private recordDesktopRuntimeFailure;
     sendMessage(input: {

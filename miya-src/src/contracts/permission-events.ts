@@ -31,6 +31,24 @@ export interface PermissionLifecycleEvent {
   status?: 'allow' | 'ask' | 'deny';
 }
 
+function normalizePatterns(pattern: PermissionObservedInput['pattern']): string[] {
+  if (Array.isArray(pattern)) {
+    return [
+      ...new Set(
+        pattern
+          .filter((item) => item !== null && item !== undefined)
+          .map((item) => String(item).trim())
+          .filter(Boolean),
+      ),
+    ];
+  }
+  if (typeof pattern === 'string') {
+    const next = pattern.trim();
+    return next ? [next] : [];
+  }
+  return [];
+}
+
 export function adaptPermissionLifecycle(
   input: PermissionObservedInput,
   output: PermissionObservedOutput,
@@ -38,11 +56,7 @@ export function adaptPermissionLifecycle(
   asked: PermissionLifecycleEvent;
   replied: PermissionLifecycleEvent;
 } {
-  const patterns = Array.isArray(input.pattern)
-    ? input.pattern.map(String)
-    : typeof input.pattern === 'string'
-      ? [String(input.pattern)]
-      : [];
+  const patterns = normalizePatterns(input.pattern);
   const base = {
     at: new Date().toISOString(),
     sessionID: String(input.sessionID ?? 'main'),

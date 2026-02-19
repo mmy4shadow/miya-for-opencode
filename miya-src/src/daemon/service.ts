@@ -81,6 +81,15 @@ const EXPECTED_MODEL_VERSION = {
 
 const MULTIMODAL_TEST_MODE_ENV = 'MIYA_MULTIMODAL_TEST_MODE';
 const ASR_TEST_MODE_ENV = 'MIYA_ASR_TEST_MODE';
+const AUTO_RETRAIN_ENABLE_ENV = 'MIYA_PSYCHE_AUTO_RETRAIN_ENABLE';
+const AUTO_RETRAIN_INTERVAL_ENV = 'MIYA_PSYCHE_AUTO_RETRAIN_INTERVAL_HOURS';
+const AUTO_RETRAIN_OUTCOMES_ENV = 'MIYA_PSYCHE_AUTO_RETRAIN_MIN_OUTCOMES';
+
+interface PsycheAutoRetrainConfig {
+  enabled: boolean;
+  minIntervalSec: number;
+  minOutcomes: number;
+}
 
 type ModelLockKey = keyof typeof EXPECTED_MODEL_VERSION;
 
@@ -133,6 +142,14 @@ function useAsrTestMode(): boolean {
   return fromAsr === '1' || fromAsr === 'true' || fromAsr === 'yes';
 }
 
+function parseBooleanEnv(value: string | undefined): boolean | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return undefined;
+}
+
 interface TaskRuntimeContext {
   jobID: string;
   setTerminator: (input: {
@@ -172,6 +189,81 @@ export class MiyaDaemonService {
       nativeSignalsProvider: () => this.signalHub.readSnapshot(),
     });
     this.audioFiller = new AudioFillerController(projectDir);
+  }
+
+  private readPsycheAutoRetrainConfig(): PsycheAutoRetrainConfig {
+    const defaults: PsycheAutoRetrainConfig = {
+      enabled: false,
+      minIntervalSec: 7 * 24 * 3600,
+      minOutcomes: 10_000,
+    };
+    const runtimeModePath = path.join(
+      getMiyaRuntimeDir(this.projectDir),
+      'gateway-psyche-mode.json',
+    );
+    let fileRaw: Record<string, unknown> = {};
+    try {
+      if (fs.existsSync(runtimeModePath)) {
+        const parsed = JSON.parse(
+          fs.readFileSync(runtimeModePath, 'utf-8'),
+        ) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          fileRaw = parsed as Record<string, unknown>;
+        }
+      }
+    } catch {}
+    const enabledFromFile =
+      typeof fileRaw.periodicRetrainEnabled === 'boolean'
+        ? fileRaw.periodicRetrainEnabled
+        : undefined;
+    const envEnabled = parseBooleanEnv(process.env[AUTO_RETRAIN_ENABLE_ENV]);
+    const enabled = envEnabled ?? enabledFromFile ?? defaults.enabled;
+
+    const intervalHoursFromFile = Number(
+      fileRaw.periodicRetrainIntervalHours ?? Number.NaN,
+    );
+    const intervalHoursFromEnv = Number(
+      process.env[AUTO_RETRAIN_INTERVAL_ENV] ?? Number.NaN,
+    );
+    const minIntervalSec = Math.max(
+      3600,
+      Math.min(
+        90 * 24 * 3600,
+        Math.floor(
+          (Number.isFinite(intervalHoursFromEnv)
+            ? intervalHoursFromEnv
+            : Number.isFinite(intervalHoursFromFile)
+              ? intervalHoursFromFile
+              : defaults.minIntervalSec / 3600) * 3600,
+        ),
+      ),
+    );
+
+    const minOutcomesFromFile = Number(
+      fileRaw.periodicRetrainMinOutcomes ?? Number.NaN,
+    );
+    const minOutcomesFromEnv = Number(
+      process.env[AUTO_RETRAIN_OUTCOMES_ENV] ?? Number.NaN,
+    );
+    const minOutcomes = Math.max(
+      50,
+      Math.min(
+        500_000,
+        Math.floor(
+          Number.isFinite(minOutcomesFromEnv)
+            ? minOutcomesFromEnv
+            : Number.isFinite(minOutcomesFromFile)
+              ? minOutcomesFromFile
+              : defaults.minOutcomes,
+        ),
+      ),
+    );
+
+    return {
+      enabled,
+      minIntervalSec,
+      minOutcomes,
+    };
   }
 
   private cancelMarkerPath(jobID: string): string {
@@ -381,11 +473,14 @@ export class MiyaDaemonService {
     generatedTriplets?: number;
     slowBrain?: SlowBrainRetrainResult;
   } {
-    const slowBrain = maybeAutoRetrainSlowBrain(this.projectDir, {
-      minIntervalSec: 45 * 60,
-      minOutcomes: 30,
-      trainingWindow: 800,
-    });
+    const retrainConfig = this.readPsycheAutoRetrainConfig();
+    const slowBrain = retrainConfig.enabled
+      ? maybeAutoRetrainSlowBrain(this.projectDir, {
+          minIntervalSec: retrainConfig.minIntervalSec,
+          minOutcomes: retrainConfig.minOutcomes,
+          trainingWindow: 1_200,
+        })
+      : undefined;
     const reflected = maybeAutoReflectCompanionMemory(this.projectDir, {
       idleMinutes: 5,
       minPendingLogs: 1,
@@ -415,6 +510,10 @@ export class MiyaDaemonService {
 
   getPsycheSlowBrainState(): ReturnType<typeof readSlowBrainState> {
     return readSlowBrainState(this.projectDir);
+  }
+
+  getPsycheProactivityStats(): ReturnType<PsycheConsultService['getProactivityStats']> {
+    return this.psyche.getProactivityStats();
   }
 
   retrainPsycheSlowBrain(input?: {

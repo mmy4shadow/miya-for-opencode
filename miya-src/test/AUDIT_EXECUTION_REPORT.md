@@ -6,6 +6,94 @@
 
 ---
 
+# 九维补充审计报告（2026-02-19，第三轮）
+
+## 审计范围
+- 人格和语气管理 (Persona and Tone Management)
+- 生态系统桥接集成 (Ecosystem Bridge Integration)
+- 诊断和可观测性 (Diagnostic and Observability)
+- 配置管理 (Configuration Management)
+- 测试基础设施 (Testing Infrastructure)
+- 文档和知识库 (Documentation and Knowledge Base)
+- 向后兼容性和迁移 (Backward Compatibility and Migration)
+- 占位符实现检测 (Placeholder Implementation Detection)
+- 部分实现差距分析 (Partial Implementation Gap Analysis)
+
+## 新发现与修复
+
+### P1（高）mode-observability 脏数据未归一化导致 NaN/错计数
+- 文件: `miya-src/src/gateway/mode-observability.ts`
+- 修复:
+  - 新增持久化 store 归一化与计数字段硬化（非负整数）。
+  - `lastMode/lastTurnID/updatedAt` 增加合法化回退。
+  - 写盘前统一规范化，避免污染扩散。
+
+### P2（中）生态桥接媒体域命名不一致
+- 文件: `miya-src/src/compat/ecosystem-bridge-registry.ts`
+- 修复:
+  - `media_generation` 统一为 `media_generate`。
+  - `open-llm-vtuber` required domain 修正为 `media_generate`。
+
+## 新增测试（全部放 `test`）
+- `miya-src/test/unit/diagnostic-observability-hardening.test.ts`
+- `miya-src/test/unit/ecosystem-bridge-integration-consistency.test.ts`
+- `miya-src/test/unit/partial-implementation-gap-analysis.test.ts`
+
+## 差距治理（占位符/部分实现）
+- Gateway 拆域仍处第一阶段（域壳层 + 组合注册）。本轮新增自动守门测试，确保该差距在规划文档中明确标记为“进行中”，避免“代码未完成但文档写已完成”。
+
+---
+
+# 九方向复审补充报告（2026-02-19，第三轮）
+
+## 审计范围
+- 六智能体协作测试 (Six-Agent Collaboration Testing)
+- 网关方法域分离 (Gateway Method Domain Separation)
+- 通用桌面控制工作流 (QQ/WeChat Desktop Control Workflow)
+- 本地模型训练管道 (Local Model Training Pipeline)
+- 内存生命周期和反思 (Memory Lifecycle and Reflection)
+- 多模态生成（图像/语音）(Multimodal Generation - Image/Voice)
+- 视觉和 ASR 处理 (Vision and ASR Processing)
+- 人格和模式检测 (Persona and Mode Detection)
+- 计划任务和主动行为 (Scheduled Tasks and Proactive Behavior)
+
+## 发现与修复
+
+### P1（高）计划任务执行后未推进 nextRunAt，可在同一天重复触发
+- 文件: `miya-src/src/automation/service.ts`
+- 问题:
+  - `scheduler` 触发任务成功后未刷新 `nextRunAt`，任务继续处于“已过期”状态。
+  - 在默认 30s 调度周期下，可能发生同一任务连续重复执行。
+- 修复:
+  - 统一在任务执行后刷新 `nextRunAt`（scheduler/manual/approval 分支一致行为）。
+
+### P1（高）网关域注册仅校验新增方法，无法拦截既有方法覆盖
+- 文件:
+  - `miya-src/src/gateway/methods/channels.ts`
+  - `miya-src/src/gateway/methods/companion.ts`
+  - `miya-src/src/gateway/methods/memory.ts`
+  - `miya-src/src/gateway/methods/nodes.ts`
+  - `miya-src/src/gateway/methods/security.ts`
+- 问题:
+  - 域注册回调可覆盖已有方法处理器；由于该方法名不属于“新增集合”，前缀校验不会触发。
+- 修复:
+  - 新增注册前后 handler 引用比对，检测并阻断覆盖行为，抛出 `gateway_domain_registration_override:*`。
+
+## 新增测试（全部放 `test`）
+- `miya-src/test/unit/automation-service.test.ts`
+  - 新增用例：`scheduler` 执行后推进 `nextRunAt`，后续 `tick` 不重复执行。
+- `miya-src/test/unit/gateway-method-domain-separation.test.ts`
+  - 新增用例：域注册覆盖既有方法被拒绝；各域合法前缀注册通过。
+
+## 本轮回归结果
+- `bun test test/unit/automation-service.test.ts test/unit/gateway-method-domain-separation.test.ts --timeout 60000`：PASS
+- `bun run typecheck`：PASS
+- `opencode debug config`：PASS
+- `opencode debug skill`：PASS
+- `opencode debug paths`：PASS
+
+---
+
 # 六方向安全专项审计补充（2026-02-19）
 
 ## 审计范围

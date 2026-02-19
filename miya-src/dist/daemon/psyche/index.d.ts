@@ -1,6 +1,10 @@
 export { adjustFastBrain, type BucketStats, type FastBrainStore, fastBrainBucket, readFastBrainScore, touchFastBrain, } from './bandit';
 export { type PsycheApprovalMode, type PsycheConsultRequest, type PsycheConsultResult, PsycheConsultService, type PsycheDecision, type PsycheFixability, type PsycheOutcomeRequest, type PsycheOutcomeResult, type PsycheRiskSummary, type PsycheUrgency, } from './consult';
+export { buildProactivityContextVector, type ProactivityContextInput, type ProactivityContextVector, } from './proactivity/context-vector';
+export { evaluateProactivityCounterfactual, type CounterfactualInput, type CounterfactualResult, type ProactivityAction, } from './proactivity/counterfactual';
+export { appendInteractionEvent, readInteractionStats, type InteractionEvent, type InteractionEventType, type InteractionStatsSnapshot, } from './proactivity/interaction-stats';
 export { appendPsycheObservation, appendPsycheOutcome } from './logger';
+export { appendProactivityDecision, resolveProactivityPolicy, type ProactivityDecisionLog, type ProactivityPolicyInput, type ProactivityPolicyResult, } from './proactivity/policy';
 export { consumeProbeBudget, type ProbeBudgetConfig } from './probe-budget';
 export { runScreenProbe, type ScreenProbeInput, type ScreenProbeResult, } from './screen-probe';
 export { collectNativeSentinelSignals, type NativeSentinelSignalSample, } from './sensors';

@@ -9,9 +9,16 @@ export interface MediaTranscribeResult {
 }
 export declare function buildTranscribeRequestedEvent(input: MediaTranscribeRequest): {
     event: string;
-    payload: MediaTranscribeRequest;
+    payload: {
+        mediaID: string;
+        language: string | undefined;
+    };
 };
 export declare function buildTranscribeDoneEvent(input: MediaTranscribeResult): {
     event: string;
-    payload: MediaTranscribeResult;
+    payload: {
+        mediaID: string;
+        transcript: string;
+        confidence: number | undefined;
+    };
 };

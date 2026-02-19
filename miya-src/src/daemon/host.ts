@@ -399,6 +399,15 @@ const server = Bun.serve({
               typeof params.allowSignalOverride === 'boolean'
                 ? Boolean(params.allowSignalOverride)
                 : undefined,
+            allowPlayCompanion:
+              typeof params.allowPlayCompanion === 'boolean'
+                ? Boolean(params.allowPlayCompanion)
+                : undefined,
+            epsilonOverride:
+              typeof params.epsilonOverride === 'number' &&
+              Number.isFinite(params.epsilonOverride)
+                ? Number(params.epsilonOverride)
+                : undefined,
             signals:
               params.signals &&
               typeof params.signals === 'object' &&
@@ -496,6 +505,20 @@ const server = Bun.serve({
               id: frame.id,
               ok: true,
               result: daemonService.getPsycheSlowBrainState(),
+            }),
+          ),
+        );
+        return;
+      }
+
+      if (method === 'daemon.psyche.proactivity.get') {
+        ws.send(
+          JSON.stringify(
+            DaemonResponseFrameSchema.parse({
+              type: 'response',
+              id: frame.id,
+              ok: true,
+              result: daemonService.getPsycheProactivityStats(),
             }),
           ),
         );

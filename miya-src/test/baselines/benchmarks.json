@@ -1,0 +1,9 @@
+{
+  "benchmarks": {
+    "action_ledger_append_and_query_500": {
+      "elapsedMs": 7000,
+      "sampleSize": 500,
+      "updatedAt": "2026-02-19T00:00:00.000Z"
+    }
+  }
+}

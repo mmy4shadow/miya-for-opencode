@@ -130,6 +130,10 @@ Performance tests measure key metrics and detect performance regressions.
 - Training startup time
 - VRAM utilization
 
+Current implementation includes:
+- `action-ledger-benchmark.test.ts`: baseline-aware regression check against `test/baselines/benchmarks.json`
+- `performance-smoke.test.ts`: category smoke presence check
+
 ### End-to-End Tests (`test/e2e/`)
 
 E2E tests simulate complete user workflows from start to finish.
@@ -166,6 +170,12 @@ bun test test/adversarial/
 
 # Performance tests only
 bun test test/performance/
+
+# Generate machine-readable and markdown audit snapshot
+bun run audit:report
+
+# Gateway UI component behavior tests (Vitest + jsdom)
+bun run test:ui
 
 # E2E tests only
 bun test test/e2e/
@@ -504,8 +514,8 @@ DEBUG=miya:* bun test
 Performance baselines are stored in `test/baselines/benchmarks.json`. To update baselines:
 
 ```bash
-# Run performance tests and update baselines
-bun test test/performance/ --update-baselines
+# Run performance tests and refresh baselines
+MIYA_UPDATE_BASELINES=1 bun test test/performance/
 ```
 
 ## Troubleshooting

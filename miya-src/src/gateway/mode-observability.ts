@@ -40,6 +40,10 @@ export interface ModeObservabilitySnapshot {
   updatedAt: string;
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -65,6 +69,47 @@ function defaultStore(): ModeObservabilityStore {
   };
 }
 
+function toSafeCount(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.trunc(parsed));
+}
+
+function normalizeMode(value: unknown): GatewayMode | undefined {
+  const text = String(value ?? '').trim();
+  if (text === 'work' || text === 'chat' || text === 'mixed') {
+    return text;
+  }
+  return undefined;
+}
+
+function normalizeStore(raw?: Partial<ModeObservabilityStore>): ModeObservabilityStore {
+  const base = defaultStore();
+  const totals = isObject(raw?.totals)
+    ? (raw?.totals as Record<string, unknown>)
+    : {};
+  const updatedAtText = String(raw?.updatedAt ?? '').trim();
+  const updatedAt = updatedAtText && !Number.isNaN(Date.parse(updatedAtText))
+    ? updatedAtText
+    : nowIso();
+  const lastTurnID = String(raw?.lastTurnID ?? '').trim() || undefined;
+  return {
+    ...base,
+    version: 1,
+    totals: {
+      turns: toSafeCount(totals.turns),
+      modeSwitches: toSafeCount(totals.modeSwitches),
+      misclassificationRollbacks: toSafeCount(totals.misclassificationRollbacks),
+      autonomousAttempts: toSafeCount(totals.autonomousAttempts),
+      autonomousCompletions: toSafeCount(totals.autonomousCompletions),
+      negativeFeedbackTurns: toSafeCount(totals.negativeFeedbackTurns),
+    },
+    lastMode: normalizeMode(raw?.lastMode),
+    lastTurnID,
+    updatedAt,
+  };
+}
+
 function readStore(projectDir: string): ModeObservabilityStore {
   const file = storePath(projectDir);
   if (!fs.existsSync(file)) return defaultStore();
@@ -72,14 +117,7 @@ function readStore(projectDir: string): ModeObservabilityStore {
     const parsed = JSON.parse(
       fs.readFileSync(file, 'utf-8'),
     ) as Partial<ModeObservabilityStore>;
-    return {
-      ...defaultStore(),
-      ...parsed,
-      totals: {
-        ...defaultStore().totals,
-        ...(parsed.totals ?? {}),
-      },
-    };
+    return normalizeStore(parsed);
   } catch {
     return defaultStore();
   }
@@ -89,13 +127,14 @@ function writeStore(
   projectDir: string,
   store: ModeObservabilityStore,
 ): ModeObservabilityStore {
+  const normalized = normalizeStore(store);
   fs.mkdirSync(path.dirname(storePath(projectDir)), { recursive: true });
   fs.writeFileSync(
     storePath(projectDir),
-    `${JSON.stringify(store, null, 2)}\n`,
+    `${JSON.stringify(normalized, null, 2)}\n`,
     'utf-8',
   );
-  return store;
+  return normalized;
 }
 
 function safeRate(numerator: number, denominator: number): number {

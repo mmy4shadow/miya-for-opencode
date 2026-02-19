@@ -38,6 +38,13 @@ function mediaIndexFile(projectDir: string): string {
   return path.join(mediaDir(projectDir), 'index.json');
 }
 
+function isPathInside(parentDir: string, targetPath: string): boolean {
+  const parent = path.resolve(parentDir);
+  const target = path.resolve(targetPath);
+  const rel = path.relative(parent, target);
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
 function ensureDir(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -207,6 +214,7 @@ export function runMediaGc(projectDir: string): {
   kept: number;
 } {
   const store = readStore(projectDir);
+  const managedDir = mediaDir(projectDir);
   const now = Date.now();
   let removed = 0;
 
@@ -214,7 +222,11 @@ export function runMediaGc(projectDir: string): {
     const expired = Date.parse(item.expiresAt) <= now;
     if (!expired) continue;
 
-    if (item.localPath && fs.existsSync(item.localPath)) {
+    if (
+      item.localPath &&
+      isPathInside(managedDir, item.localPath) &&
+      fs.existsSync(item.localPath)
+    ) {
       try {
         fs.unlinkSync(item.localPath);
       } catch {

@@ -8,7 +8,16 @@ import {
   readFastBrainScore,
   touchFastBrain,
 } from './bandit';
+import { buildProactivityContextVector } from './proactivity/context-vector';
+import {
+  appendInteractionEvent,
+  readInteractionStats,
+} from './proactivity/interaction-stats';
 import { appendPsycheObservation, appendPsycheOutcome } from './logger';
+import {
+  appendProactivityDecision,
+  resolveProactivityPolicy,
+} from './proactivity/policy';
 import { consumeProbeBudget } from './probe-budget';
 import { runScreenProbe, type ScreenProbeResult } from './screen-probe';
 import {
@@ -38,6 +47,8 @@ export interface PsycheConsultRequest {
   userInitiated?: boolean;
   allowScreenProbe?: boolean;
   allowSignalOverride?: boolean;
+  allowPlayCompanion?: boolean;
+  epsilonOverride?: number;
   signals?: SentinelSignals;
   captureLimitations?: string[];
   trust?: {
@@ -108,6 +119,13 @@ export interface PsycheConsultResult {
     consumeAllowThreshold: number;
     awayAllowThreshold: number;
     deferRetryBaseSec: number;
+  };
+  proactivity: {
+    action: 'send_now' | 'wait_5m' | 'wait_15m' | 'wait_30m' | 'skip';
+    waitSec: number;
+    scoreNow: number;
+    scoreWait: number;
+    reasonCodes: string[];
   };
   insightText: string;
 }
@@ -204,6 +222,8 @@ export class PsycheConsultService {
   private readonly budgetPath: string;
   private readonly probeBudgetPath: string;
   private readonly trainingDataLogPath: string;
+  private readonly interactionStatsPath: string;
+  private readonly proactivityDecisionLogPath: string;
   private readonly trustPath: string;
   private readonly lifecyclePath: string;
   private readonly epsilon: number;
@@ -228,12 +248,22 @@ export class PsycheConsultService {
       'daemon',
       'psyche',
     );
+    const proactivityDir = path.join(psycheDir, 'proactivity');
     fs.mkdirSync(psycheDir, { recursive: true });
+    fs.mkdirSync(proactivityDir, { recursive: true });
     this.fastBrainPath = path.join(psycheDir, 'fast-brain.json');
     this.consultLogPath = path.join(psycheDir, 'consult.jsonl');
     this.budgetPath = path.join(psycheDir, 'interruption-budget.json');
     this.probeBudgetPath = path.join(psycheDir, 'probe-budget.json');
     this.trainingDataLogPath = path.join(psycheDir, 'training-data.jsonl');
+    this.interactionStatsPath = path.join(
+      proactivityDir,
+      'interaction-stats.json',
+    );
+    this.proactivityDecisionLogPath = path.join(
+      proactivityDir,
+      'proactivity-decisions.jsonl',
+    );
     this.trustPath = path.join(psycheDir, 'trust-score.json');
     this.lifecyclePath = path.join(psycheDir, 'lifecycle.json');
     this.epsilon = Math.max(
@@ -317,6 +347,7 @@ export class PsycheConsultService {
     const auditID = randomUUID();
     const at = nowIso();
     const shadowModeActive = this.isShadowModeActive();
+    const allowPlayCompanion = input.allowPlayCompanion === true;
 
     const fastBrainScore = readFastBrainScore(this.fastBrainPath, {
       state,
@@ -355,6 +386,7 @@ export class PsycheConsultService {
       urgency,
       intent,
       userInitiated,
+      allowPlayCompanion,
       shouldProbeScreen: sentinel.shouldProbeScreen && !shouldProbeScreen,
       fastBrainScore,
       trustTier,
@@ -368,27 +400,20 @@ export class PsycheConsultService {
       decision = 'defer';
       shadowModeApplied = true;
     }
-    let budgetHint = '';
-    if (!userInitiated) {
-      const budget = this.applyInterruptionBudget(state, decision === 'allow');
-      if (decision === 'allow' && budget.blocked) {
-        decision = 'defer';
-        budgetHint = `budget_exhausted:${state}`;
-      }
-    }
-
     let explorationApplied = false;
+    const explorationRate = this.resolveExplorationRate(input.epsilonOverride);
     if (
       !userInitiated &&
       decision === 'defer' &&
       !shadowModeApplied &&
-      this.shouldExplore()
+      (state !== 'PLAY' || allowPlayCompanion) &&
+      this.shouldExplore(explorationRate)
     ) {
       decision = 'allow';
       explorationApplied = true;
     }
 
-    const reasonMarkers = [
+    let reasonMarkers = [
       ...sentinel.reasons,
       ...nativeSample.captureLimitations.map((item) => `native_limit:${item}`),
       allowSignalOverride ? 'signal_override_enabled' : '',
@@ -401,10 +426,12 @@ export class PsycheConsultService {
       probeSceneTags.length > 0
         ? `probe_scene=${probeSceneTags.join('|')}`
         : '',
+      allowPlayCompanion ? 'play_companion_enabled' : '',
+      state === 'PLAY' && !allowPlayCompanion ? 'play_guard_hold' : '',
       `fast_brain_score=${fastBrainScore.toFixed(2)}`,
       `resonance_score=${resonance.score.toFixed(2)}`,
       `slow_brain=${slowBrain.versionID}`,
-      budgetHint,
+      `epsilon=${explorationRate.toFixed(3)}`,
       explorationApplied ? 'epsilon_exploration' : '',
       shadowModeApplied ? 'shadow_mode_safe_hold' : '',
     ].filter((item) => item.length > 0);
@@ -416,6 +443,68 @@ export class PsycheConsultService {
       shouldProbeScreen,
       captureLimitations,
     });
+    const interactionSnapshot = readInteractionStats(this.interactionStatsPath);
+    const contextVector = buildProactivityContextVector({
+      atMs: Date.parse(at),
+      state,
+      urgency,
+      userInitiated,
+      fastBrainScore,
+      resonanceScore: resonance.score,
+      trustMinScore: minTrust,
+      trustTier,
+      risk,
+      signals: sampledSignals,
+      interaction: interactionSnapshot,
+    });
+    const proactivitySeed = resolveProactivityPolicy({
+      at,
+      intent,
+      channel: input.channel,
+      userInitiated,
+      urgency,
+      state,
+      baseDecision: decision,
+      context: contextVector,
+    });
+    const proactivity = explorationApplied
+      ? {
+          ...proactivitySeed,
+          action: 'send_now' as const,
+          decision: 'allow' as const,
+          waitSec: 0,
+          reasonCodes: [
+            ...proactivitySeed.reasonCodes,
+            'exploration_forced_send',
+          ].slice(0, 8),
+        }
+      : proactivitySeed;
+    let proactivityWaitSec = 0;
+    if (!userInitiated && proactivity.decision === 'defer') {
+      decision = 'defer';
+      proactivityWaitSec = proactivity.waitSec;
+    }
+    let budgetHint = '';
+    if (!userInitiated) {
+      const budgetState: SentinelState =
+        state === 'PLAY' && allowPlayCompanion ? 'CONSUME' : state;
+      const budget = this.applyInterruptionBudget(
+        budgetState,
+        decision === 'allow',
+      );
+      if (decision === 'allow' && budget.blocked) {
+        decision = 'defer';
+        budgetHint = `budget_exhausted:${budgetState}`;
+      }
+    }
+    if (budgetHint) reasonMarkers = [...reasonMarkers, budgetHint];
+    reasonMarkers = [
+      ...reasonMarkers,
+      `proactivity_action=${proactivity.action}`,
+      `proactivity_score_now=${proactivity.scoreNow.toFixed(2)}`,
+      `proactivity_score_wait=${proactivity.scoreWait.toFixed(2)}`,
+      ...proactivity.reasonCodes.map((item) => `proactivity:${item}`),
+    ];
     const nextCheckSec = this.resolveNextCheckSec({
       decision,
       urgency,
@@ -423,6 +512,7 @@ export class PsycheConsultService {
       shadowModeApplied,
       risk,
       slowBrain,
+      waitOverrideSec: proactivityWaitSec,
     });
     const reason = this.buildReason({
       decision,
@@ -491,6 +581,13 @@ export class PsycheConsultService {
         awayAllowThreshold: slowBrain.parameters.awayAllowThreshold,
         deferRetryBaseSec: slowBrain.parameters.deferRetryBaseSec,
       },
+      proactivity: {
+        action: proactivity.action,
+        waitSec: Math.max(0, proactivity.waitSec),
+        scoreNow: proactivity.scoreNow,
+        scoreWait: proactivity.scoreWait,
+        reasonCodes: proactivity.reasonCodes,
+      },
       insightText,
     };
 
@@ -512,6 +609,28 @@ export class PsycheConsultService {
       channel: input.channel,
       userInitiated,
       approved: decision === 'allow',
+    });
+    appendInteractionEvent(this.interactionStatsPath, {
+      atMs: Date.now(),
+      type: 'consult',
+      channel: input.channel,
+      userInitiated,
+      decision,
+    });
+    appendProactivityDecision(this.proactivityDecisionLogPath, {
+      at,
+      intent,
+      channel: input.channel,
+      userInitiated,
+      urgency,
+      state,
+      baseDecision: decisionSeed,
+      action: proactivity.action,
+      decision,
+      waitSec: proactivity.waitSec,
+      scoreNow: proactivity.scoreNow,
+      scoreWait: proactivity.scoreWait,
+      reasonCodes: proactivity.reasonCodes,
     });
     this.appendConsultLog(result);
     appendPsycheObservation(this.trainingDataLogPath, {
@@ -580,6 +699,15 @@ export class PsycheConsultService {
       score,
       reward,
     });
+    appendInteractionEvent(this.interactionStatsPath, {
+      atMs: Date.now(),
+      type: 'outcome',
+      channel: input.channel,
+      userInitiated,
+      delivered: input.delivered,
+      explicitFeedback: feedback,
+      userReplyWithinSec: input.userReplyWithinSec,
+    });
     const approved = input.delivered && feedback !== 'negative';
     const confidence = Number.isFinite(input.trust?.evidenceConfidence)
       ? Number(input.trust?.evidenceConfidence)
@@ -623,11 +751,16 @@ export class PsycheConsultService {
     };
   }
 
+  getProactivityStats(): ReturnType<typeof readInteractionStats> {
+    return readInteractionStats(this.interactionStatsPath);
+  }
+
   private pickDecision(input: {
     state: SentinelState;
     urgency: PsycheUrgency;
     intent: string;
     userInitiated: boolean;
+    allowPlayCompanion: boolean;
     shouldProbeScreen: boolean;
     fastBrainScore: number;
     trustTier: TrustTier;
@@ -643,6 +776,7 @@ export class PsycheConsultService {
       state,
       urgency,
       userInitiated,
+      allowPlayCompanion,
       shouldProbeScreen,
       fastBrainScore,
       trustTier,
@@ -657,9 +791,20 @@ export class PsycheConsultService {
 
     if (shouldProbeScreen && urgency !== 'critical') return 'defer';
     if (trustTier === 'low' && urgency !== 'critical') return 'deny';
-    if (urgency === 'critical') return 'allow';
-    if (state === 'FOCUS' || state === 'PLAY' || state === 'UNKNOWN')
+    if (state === 'PLAY') {
+      if (!allowPlayCompanion) return 'defer';
+      if (urgency === 'critical') return 'allow';
+      const playAllowThreshold = Math.max(
+        0.68,
+        slowBrain.parameters.consumeAllowThreshold + 0.08,
+      );
+      if (urgency === 'high' && fastBrainScore >= playAllowThreshold) {
+        return 'allow';
+      }
       return 'defer';
+    }
+    if (urgency === 'critical') return 'allow';
+    if (state === 'FOCUS' || state === 'UNKNOWN') return 'defer';
     if (state === 'CONSUME') {
       const threshold =
         urgency === 'high'
@@ -951,9 +1096,14 @@ export class PsycheConsultService {
     return raw;
   }
 
-  private shouldExplore(): boolean {
-    if (this.epsilon <= 0) return false;
-    return this.random.next() < this.epsilon;
+  private resolveExplorationRate(override?: number): number {
+    const value = Number.isFinite(override) ? Number(override) : this.epsilon;
+    return Math.max(0, Math.min(0.2, Number(value.toFixed(4))));
+  }
+
+  private shouldExplore(rate: number): boolean {
+    if (!Number.isFinite(rate) || rate <= 0) return false;
+    return this.random.next() < rate;
   }
 
   private resolveShadowModeDays(override?: number): number {
@@ -1051,8 +1201,16 @@ export class PsycheConsultService {
     shadowModeApplied: boolean;
     risk: PsycheRiskSummary;
     slowBrain: SlowBrainPolicy;
+    waitOverrideSec?: number;
   }): number {
     if (input.decision === 'allow') return 0;
+    if (
+      typeof input.waitOverrideSec === 'number' &&
+      Number.isFinite(input.waitOverrideSec) &&
+      input.waitOverrideSec > 0
+    ) {
+      return Math.max(15, Math.min(3600, Math.floor(input.waitOverrideSec)));
+    }
     if (input.shadowModeApplied) return 120;
     if (input.urgency === 'critical')
       return input.risk.falseIdleUncertain ? 20 : 10;

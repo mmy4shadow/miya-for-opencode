@@ -1026,8 +1026,8 @@ var require_semaphore = __commonJS((exports) => {
       this._waiting = [];
     }
     lock(thunk) {
-      return new Promise((resolve8, reject) => {
-        this._waiting.push({ thunk, resolve: resolve8, reject });
+      return new Promise((resolve10, reject) => {
+        this._waiting.push({ thunk, resolve: resolve10, reject });
         this.runNext();
       });
     }
@@ -2518,9 +2518,9 @@ ${JSON.stringify(message, null, 4)}`);
         if (typeof cancellationStrategy.sender.enableCancellation === "function") {
           cancellationStrategy.sender.enableCancellation(requestMessage);
         }
-        return new Promise(async (resolve8, reject) => {
+        return new Promise(async (resolve10, reject) => {
           const resolveWithCleanup = (r) => {
-            resolve8(r);
+            resolve10(r);
             cancellationStrategy.sender.cleanup(id);
             disposable?.dispose();
           };
@@ -2929,10 +2929,10 @@ var require_ril = __commonJS((exports) => {
       return api_1.Disposable.create(() => this.stream.off("end", listener));
     }
     write(data, encoding) {
-      return new Promise((resolve8, reject) => {
+      return new Promise((resolve10, reject) => {
         const callback = (error92) => {
           if (error92 === undefined || error92 === null) {
-            resolve8();
+            resolve10();
           } else {
             reject(error92);
           }
@@ -3036,7 +3036,7 @@ var require_main = __commonJS((exports) => {
   exports.createMessageConnection = exports.createServerSocketTransport = exports.createClientSocketTransport = exports.createServerPipeTransport = exports.createClientPipeTransport = exports.generateRandomPipeName = exports.StreamMessageWriter = exports.StreamMessageReader = exports.SocketMessageWriter = exports.SocketMessageReader = exports.PortMessageWriter = exports.PortMessageReader = exports.IPCMessageWriter = exports.IPCMessageReader = undefined;
   var ril_1 = require_ril();
   ril_1.default.install();
-  var path72 = __require("path");
+  var path73 = __require("path");
   var os10 = __require("os");
   var crypto_1 = __require("crypto");
   var net_1 = __require("net");
@@ -3178,9 +3178,9 @@ var require_main = __commonJS((exports) => {
     }
     let result;
     if (XDG_RUNTIME_DIR) {
-      result = path72.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
+      result = path73.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
     } else {
-      result = path72.join(os10.tmpdir(), `vscode-${randomSuffix}.sock`);
+      result = path73.join(os10.tmpdir(), `vscode-${randomSuffix}.sock`);
     }
     const limit = safeIpcPathLengths.get(process.platform);
     if (limit !== undefined && result.length > limit) {
@@ -3191,10 +3191,10 @@ var require_main = __commonJS((exports) => {
   exports.generateRandomPipeName = generateRandomPipeName;
   function createClientPipeTransport(pipeName, encoding = "utf-8") {
     let connectResolve;
-    const connected = new Promise((resolve8, _reject) => {
-      connectResolve = resolve8;
+    const connected = new Promise((resolve10, _reject) => {
+      connectResolve = resolve10;
     });
-    return new Promise((resolve8, reject) => {
+    return new Promise((resolve10, reject) => {
       let server = (0, net_1.createServer)((socket) => {
         server.close();
         connectResolve([
@@ -3205,7 +3205,7 @@ var require_main = __commonJS((exports) => {
       server.on("error", reject);
       server.listen(pipeName, () => {
         server.removeListener("error", reject);
-        resolve8({
+        resolve10({
           onConnected: () => {
             return connected;
           }
@@ -3224,10 +3224,10 @@ var require_main = __commonJS((exports) => {
   exports.createServerPipeTransport = createServerPipeTransport;
   function createClientSocketTransport(port, encoding = "utf-8") {
     let connectResolve;
-    const connected = new Promise((resolve8, _reject) => {
-      connectResolve = resolve8;
+    const connected = new Promise((resolve10, _reject) => {
+      connectResolve = resolve10;
     });
-    return new Promise((resolve8, reject) => {
+    return new Promise((resolve10, reject) => {
       const server = (0, net_1.createServer)((socket) => {
         server.close();
         connectResolve([
@@ -3238,7 +3238,7 @@ var require_main = __commonJS((exports) => {
       server.on("error", reject);
       server.listen(port, "127.0.0.1", () => {
         server.removeListener("error", reject);
-        resolve8({
+        resolve10({
           onConnected: () => {
             return connected;
           }
@@ -3278,10 +3278,10 @@ var require_main = __commonJS((exports) => {
 });
 
 // src/index.ts
-import { spawn as spawn9, spawnSync as spawnSync12 } from "child_process";
-import * as fs73 from "fs";
+import { spawn as spawn10, spawnSync as spawnSync12 } from "child_process";
+import * as fs75 from "fs";
 import * as os10 from "os";
-import * as path72 from "path";
+import * as path73 from "path";
 import { fileURLToPath as fileURLToPath5 } from "url";
 
 // src/cli/custom-skills.ts
@@ -18191,14 +18191,14 @@ function loadConfigFromPath(configPath) {
     return null;
   }
 }
-function findConfigPath(basePath) {
-  const jsoncPath = `${basePath}.jsonc`;
-  const jsonPath = `${basePath}.json`;
-  if (fs4.existsSync(jsoncPath)) {
-    return jsoncPath;
-  }
-  if (fs4.existsSync(jsonPath)) {
-    return jsonPath;
+function loadConfigWithFallback(basePath) {
+  const candidates = [`${basePath}.jsonc`, `${basePath}.json`];
+  for (const candidate of candidates) {
+    if (!fs4.existsSync(candidate))
+      continue;
+    const loaded = loadConfigFromPath(candidate);
+    if (loaded)
+      return loaded;
   }
   return null;
 }
@@ -18223,11 +18223,8 @@ function loadPluginConfig(directory) {
   const userConfigBase = path4.join(getUserConfigDir(), "opencode", CONFIG_BASE_NAME);
   const projectConfigBase = path4.join(directory, ".opencode", CONFIG_BASE_NAME);
   const projectRootConfigBase = path4.join(directory, CONFIG_BASE_NAME);
-  const userConfigPath = findConfigPath(userConfigBase);
-  const projectConfigPath = findConfigPath(projectConfigBase);
-  const projectRootConfigPath = findConfigPath(projectRootConfigBase);
-  let config2 = userConfigPath ? loadConfigFromPath(userConfigPath) ?? {} : {};
-  const projectRootConfig = projectRootConfigPath ? loadConfigFromPath(projectRootConfigPath) : null;
+  let config2 = loadConfigWithFallback(userConfigBase) ?? {};
+  const projectRootConfig = loadConfigWithFallback(projectRootConfigBase);
   if (projectRootConfig) {
     config2 = {
       ...config2,
@@ -18238,7 +18235,7 @@ function loadPluginConfig(directory) {
       contextGovernance: deepMerge(config2.contextGovernance, projectRootConfig.contextGovernance)
     };
   }
-  const projectConfig = projectConfigPath ? loadConfigFromPath(projectConfigPath) : null;
+  const projectConfig = loadConfigWithFallback(projectConfigBase);
   if (projectConfig) {
     config2 = {
       ...config2,
@@ -18483,7 +18480,7 @@ function loadSoulProfile(projectDir) {
 }
 function saveSoulMarkdown(projectDir, markdown) {
   const file2 = ensureSoulFile(projectDir);
-  fs6.writeFileSync(file2, markdown.trimEnd() + `
+  fs6.writeFileSync(file2, `${markdown.trimEnd()}
 `, "utf-8");
   return loadSoulProfile(projectDir);
 }
@@ -18951,8 +18948,12 @@ function applyOverrides(agent, override) {
   if (override.model && override.model.trim().length > 0) {
     agent.config.model = override.model.trim();
   }
-  if (override.temperature !== undefined)
-    agent.config.temperature = override.temperature;
+  if (override.temperature !== undefined) {
+    const safeTemperature = typeof override.temperature === "number" && Number.isFinite(override.temperature) ? Math.max(0, Math.min(2, override.temperature)) : agent.config.temperature;
+    if (safeTemperature !== undefined) {
+      agent.config.temperature = safeTemperature;
+    }
+  }
   if (override.variant && override.variant.trim().length > 0) {
     agent.config.variant = override.variant.trim();
   }
@@ -19126,6 +19127,7 @@ function getAgentConfigs(config2, projectDir) {
 
 // src/automation/service.ts
 import { spawn } from "child_process";
+import * as path9 from "path";
 
 // src/automation/store.ts
 import * as fs7 from "fs";
@@ -19330,6 +19332,8 @@ function createApproval(job, reason) {
 // src/automation/service.ts
 var SCHEDULER_INTERVAL_MS = 30000;
 var DEFAULT_COMMAND_TIMEOUT_MS = 20 * 60 * 1000;
+var MIN_COMMAND_TIMEOUT_MS = 1000;
+var MAX_COMMAND_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 function nowIso2() {
   return new Date().toISOString();
 }
@@ -19360,9 +19364,36 @@ function truncateOutput(text, maxLength = 20000) {
   return `${text.slice(0, maxLength)}
 ...[truncated]`;
 }
+function normalizeCommandText(command) {
+  return String(command ?? "").trim();
+}
+function normalizeTimeoutMs(timeoutMs) {
+  const raw = typeof timeoutMs === "number" ? timeoutMs : DEFAULT_COMMAND_TIMEOUT_MS;
+  if (!Number.isFinite(raw))
+    return DEFAULT_COMMAND_TIMEOUT_MS;
+  return Math.max(MIN_COMMAND_TIMEOUT_MS, Math.min(MAX_COMMAND_TIMEOUT_MS, Math.floor(raw)));
+}
+function isSubPath(parentDir, targetDir) {
+  const rel = path9.relative(parentDir, targetDir);
+  if (!rel)
+    return true;
+  if (rel.startsWith(".."))
+    return false;
+  return !path9.isAbsolute(rel);
+}
+function resolveAndValidateCwd(projectDir, cwd) {
+  if (!cwd || cwd.trim().length === 0) {
+    return { cwd: projectDir, wasSanitized: false };
+  }
+  const resolved = path9.resolve(projectDir, cwd);
+  if (!isSubPath(projectDir, resolved)) {
+    return { cwd: projectDir, wasSanitized: true };
+  }
+  return { cwd: resolved, wasSanitized: false };
+}
 async function runCommand(command, cwd, timeoutMs) {
   const startedAt = nowIso2();
-  const result = await new Promise((resolve3) => {
+  const result = await new Promise((resolve4) => {
     const child = spawn(command, {
       cwd,
       shell: true,
@@ -19383,11 +19414,11 @@ async function runCommand(command, cwd, timeoutMs) {
     }, timeoutMs);
     child.on("close", (code) => {
       clearTimeout(timeout);
-      resolve3({ exitCode: code, timedOut, stdout, stderr });
+      resolve4({ exitCode: code, timedOut, stdout, stderr });
     });
     child.on("error", (error48) => {
       clearTimeout(timeout);
-      resolve3({
+      resolve4({
         exitCode: null,
         timedOut,
         stdout,
@@ -19479,21 +19510,31 @@ class MiyaAutomationService {
     return removeHistoryRecord(this.projectDir, runId);
   }
   scheduleDailyCommand(input) {
+    const name = String(input.name ?? "").trim();
+    if (!name)
+      throw new Error("Job name cannot be empty.");
+    const command = normalizeCommandText(input.command);
+    if (!command)
+      throw new Error("Command cannot be empty.");
+    const cwdResolved = resolveAndValidateCwd(this.projectDir, input.cwd);
+    if (input.cwd && cwdResolved.wasSanitized) {
+      throw new Error("Invalid cwd: must stay within project directory.");
+    }
     const now = new Date;
     const job = {
       id: createJobId(),
-      name: input.name,
+      name,
       enabled: true,
       requireApproval: input.requireApproval ?? false,
       schedule: {
         type: "daily",
-        time: input.time
+        time: String(input.time ?? "").trim()
       },
       action: {
         type: "command",
-        command: input.command,
-        cwd: input.cwd,
-        timeoutMs: input.timeoutMs
+        command,
+        cwd: cwdResolved.cwd,
+        timeoutMs: normalizeTimeoutMs(input.timeoutMs)
       },
       nextRunAt: computeNextDailyRun(input.time, now),
       createdAt: nowIso2(),
@@ -19560,14 +19601,53 @@ class MiyaAutomationService {
       return null;
     if (!job.enabled && trigger !== "manual")
       return null;
-    const timeoutMs = job.action.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
-    const result = await runCommand(job.action.command, job.action.cwd, timeoutMs);
+    const command = normalizeCommandText(job.action.command);
+    const timeoutMs = normalizeTimeoutMs(job.action.timeoutMs);
+    const cwdResolved = resolveAndValidateCwd(this.projectDir, job.action.cwd);
+    const warning = cwdResolved.wasSanitized ? "Unsafe cwd detected; fell back to project directory." : "";
+    if (!command) {
+      const failedAt = nowIso2();
+      const result2 = {
+        status: "failed",
+        exitCode: null,
+        timedOut: false,
+        stdout: "",
+        stderr: "Empty command is not executable.",
+        startedAt: failedAt,
+        endedAt: failedAt
+      };
+      job.lastRunAt = result2.endedAt;
+      job.lastStatus = result2.status;
+      job.lastExitCode = result2.exitCode;
+      job.nextRunAt = computeNextDailyRun(job.schedule.time, new Date);
+      Object.assign(job, touchJob(job));
+      appendHistoryRecord(this.projectDir, {
+        id: createHistoryId(),
+        jobId: job.id,
+        jobName: job.name,
+        trigger,
+        startedAt: result2.startedAt,
+        endedAt: result2.endedAt,
+        status: result2.status,
+        exitCode: result2.exitCode,
+        timedOut: result2.timedOut,
+        stdout: result2.stdout,
+        stderr: result2.stderr
+      });
+      return result2;
+    }
+    const result = await runCommand(command, cwdResolved.cwd, timeoutMs);
+    if (warning) {
+      result.stderr = truncateOutput(result.stderr ? `${warning}
+${result.stderr}` : warning);
+    }
+    job.action.command = command;
+    job.action.cwd = cwdResolved.cwd;
+    job.action.timeoutMs = timeoutMs;
     job.lastRunAt = result.endedAt;
     job.lastStatus = result.status;
     job.lastExitCode = result.exitCode;
-    if (trigger !== "scheduler") {
-      job.nextRunAt = computeNextDailyRun(job.schedule.time, new Date);
-    }
+    job.nextRunAt = computeNextDailyRun(job.schedule.time, new Date);
     Object.assign(job, touchJob(job));
     const history = {
       id: createHistoryId(),
@@ -19589,7 +19669,7 @@ class MiyaAutomationService {
 // src/policy/index.ts
 import { createHash as createHash2 } from "crypto";
 import * as fs8 from "fs";
-import * as path9 from "path";
+import * as path10 from "path";
 var POLICY_DOMAINS = [
   "outbound_send",
   "desktop_control",
@@ -19603,11 +19683,33 @@ var POLICY_DOMAINS = [
   "read_only_research",
   "local_build"
 ];
+function normalizePolicyDomainState(value, fallback) {
+  return value === "running" || value === "paused" ? value : fallback;
+}
+function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean")
+    return value;
+  return fallback;
+}
+function normalizePositiveInt(value, fallback, min) {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  if (!Number.isFinite(parsed))
+    return fallback;
+  return Math.max(min, Math.floor(parsed));
+}
+function normalizeAllowedChannels(value, fallback) {
+  if (!Array.isArray(value))
+    return fallback;
+  const allowed = value.filter((item) => item === "qq" || item === "wechat");
+  if (allowed.length === 0)
+    return fallback;
+  return [...new Set(allowed)];
+}
 function nowIso3() {
   return new Date().toISOString();
 }
 function policyFile(projectDir) {
-  return path9.join(getMiyaRuntimeDir(projectDir), "policy.json");
+  return path10.join(getMiyaRuntimeDir(projectDir), "policy.json");
 }
 function defaultPolicy() {
   return {
@@ -19641,7 +19743,7 @@ function readPolicy(projectDir) {
   const file2 = policyFile(projectDir);
   if (!fs8.existsSync(file2)) {
     const base = defaultPolicy();
-    fs8.mkdirSync(path9.dirname(file2), { recursive: true });
+    fs8.mkdirSync(path10.dirname(file2), { recursive: true });
     fs8.writeFileSync(file2, `${JSON.stringify(base, null, 2)}
 `, "utf-8");
     return base;
@@ -19650,16 +19752,23 @@ function readPolicy(projectDir) {
     const parsed = JSON.parse(fs8.readFileSync(file2, "utf-8"));
     const base = defaultPolicy();
     const parsedDomains = parsed.domains && typeof parsed.domains === "object" ? parsed.domains : {};
+    const mergedDomains = Object.fromEntries(POLICY_DOMAINS.map((domain2) => [
+      domain2,
+      normalizePolicyDomainState(parsedDomains[domain2], base.domains[domain2])
+    ]));
+    const parsedOutbound = parsed.outbound && typeof parsed.outbound === "object" ? parsed.outbound : {};
     return {
       ...base,
       ...parsed,
-      domains: {
-        ...base.domains,
-        ...parsedDomains
-      },
+      domains: mergedDomains,
       outbound: {
-        ...base.outbound,
-        ...parsed.outbound ?? {}
+        allowedChannels: normalizeAllowedChannels(parsedOutbound.allowedChannels, base.outbound.allowedChannels),
+        requireArchAdvisorApproval: normalizeBoolean(parsedOutbound.requireArchAdvisorApproval, base.outbound.requireArchAdvisorApproval),
+        requireAllowlist: normalizeBoolean(parsedOutbound.requireAllowlist, base.outbound.requireAllowlist),
+        minIntervalMs: normalizePositiveInt(parsedOutbound.minIntervalMs, base.outbound.minIntervalMs, 500),
+        burstWindowMs: normalizePositiveInt(parsedOutbound.burstWindowMs, base.outbound.burstWindowMs, 1000),
+        burstLimit: normalizePositiveInt(parsedOutbound.burstLimit, base.outbound.burstLimit, 1),
+        duplicateWindowMs: normalizePositiveInt(parsedOutbound.duplicateWindowMs, base.outbound.duplicateWindowMs, 1000)
       }
     };
   } catch {
@@ -19678,7 +19787,7 @@ function writePolicy(projectDir, patch) {
     },
     updatedAt: nowIso3()
   };
-  fs8.mkdirSync(path9.dirname(file2), { recursive: true });
+  fs8.mkdirSync(path10.dirname(file2), { recursive: true });
   fs8.writeFileSync(file2, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
@@ -19962,12 +20071,12 @@ function markPlanBundleFinalized(bundle, input) {
 // src/autopilot/plan-reuse.ts
 import { createHash as createHash4 } from "crypto";
 import * as fs9 from "fs";
-import * as path10 from "path";
+import * as path11 from "path";
 function nowIso5() {
   return new Date().toISOString();
 }
 function reuseFile(projectDir) {
-  return path10.join(getMiyaRuntimeDir(projectDir), "autopilot-plan-reuse.json");
+  return path11.join(getMiyaRuntimeDir(projectDir), "autopilot-plan-reuse.json");
 }
 function ensureDir4(projectDir) {
   fs9.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
@@ -20006,7 +20115,7 @@ function buildPlanBundleTaskSignature(input) {
     `goal=${normalizeForSignature(input.goal)}`,
     `cmd=${commandShape}`,
     `verify=${normalizeForSignature(input.verificationCommand ?? "") || "-"}`,
-    `cwd=${normalizeForSignature(path10.basename(input.workingDirectory ?? "")) || "-"}`,
+    `cwd=${normalizeForSignature(path11.basename(input.workingDirectory ?? "")) || "-"}`,
     `mode=${input.mode ?? "work"}`,
     `risk=${input.riskTier ?? "STANDARD"}`
   ];
@@ -20132,10 +20241,10 @@ function attachCommandSteps(plan, commands, verificationCommand) {
 
 // src/autopilot/stats.ts
 import * as fs10 from "fs";
-import * as path11 from "path";
+import * as path12 from "path";
 var RECENT_LIMIT = 40;
 function statsFile(projectDir) {
-  return path11.join(getMiyaRuntimeDir(projectDir), "autopilot-stats.json");
+  return path12.join(getMiyaRuntimeDir(projectDir), "autopilot-stats.json");
 }
 function nowIso6() {
   return new Date().toISOString();
@@ -20158,7 +20267,7 @@ function defaultStats() {
   };
 }
 function ensureDir5(filePath2) {
-  fs10.mkdirSync(path11.dirname(filePath2), { recursive: true });
+  fs10.mkdirSync(path12.dirname(filePath2), { recursive: true });
 }
 function readAutopilotStats(projectDir) {
   const file2 = statsFile(projectDir);
@@ -20526,12 +20635,12 @@ function runAutopilot(input) {
 }
 // src/autopilot/plan-bundle-binding.ts
 import * as fs11 from "fs";
-import * as path12 from "path";
+import * as path13 from "path";
 function nowIso7() {
   return new Date().toISOString();
 }
 function storePath(projectDir) {
-  return path12.join(getMiyaRuntimeDir(projectDir), "plan-bundle-bindings.json");
+  return path13.join(getMiyaRuntimeDir(projectDir), "plan-bundle-bindings.json");
 }
 function defaultStore() {
   return {
@@ -20558,7 +20667,7 @@ function readStore2(projectDir) {
 }
 function writeStore2(projectDir, store) {
   const file2 = storePath(projectDir);
-  fs11.mkdirSync(path12.dirname(file2), { recursive: true });
+  fs11.mkdirSync(path13.dirname(file2), { recursive: true });
   fs11.writeFileSync(file2, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
 }
@@ -20638,8 +20747,8 @@ function summarizeVerification(result) {
 // src/utils/logger.ts
 import * as fs12 from "fs";
 import * as os4 from "os";
-import * as path13 from "path";
-var logFile = path13.join(os4.tmpdir(), "miya.log");
+import * as path14 from "path";
+var logFile = path14.join(os4.tmpdir(), "miya.log");
 function sanitizeLogValue(value) {
   if (value instanceof Error) {
     return {
@@ -20726,18 +20835,19 @@ function safeInterval(taskName, intervalMs, run, options) {
     if (Date.now() < cooldownUntilMs)
       return;
     running = true;
-    Promise.resolve(run()).then(() => {
+    Promise.resolve().then(run).then(() => {
       consecutiveErrors = 0;
     }).catch((error48) => {
-      consecutiveErrors += 1;
-      if (consecutiveErrors >= maxConsecutiveErrors) {
+      const nextConsecutiveErrors = consecutiveErrors + 1;
+      consecutiveErrors = nextConsecutiveErrors;
+      if (nextConsecutiveErrors >= maxConsecutiveErrors) {
         cooldownUntilMs = Date.now() + cooldownMs;
         consecutiveErrors = 0;
       }
       options?.onError?.({
         taskName,
         error: error48,
-        consecutiveErrors: Math.max(1, consecutiveErrors),
+        consecutiveErrors: nextConsecutiveErrors,
         cooldownUntilMs: cooldownUntilMs > Date.now() ? cooldownUntilMs : undefined
       });
     }).finally(() => {
@@ -20796,23 +20906,23 @@ async function findTmuxPath() {
       return null;
     }
     const stdout = await new Response(proc.stdout).text();
-    const path14 = stdout.trim().split(`
+    const path15 = stdout.trim().split(`
 `)[0];
-    if (!path14) {
+    if (!path15) {
       log("[tmux] findTmuxPath: no path in output");
       return null;
     }
-    const verifyProc = spawn2([path14, "-V"], {
+    const verifyProc = spawn2([path15, "-V"], {
       stdout: "pipe",
       stderr: "pipe"
     });
     const verifyExit = await verifyProc.exited;
     if (verifyExit !== 0) {
-      log("[tmux] findTmuxPath: tmux -V failed", { path: path14, verifyExit });
+      log("[tmux] findTmuxPath: tmux -V failed", { path: path15, verifyExit });
       return null;
     }
-    log("[tmux] findTmuxPath: found tmux", { path: path14 });
-    return path14;
+    log("[tmux] findTmuxPath: found tmux", { path: path15 });
+    return path15;
   } catch (err) {
     log("[tmux] findTmuxPath: exception", { error: String(err) });
     return null;
@@ -20995,8 +21105,8 @@ function isPwshAvailable() {
   });
   return result.exitCode === 0;
 }
-function escapePowerShellPath(path14) {
-  return path14.replace(/'/g, "''");
+function escapePowerShellPath(path15) {
+  return path15.replace(/'/g, "''");
 }
 function getWindowsZipExtractor() {
   const buildNumber = getWindowsBuildNumber();
@@ -21347,13 +21457,13 @@ class BackgroundTaskManager {
     if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
       return task;
     }
-    return new Promise((resolve3) => {
-      const resolver = (t) => resolve3(t);
+    return new Promise((resolve4) => {
+      const resolver = (t) => resolve4(t);
       this.completionResolvers.set(taskId, resolver);
       if (timeout > 0) {
         setTimeout(() => {
           this.completionResolvers.delete(taskId);
-          resolve3(this.tasks.get(taskId) ?? null);
+          resolve4(this.tasks.get(taskId) ?? null);
         }, timeout);
       }
     });
@@ -21574,9 +21684,9 @@ class TmuxSessionManager {
 }
 // src/config/provider-override-audit.ts
 import * as fs13 from "fs";
-import * as path14 from "path";
+import * as path15 from "path";
 function providerOverrideAuditFile(projectDir) {
-  return path14.join(getMiyaRuntimeDir(projectDir), "audit", "provider-overrides.jsonl");
+  return path15.join(getMiyaRuntimeDir(projectDir), "audit", "provider-overrides.jsonl");
 }
 function appendProviderOverrideAudit(projectDir, input) {
   const entry = {
@@ -21591,7 +21701,7 @@ function appendProviderOverrideAudit(projectDir, input) {
     optionKeys: [...input.optionKeys].sort()
   };
   const file2 = providerOverrideAuditFile(projectDir);
-  fs13.mkdirSync(path14.dirname(file2), { recursive: true });
+  fs13.mkdirSync(path15.dirname(file2), { recursive: true });
   fs13.appendFileSync(file2, `${JSON.stringify(entry)}
 `, "utf-8");
   return entry;
@@ -21642,8 +21752,20 @@ var PERMISSION_CANONICAL_EVENTS = {
   asked: "permission.asked",
   replied: "permission.replied"
 };
+function normalizePatterns(pattern) {
+  if (Array.isArray(pattern)) {
+    return [
+      ...new Set(pattern.filter((item) => item !== null && item !== undefined).map((item) => String(item).trim()).filter(Boolean))
+    ];
+  }
+  if (typeof pattern === "string") {
+    const next = pattern.trim();
+    return next ? [next] : [];
+  }
+  return [];
+}
 function adaptPermissionLifecycle(input, output) {
-  const patterns = Array.isArray(input.pattern) ? input.pattern.map(String) : typeof input.pattern === "string" ? [String(input.pattern)] : [];
+  const patterns = normalizePatterns(input.pattern);
   const base = {
     at: new Date().toISOString(),
     sessionID: String(input.sessionID ?? "main"),
@@ -21685,10 +21807,10 @@ function assertRequiredHookHandlers(hooks) {
 }
 
 // src/daemon/launcher.ts
-import { spawn as spawn5 } from "child_process";
+import { spawn as spawn6 } from "child_process";
 import { randomUUID as randomUUID27 } from "crypto";
-import * as fs70 from "fs";
-import * as path69 from "path";
+import * as fs72 from "fs";
+import * as path70 from "path";
 import { fileURLToPath as fileURLToPath3 } from "url";
 
 // src/settings/registry.ts
@@ -22411,13 +22533,13 @@ function buildSchemaDocument() {
 }
 // src/settings/store.ts
 import * as fs14 from "fs";
-import * as path15 from "path";
+import * as path16 from "path";
 var EMPTY_PATCH = { set: {}, unset: [] };
 function runtimeFile(projectDir, fileName) {
-  return path15.join(getMiyaRuntimeDir(projectDir), fileName);
+  return path16.join(getMiyaRuntimeDir(projectDir), fileName);
 }
 function ensureDir6(file2) {
-  fs14.mkdirSync(path15.dirname(file2), { recursive: true });
+  fs14.mkdirSync(path16.dirname(file2), { recursive: true });
 }
 function cloneValue2(value) {
   return JSON.parse(JSON.stringify(value));
@@ -22717,7 +22839,7 @@ function getConfigValue(projectDir, key) {
   return getNestedValue(config2, key);
 }
 // src/settings/tools.ts
-import { spawn as spawn4 } from "child_process";
+import { spawn as spawn5 } from "child_process";
 
 // node_modules/@opencode-ai/plugin/node_modules/zod/v4/classic/external.js
 var exports_external2 = {};
@@ -23448,10 +23570,10 @@ function mergeDefs2(...defs) {
 function cloneDef2(schema2) {
   return mergeDefs2(schema2._zod.def);
 }
-function getElementAtPath2(obj, path16) {
-  if (!path16)
+function getElementAtPath2(obj, path17) {
+  if (!path17)
     return obj;
-  return path16.reduce((acc, key) => acc?.[key], obj);
+  return path17.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject2(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -23810,11 +23932,11 @@ function aborted2(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues2(path16, issues) {
+function prefixIssues2(path17, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path16);
+    iss.path.unshift(path17);
     return iss;
   });
 }
@@ -23982,7 +24104,7 @@ function treeifyError2(error48, _mapper) {
     return issue3.message;
   };
   const result = { errors: [] };
-  const processError = (error49, path16 = []) => {
+  const processError = (error49, path17 = []) => {
     var _a2, _b;
     for (const issue3 of error49.issues) {
       if (issue3.code === "invalid_union" && issue3.errors.length) {
@@ -23992,7 +24114,7 @@ function treeifyError2(error48, _mapper) {
       } else if (issue3.code === "invalid_element") {
         processError({ issues: issue3.issues }, issue3.path);
       } else {
-        const fullpath = [...path16, ...issue3.path];
+        const fullpath = [...path17, ...issue3.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue3));
           continue;
@@ -24024,8 +24146,8 @@ function treeifyError2(error48, _mapper) {
 }
 function toDotPath2(_path) {
   const segs = [];
-  const path16 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path16) {
+  const path17 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path17) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -35041,21 +35163,21 @@ function tool(input) {
 tool.schema = exports_external2;
 // src/gateway/index.ts
 import { createHash as createHash24, createHmac as createHmac3, randomUUID as randomUUID26 } from "crypto";
-import * as fs68 from "fs";
+import * as fs70 from "fs";
 import * as os9 from "os";
-import * as path67 from "path";
+import * as path68 from "path";
 
 // src/adapters/openclaw/client.ts
 import { randomUUID as randomUUID2 } from "crypto";
-import * as path17 from "path";
+import * as path18 from "path";
 
 // src/daemon/python-runtime.ts
-import * as path16 from "path";
+import * as path17 from "path";
 function venvDir(projectDir) {
-  return path16.join(getMiyaRuntimeDir(projectDir), "venv");
+  return path17.join(getMiyaRuntimeDir(projectDir), "venv");
 }
 function venvPythonPath(projectDir) {
-  return process.platform === "win32" ? path16.join(venvDir(projectDir), "Scripts", "python.exe") : path16.join(venvDir(projectDir), "bin", "python");
+  return process.platform === "win32" ? path17.join(venvDir(projectDir), "Scripts", "python.exe") : path17.join(venvDir(projectDir), "bin", "python");
 }
 
 // src/adapters/standard.ts
@@ -35104,7 +35226,7 @@ class OpenClawAdapter {
     };
     const daemon = getMiyaClient(this.projectDir);
     const py = venvPythonPath(this.projectDir);
-    const server = path17.join(this.projectDir, "miya-src", "src", "adapters", "openclaw", "server.py");
+    const server = path18.join(this.projectDir, "miya-src", "src", "adapters", "openclaw", "server.py");
     const proc = await daemon.runIsolatedProcess({
       kind: "shell.exec",
       command: py,
@@ -35408,7 +35530,7 @@ async function runUltraworkDag(input) {
     }
     if (running.size > 0) {
       waitTicks += 1;
-      await new Promise((resolve3) => setTimeout(resolve3, 60));
+      await new Promise((resolve4) => setTimeout(resolve4, 60));
     }
   }
   const nodeResults = nodes.map((node) => {
@@ -35442,17 +35564,17 @@ async function runUltraworkDag(input) {
 
 // src/autoflow/state.ts
 import * as fs15 from "fs";
-import * as path18 from "path";
+import * as path19 from "path";
 var DEFAULT_MAX_FIX_ROUNDS = 3;
 var MAX_HISTORY = 120;
 function nowIso8() {
   return new Date().toISOString();
 }
 function stateFilePath(projectDir) {
-  return path18.join(getMiyaRuntimeDir(projectDir), "autoflow-state.json");
+  return path19.join(getMiyaRuntimeDir(projectDir), "autoflow-state.json");
 }
 function ensureRuntimeDir(projectDir) {
-  fs15.mkdirSync(path18.dirname(stateFilePath(projectDir)), { recursive: true });
+  fs15.mkdirSync(path19.dirname(stateFilePath(projectDir)), { recursive: true });
 }
 function normalizeFixRounds(value) {
   if (!Number.isFinite(value))
@@ -35598,7 +35720,7 @@ function runShellCommand(command, timeoutMs, cwd) {
 function normalizeTasks(input) {
   if (!Array.isArray(input))
     return [];
-  return input.filter((task) => task && task.agent?.trim() && task.prompt?.trim()).map((task, index) => ({
+  return input.filter((task) => task?.agent?.trim() && task.prompt?.trim()).map((task, index) => ({
     id: task.id?.trim() || `task_${index + 1}`,
     agent: task.agent.trim(),
     prompt: task.prompt.trim(),
@@ -35863,7 +35985,7 @@ ${verification.stdout}`);
 // src/autoflow/persistent.ts
 import { randomUUID as randomUUID3 } from "crypto";
 import * as fs16 from "fs";
-import * as path19 from "path";
+import * as path20 from "path";
 var DEFAULT_CONFIG = {
   enabled: true,
   resumeCooldownMs: 2500,
@@ -35873,7 +35995,7 @@ var DEFAULT_CONFIG = {
 };
 var STOP_INTENT_SOURCE_FALLBACK = "user";
 function storeFile(projectDir) {
-  return path19.join(getMiyaRuntimeDir(projectDir), "autoflow-persistent.json");
+  return path20.join(getMiyaRuntimeDir(projectDir), "autoflow-persistent.json");
 }
 function nowIso9() {
   return new Date().toISOString();
@@ -35928,7 +36050,7 @@ function readStore4(projectDir) {
   }
 }
 function writeStore4(projectDir, store) {
-  fs16.mkdirSync(path19.dirname(storeFile(projectDir)), { recursive: true });
+  fs16.mkdirSync(path20.dirname(storeFile(projectDir)), { recursive: true });
   const normalized = {
     config: normalizeConfig(store.config),
     sessions: Object.fromEntries(Object.entries(store.sessions).map(([sessionID, runtime]) => [
@@ -36178,15 +36300,15 @@ async function handleAutoflowPersistentEvent(input) {
 // src/canvas/state.ts
 import { randomUUID as randomUUID4 } from "crypto";
 import * as fs17 from "fs";
-import * as path20 from "path";
+import * as path21 from "path";
 function nowIso10() {
   return new Date().toISOString();
 }
 function filePath2(projectDir) {
-  return path20.join(getMiyaRuntimeDir(projectDir), "canvas.json");
+  return path21.join(getMiyaRuntimeDir(projectDir), "canvas.json");
 }
 function ensureDir7(file3) {
-  fs17.mkdirSync(path20.dirname(file3), { recursive: true });
+  fs17.mkdirSync(path21.dirname(file3), { recursive: true });
 }
 function defaultState() {
   return {
@@ -36382,7 +36504,7 @@ function buildToolCapabilitySchemas(toolNames) {
 
 // src/channels/pairing-store.ts
 import * as fs19 from "fs";
-import * as path22 from "path";
+import * as path23 from "path";
 
 // src/security/system-keyring.ts
 import { spawnSync as spawnSync3 } from "child_process";
@@ -36393,12 +36515,12 @@ import {
   randomBytes
 } from "crypto";
 import * as fs18 from "fs";
-import * as path21 from "path";
+import * as path22 from "path";
 function keyFile(projectDir) {
-  return path21.join(getMiyaRuntimeDir(projectDir), "security", "master.key");
+  return path22.join(getMiyaRuntimeDir(projectDir), "security", "master.key");
 }
 function ensureDir8(file3) {
-  fs18.mkdirSync(path21.dirname(file3), { recursive: true });
+  fs18.mkdirSync(path22.dirname(file3), { recursive: true });
 }
 function toBase64(text) {
   return Buffer.from(text, "utf-8").toString("base64");
@@ -36575,10 +36697,10 @@ function nowIso11() {
   return new Date().toISOString();
 }
 function filePath3(projectDir) {
-  return path22.join(getMiyaRuntimeDir(projectDir), "channels.json");
+  return path23.join(getMiyaRuntimeDir(projectDir), "channels.json");
 }
 function ensureDir9(file3) {
-  fs19.mkdirSync(path22.dirname(file3), { recursive: true });
+  fs19.mkdirSync(path23.dirname(file3), { recursive: true });
 }
 function defaultChannelState(name) {
   return {
@@ -36780,7 +36902,7 @@ function listContactTiers(projectDir, channel) {
 // src/channels/service.ts
 import { createHash as createHash10, randomUUID as randomUUID9 } from "crypto";
 import * as fs25 from "fs";
-import * as path27 from "path";
+import * as path28 from "path";
 
 // src/channel/outbound/shared.ts
 import { createHash as createHash8, randomUUID as randomUUID7 } from "crypto";
@@ -36790,7 +36912,7 @@ import * as fs21 from "fs";
 import { spawnSync as spawnSync4 } from "child_process";
 import { createHash as createHash7, randomUUID as randomUUID6 } from "crypto";
 import * as fs20 from "fs";
-import * as path23 from "path";
+import * as path24 from "path";
 
 // src/desktop/action-engine.ts
 import { randomUUID as randomUUID5 } from "crypto";
@@ -37480,16 +37602,16 @@ function normalizeDestination(value) {
   return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 function runtimeDir(projectDir) {
-  return path23.join(getMiyaRuntimeDir(projectDir), "channels");
+  return path24.join(getMiyaRuntimeDir(projectDir), "channels");
 }
 function actionMemoryFile(projectDir) {
-  return path23.join(runtimeDir(projectDir), "desktop-action-memory.json");
+  return path24.join(runtimeDir(projectDir), "desktop-action-memory.json");
 }
 function metricsFile(projectDir) {
-  return path23.join(runtimeDir(projectDir), "desktop-automation-metrics.json");
+  return path24.join(runtimeDir(projectDir), "desktop-automation-metrics.json");
 }
 function replaySkillFile(projectDir) {
-  return path23.join(runtimeDir(projectDir), "desktop-replay-skills.json");
+  return path24.join(runtimeDir(projectDir), "desktop-replay-skills.json");
 }
 function readJsonFile(file3, fallback) {
   if (!fs20.existsSync(file3))
@@ -37502,7 +37624,7 @@ function readJsonFile(file3, fallback) {
   }
 }
 function writeJsonFile(file3, value) {
-  fs20.mkdirSync(path23.dirname(file3), { recursive: true });
+  fs20.mkdirSync(path24.dirname(file3), { recursive: true });
   fs20.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
 }
@@ -39263,21 +39385,27 @@ async function sendWechatDesktopMessage(input) {
 import { spawnSync as spawnSync5 } from "child_process";
 import * as fs24 from "fs";
 import * as os5 from "os";
-import * as path26 from "path";
+import * as path27 from "path";
 
 // src/media/store.ts
 import { randomUUID as randomUUID8 } from "crypto";
 import * as fs22 from "fs";
-import * as path24 from "path";
+import * as path25 from "path";
 var DEFAULT_TTL_HOURS = 24;
 function nowIso14() {
   return new Date().toISOString();
 }
 function mediaDir(projectDir) {
-  return path24.join(getMiyaRuntimeDir(projectDir), "media");
+  return path25.join(getMiyaRuntimeDir(projectDir), "media");
 }
 function mediaIndexFile(projectDir) {
-  return path24.join(mediaDir(projectDir), "index.json");
+  return path25.join(mediaDir(projectDir), "index.json");
+}
+function isPathInside(parentDir, targetPath) {
+  const parent = path25.resolve(parentDir);
+  const target = path25.resolve(targetPath);
+  const rel = path25.relative(parent, target);
+  return rel !== "" && !rel.startsWith("..") && !path25.isAbsolute(rel);
 }
 function ensureDir10(dirPath) {
   fs22.mkdirSync(dirPath, { recursive: true });
@@ -39347,8 +39475,8 @@ function ingestMedia(projectDir, input) {
   if (input.contentBase64) {
     const dir = mediaDir(projectDir);
     ensureDir10(dir);
-    const ext = path24.extname(input.fileName) || ".bin";
-    const filePath4 = path24.join(dir, `${id}${ext}`);
+    const ext = path25.extname(input.fileName) || ".bin";
+    const filePath4 = path25.join(dir, `${id}${ext}`);
     fs22.writeFileSync(filePath4, Buffer.from(input.contentBase64, "base64"));
     localPath = filePath4;
   }
@@ -39394,13 +39522,14 @@ function listMediaItems(projectDir, limit = 100) {
 }
 function runMediaGc(projectDir) {
   const store = readStore5(projectDir);
+  const managedDir = mediaDir(projectDir);
   const now = Date.now();
   let removed = 0;
   for (const [id, item] of Object.entries(store.items)) {
     const expired = Date.parse(item.expiresAt) <= now;
     if (!expired)
       continue;
-    if (item.localPath && fs22.existsSync(item.localPath)) {
+    if (item.localPath && isPathInside(managedDir, item.localPath) && fs22.existsSync(item.localPath)) {
       try {
         fs22.unlinkSync(item.localPath);
       } catch {}
@@ -39418,16 +39547,16 @@ function runMediaGc(projectDir) {
 // src/multimodal/ocr-cache.ts
 import { createHash as createHash9 } from "crypto";
 import * as fs23 from "fs";
-import * as path25 from "path";
+import * as path26 from "path";
 var MAX_CACHE_ITEMS = 500;
 function nowIso15() {
   return new Date().toISOString();
 }
 function filePath4(projectDir) {
-  return path25.join(getMiyaRuntimeDir(projectDir), "ocr-cache.json");
+  return path26.join(getMiyaRuntimeDir(projectDir), "ocr-cache.json");
 }
 function ensureDir11(projectDir) {
-  fs23.mkdirSync(path25.dirname(filePath4(projectDir)), { recursive: true });
+  fs23.mkdirSync(path26.dirname(filePath4(projectDir)), { recursive: true });
 }
 function readStore6(projectDir) {
   const file3 = filePath4(projectDir);
@@ -39596,7 +39725,7 @@ function resolveLocalVisionCommand(projectDir) {
       return { ...parsed, shell: false };
     return { command: explicit, args: [], shell: true };
   }
-  const scriptPath = path26.join(projectDir, "miya-src", "python", "infer_qwen3_vl.py");
+  const scriptPath = path27.join(projectDir, "miya-src", "python", "infer_qwen3_vl.py");
   if (!fs24.existsSync(scriptPath))
     return null;
   const backendCmd = String(process.env.MIYA_QWEN3VL_CMD ?? "").trim();
@@ -39983,7 +40112,7 @@ async function analyzeVision(projectDir, input) {
     height: 20,
     text: line.slice(0, 240)
   }));
-  const finalSummary = input.question && input.question.trim() ? `${summary} | question: ${input.question.trim()}` : summary;
+  const finalSummary = input.question?.trim() ? `${summary} | question: ${input.question.trim()}` : summary;
   writeOcrCoordinateCache(projectDir, {
     mediaID: media.id,
     question: input.question,
@@ -40056,11 +40185,11 @@ function parseEnvList(input) {
   return input.split(",").map((value) => value.trim()).filter(Boolean);
 }
 function outboundAuditFile(projectDir) {
-  return path27.join(getMiyaRuntimeDir(projectDir), "channels-outbound.jsonl");
+  return path28.join(getMiyaRuntimeDir(projectDir), "channels-outbound.jsonl");
 }
 function appendOutboundAudit(projectDir, row) {
   const file3 = outboundAuditFile(projectDir);
-  fs25.mkdirSync(path27.dirname(file3), { recursive: true });
+  fs25.mkdirSync(path28.dirname(file3), { recursive: true });
   fs25.appendFileSync(file3, `${JSON.stringify(row)}
 `, "utf-8");
 }
@@ -40070,6 +40199,8 @@ function semanticTagsForOutboundMessage(message) {
   if (message.includes("recipient_text_mismatch"))
     return ["recipient_mismatch"];
   if (message.includes("arch_advisor_denied"))
+    return ["privilege_barrier"];
+  if (message.includes("approval_ticket_"))
     return ["privilege_barrier"];
   if (message.includes("input_mutex_timeout"))
     return ["input_mutex_timeout"];
@@ -40095,13 +40226,19 @@ function parsePositiveIntEnv(name, fallback) {
     return fallback;
   return Math.floor(parsed);
 }
+function normalizePolicyInt(value, fallback, min) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed))
+    return fallback;
+  return Math.max(min, Math.floor(parsed));
+}
 var INPUT_MUTEX_TIMEOUT_MS = parsePositiveIntEnv("MIYA_INPUT_MUTEX_TIMEOUT_MS", 20000);
 var INPUT_MUTEX_STRIKE_LIMIT = 3;
 var INPUT_MUTEX_COOLDOWN_MS = 15 * 60 * 1000;
 var inputMutexOwner = null;
 var inputMutexQueue = [];
 function acquireInputMutex(sessionID, timeoutMs = INPUT_MUTEX_TIMEOUT_MS) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve5, reject) => {
     let released = false;
     const makeLease = () => ({
       release: () => {
@@ -40139,7 +40276,7 @@ function acquireInputMutex(sessionID, timeoutMs = INPUT_MUTEX_TIMEOUT_MS) {
       pending.active = false;
       clearTimeout(timer);
       inputMutexOwner = sessionID;
-      resolve3(makeLease());
+      resolve5(makeLease());
     };
     pending.grant = grant;
     if (!inputMutexOwner) {
@@ -40656,9 +40793,9 @@ class ChannelRuntime {
     const now = Date.now();
     const key = `${channel}:${destination}`;
     const policy = readPolicy(this.projectDir);
-    const windowMs = Math.max(1000, Number(policy.outbound.burstWindowMs || 60000));
-    const minIntervalMs = Math.max(500, Number(policy.outbound.minIntervalMs || 4000));
-    const burstLimit = Math.max(1, Number(policy.outbound.burstLimit || 3));
+    const windowMs = normalizePolicyInt(policy.outbound.burstWindowMs, 60000, 1000);
+    const minIntervalMs = normalizePolicyInt(policy.outbound.minIntervalMs, 4000, 500);
+    const burstLimit = normalizePolicyInt(policy.outbound.burstLimit, 3, 1);
     const list = (this.outboundThrottle.get(key) ?? []).filter((ts) => now - ts <= windowMs);
     if (list.length > 0 && now - list[list.length - 1] < minIntervalMs) {
       this.outboundThrottle.set(key, list);
@@ -40675,7 +40812,7 @@ class ChannelRuntime {
   checkDuplicatePayload(channel, destination, text) {
     const now = Date.now();
     const policy = readPolicy(this.projectDir);
-    const duplicateWindowMs = Math.max(1000, Number(policy.outbound.duplicateWindowMs || 60000));
+    const duplicateWindowMs = normalizePolicyInt(policy.outbound.duplicateWindowMs, 60000, 1000);
     const key = `${channel}:${destination}`;
     const payloadHash = createHash10("sha256").update(text).digest("hex").slice(0, 24);
     const recent = (this.outboundPayloadHistory.get(key) ?? []).filter((item) => now - item.at <= duplicateWindowMs);
@@ -40719,6 +40856,41 @@ class ChannelRuntime {
     }
     this.sendFingerprintHistory.set(sendFingerprint, now);
     return null;
+  }
+  validateApprovalTickets(channel, tickets) {
+    if (!this.isDesktopChannel(channel)) {
+      return {
+        summary: {
+          outboundSendTraceId: "",
+          desktopControlTraceId: "",
+          expiresAt: ""
+        }
+      };
+    }
+    if (!tickets) {
+      return { issue: "approval_ticket_missing" };
+    }
+    const outboundTrace = tickets.outboundSend.traceID.trim();
+    const desktopTrace = tickets.desktopControl.traceID.trim();
+    if (!outboundTrace || !desktopTrace) {
+      return { issue: "approval_ticket_trace_missing" };
+    }
+    const outboundExpiry = Date.parse(tickets.outboundSend.expiresAt);
+    const desktopExpiry = Date.parse(tickets.desktopControl.expiresAt);
+    if (!Number.isFinite(outboundExpiry) || !Number.isFinite(desktopExpiry)) {
+      return { issue: "approval_ticket_expiry_invalid" };
+    }
+    const minExpiry = Math.min(outboundExpiry, desktopExpiry);
+    if (minExpiry <= Date.now()) {
+      return { issue: "approval_ticket_expired" };
+    }
+    return {
+      summary: {
+        outboundSendTraceId: outboundTrace,
+        desktopControlTraceId: desktopTrace,
+        expiresAt: new Date(minExpiry).toISOString()
+      }
+    };
   }
   normalizeDesktopRuntimeError(error92) {
     const raw = error92 instanceof Error ? error92.message : typeof error92 === "string" ? error92 : "unknown";
@@ -40778,11 +40950,24 @@ class ChannelRuntime {
     const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
     const policyHash = input.outboundCheck?.policyHash;
     const sessionID = (input.sessionID ?? "main").trim() || "main";
-    const ticketSummary = input.approvalTickets && input.approvalTickets.outboundSend && input.approvalTickets.desktopControl ? {
-      outboundSendTraceId: input.approvalTickets.outboundSend.traceID,
-      desktopControlTraceId: input.approvalTickets.desktopControl.traceID,
-      expiresAt: Date.parse(input.approvalTickets.outboundSend.expiresAt) < Date.parse(input.approvalTickets.desktopControl.expiresAt) ? input.approvalTickets.outboundSend.expiresAt : input.approvalTickets.desktopControl.expiresAt
-    } : undefined;
+    const approvalTicketValidation = this.validateApprovalTickets(input.channel, input.approvalTickets);
+    const ticketSummary = "summary" in approvalTicketValidation ? approvalTicketValidation.summary.outboundSendTraceId ? approvalTicketValidation.summary : undefined : undefined;
+    const allowedOutboundChannels = readPolicy(this.projectDir).outbound.allowedChannels;
+    if (input.channel === "qq" || input.channel === "wechat") {
+      const outboundChannel = input.channel;
+      if (!allowedOutboundChannels.includes(outboundChannel)) {
+        const audit = this.recordOutboundAttempt({
+          channel: outboundChannel,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
+          message: `outbound_blocked:channel_not_allowed_by_policy:${outboundChannel}`,
+          reason: "channel_blocked",
+          payloadHash
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+    }
     if (!archAdvisorApproved) {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
@@ -40791,6 +40976,23 @@ class ChannelRuntime {
         sent: false,
         message: "outbound_blocked:arch_advisor_denied",
         reason: "arch_advisor_denied",
+        archAdvisorApproved,
+        riskLevel,
+        intent,
+        containsSensitive,
+        policyHash,
+        payloadHash
+      });
+      return { sent: false, message: audit.message, auditID: audit.id };
+    }
+    if ("issue" in approvalTicketValidation) {
+      const audit = this.recordOutboundAttempt({
+        channel: input.channel,
+        destination: input.destination,
+        textPreview: text.slice(0, 200),
+        sent: false,
+        message: `outbound_blocked:${approvalTicketValidation.issue}`,
+        reason: "approval_ticket_invalid",
         archAdvisorApproved,
         riskLevel,
         intent,
@@ -41210,12 +41412,15 @@ class ChannelRuntime {
 }
 // src/gateway/mode-observability.ts
 import * as fs26 from "fs";
-import * as path28 from "path";
+import * as path29 from "path";
+function isObject4(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 function nowIso16() {
   return new Date().toISOString();
 }
 function storePath2(projectDir) {
-  return path28.join(getMiyaRuntimeDir(projectDir), "mode-observability.json");
+  return path29.join(getMiyaRuntimeDir(projectDir), "mode-observability.json");
 }
 function defaultStore3() {
   return {
@@ -41233,29 +41438,58 @@ function defaultStore3() {
     updatedAt: nowIso16()
   };
 }
+function toSafeCount(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed))
+    return 0;
+  return Math.max(0, Math.trunc(parsed));
+}
+function normalizeMode2(value) {
+  const text = String(value ?? "").trim();
+  if (text === "work" || text === "chat" || text === "mixed") {
+    return text;
+  }
+  return;
+}
+function normalizeStore(raw) {
+  const base = defaultStore3();
+  const totals = isObject4(raw?.totals) ? raw?.totals : {};
+  const updatedAtText = String(raw?.updatedAt ?? "").trim();
+  const updatedAt = updatedAtText && !Number.isNaN(Date.parse(updatedAtText)) ? updatedAtText : nowIso16();
+  const lastTurnID = String(raw?.lastTurnID ?? "").trim() || undefined;
+  return {
+    ...base,
+    version: 1,
+    totals: {
+      turns: toSafeCount(totals.turns),
+      modeSwitches: toSafeCount(totals.modeSwitches),
+      misclassificationRollbacks: toSafeCount(totals.misclassificationRollbacks),
+      autonomousAttempts: toSafeCount(totals.autonomousAttempts),
+      autonomousCompletions: toSafeCount(totals.autonomousCompletions),
+      negativeFeedbackTurns: toSafeCount(totals.negativeFeedbackTurns)
+    },
+    lastMode: normalizeMode2(raw?.lastMode),
+    lastTurnID,
+    updatedAt
+  };
+}
 function readStore7(projectDir) {
   const file3 = storePath2(projectDir);
   if (!fs26.existsSync(file3))
     return defaultStore3();
   try {
     const parsed = JSON.parse(fs26.readFileSync(file3, "utf-8"));
-    return {
-      ...defaultStore3(),
-      ...parsed,
-      totals: {
-        ...defaultStore3().totals,
-        ...parsed.totals ?? {}
-      }
-    };
+    return normalizeStore(parsed);
   } catch {
     return defaultStore3();
   }
 }
 function writeStore7(projectDir, store) {
-  fs26.mkdirSync(path28.dirname(storePath2(projectDir)), { recursive: true });
-  fs26.writeFileSync(storePath2(projectDir), `${JSON.stringify(store, null, 2)}
+  const normalized = normalizeStore(store);
+  fs26.mkdirSync(path29.dirname(storePath2(projectDir)), { recursive: true });
+  fs26.writeFileSync(storePath2(projectDir), `${JSON.stringify(normalized, null, 2)}
 `, "utf-8");
-  return store;
+  return normalized;
 }
 function safeRate(numerator, denominator) {
   if (denominator <= 0)
@@ -41313,12 +41547,12 @@ function detectNegativeFeedbackText(text) {
 // src/learning/skill-drafts.ts
 import { createHash as createHash11, randomUUID as randomUUID10 } from "crypto";
 import * as fs27 from "fs";
-import * as path29 from "path";
+import * as path30 from "path";
 function nowIso17() {
   return new Date().toISOString();
 }
 function filePath5(projectDir) {
-  return path29.join(getMiyaRuntimeDir(projectDir), "learning-skill-drafts.json");
+  return path30.join(getMiyaRuntimeDir(projectDir), "learning-skill-drafts.json");
 }
 function normalizeText(text) {
   return String(text ?? "").replace(/\s+/g, " ").trim();
@@ -41543,12 +41777,12 @@ function createSkillDraftsFromReflect(projectDir, input) {
 // src/companion/memory-vector.ts
 import { randomUUID as randomUUID11 } from "crypto";
 import * as fs30 from "fs";
-import * as path32 from "path";
+import * as path33 from "path";
 
 // src/companion/memory-embedding.ts
 import { createHash as createHash12 } from "crypto";
 import * as fs28 from "fs";
-import * as path30 from "path";
+import * as path31 from "path";
 var DEFAULT_CONFIG2 = {
   kind: "local-hash",
   dims: 64,
@@ -41573,10 +41807,10 @@ var PROVIDERS = [
   }
 ];
 function configPath(projectDir) {
-  return path30.join(getMiyaRuntimeDir(projectDir), "memory", "embedding-provider.json");
+  return path31.join(getMiyaRuntimeDir(projectDir), "memory", "embedding-provider.json");
 }
 function ensureDir13(projectDir) {
-  fs28.mkdirSync(path30.dirname(configPath(projectDir)), { recursive: true });
+  fs28.mkdirSync(path31.dirname(configPath(projectDir)), { recursive: true });
 }
 function normalizeText2(text) {
   return String(text ?? "").trim().replace(/\s+/g, " ");
@@ -41789,7 +42023,7 @@ function embedTextWithProvider(projectDir, text) {
 
 // src/companion/memory-sqlite.ts
 import * as fs29 from "fs";
-import * as path31 from "path";
+import * as path32 from "path";
 
 // src/companion/sqlite-runtime.ts
 import { createRequire } from "module";
@@ -41892,10 +42126,10 @@ function openSqliteDatabase(file3) {
 
 // src/companion/memory-sqlite.ts
 function memoryDir(projectDir) {
-  return path31.join(getMiyaRuntimeDir(projectDir), "memory");
+  return path32.join(getMiyaRuntimeDir(projectDir), "memory");
 }
 function sqlitePath(projectDir) {
-  return path31.join(memoryDir(projectDir), "memories.sqlite");
+  return path32.join(memoryDir(projectDir), "memories.sqlite");
 }
 function openDatabase(projectDir) {
   fs29.mkdirSync(memoryDir(projectDir), { recursive: true });
@@ -42092,13 +42326,13 @@ function nowIso18() {
   return new Date().toISOString();
 }
 function filePath6(projectDir) {
-  return path32.join(getMiyaRuntimeDir(projectDir), "companion-memory-vectors.json");
+  return path33.join(getMiyaRuntimeDir(projectDir), "companion-memory-vectors.json");
 }
 function correctionFilePath(projectDir) {
-  return path32.join(getMiyaRuntimeDir(projectDir), "companion-memory-corrections.json");
+  return path33.join(getMiyaRuntimeDir(projectDir), "companion-memory-corrections.json");
 }
 function ensureDir14(projectDir) {
-  fs30.mkdirSync(path32.dirname(filePath6(projectDir)), { recursive: true });
+  fs30.mkdirSync(path33.dirname(filePath6(projectDir)), { recursive: true });
 }
 function normalizeText3(text) {
   return text.trim().replace(/\s+/g, " ");
@@ -42203,9 +42437,25 @@ function readStore9(projectDir) {
         const status = item.status === "active" || item.status === "pending" || item.status === "superseded" ? item.status : "active";
         const memoryKind = item.memoryKind === "Fact" || item.memoryKind === "Insight" || item.memoryKind === "UserPreference" ? item.memoryKind : undefined;
         const sourceType = item.sourceType === "manual" || item.sourceType === "conversation" || item.sourceType === "reflect" || item.sourceType === "direct_correction" ? item.sourceType : "manual";
-        const text = typeof item.text === "string" ? item.text : "";
+        const text = normalizeText3(typeof item.text === "string" ? item.text : "");
+        const embedding = Array.isArray(item.embedding) ? item.embedding.map((entry2) => {
+          if (typeof entry2 === "number" && Number.isFinite(entry2)) {
+            return entry2;
+          }
+          if (typeof entry2 === "string") {
+            const parsed2 = Number(entry2);
+            return Number.isFinite(parsed2) ? parsed2 : Number.NaN;
+          }
+          return Number.NaN;
+        }).filter((entry2) => Number.isFinite(entry2)).slice(0, 4096) : [];
+        const now = nowIso18();
         return {
           ...item,
+          id: typeof item.id === "string" && item.id.trim().length > 0 ? item.id : `mem_${randomUUID11()}`,
+          text,
+          source: typeof item.source === "string" && item.source.trim() ? item.source : "manual",
+          embedding,
+          score: typeof item.score === "number" && Number.isFinite(item.score) ? Math.max(0, Math.min(2, item.score)) : 1,
           confidence: typeof item.confidence === "number" && Number.isFinite(item.confidence) ? Math.max(0, Math.min(1, item.confidence)) : 0.7,
           tier: item.tier === "L1" || item.tier === "L2" || item.tier === "L3" ? item.tier : "L2",
           sourceMessageID: typeof item.sourceMessageID === "string" && item.sourceMessageID.trim() ? item.sourceMessageID : undefined,
@@ -42225,7 +42475,10 @@ function readStore9(projectDir) {
           status,
           accessCount: typeof item.accessCount === "number" && Number.isFinite(item.accessCount) ? Math.max(0, Math.floor(item.accessCount)) : 0,
           embeddingProvider: typeof item.embeddingProvider === "string" && item.embeddingProvider.trim() ? item.embeddingProvider : "local-hash",
-          isArchived: typeof item.isArchived === "boolean" ? item.isArchived : false
+          isArchived: typeof item.isArchived === "boolean" ? item.isArchived : false,
+          createdAt: typeof item.createdAt === "string" && item.createdAt.trim() ? item.createdAt : now,
+          updatedAt: typeof item.updatedAt === "string" && item.updatedAt.trim() ? item.updatedAt : now,
+          lastAccessedAt: typeof item.lastAccessedAt === "string" && item.lastAccessedAt.trim() ? item.lastAccessedAt : typeof item.updatedAt === "string" && item.updatedAt.trim() ? item.updatedAt : now
         };
       }) : []
     };
@@ -42956,12 +43209,12 @@ function readCompanionLearningMetrics(projectDir, input) {
 
 // src/companion/memory-graph.ts
 import * as fs31 from "fs";
-import * as path33 from "path";
+import * as path34 from "path";
 function memoryDir2(projectDir) {
-  return path33.join(getMiyaRuntimeDir(projectDir), "memory");
+  return path34.join(getMiyaRuntimeDir(projectDir), "memory");
 }
 function sqlitePath2(projectDir) {
-  return path33.join(memoryDir2(projectDir), "memories.sqlite");
+  return path34.join(memoryDir2(projectDir), "memories.sqlite");
 }
 function openGraphDb(projectDir) {
   fs31.mkdirSync(memoryDir2(projectDir), { recursive: true });
@@ -43148,9 +43401,9 @@ function getCompanionMemoryGraphStats(projectDir) {
 // src/companion/memory-recall-benchmark.ts
 import * as fs32 from "fs";
 import * as os6 from "os";
-import * as path34 from "path";
+import * as path35 from "path";
 var __dirname = "G:\\pythonG\\py\\yun\\.opencode\\miya-src\\src\\companion";
-var DEFAULT_DATASET_PATH = path34.join(__dirname, "benchmarks", "recall-default.json");
+var DEFAULT_DATASET_PATH = path35.join(__dirname, "benchmarks", "recall-default.json");
 function normalizeDataset(raw) {
   return {
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "memory-recall-default",
@@ -43171,7 +43424,7 @@ function normalizeDataset(raw) {
   };
 }
 function loadMemoryRecallDataset(datasetPath) {
-  const file3 = datasetPath && datasetPath.trim() ? datasetPath : DEFAULT_DATASET_PATH;
+  const file3 = datasetPath?.trim() ? datasetPath : DEFAULT_DATASET_PATH;
   if (!fs32.existsSync(file3)) {
     throw new Error(`dataset_not_found:${file3}`);
   }
@@ -43189,7 +43442,7 @@ function isCaseHit(expected, retrieved) {
 }
 function runMemoryRecallBenchmark(input) {
   const dataset = input?.dataset ?? loadMemoryRecallDataset(input?.datasetPath);
-  const workdir = fs32.mkdtempSync(path34.join(os6.tmpdir(), "miya-memory-benchmark-"));
+  const workdir = fs32.mkdtempSync(path35.join(os6.tmpdir(), "miya-memory-benchmark-"));
   const fixtureIDMap = new Map;
   for (const fixture of dataset.fixtures) {
     const created = upsertCompanionMemoryVector(workdir, {
@@ -43249,24 +43502,24 @@ function runMemoryRecallBenchmark(input) {
 // src/companion/memory-reflect.ts
 import { createHash as createHash13, randomUUID as randomUUID12 } from "crypto";
 import * as fs33 from "fs";
-import * as path35 from "path";
+import * as path36 from "path";
 function nowIso20() {
   return new Date().toISOString();
 }
 function memoryDir3(projectDir) {
-  return path35.join(getMiyaRuntimeDir(projectDir), "memory");
+  return path36.join(getMiyaRuntimeDir(projectDir), "memory");
 }
 function shortTermLogPath(projectDir) {
-  return path35.join(memoryDir3(projectDir), "short-term-history.jsonl");
+  return path36.join(memoryDir3(projectDir), "short-term-history.jsonl");
 }
 function archiveLogPath(projectDir) {
-  return path35.join(memoryDir3(projectDir), "archived-history.jsonl");
+  return path36.join(memoryDir3(projectDir), "archived-history.jsonl");
 }
 function reflectJobPath(projectDir) {
-  return path35.join(memoryDir3(projectDir), "reflect-jobs.jsonl");
+  return path36.join(memoryDir3(projectDir), "reflect-jobs.jsonl");
 }
 function reflectStatePath(projectDir) {
-  return path35.join(memoryDir3(projectDir), "reflect-state.json");
+  return path36.join(memoryDir3(projectDir), "reflect-state.json");
 }
 function ensureDir15(projectDir) {
   fs33.mkdirSync(memoryDir3(projectDir), { recursive: true });
@@ -43520,12 +43773,12 @@ function reflectCompanionMemory(projectDir, input) {
 // src/companion/memory-reflect-worker.ts
 import { randomUUID as randomUUID13 } from "crypto";
 import * as fs35 from "fs";
-import * as path37 from "path";
+import * as path38 from "path";
 
 // src/strategy/experiments.ts
 import { createHash as createHash14 } from "crypto";
 import * as fs34 from "fs";
-import * as path36 from "path";
+import * as path37 from "path";
 var DEFAULT_CONFIG3 = {
   routing: {
     enabled: false,
@@ -43541,10 +43794,10 @@ var DEFAULT_CONFIG3 = {
   }
 };
 function configFile(projectDir) {
-  return path36.join(getMiyaRuntimeDir(projectDir), "strategy-experiments.json");
+  return path37.join(getMiyaRuntimeDir(projectDir), "strategy-experiments.json");
 }
 function observationFile(projectDir) {
-  return path36.join(getMiyaRuntimeDir(projectDir), "strategy-observations.jsonl");
+  return path37.join(getMiyaRuntimeDir(projectDir), "strategy-observations.jsonl");
 }
 function clamp4(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -43585,7 +43838,7 @@ function writeStrategyExperimentConfig(projectDir, patch) {
     approval_threshold: patch.approval_threshold !== undefined ? normalizeRule(patch.approval_threshold, current.approval_threshold) : current.approval_threshold
   };
   const file3 = configFile(projectDir);
-  fs34.mkdirSync(path36.dirname(file3), { recursive: true });
+  fs34.mkdirSync(path37.dirname(file3), { recursive: true });
   fs34.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
@@ -43603,7 +43856,7 @@ function resolveStrategyVariant(projectDir, experiment, subjectID) {
 }
 function recordStrategyObservation(projectDir, input) {
   const file3 = observationFile(projectDir);
-  fs34.mkdirSync(path36.dirname(file3), { recursive: true });
+  fs34.mkdirSync(path37.dirname(file3), { recursive: true });
   const row = {
     at: input.at ?? nowIso21(),
     experiment: input.experiment,
@@ -43681,7 +43934,7 @@ function nowIso22() {
   return new Date().toISOString();
 }
 function queueFile(projectDir) {
-  return path37.join(getMiyaRuntimeDir(projectDir), "memory", "reflect-queue.json");
+  return path38.join(getMiyaRuntimeDir(projectDir), "memory", "reflect-queue.json");
 }
 function readStore10(projectDir) {
   const file3 = queueFile(projectDir);
@@ -43699,7 +43952,7 @@ function readStore10(projectDir) {
 }
 function writeStore10(projectDir, store) {
   const file3 = queueFile(projectDir);
-  fs35.mkdirSync(path37.dirname(file3), { recursive: true });
+  fs35.mkdirSync(path38.dirname(file3), { recursive: true });
   const next = {
     version: 1,
     jobs: store.jobs.slice(0, 200)
@@ -43848,12 +44101,12 @@ function runReflectWorkerTick(projectDir, input) {
 // src/companion/persona-world.ts
 import { randomUUID as randomUUID14 } from "crypto";
 import * as fs36 from "fs";
-import * as path38 from "path";
+import * as path39 from "path";
 function nowIso23() {
   return new Date().toISOString();
 }
 function filePath7(projectDir) {
-  return path38.join(getMiyaRuntimeDir(projectDir), "companion-persona-world.json");
+  return path39.join(getMiyaRuntimeDir(projectDir), "companion-persona-world.json");
 }
 function defaultStore4() {
   const now = nowIso23();
@@ -43905,7 +44158,7 @@ function readStore11(projectDir) {
 }
 function writeStore11(projectDir, store) {
   const file3 = filePath7(projectDir);
-  fs36.mkdirSync(path38.dirname(file3), { recursive: true });
+  fs36.mkdirSync(path39.dirname(file3), { recursive: true });
   fs36.writeFileSync(file3, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
   return store;
@@ -44026,15 +44279,15 @@ ${resolved.world.rules.map((item) => `- ${item}`).join(`
 // src/companion/store.ts
 import { randomUUID as randomUUID15 } from "crypto";
 import * as fs37 from "fs";
-import * as path39 from "path";
+import * as path40 from "path";
 function nowIso24() {
   return new Date().toISOString();
 }
 function filePath8(projectDir) {
-  return path39.join(getMiyaRuntimeDir(projectDir), "companion.json");
+  return path40.join(getMiyaRuntimeDir(projectDir), "companion.json");
 }
 function ensureDir16(file3) {
-  fs37.mkdirSync(path39.dirname(file3), { recursive: true });
+  fs37.mkdirSync(path40.dirname(file3), { recursive: true });
 }
 function defaultProfile() {
   return {
@@ -44113,7 +44366,7 @@ function syncCompanionProfileMemoryFacts(projectDir) {
 // src/companion/wizard.ts
 import { createHash as createHash15, randomUUID as randomUUID16 } from "crypto";
 import * as fs38 from "fs";
-import * as path40 from "path";
+import * as path41 from "path";
 function nowIso25() {
   return new Date().toISOString();
 }
@@ -44122,27 +44375,27 @@ function normalizeSessionId(sessionId) {
   return normalized || "main";
 }
 function profilesRoot(projectDir) {
-  return path40.join(getMiyaRuntimeDir(projectDir), "profiles", "companion");
+  return path41.join(getMiyaRuntimeDir(projectDir), "profiles", "companion");
 }
 function sessionRoot(projectDir, sessionId) {
-  return path40.join(profilesRoot(projectDir), "sessions", normalizeSessionId(sessionId));
+  return path41.join(profilesRoot(projectDir), "sessions", normalizeSessionId(sessionId));
 }
 function currentProfileDir(projectDir, sessionId) {
-  return path40.join(sessionRoot(projectDir, sessionId), "current");
+  return path41.join(sessionRoot(projectDir, sessionId), "current");
 }
 function wizardFilePath(projectDir, sessionId) {
-  return path40.join(currentProfileDir(projectDir, sessionId), "wizard-state.json");
+  return path41.join(currentProfileDir(projectDir, sessionId), "wizard-state.json");
 }
 function metadataPath(projectDir, sessionId) {
-  return path40.join(currentProfileDir(projectDir, sessionId), "metadata.json");
+  return path41.join(currentProfileDir(projectDir, sessionId), "metadata.json");
 }
 function ensureProfileLayout(projectDir, sessionId) {
   const current = currentProfileDir(projectDir, sessionId);
-  fs38.mkdirSync(path40.join(current, "photos"), { recursive: true });
-  fs38.mkdirSync(path40.join(current, "embeddings"), { recursive: true });
-  fs38.mkdirSync(path40.join(current, "lora"), { recursive: true });
-  fs38.mkdirSync(path40.join(current, "voice"), { recursive: true });
-  fs38.mkdirSync(path40.join(sessionRoot(projectDir, sessionId), "history"), {
+  fs38.mkdirSync(path41.join(current, "photos"), { recursive: true });
+  fs38.mkdirSync(path41.join(current, "embeddings"), { recursive: true });
+  fs38.mkdirSync(path41.join(current, "lora"), { recursive: true });
+  fs38.mkdirSync(path41.join(current, "voice"), { recursive: true });
+  fs38.mkdirSync(path41.join(sessionRoot(projectDir, sessionId), "history"), {
     recursive: true
   });
 }
@@ -44156,7 +44409,7 @@ function safeReadJson(filePath9) {
   }
 }
 function safeWriteJson(filePath9, value) {
-  fs38.mkdirSync(path40.dirname(filePath9), { recursive: true });
+  fs38.mkdirSync(path41.dirname(filePath9), { recursive: true });
   fs38.writeFileSync(filePath9, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
 }
@@ -44257,13 +44510,13 @@ function moveCurrentToHistory(projectDir, sessionId) {
   const current = currentProfileDir(projectDir, sessionId);
   if (!fs38.existsSync(current))
     return;
-  const historyDir = path40.join(sessionRoot(projectDir, sessionId), "history", new Date().toISOString().replace(/[:.]/g, "-"));
-  fs38.mkdirSync(path40.dirname(historyDir), { recursive: true });
+  const historyDir = path41.join(sessionRoot(projectDir, sessionId), "history", new Date().toISOString().replace(/[:.]/g, "-"));
+  fs38.mkdirSync(path41.dirname(historyDir), { recursive: true });
   fs38.cpSync(current, historyDir, { recursive: true });
   fs38.rmSync(current, { recursive: true, force: true });
 }
 function listSessionDirs(projectDir) {
-  const root = path40.join(profilesRoot(projectDir), "sessions");
+  const root = path41.join(profilesRoot(projectDir), "sessions");
   if (!fs38.existsSync(root))
     return [];
   try {
@@ -44273,7 +44526,7 @@ function listSessionDirs(projectDir) {
   }
 }
 function sessionHasWizardFile(projectDir, sessionDirName) {
-  const file3 = path40.join(profilesRoot(projectDir), "sessions", sessionDirName, "current", "wizard-state.json");
+  const file3 = path41.join(profilesRoot(projectDir), "sessions", sessionDirName, "current", "wizard-state.json");
   return fs38.existsSync(file3);
 }
 function stateHasAssets(state) {
@@ -44288,7 +44541,7 @@ function findSessionByJobId(projectDir, jobID) {
   return null;
 }
 function resolveSessionForWrite(projectDir, requestedSessionId) {
-  if (requestedSessionId && requestedSessionId.trim()) {
+  if (requestedSessionId?.trim()) {
     return normalizeSessionId(requestedSessionId);
   }
   const sessions = listCompanionWizardSessions(projectDir);
@@ -44361,9 +44614,9 @@ function copyMediaToProfile(projectDir, mediaIDs, targetDir) {
     if (!item?.localPath || !fs38.existsSync(item.localPath)) {
       throw new Error(`media_asset_not_found:${mediaID}`);
     }
-    const ext = path40.extname(item.fileName) || extensionForMime(item.mimeType);
+    const ext = path41.extname(item.fileName) || extensionForMime(item.mimeType);
     const fileName = `${String(output.length + 1).padStart(2, "0")}_original${ext}`;
-    const filePath9 = path40.join(targetDir, fileName);
+    const filePath9 = path41.join(targetDir, fileName);
     fs38.copyFileSync(item.localPath, filePath9);
     output.push(filePath9);
   }
@@ -44400,7 +44653,7 @@ function submitWizardPhotos(projectDir, input) {
   if (input.mediaIDs.length < 1 || input.mediaIDs.length > 5) {
     throw new Error("wizard_photo_count_invalid:must_be_1_to_5");
   }
-  const photosDir = path40.join(currentProfileDir(projectDir, sessionId), "photos");
+  const photosDir = path41.join(currentProfileDir(projectDir, sessionId), "photos");
   fs38.rmSync(photosDir, { recursive: true, force: true });
   const copied = copyMediaToProfile(projectDir, input.mediaIDs, photosDir);
   if (copied.length < 1 || copied.length > 5 || copied.length !== input.mediaIDs.length) {
@@ -44426,7 +44679,7 @@ function submitWizardPhotos(projectDir, input) {
       ...metadata.assets,
       photos: {
         count: copied.length,
-        paths: copied.map((item) => path40.relative(currentProfileDir(projectDir, sessionId), item)),
+        paths: copied.map((item) => path41.relative(currentProfileDir(projectDir, sessionId), item)),
         checksums: copied.map((item) => checksumFile(item))
       }
     },
@@ -44446,12 +44699,12 @@ function submitWizardVoice(projectDir, input) {
   if (current.state !== "awaiting_voice") {
     throw new Error(`wizard_state_invalid:${current.state}`);
   }
-  const voiceDir = path40.join(currentProfileDir(projectDir, sessionId), "voice");
+  const voiceDir = path41.join(currentProfileDir(projectDir, sessionId), "voice");
   fs38.mkdirSync(voiceDir, { recursive: true });
   const copied = copyMediaToProfile(projectDir, [input.mediaID], voiceDir);
   if (copied.length !== 1)
     throw new Error("voice_asset_not_found");
-  const voicePath = path40.join(voiceDir, "original_sample.wav");
+  const voicePath = path41.join(voiceDir, "original_sample.wav");
   fs38.copyFileSync(copied[0], voicePath);
   const withJob = enqueueJob({
     ...current,
@@ -44496,7 +44749,7 @@ function submitWizardPersonality(projectDir, input) {
   const text = input.personalityText.trim();
   if (!text)
     throw new Error("invalid_personality_text");
-  const personaPath = path40.join(currentProfileDir(projectDir, sessionId), "persona.json");
+  const personaPath = path41.join(currentProfileDir(projectDir, sessionId), "persona.json");
   const persona = {
     sourceText: text,
     generatedPrompt: `system: ${text}`,
@@ -44756,8 +45009,8 @@ var ECOSYSTEM_BRIDGE_ENTRIES = [
       platforms: ["windows", "linux", "macos"]
     },
     permissionMetadata: {
-      sideEffects: ["voice_output", "media_generation"],
-      requiredDomains: ["memory_write"]
+      sideEffects: ["voice_output", "media_generate"],
+      requiredDomains: ["media_generate"]
     },
     rollbackPlan: DEFAULT_ROLLBACK,
     auditFields: AUDIT_FIELDS,
@@ -45154,16 +45407,267 @@ function trimOldBuckets(store) {
 }
 // src/daemon/psyche/consult.ts
 import { randomUUID as randomUUID17 } from "crypto";
-import * as fs46 from "fs";
-import * as path44 from "path";
+import * as fs48 from "fs";
+import * as path45 from "path";
+
+// src/daemon/psyche/proactivity/context-vector.ts
+function clamp01(value) {
+  if (!Number.isFinite(value))
+    return 0;
+  return Math.max(0, Math.min(1, Number(value.toFixed(4))));
+}
+function z01(value, min, max) {
+  if (!Number.isFinite(value))
+    return 0;
+  if (max <= min)
+    return 0;
+  return clamp01((value - min) / (max - min));
+}
+function stateOneHot(state) {
+  return {
+    state_focus: state === "FOCUS" ? 1 : 0,
+    state_consume: state === "CONSUME" ? 1 : 0,
+    state_play: state === "PLAY" ? 1 : 0,
+    state_away: state === "AWAY" ? 1 : 0,
+    state_unknown: state === "UNKNOWN" ? 1 : 0
+  };
+}
+function urgencyOneHot(urgency) {
+  return {
+    urgency_low: urgency === "low" ? 1 : 0,
+    urgency_medium: urgency === "medium" ? 1 : 0,
+    urgency_high: urgency === "high" ? 1 : 0,
+    urgency_critical: urgency === "critical" ? 1 : 0
+  };
+}
+function trustTierOneHot(tier) {
+  return {
+    trust_tier_high: tier === "high" ? 1 : 0,
+    trust_tier_medium: tier === "medium" ? 1 : 0,
+    trust_tier_low: tier === "low" ? 1 : 0
+  };
+}
+function cyclicalTimeFeatures(atMs) {
+  const date9 = new Date(atMs);
+  const hour = date9.getUTCHours();
+  const day = date9.getUTCDay();
+  const hourRad = 2 * Math.PI * hour / 24;
+  const dayRad = 2 * Math.PI * day / 7;
+  return {
+    hour_sin: Number(Math.sin(hourRad).toFixed(4)),
+    hour_cos: Number(Math.cos(hourRad).toFixed(4)),
+    day_sin: Number(Math.sin(dayRad).toFixed(4)),
+    day_cos: Number(Math.cos(dayRad).toFixed(4))
+  };
+}
+function buildProactivityContextVector(input) {
+  const signals = input.signals ?? {};
+  const map3 = {
+    ...stateOneHot(input.state),
+    ...urgencyOneHot(input.urgency),
+    ...trustTierOneHot(input.trustTier),
+    ...cyclicalTimeFeatures(input.atMs),
+    user_initiated: input.userInitiated ? 1 : 0,
+    fast_brain_score: clamp01(input.fastBrainScore),
+    resonance_score: clamp01(input.resonanceScore),
+    trust_min_score: clamp01(z01(input.trustMinScore, 0, 100)),
+    risk_false_idle: input.risk.falseIdleUncertain ? 1 : 0,
+    risk_drm_capture: input.risk.drmCaptureBlocked ? 1 : 0,
+    risk_probe_limited: input.risk.probeRateLimited ? 1 : 0,
+    risk_probe_requested: input.risk.probeRequested ? 1 : 0,
+    idle_norm: z01(Number(signals.idleSec ?? 0), 0, 900),
+    apm_norm: z01(Number(signals.apm ?? 0), 0, 240),
+    switch_norm: z01(Number(signals.windowSwitchPerMin ?? 0), 0, 40),
+    audio_active: signals.audioActive || signals.audioSessionActive ? 1 : 0,
+    fullscreen: signals.fullscreen ? 1 : 0,
+    gamepad_active: signals.gamepadActive || signals.xinputActive ? 1 : 0,
+    raw_input_active: signals.rawInputActive ? 1 : 0,
+    reply_rate_24h: clamp01(input.interaction.window24h.replyRate),
+    user_initiated_rate_24h: clamp01(input.interaction.window24h.userInitiatedRate),
+    negative_feedback_rate_24h: clamp01(input.interaction.window24h.negativeFeedbackRate),
+    proactive_allow_1h_norm: z01(input.interaction.window1h.proactiveAllows, 0, 20),
+    proactive_defer_1h_norm: z01(input.interaction.window1h.proactiveDefers, 0, 20),
+    proactive_allow_24h_norm: z01(input.interaction.window24h.proactiveAllows, 0, 120),
+    proactive_defer_24h_norm: z01(input.interaction.window24h.proactiveDefers, 0, 120),
+    delivered_24h_norm: z01(input.interaction.window24h.delivered, 0, 80),
+    outcomes_24h_norm: z01(input.interaction.window24h.outcomes, 0, 120),
+    median_reply_norm: z01(Number(input.interaction.window24h.medianReplySec ?? 0), 0, 1800)
+  };
+  const keys = Object.keys(map3).sort();
+  const vector = keys.map((key) => map3[key] ?? 0);
+  return {
+    vector,
+    featureMap: map3
+  };
+}
+
+// src/daemon/psyche/proactivity/interaction-stats.ts
+import * as fs40 from "fs";
+var MAX_EVENTS = 8000;
+var MAX_RETENTION_MS = 30 * 24 * 3600 * 1000;
+function nowIso27() {
+  return new Date().toISOString();
+}
+function clampRate2(value) {
+  if (!Number.isFinite(value))
+    return 0;
+  return Math.max(0, Math.min(1, Number(value.toFixed(4))));
+}
+function toSafeAtMs(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0)
+    return fallback;
+  return Math.floor(parsed);
+}
+function normalizeEvent(raw, fallbackAtMs) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return null;
+  const row = raw;
+  const type = row.type === "consult" || row.type === "outcome" ? row.type : null;
+  if (!type)
+    return null;
+  const atMs = toSafeAtMs(row.atMs, fallbackAtMs);
+  return {
+    atMs,
+    type,
+    channel: typeof row.channel === "string" ? row.channel : undefined,
+    userInitiated: typeof row.userInitiated === "boolean" ? row.userInitiated : undefined,
+    decision: row.decision === "allow" || row.decision === "defer" || row.decision === "deny" ? row.decision : undefined,
+    delivered: typeof row.delivered === "boolean" ? row.delivered : undefined,
+    explicitFeedback: row.explicitFeedback === "positive" || row.explicitFeedback === "negative" || row.explicitFeedback === "none" ? row.explicitFeedback : undefined,
+    userReplyWithinSec: typeof row.userReplyWithinSec === "number" && Number.isFinite(row.userReplyWithinSec) ? row.userReplyWithinSec : undefined
+  };
+}
+function normalizeStore2(raw) {
+  const nowMs = Date.now();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      version: 1,
+      updatedAt: nowIso27(),
+      events: []
+    };
+  }
+  const row = raw;
+  const eventsRaw = Array.isArray(row.events) ? row.events : [];
+  const events = eventsRaw.map((event) => normalizeEvent(event, nowMs)).filter((event) => Boolean(event)).sort((a, b) => a.atMs - b.atMs);
+  return {
+    version: 1,
+    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : nowIso27(),
+    events
+  };
+}
+function readStore12(filePath9) {
+  if (!fs40.existsSync(filePath9)) {
+    return {
+      version: 1,
+      updatedAt: nowIso27(),
+      events: []
+    };
+  }
+  try {
+    const parsed = JSON.parse(fs40.readFileSync(filePath9, "utf-8"));
+    return normalizeStore2(parsed);
+  } catch {
+    return {
+      version: 1,
+      updatedAt: nowIso27(),
+      events: []
+    };
+  }
+}
+function writeStore12(filePath9, store) {
+  fs40.writeFileSync(filePath9, `${JSON.stringify(store, null, 2)}
+`, "utf-8");
+}
+function trimEvents(events, nowMs) {
+  const lowerBound = nowMs - MAX_RETENTION_MS;
+  const bounded = events.filter((event) => event.atMs >= lowerBound);
+  if (bounded.length <= MAX_EVENTS)
+    return bounded;
+  return bounded.slice(bounded.length - MAX_EVENTS);
+}
+function median(values) {
+  if (values.length === 0)
+    return;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1)
+    return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+function appendInteractionEvent(filePath9, event, nowMs = Date.now()) {
+  const store = readStore12(filePath9);
+  const normalized = normalizeEvent(event, nowMs);
+  if (!normalized)
+    return readInteractionStats(filePath9, nowMs);
+  const trimmed = trimEvents([...store.events, normalized], nowMs);
+  const next = {
+    version: 1,
+    updatedAt: nowIso27(),
+    events: trimmed
+  };
+  writeStore12(filePath9, next);
+  return readInteractionStats(filePath9, nowMs);
+}
+function readInteractionStats(filePath9, nowMs = Date.now()) {
+  const store = readStore12(filePath9);
+  const events = trimEvents(store.events, nowMs);
+  if (events.length !== store.events.length) {
+    writeStore12(filePath9, {
+      version: 1,
+      updatedAt: nowIso27(),
+      events
+    });
+  }
+  const since1h = nowMs - 3600 * 1000;
+  const since24h = nowMs - 24 * 3600 * 1000;
+  const in1h = events.filter((event) => event.atMs >= since1h);
+  const in24h = events.filter((event) => event.atMs >= since24h);
+  const consults1h = in1h.filter((event) => event.type === "consult");
+  const consults24h = in24h.filter((event) => event.type === "consult");
+  const outcomes24h = in24h.filter((event) => event.type === "outcome");
+  const delivered24h = outcomes24h.filter((event) => event.delivered === true);
+  const replies = delivered24h.map((event) => typeof event.userReplyWithinSec === "number" && event.userReplyWithinSec > 0 ? event.userReplyWithinSec : undefined).filter((value) => typeof value === "number");
+  const negativeFeedback = outcomes24h.filter((event) => event.explicitFeedback === "negative").length;
+  const positiveFeedback = outcomes24h.filter((event) => event.explicitFeedback === "positive").length;
+  const proactiveAllows1h = consults1h.filter((event) => event.userInitiated === false && event.decision === "allow").length;
+  const proactiveDefers1h = consults1h.filter((event) => event.userInitiated === false && event.decision === "defer").length;
+  const proactiveAllows24h = consults24h.filter((event) => event.userInitiated === false && event.decision === "allow").length;
+  const proactiveDefers24h = consults24h.filter((event) => event.userInitiated === false && event.decision === "defer").length;
+  const userInitiatedTurns1h = consults1h.filter((event) => event.userInitiated !== false).length;
+  const userInitiatedTurns24h = consults24h.filter((event) => event.userInitiated !== false).length;
+  return {
+    generatedAtMs: nowMs,
+    window1h: {
+      consults: consults1h.length,
+      proactiveAllows: proactiveAllows1h,
+      proactiveDefers: proactiveDefers1h,
+      userInitiatedTurns: userInitiatedTurns1h
+    },
+    window24h: {
+      consults: consults24h.length,
+      proactiveAllows: proactiveAllows24h,
+      proactiveDefers: proactiveDefers24h,
+      userInitiatedTurns: userInitiatedTurns24h,
+      outcomes: outcomes24h.length,
+      delivered: delivered24h.length,
+      negativeFeedback,
+      positiveFeedback,
+      replyRate: delivered24h.length > 0 ? clampRate2(replies.length / delivered24h.length) : 0,
+      medianReplySec: median(replies),
+      userInitiatedRate: consults24h.length > 0 ? clampRate2(userInitiatedTurns24h / consults24h.length) : 0,
+      negativeFeedbackRate: outcomes24h.length > 0 ? clampRate2(negativeFeedback / outcomes24h.length) : 0
+    }
+  };
+}
 
 // src/daemon/psyche/logger.ts
-import * as fs40 from "fs";
+import * as fs41 from "fs";
 function nowUnixSec() {
   return Math.floor(Date.now() / 1000);
 }
-function appendJsonl(path41, payload) {
-  fs40.appendFileSync(path41, `${JSON.stringify(payload)}
+function appendJsonl(path42, payload) {
+  fs41.appendFileSync(path42, `${JSON.stringify(payload)}
 `, "utf-8");
 }
 function appendPsycheObservation(trainingDataLogPath, input) {
@@ -45211,14 +45715,187 @@ function appendPsycheOutcome(trainingDataLogPath, input) {
   });
 }
 
+// src/daemon/psyche/proactivity/policy.ts
+import * as fs42 from "fs";
+
+// src/daemon/psyche/proactivity/counterfactual.ts
+function clamp6(value, min, max) {
+  if (!Number.isFinite(value))
+    return min;
+  return Math.max(min, Math.min(max, Number(value.toFixed(4))));
+}
+function get(map3, key, fallback = 0) {
+  const value = map3[key];
+  if (!Number.isFinite(value))
+    return fallback;
+  return value;
+}
+function interruptionCost(input) {
+  const map3 = input.context.featureMap;
+  const focusPressure = get(map3, "state_focus") * 0.34 + get(map3, "state_play") * 0.22 + get(map3, "state_unknown") * 0.26;
+  const riskPenalty = get(map3, "risk_false_idle") * 0.14 + get(map3, "risk_probe_limited") * 0.09 + get(map3, "risk_drm_capture") * 0.06;
+  const feedbackPenalty = get(map3, "negative_feedback_rate_24h") * 0.28;
+  return clamp6(focusPressure + riskPenalty + feedbackPenalty, 0, 1.2);
+}
+function expectedReplyValue(input) {
+  const map3 = input.context.featureMap;
+  const replyRate = get(map3, "reply_rate_24h");
+  const resonance = get(map3, "resonance_score");
+  const trust = get(map3, "trust_min_score");
+  const fastBrain = get(map3, "fast_brain_score");
+  const urgencyBoost = input.urgency === "critical" ? 0.24 : input.urgency === "high" ? 0.12 : 0;
+  return clamp6(replyRate * 0.36 + resonance * 0.28 + trust * 0.2 + fastBrain * 0.16 + urgencyBoost, 0, 1.4);
+}
+function scoreForWait(input, waitSec, nowScore) {
+  const map3 = input.context.featureMap;
+  const focusPressure = get(map3, "state_focus") + get(map3, "state_play") + get(map3, "state_unknown");
+  const waitGain = clamp6(focusPressure * 0.22 + get(map3, "switch_norm") * 0.12 + get(map3, "negative_feedback_rate_24h") * 0.2, 0, 0.45);
+  const timeCost = clamp6(waitSec / 3600, 0, 0.5);
+  const urgencyPenalty = input.urgency === "critical" ? 0.3 : input.urgency === "high" ? 0.17 : input.urgency === "medium" ? 0.07 : 0.02;
+  return clamp6(nowScore + waitGain - timeCost - urgencyPenalty, -1, 1);
+}
+function evaluateProactivityCounterfactual(input) {
+  if (input.userInitiated) {
+    return {
+      action: "send_now",
+      waitSec: 0,
+      scoreNow: 1,
+      scoreWait: 0,
+      scores: {
+        send_now: 1,
+        wait_5m: 0,
+        wait_15m: -0.1,
+        wait_30m: -0.2,
+        skip: -0.4
+      },
+      reasonCodes: ["user_initiated"]
+    };
+  }
+  if (input.baseDecision === "deny") {
+    return {
+      action: "skip",
+      waitSec: 0,
+      scoreNow: -1,
+      scoreWait: -0.6,
+      scores: {
+        send_now: -1,
+        wait_5m: -0.8,
+        wait_15m: -0.7,
+        wait_30m: -0.65,
+        skip: -0.4
+      },
+      reasonCodes: ["base_decision_deny"]
+    };
+  }
+  const replyValue = expectedReplyValue(input);
+  const cost = interruptionCost(input);
+  const scoreNow = clamp6(replyValue - cost, -1, 1);
+  const scores = {
+    send_now: scoreNow,
+    wait_5m: scoreForWait(input, 5 * 60, scoreNow),
+    wait_15m: scoreForWait(input, 15 * 60, scoreNow),
+    wait_30m: scoreForWait(input, 30 * 60, scoreNow),
+    skip: clamp6(-0.25 - get(input.context.featureMap, "reply_rate_24h") * 0.25, -1, 1)
+  };
+  let action = "send_now";
+  for (const candidate of ["wait_5m", "wait_15m", "wait_30m", "skip"]) {
+    if (scores[candidate] > scores[action])
+      action = candidate;
+  }
+  const waitSec = action === "wait_5m" ? 5 * 60 : action === "wait_15m" ? 15 * 60 : action === "wait_30m" ? 30 * 60 : 0;
+  const reasonCodes = [];
+  if (action !== "send_now")
+    reasonCodes.push(`choose_${action}`);
+  if (get(input.context.featureMap, "state_focus") > 0)
+    reasonCodes.push("focus_pressure");
+  if (get(input.context.featureMap, "negative_feedback_rate_24h") >= 0.3) {
+    reasonCodes.push("negative_feedback_guard");
+  }
+  if (get(input.context.featureMap, "risk_false_idle") > 0) {
+    reasonCodes.push("false_idle_uncertain");
+  }
+  return {
+    action,
+    waitSec,
+    scoreNow: scores.send_now,
+    scoreWait: Math.max(scores.wait_5m, scores.wait_15m, scores.wait_30m),
+    scores,
+    reasonCodes
+  };
+}
+
+// src/daemon/psyche/proactivity/policy.ts
+function clamp7(value, min, max) {
+  if (!Number.isFinite(value))
+    return min;
+  return Math.max(min, Math.min(max, Number(value.toFixed(4))));
+}
+function resolveProactivityPolicy(input) {
+  const counterfactual = evaluateProactivityCounterfactual({
+    state: input.state,
+    urgency: input.urgency,
+    baseDecision: input.baseDecision,
+    userInitiated: input.userInitiated,
+    context: input.context
+  });
+  let decision = input.baseDecision;
+  let action = counterfactual.action;
+  let waitSec = counterfactual.waitSec;
+  if (input.baseDecision === "deny") {
+    decision = "deny";
+    action = "skip";
+    waitSec = 0;
+  } else if (input.userInitiated) {
+    decision = "allow";
+    action = "send_now";
+    waitSec = 0;
+  } else if (input.urgency === "critical" && input.baseDecision === "allow") {
+    decision = "allow";
+    action = "send_now";
+    waitSec = 0;
+  } else if (input.baseDecision === "allow") {
+    if (counterfactual.action === "skip") {
+      decision = "defer";
+      action = "wait_30m";
+      waitSec = 30 * 60;
+    } else if (counterfactual.action !== "send_now") {
+      decision = "defer";
+      action = counterfactual.action;
+      waitSec = counterfactual.waitSec;
+    }
+  } else if (input.baseDecision === "defer") {
+    if (counterfactual.action === "wait_30m") {
+      waitSec = Math.max(waitSec, 30 * 60);
+    } else if (counterfactual.action === "wait_15m") {
+      waitSec = Math.max(waitSec, 15 * 60);
+    } else {
+      waitSec = Math.max(waitSec, 5 * 60);
+    }
+    decision = "defer";
+  }
+  return {
+    action,
+    decision,
+    waitSec: Math.max(0, Math.floor(waitSec)),
+    scoreNow: clamp7(counterfactual.scoreNow, -1, 1),
+    scoreWait: clamp7(counterfactual.scoreWait, -1, 1),
+    reasonCodes: counterfactual.reasonCodes.slice(0, 8),
+    scores: counterfactual.scores
+  };
+}
+function appendProactivityDecision(filePath9, row) {
+  fs42.appendFileSync(filePath9, `${JSON.stringify(row)}
+`, "utf-8");
+}
+
 // src/daemon/psyche/probe-budget.ts
-import * as fs41 from "fs";
+import * as fs43 from "fs";
 function readState(filePath9, fallbackCapacity) {
-  if (!fs41.existsSync(filePath9)) {
+  if (!fs43.existsSync(filePath9)) {
     return { tokens: fallbackCapacity, updatedAtMs: Date.now() };
   }
   try {
-    const parsed = JSON.parse(fs41.readFileSync(filePath9, "utf-8"));
+    const parsed = JSON.parse(fs43.readFileSync(filePath9, "utf-8"));
     const tokens = Number(parsed.tokens);
     const updatedAtMs = Number(parsed.updatedAtMs);
     return {
@@ -45230,7 +45907,7 @@ function readState(filePath9, fallbackCapacity) {
   }
 }
 function writeState2(filePath9, state) {
-  fs41.writeFileSync(filePath9, `${JSON.stringify(state, null, 2)}
+  fs43.writeFileSync(filePath9, `${JSON.stringify(state, null, 2)}
 `, "utf-8");
 }
 function consumeProbeBudget(filePath9, config3, nowMs = Date.now()) {
@@ -45588,8 +46265,8 @@ function captureFrameForScreenProbe(timeoutMs = 2000) {
 
 // src/daemon/psyche/probe-worker/vlm.ts
 import { spawnSync as spawnSync7 } from "child_process";
-import * as fs42 from "fs";
-import * as path41 from "path";
+import * as fs44 from "fs";
+import * as path42 from "path";
 function parseCommandSpec3(raw) {
   const input = raw.trim();
   if (!input)
@@ -45633,12 +46310,12 @@ function parseLocalCommand() {
     return { command: shared, args: [], shell: true };
   }
   const projectDir = process.cwd();
-  const scriptPath = path41.join(projectDir, "miya-src", "python", "infer_qwen3_vl.py");
-  if (!fs42.existsSync(scriptPath))
+  const scriptPath = path42.join(projectDir, "miya-src", "python", "infer_qwen3_vl.py");
+  if (!fs44.existsSync(scriptPath))
     return null;
   const backendCmd = String(process.env.MIYA_QWEN3VL_CMD ?? "").trim();
-  const modelRoot = path41.basename(projectDir).toLowerCase() === ".opencode" ? path41.join(projectDir, "miya", "model") : path41.join(projectDir, ".opencode", "miya", "model");
-  const modelDir = String(process.env.MIYA_QWEN3VL_MODEL_DIR ?? "").trim() || path41.join(modelRoot, "shi jue", "Qwen3VL-4B-Instruct-Q4_K_M");
+  const modelRoot = path42.basename(projectDir).toLowerCase() === ".opencode" ? path42.join(projectDir, "miya", "model") : path42.join(projectDir, ".opencode", "miya", "model");
+  const modelDir = String(process.env.MIYA_QWEN3VL_MODEL_DIR ?? "").trim() || path42.join(modelRoot, "shi jue", "Qwen3VL-4B-Instruct-Q4_K_M");
   const python = String(process.env.MIYA_VISION_PYTHON ?? "").trim() || "python";
   const args = [scriptPath, "--mode", "screen_probe", "--model-dir", modelDir];
   if (backendCmd)
@@ -45953,8 +46630,18 @@ try {
 }
 
 // src/daemon/psyche/sensors/foreground.ts
+import { spawn as spawn4 } from "child_process";
 var lastWindowKey = "";
 var switchEventsMs = [];
+var HOOK_STALE_AFTER_MS = 20000;
+var HOOK_RETRY_BACKOFF_MS = 8000;
+var hookProcess = null;
+var hookStdoutBuffer = "";
+var hookSample = null;
+var hookSampledAtMs = 0;
+var hookLastError = "";
+var hookNextRetryMs = 0;
+var hookExitCleanupBound = false;
 function normalizeForegroundCategory(processName, title) {
   const processText = processName.toLowerCase();
   const titleText = title.toLowerCase();
@@ -46005,8 +46692,20 @@ function calculateSwitchRate(windowKey, nowMs) {
   }
   return switchEventsMs.length;
 }
-function sampleForegroundSignal(nowMs = Date.now()) {
-  const script = `
+function bindHookExitCleanup() {
+  if (hookExitCleanupBound)
+    return;
+  hookExitCleanupBound = true;
+  process.on("exit", () => {
+    if (!hookProcess)
+      return;
+    try {
+      hookProcess.kill();
+    } catch {}
+  });
+}
+function foregroundPollingScript() {
+  return `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
@@ -46049,17 +46748,224 @@ try {
 } catch {}
 @{ process=$processName; title=$title; fullscreen=$isFullscreen } | ConvertTo-Json -Compress
 `.trim();
-  const shell = runWindowsPowerShellJson(script, 900);
-  if (!shell.ok || !shell.value) {
+}
+function foregroundEventHookScript() {
+  return `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class MiyaForegroundHook {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  public delegate void WinEventDelegate(
+    IntPtr hWinEventHook,
+    uint eventType,
+    IntPtr hwnd,
+    int idObject,
+    int idChild,
+    uint dwEventThread,
+    uint dwmsEventTime
+  );
+  [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(
+    uint eventMin,
+    uint eventMax,
+    IntPtr hmodWinEventProc,
+    WinEventDelegate lpfnWinEventProc,
+    uint idProcess,
+    uint idThread,
+    uint dwFlags
+  );
+  [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+function Emit-Snapshot {
+  param([IntPtr]$Hwnd)
+  if ($Hwnd -eq [IntPtr]::Zero) {
+    $Hwnd = [MiyaForegroundHook]::GetForegroundWindow()
+  }
+  if ($Hwnd -eq [IntPtr]::Zero) {
+    @{ type='snapshot'; process=''; title=''; fullscreen=$false; sampledAt=(Get-Date).ToString('o') } | ConvertTo-Json -Compress
+    return
+  }
+  $pid = 0
+  [void][MiyaForegroundHook]::GetWindowThreadProcessId($Hwnd, [ref]$pid)
+  $titleBuilder = New-Object System.Text.StringBuilder 4096
+  [void][MiyaForegroundHook]::GetWindowText($Hwnd, $titleBuilder, $titleBuilder.Capacity)
+  $title = $titleBuilder.ToString()
+  $processName = ''
+  try {
+    $processName = (Get-Process -Id $pid -ErrorAction Stop).ProcessName
+  } catch {}
+  $isFullscreen = $false
+  try {
+    $rect = New-Object MiyaForegroundHook+RECT
+    if ([MiyaForegroundHook]::GetWindowRect($Hwnd, [ref]$rect)) {
+      $w = [Math]::Abs($rect.Right - $rect.Left)
+      $h = [Math]::Abs($rect.Bottom - $rect.Top)
+      $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      if ($w -ge ($bounds.Width - 6) -and $h -ge ($bounds.Height - 6)) {
+        $isFullscreen = $true
+      }
+    }
+  } catch {}
+  @{ type='snapshot'; process=$processName; title=$title; fullscreen=$isFullscreen; sampledAt=(Get-Date).ToString('o') } | ConvertTo-Json -Compress
+}
+$callback = [MiyaForegroundHook+WinEventDelegate]{
+  param($hWinEventHook, $eventType, $hwnd, $idObject, $idChild, $dwEventThread, $dwmsEventTime)
+  if ($idObject -ne 0 -or $idChild -ne 0) { return }
+  try { Emit-Snapshot $hwnd } catch {}
+}
+$script:miyaForegroundCallback = $callback
+$hook = [MiyaForegroundHook]::SetWinEventHook(3, 3, [IntPtr]::Zero, $callback, 0, 0, 2)
+if ($hook -eq [IntPtr]::Zero) {
+  @{ type='error'; message='set_win_event_hook_failed' } | ConvertTo-Json -Compress
+  exit 1
+}
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 15000
+$timer.Add_Tick({ try { Emit-Snapshot ([IntPtr]::Zero) } catch {} })
+$timer.Start()
+try {
+  Emit-Snapshot ([IntPtr]::Zero)
+  [System.Windows.Forms.Application]::Run()
+} finally {
+  $timer.Stop()
+  [MiyaForegroundHook]::UnhookWinEvent($hook) | Out-Null
+}
+`.trim();
+}
+function maybeStartForegroundHook(nowMs) {
+  if (process.platform !== "win32")
+    return;
+  if (hookProcess && !hookProcess.killed)
+    return;
+  if (nowMs < hookNextRetryMs)
+    return;
+  bindHookExitCleanup();
+  try {
+    const child = spawn4("powershell.exe", [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      foregroundEventHookScript()
+    ], {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    hookStdoutBuffer = "";
+    child.stdout.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      hookStdoutBuffer += chunk;
+      const lines = hookStdoutBuffer.split(/\r?\n/);
+      hookStdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text)
+          continue;
+        try {
+          const frame = JSON.parse(text);
+          if (frame.type === "snapshot") {
+            hookSample = {
+              process: frame.process,
+              title: frame.title,
+              fullscreen: frame.fullscreen,
+              sampledAt: frame.sampledAt
+            };
+            hookSampledAtMs = Date.now();
+            hookLastError = "";
+          } else if (frame.type === "error") {
+            hookLastError = String(frame.message ?? "foreground_hook_error");
+          }
+        } catch {}
+      }
+    });
+    child.stderr.setEncoding("utf-8");
+    child.stderr.on("data", (chunk) => {
+      const text = chunk.trim();
+      if (!text)
+        return;
+      hookLastError = `foreground_hook_stderr:${text}`;
+    });
+    child.on("exit", (code) => {
+      hookProcess = null;
+      hookNextRetryMs = Date.now() + HOOK_RETRY_BACKOFF_MS;
+      if (code !== null && code !== 0 && !hookLastError) {
+        hookLastError = `foreground_hook_exit_${code}`;
+      }
+    });
+    hookProcess = child;
+  } catch (error92) {
+    hookLastError = error92 instanceof Error ? error92.message : String(error92 ?? "hook_start_failed");
+    hookNextRetryMs = nowMs + HOOK_RETRY_BACKOFF_MS;
+  }
+}
+function readForegroundByPolling() {
+  return {
+    shell: runWindowsPowerShellJson(foregroundPollingScript(), 900)
+  };
+}
+function sampleForegroundSignal(nowMs = Date.now()) {
+  const limitations = [];
+  let raw;
+  if (process.platform === "win32") {
+    maybeStartForegroundHook(nowMs);
+    if (hookSample && nowMs - hookSampledAtMs <= HOOK_STALE_AFTER_MS) {
+      raw = hookSample;
+    } else {
+      const { shell } = readForegroundByPolling();
+      if (shell.ok && shell.value) {
+        raw = shell.value;
+        limitations.push("foreground_source=polling_fallback");
+      } else {
+        return {
+          signals: {
+            foreground: "unknown"
+          },
+          limitations: [
+            `foreground_probe_failed:${shell.error ?? hookLastError ?? "unknown"}`
+          ]
+        };
+      }
+    }
+  } else {
+    const { shell } = readForegroundByPolling();
+    if (shell.ok && shell.value) {
+      raw = shell.value;
+    } else {
+      return {
+        signals: {
+          foreground: "unknown"
+        },
+        limitations: [`foreground_probe_failed:${shell.error ?? "unknown"}`]
+      };
+    }
+  }
+  if (!raw) {
     return {
       signals: {
         foreground: "unknown"
       },
-      limitations: [`foreground_probe_failed:${shell.error ?? "unknown"}`]
+      limitations: ["foreground_probe_failed:empty_sample"]
     };
   }
-  const processName = String(shell.value.process ?? "").trim();
-  const title = String(shell.value.title ?? "").trim();
+  if (hookLastError) {
+    limitations.push(`foreground_hook_status:${hookLastError}`);
+  } else if (process.platform === "win32" && hookProcess) {
+    limitations.push("foreground_source=SetWinEventHook");
+  }
+  const processName = String(raw.process ?? "").trim();
+  const title = String(raw.title ?? "").trim();
   const category = normalizeForegroundCategory(processName, title);
   const windowKey = `${processName.toLowerCase()}|${title.toLowerCase()}`;
   const windowSwitchPerMin = calculateSwitchRate(windowKey, nowMs);
@@ -46067,10 +46973,10 @@ try {
     signals: {
       foreground: category,
       foregroundTitle: title,
-      fullscreen: Boolean(shell.value.fullscreen),
+      fullscreen: Boolean(raw.fullscreen),
       windowSwitchPerMin
     },
-    limitations: []
+    limitations
   };
 }
 
@@ -46154,18 +47060,26 @@ for ($i = 0; $i -lt 4; $i++) {
 var inputEventsMs = [];
 var previousIdleSec;
 function updateApm(input, nowMs) {
-  const idle = Number.isFinite(input.idleSec) ? Number(input.idleSec) : undefined;
+  let idle = Number.isFinite(input.idleSec) ? Number(input.idleSec) : undefined;
+  let anomaly = false;
   if (input.rawInputActive) {
     inputEventsMs.push(nowMs);
   }
-  if (idle !== undefined && previousIdleSec !== undefined && idle + 0.2 < previousIdleSec) {
+  if (idle !== undefined && previousIdleSec !== undefined && idle + 5 < previousIdleSec && !input.rawInputActive) {
+    anomaly = true;
+    idle = previousIdleSec;
+  } else if (idle !== undefined && previousIdleSec !== undefined && idle + 0.2 < previousIdleSec) {
     inputEventsMs.push(nowMs);
   }
   previousIdleSec = idle;
   while (inputEventsMs.length > 0 && nowMs - inputEventsMs[0] > 60000) {
     inputEventsMs.shift();
   }
-  return inputEventsMs.length;
+  return {
+    apm: inputEventsMs.length,
+    idleSec: typeof idle === "number" && Number.isFinite(idle) ? Number(idle.toFixed(2)) : undefined,
+    anomaly
+  };
 }
 function sampleInputSignal(nowMs = Date.now()) {
   const script = `
@@ -46179,7 +47093,7 @@ public static class MiyaInputSignal {
     public uint dwTime;
   }
   [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
-  [DllImport("kernel32.dll")] public static extern ulong GetTickCount64();
+  [DllImport("kernel32.dll")] public static extern uint GetTickCount();
   [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
 }
 "@
@@ -46188,8 +47102,8 @@ try {
   $lii = New-Object MiyaInputSignal+LASTINPUTINFO
   $lii.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type]'MiyaInputSignal+LASTINPUTINFO')
   if ([MiyaInputSignal]::GetLastInputInfo([ref]$lii)) {
-    $tick = [double][MiyaInputSignal]::GetTickCount64()
-    $delta = [Math]::Max(0, $tick - [double]$lii.dwTime)
+    [uint32]$tick = [MiyaInputSignal]::GetTickCount()
+    [uint32]$delta = $tick - [uint32]$lii.dwTime
     $idleSec = [Math]::Round($delta / 1000.0, 3)
   }
 } catch {}
@@ -46215,22 +47129,22 @@ foreach ($vk in $keys) {
   }
   const idleSec = Number(shell.value.idleSec ?? Number.NaN);
   const rawInputActive = Boolean(shell.value.rawInputActive);
-  const apm = updateApm({
+  const apmState = updateApm({
     idleSec: Number.isFinite(idleSec) ? idleSec : undefined,
     rawInputActive
   }, nowMs);
   return {
     signals: {
-      idleSec: Number.isFinite(idleSec) ? Number(idleSec.toFixed(2)) : undefined,
+      idleSec: apmState.idleSec,
       rawInputActive,
-      apm
+      apm: apmState.apm
     },
-    limitations: []
+    limitations: apmState.anomaly ? ["input_idle_clock_anomaly"] : []
   };
 }
 
 // src/daemon/psyche/sensors/index.ts
-function nowIso27() {
+function nowIso28() {
   return new Date().toISOString();
 }
 function mergeCaptureLimitations2(parts) {
@@ -46243,7 +47157,7 @@ function collectNativeSentinelSignals() {
   const audio = sampleAudioSignal();
   const gamepad = sampleGamepadSignal();
   return {
-    sampledAt: nowIso27(),
+    sampledAt: nowIso28(),
     signals: {
       ...input.signals,
       ...foreground.signals,
@@ -46261,17 +47175,17 @@ function collectNativeSentinelSignals() {
 
 // src/daemon/psyche/slow-brain.ts
 import { createHash as createHash16 } from "crypto";
-import * as fs44 from "fs";
-import * as path43 from "path";
+import * as fs46 from "fs";
+import * as path44 from "path";
 
 // src/daemon/psyche/training-summary.ts
-import * as fs43 from "fs";
-import * as path42 from "path";
-function nowIso28() {
+import * as fs45 from "fs";
+import * as path43 from "path";
+function nowIso29() {
   return new Date().toISOString();
 }
 function trainingFile(projectDir) {
-  return path42.join(getMiyaRuntimeDir(projectDir), "daemon", "psyche", "training-data.jsonl");
+  return path43.join(getMiyaRuntimeDir(projectDir), "daemon", "psyche", "training-data.jsonl");
 }
 function safeParse5(line) {
   try {
@@ -46282,7 +47196,7 @@ function safeParse5(line) {
 }
 function readPsycheTrainingSummary(projectDir, limit = 400) {
   const file3 = trainingFile(projectDir);
-  if (!fs43.existsSync(file3)) {
+  if (!fs45.existsSync(file3)) {
     return {
       windowRows: 0,
       observations: 0,
@@ -46300,10 +47214,10 @@ function readPsycheTrainingSummary(projectDir, limit = 400) {
         falseIdleRiskSignals: 0,
         drmCaptureBlockedSignals: 0
       },
-      generatedAt: nowIso28()
+      generatedAt: nowIso29()
     };
   }
-  const rows = fs43.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).slice(-Math.max(20, Math.min(5000, limit))).map((line) => safeParse5(line)).filter((row) => Boolean(row));
+  const rows = fs45.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).slice(-Math.max(20, Math.min(5000, limit))).map((line) => safeParse5(line)).filter((row) => Boolean(row));
   let observations = 0;
   let outcomes = 0;
   const decisions = { allow: 0, defer: 0, deny: 0 };
@@ -46372,21 +47286,21 @@ function readPsycheTrainingSummary(projectDir, limit = 400) {
       falseIdleRiskSignals,
       drmCaptureBlockedSignals
     },
-    generatedAt: nowIso28()
+    generatedAt: nowIso29()
   };
 }
 
 // src/daemon/psyche/slow-brain.ts
-function nowIso29() {
+function nowIso30() {
   return new Date().toISOString();
 }
-function clamp6(input, min, max) {
+function clamp8(input, min, max) {
   if (!Number.isFinite(input))
     return min;
   return Math.max(min, Math.min(max, Number(input.toFixed(4))));
 }
 function slowBrainFile(projectDir) {
-  return path43.join(getMiyaRuntimeDir(projectDir), "daemon", "psyche", "slow-brain.json");
+  return path44.join(getMiyaRuntimeDir(projectDir), "daemon", "psyche", "slow-brain.json");
 }
 function defaultParameters() {
   return {
@@ -46399,7 +47313,7 @@ function defaultParameters() {
 function defaultPolicy2() {
   return {
     versionID: "sb_default",
-    createdAt: nowIso29(),
+    createdAt: nowIso30(),
     source: {
       windowRows: 0,
       outcomes: 0
@@ -46421,7 +47335,7 @@ function normalizePolicy(raw) {
   const versionID = String(row.versionID ?? "").trim();
   if (!versionID)
     return null;
-  const createdAt = typeof row.createdAt === "string" ? row.createdAt : nowIso29();
+  const createdAt = typeof row.createdAt === "string" ? row.createdAt : nowIso30();
   const sourceRaw = row.source && typeof row.source === "object" && !Array.isArray(row.source) ? row.source : {};
   const metricsRaw = row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics) ? row.metrics : {};
   const paramsRaw = row.parameters && typeof row.parameters === "object" && !Array.isArray(row.parameters) ? row.parameters : {};
@@ -46430,18 +47344,18 @@ function normalizePolicy(raw) {
     outcomes: Math.max(0, Number(sourceRaw.outcomes ?? 0) || 0)
   };
   const metrics = {
-    positiveRate: clamp6(Number(metricsRaw.positiveRate ?? 0), 0, 1),
-    avgScore: clamp6(Number(metricsRaw.avgScore ?? 0), -1, 1),
+    positiveRate: clamp8(Number(metricsRaw.positiveRate ?? 0), 0, 1),
+    avgScore: clamp8(Number(metricsRaw.avgScore ?? 0), -1, 1),
     safeHoldDefers: Math.max(0, Number(metricsRaw.safeHoldDefers ?? 0) || 0),
     falseIdleRiskSignals: Math.max(0, Number(metricsRaw.falseIdleRiskSignals ?? 0) || 0),
     drmCaptureBlockedSignals: Math.max(0, Number(metricsRaw.drmCaptureBlockedSignals ?? 0) || 0)
   };
   const defaults = defaultParameters();
   const parameters = {
-    consumeAllowThreshold: clamp6(Number(paramsRaw.consumeAllowThreshold ?? defaults.consumeAllowThreshold), 0.3, 0.9),
-    awayAllowThreshold: clamp6(Number(paramsRaw.awayAllowThreshold ?? defaults.awayAllowThreshold), 0.15, 0.8),
+    consumeAllowThreshold: clamp8(Number(paramsRaw.consumeAllowThreshold ?? defaults.consumeAllowThreshold), 0.3, 0.9),
+    awayAllowThreshold: clamp8(Number(paramsRaw.awayAllowThreshold ?? defaults.awayAllowThreshold), 0.15, 0.8),
     deferRetryBaseSec: Math.max(15, Math.min(900, Math.floor(Number(paramsRaw.deferRetryBaseSec ?? defaults.deferRetryBaseSec) || 0))),
-    confidenceBoost: clamp6(Number(paramsRaw.confidenceBoost ?? defaults.confidenceBoost), 0.2, 0.95)
+    confidenceBoost: clamp8(Number(paramsRaw.confidenceBoost ?? defaults.confidenceBoost), 0.2, 0.95)
   };
   return {
     versionID,
@@ -46456,7 +47370,7 @@ function normalizeState2(raw) {
     return {
       versions: [],
       status: "idle",
-      updatedAt: nowIso29()
+      updatedAt: nowIso30()
     };
   }
   const row = raw;
@@ -46465,7 +47379,7 @@ function normalizeState2(raw) {
     activeVersionID: typeof row.activeVersionID === "string" && row.activeVersionID.trim().length > 0 ? row.activeVersionID.trim() : undefined,
     versions: versions3,
     status: row.status === "trained" || row.status === "rolled_back" || row.status === "skipped" || row.status === "idle" ? row.status : "idle",
-    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : nowIso29(),
+    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : nowIso30(),
     lastRetrainAt: typeof row.lastRetrainAt === "string" ? row.lastRetrainAt : undefined,
     lastRollbackAt: typeof row.lastRollbackAt === "string" ? row.lastRollbackAt : undefined,
     lastSkipReason: typeof row.lastSkipReason === "string" ? row.lastSkipReason : undefined
@@ -46473,20 +47387,20 @@ function normalizeState2(raw) {
 }
 function writeState3(projectDir, state) {
   const file3 = slowBrainFile(projectDir);
-  fs44.mkdirSync(path43.dirname(file3), { recursive: true });
-  fs44.writeFileSync(file3, `${JSON.stringify(state, null, 2)}
+  fs46.mkdirSync(path44.dirname(file3), { recursive: true });
+  fs46.writeFileSync(file3, `${JSON.stringify(state, null, 2)}
 `, "utf-8");
 }
 function summarizeToPolicy(summary) {
-  const positiveRate = clamp6(summary.outcomesSummary.positiveRate, 0, 1);
-  const avgScore = clamp6(summary.outcomesSummary.avgScore, -1, 1);
-  const safeHoldPressure = clamp6(summary.resonance.safeHoldDefers / Math.max(1, summary.observations), 0, 1);
-  const falseIdlePressure = clamp6(summary.resonance.falseIdleRiskSignals / Math.max(1, summary.observations), 0, 1);
-  const drmPressure = clamp6(summary.resonance.drmCaptureBlockedSignals / Math.max(1, summary.observations), 0, 1);
-  const consumeAllowThreshold = clamp6(0.52 + (0.5 - positiveRate) * 0.25 + falseIdlePressure * 0.18 + drmPressure * 0.1, 0.35, 0.88);
-  const awayAllowThreshold = clamp6(0.28 + (0.5 - positiveRate) * 0.2 + falseIdlePressure * 0.08, 0.18, 0.72);
+  const positiveRate = clamp8(summary.outcomesSummary.positiveRate, 0, 1);
+  const avgScore = clamp8(summary.outcomesSummary.avgScore, -1, 1);
+  const safeHoldPressure = clamp8(summary.resonance.safeHoldDefers / Math.max(1, summary.observations), 0, 1);
+  const falseIdlePressure = clamp8(summary.resonance.falseIdleRiskSignals / Math.max(1, summary.observations), 0, 1);
+  const drmPressure = clamp8(summary.resonance.drmCaptureBlockedSignals / Math.max(1, summary.observations), 0, 1);
+  const consumeAllowThreshold = clamp8(0.52 + (0.5 - positiveRate) * 0.25 + falseIdlePressure * 0.18 + drmPressure * 0.1, 0.35, 0.88);
+  const awayAllowThreshold = clamp8(0.28 + (0.5 - positiveRate) * 0.2 + falseIdlePressure * 0.08, 0.18, 0.72);
   const deferRetryBaseSec = Math.max(30, Math.min(900, Math.floor(90 + summary.resonance.safeHoldDefers * 3 + falseIdlePressure * 120)));
-  const confidenceBoost = clamp6(0.5 + positiveRate * 0.3 - falseIdlePressure * 0.15 - drmPressure * 0.08 + avgScore * 0.1, 0.2, 0.92);
+  const confidenceBoost = clamp8(0.5 + positiveRate * 0.3 - falseIdlePressure * 0.15 - drmPressure * 0.08 + avgScore * 0.1, 0.2, 0.92);
   const digest2 = createHash16("sha1").update(JSON.stringify({
     windowRows: summary.windowRows,
     outcomes: summary.outcomes,
@@ -46498,7 +47412,7 @@ function summarizeToPolicy(summary) {
   })).digest("hex").slice(0, 10);
   return {
     versionID: `sb_${Date.now().toString(36)}_${digest2}`,
-    createdAt: nowIso29(),
+    createdAt: nowIso30(),
     source: {
       windowRows: summary.windowRows,
       outcomes: summary.outcomes
@@ -46520,17 +47434,17 @@ function summarizeToPolicy(summary) {
 }
 function readSlowBrainState(projectDir) {
   const file3 = slowBrainFile(projectDir);
-  if (!fs44.existsSync(file3)) {
+  if (!fs46.existsSync(file3)) {
     const state = {
       versions: [],
       status: "idle",
-      updatedAt: nowIso29()
+      updatedAt: nowIso30()
     };
     writeState3(projectDir, state);
     return state;
   }
   try {
-    const parsed = JSON.parse(fs44.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs46.readFileSync(file3, "utf-8"));
     const state = normalizeState2(parsed);
     writeState3(projectDir, state);
     return state;
@@ -46538,7 +47452,7 @@ function readSlowBrainState(projectDir) {
     const state = {
       versions: [],
       status: "idle",
-      updatedAt: nowIso29()
+      updatedAt: nowIso30()
     };
     writeState3(projectDir, state);
     return state;
@@ -46563,7 +47477,7 @@ function retrainSlowBrainPolicy(projectDir, options) {
     const skipped = {
       ...state,
       status: "skipped",
-      updatedAt: nowIso29(),
+      updatedAt: nowIso30(),
       lastSkipReason: "insufficient_outcomes"
     };
     writeState3(projectDir, skipped);
@@ -46580,8 +47494,8 @@ function retrainSlowBrainPolicy(projectDir, options) {
     activeVersionID: policy.versionID,
     versions: versions3,
     status: "trained",
-    updatedAt: nowIso29(),
-    lastRetrainAt: nowIso29(),
+    updatedAt: nowIso30(),
+    lastRetrainAt: nowIso30(),
     lastSkipReason: undefined
   };
   writeState3(projectDir, next);
@@ -46621,8 +47535,8 @@ function rollbackSlowBrainPolicy(projectDir, targetVersionID) {
     ...state,
     activeVersionID: target.versionID,
     status: "rolled_back",
-    updatedAt: nowIso29(),
-    lastRollbackAt: nowIso29()
+    updatedAt: nowIso30(),
+    lastRollbackAt: nowIso30()
   };
   writeState3(projectDir, next);
   return {
@@ -46774,12 +47688,12 @@ function inferSentinelState(input) {
 }
 
 // src/daemon/psyche/trust.ts
-import * as fs45 from "fs";
+import * as fs47 from "fs";
 var DEFAULT_SCORE = 50;
 var MIN_SCORE = 0;
 var MAX_SCORE = 100;
 var MAX_WINDOW = 10;
-function nowIso30() {
+function nowIso31() {
   return new Date().toISOString();
 }
 function clampScore(value) {
@@ -46794,11 +47708,11 @@ function shiftWindow(value) {
     return normalized;
   return MAX_WINDOW - 1;
 }
-function readStore12(filePath9) {
-  if (!fs45.existsSync(filePath9))
+function readStore13(filePath9) {
+  if (!fs47.existsSync(filePath9))
     return { entities: {} };
   try {
-    const parsed = JSON.parse(fs45.readFileSync(filePath9, "utf-8"));
+    const parsed = JSON.parse(fs47.readFileSync(filePath9, "utf-8"));
     if (!parsed || typeof parsed !== "object" || !parsed.entities)
       return { entities: {} };
     return parsed;
@@ -46806,8 +47720,8 @@ function readStore12(filePath9) {
     return { entities: {} };
   }
 }
-function writeStore12(filePath9, store) {
-  fs45.writeFileSync(filePath9, `${JSON.stringify(store, null, 2)}
+function writeStore13(filePath9, store) {
+  fs47.writeFileSync(filePath9, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
 }
 function seedScore() {
@@ -46817,7 +47731,7 @@ function seedScore() {
     deniedCount10: 0,
     usefulCount10: 0,
     uselessCount10: 0,
-    lastDecisionAt: nowIso30(),
+    lastDecisionAt: nowIso31(),
     autoBlacklisted: false
   };
 }
@@ -46825,14 +47739,14 @@ function getTrustScore(filePath9, input) {
   const value = String(input.value ?? "").trim();
   if (!value)
     return DEFAULT_SCORE;
-  const store = readStore12(filePath9);
+  const store = readStore13(filePath9);
   return store.entities[entityKey(input.kind, value)]?.score ?? DEFAULT_SCORE;
 }
 function updateTrustScore(filePath9, input) {
   const value = String(input.value ?? "").trim();
   if (!value)
     return seedScore();
-  const store = readStore12(filePath9);
+  const store = readStore13(filePath9);
   const key = entityKey(input.kind, value);
   const current = store.entities[key] ?? seedScore();
   const confidence = Number.isFinite(input.confidence) ? Number(input.confidence) : 1;
@@ -46857,11 +47771,11 @@ function updateTrustScore(filePath9, input) {
     deniedCount10: Math.min(MAX_WINDOW, nextDenied),
     usefulCount10: Math.min(MAX_WINDOW, useful),
     uselessCount10: Math.min(MAX_WINDOW, useless),
-    lastDecisionAt: nowIso30(),
+    lastDecisionAt: nowIso31(),
     autoBlacklisted
   };
   store.entities[key] = next;
-  writeStore12(filePath9, store);
+  writeStore13(filePath9, store);
   return next;
 }
 function trustTierFromScore(score) {
@@ -46883,10 +47797,10 @@ var DEFAULT_BUDGETS = {
 var defaultRandomSource = {
   next: () => Math.random()
 };
-function nowIso31() {
+function nowIso32() {
   return new Date().toISOString();
 }
-function clamp7(value, min, max) {
+function clamp9(value, min, max) {
   if (!Number.isFinite(value))
     return min;
   return Math.max(min, Math.min(max, Number(value.toFixed(4))));
@@ -46902,6 +47816,8 @@ class PsycheConsultService {
   budgetPath;
   probeBudgetPath;
   trainingDataLogPath;
+  interactionStatsPath;
+  proactivityDecisionLogPath;
   trustPath;
   lifecyclePath;
   epsilon;
@@ -46912,15 +47828,19 @@ class PsycheConsultService {
   screenProbeProvider;
   constructor(projectDir, options) {
     this.projectDir = projectDir;
-    const psycheDir = path44.join(getMiyaRuntimeDir(projectDir), "daemon", "psyche");
-    fs46.mkdirSync(psycheDir, { recursive: true });
-    this.fastBrainPath = path44.join(psycheDir, "fast-brain.json");
-    this.consultLogPath = path44.join(psycheDir, "consult.jsonl");
-    this.budgetPath = path44.join(psycheDir, "interruption-budget.json");
-    this.probeBudgetPath = path44.join(psycheDir, "probe-budget.json");
-    this.trainingDataLogPath = path44.join(psycheDir, "training-data.jsonl");
-    this.trustPath = path44.join(psycheDir, "trust-score.json");
-    this.lifecyclePath = path44.join(psycheDir, "lifecycle.json");
+    const psycheDir = path45.join(getMiyaRuntimeDir(projectDir), "daemon", "psyche");
+    const proactivityDir = path45.join(psycheDir, "proactivity");
+    fs48.mkdirSync(psycheDir, { recursive: true });
+    fs48.mkdirSync(proactivityDir, { recursive: true });
+    this.fastBrainPath = path45.join(psycheDir, "fast-brain.json");
+    this.consultLogPath = path45.join(psycheDir, "consult.jsonl");
+    this.budgetPath = path45.join(psycheDir, "interruption-budget.json");
+    this.probeBudgetPath = path45.join(psycheDir, "probe-budget.json");
+    this.trainingDataLogPath = path45.join(psycheDir, "training-data.jsonl");
+    this.interactionStatsPath = path45.join(proactivityDir, "interaction-stats.json");
+    this.proactivityDecisionLogPath = path45.join(proactivityDir, "proactivity-decisions.jsonl");
+    this.trustPath = path45.join(psycheDir, "trust-score.json");
+    this.lifecyclePath = path45.join(psycheDir, "lifecycle.json");
     this.epsilon = Math.max(0, Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()));
     this.shadowModeDays = this.resolveShadowModeDays(options?.shadowModeDays);
     this.random = options?.random ?? defaultRandomSource;
@@ -46985,8 +47905,9 @@ class PsycheConsultService {
     }
     const state = sentinel.state;
     const auditID = randomUUID17();
-    const at = nowIso31();
+    const at = nowIso32();
     const shadowModeActive = this.isShadowModeActive();
+    const allowPlayCompanion = input.allowPlayCompanion === true;
     const fastBrainScore = readFastBrainScore(this.fastBrainPath, {
       state,
       intent,
@@ -47023,6 +47944,7 @@ class PsycheConsultService {
       urgency,
       intent,
       userInitiated,
+      allowPlayCompanion,
       shouldProbeScreen: sentinel.shouldProbeScreen && !shouldProbeScreen,
       fastBrainScore,
       trustTier,
@@ -47035,20 +47957,13 @@ class PsycheConsultService {
       decision = "defer";
       shadowModeApplied = true;
     }
-    let budgetHint = "";
-    if (!userInitiated) {
-      const budget2 = this.applyInterruptionBudget(state, decision === "allow");
-      if (decision === "allow" && budget2.blocked) {
-        decision = "defer";
-        budgetHint = `budget_exhausted:${state}`;
-      }
-    }
     let explorationApplied = false;
-    if (!userInitiated && decision === "defer" && !shadowModeApplied && this.shouldExplore()) {
+    const explorationRate = this.resolveExplorationRate(input.epsilonOverride);
+    if (!userInitiated && decision === "defer" && !shadowModeApplied && (state !== "PLAY" || allowPlayCompanion) && this.shouldExplore(explorationRate)) {
       decision = "allow";
       explorationApplied = true;
     }
-    const reasonMarkers = [
+    let reasonMarkers = [
       ...sentinel.reasons,
       ...nativeSample.captureLimitations.map((item) => `native_limit:${item}`),
       allowSignalOverride ? "signal_override_enabled" : "",
@@ -47057,10 +47972,12 @@ class PsycheConsultService {
       probeMethod ? `probe_method:${probeMethod}` : "",
       typeof probeConfidence === "number" ? `probe_confidence=${probeConfidence.toFixed(2)}` : "",
       probeSceneTags.length > 0 ? `probe_scene=${probeSceneTags.join("|")}` : "",
+      allowPlayCompanion ? "play_companion_enabled" : "",
+      state === "PLAY" && !allowPlayCompanion ? "play_guard_hold" : "",
       `fast_brain_score=${fastBrainScore.toFixed(2)}`,
       `resonance_score=${resonance.score.toFixed(2)}`,
       `slow_brain=${slowBrain.versionID}`,
-      budgetHint,
+      `epsilon=${explorationRate.toFixed(3)}`,
       explorationApplied ? "epsilon_exploration" : "",
       shadowModeApplied ? "shadow_mode_safe_hold" : ""
     ].filter((item) => item.length > 0);
@@ -47071,13 +47988,71 @@ class PsycheConsultService {
       shouldProbeScreen,
       captureLimitations
     });
+    const interactionSnapshot = readInteractionStats(this.interactionStatsPath);
+    const contextVector = buildProactivityContextVector({
+      atMs: Date.parse(at),
+      state,
+      urgency,
+      userInitiated,
+      fastBrainScore,
+      resonanceScore: resonance.score,
+      trustMinScore: minTrust,
+      trustTier,
+      risk,
+      signals: sampledSignals,
+      interaction: interactionSnapshot
+    });
+    const proactivitySeed = resolveProactivityPolicy({
+      at,
+      intent,
+      channel: input.channel,
+      userInitiated,
+      urgency,
+      state,
+      baseDecision: decision,
+      context: contextVector
+    });
+    const proactivity = explorationApplied ? {
+      ...proactivitySeed,
+      action: "send_now",
+      decision: "allow",
+      waitSec: 0,
+      reasonCodes: [
+        ...proactivitySeed.reasonCodes,
+        "exploration_forced_send"
+      ].slice(0, 8)
+    } : proactivitySeed;
+    let proactivityWaitSec = 0;
+    if (!userInitiated && proactivity.decision === "defer") {
+      decision = "defer";
+      proactivityWaitSec = proactivity.waitSec;
+    }
+    let budgetHint = "";
+    if (!userInitiated) {
+      const budgetState = state === "PLAY" && allowPlayCompanion ? "CONSUME" : state;
+      const budget2 = this.applyInterruptionBudget(budgetState, decision === "allow");
+      if (decision === "allow" && budget2.blocked) {
+        decision = "defer";
+        budgetHint = `budget_exhausted:${budgetState}`;
+      }
+    }
+    if (budgetHint)
+      reasonMarkers = [...reasonMarkers, budgetHint];
+    reasonMarkers = [
+      ...reasonMarkers,
+      `proactivity_action=${proactivity.action}`,
+      `proactivity_score_now=${proactivity.scoreNow.toFixed(2)}`,
+      `proactivity_score_wait=${proactivity.scoreWait.toFixed(2)}`,
+      ...proactivity.reasonCodes.map((item) => `proactivity:${item}`)
+    ];
     const nextCheckSec = this.resolveNextCheckSec({
       decision,
       urgency,
       state,
       shadowModeApplied,
       risk,
-      slowBrain
+      slowBrain,
+      waitOverrideSec: proactivityWaitSec
     });
     const reason = this.buildReason({
       decision,
@@ -47145,6 +48120,13 @@ class PsycheConsultService {
         awayAllowThreshold: slowBrain.parameters.awayAllowThreshold,
         deferRetryBaseSec: slowBrain.parameters.deferRetryBaseSec
       },
+      proactivity: {
+        action: proactivity.action,
+        waitSec: Math.max(0, proactivity.waitSec),
+        scoreNow: proactivity.scoreNow,
+        scoreWait: proactivity.scoreWait,
+        reasonCodes: proactivity.reasonCodes
+      },
       insightText
     };
     if (userInitiated && !input.trust?.action?.startsWith("daemon.")) {
@@ -47164,6 +48146,28 @@ class PsycheConsultService {
       channel: input.channel,
       userInitiated,
       approved: decision === "allow"
+    });
+    appendInteractionEvent(this.interactionStatsPath, {
+      atMs: Date.now(),
+      type: "consult",
+      channel: input.channel,
+      userInitiated,
+      decision
+    });
+    appendProactivityDecision(this.proactivityDecisionLogPath, {
+      at,
+      intent,
+      channel: input.channel,
+      userInitiated,
+      urgency,
+      state,
+      baseDecision: decisionSeed,
+      action: proactivity.action,
+      decision,
+      waitSec: proactivity.waitSec,
+      scoreNow: proactivity.scoreNow,
+      scoreWait: proactivity.scoreWait,
+      reasonCodes: proactivity.reasonCodes
     });
     this.appendConsultLog(result);
     appendPsycheObservation(this.trainingDataLogPath, {
@@ -47189,7 +48193,7 @@ class PsycheConsultService {
     return result;
   }
   registerOutcome(input) {
-    const at = nowIso31();
+    const at = nowIso32();
     const intent = String(input.intent ?? "").trim() || "unknown_intent";
     const urgency = asUrgency(input.urgency);
     const userInitiated = input.userInitiated !== false;
@@ -47225,6 +48229,15 @@ class PsycheConsultService {
       userInitiatedWithinSec: input.userInitiatedWithinSec,
       score,
       reward
+    });
+    appendInteractionEvent(this.interactionStatsPath, {
+      atMs: Date.now(),
+      type: "outcome",
+      channel: input.channel,
+      userInitiated,
+      delivered: input.delivered,
+      explicitFeedback: feedback,
+      userReplyWithinSec: input.userReplyWithinSec
     });
     const approved = input.delivered && feedback !== "negative";
     const confidence = Number.isFinite(input.trust?.evidenceConfidence) ? Number(input.trust?.evidenceConfidence) : typeof input.userReplyWithinSec === "number" && input.userReplyWithinSec > 0 ? 0.9 : 0.7;
@@ -47263,11 +48276,15 @@ class PsycheConsultService {
       bucket: key
     };
   }
+  getProactivityStats() {
+    return readInteractionStats(this.interactionStatsPath);
+  }
   pickDecision(input) {
     const {
       state,
       urgency,
       userInitiated,
+      allowPlayCompanion,
       shouldProbeScreen,
       fastBrainScore,
       trustTier,
@@ -47285,9 +48302,20 @@ class PsycheConsultService {
       return "defer";
     if (trustTier === "low" && urgency !== "critical")
       return "deny";
+    if (state === "PLAY") {
+      if (!allowPlayCompanion)
+        return "defer";
+      if (urgency === "critical")
+        return "allow";
+      const playAllowThreshold = Math.max(0.68, slowBrain.parameters.consumeAllowThreshold + 0.08);
+      if (urgency === "high" && fastBrainScore >= playAllowThreshold) {
+        return "allow";
+      }
+      return "defer";
+    }
     if (urgency === "critical")
       return "allow";
-    if (state === "FOCUS" || state === "PLAY" || state === "UNKNOWN")
+    if (state === "FOCUS" || state === "UNKNOWN")
       return "defer";
     if (state === "CONSUME") {
       const threshold = urgency === "high" ? Math.max(0.3, slowBrain.parameters.consumeAllowThreshold - 0.12) : slowBrain.parameters.consumeAllowThreshold;
@@ -47316,11 +48344,11 @@ class PsycheConsultService {
   }
   computeResonanceProfile(input) {
     const intent = input.intent.toLowerCase();
-    const semanticFocus = clamp7((intent.includes("remind") || intent.includes("checkin") || intent.includes("schedule") ? 0.78 : intent.includes("notify") || intent.includes("reply") ? 0.62 : 0.45) + (input.urgency === "critical" ? 0.25 : input.urgency === "high" ? 0.15 : input.urgency === "medium" ? 0.05 : 0), 0, 1);
-    const momentum = clamp7(input.fastBrainScore * 0.65 + (input.state === "AWAY" ? 0.2 : input.state === "CONSUME" ? 0.08 : -0.08), 0, 1);
+    const semanticFocus = clamp9((intent.includes("remind") || intent.includes("checkin") || intent.includes("schedule") ? 0.78 : intent.includes("notify") || intent.includes("reply") ? 0.62 : 0.45) + (input.urgency === "critical" ? 0.25 : input.urgency === "high" ? 0.15 : input.urgency === "medium" ? 0.05 : 0), 0, 1);
+    const momentum = clamp9(input.fastBrainScore * 0.65 + (input.state === "AWAY" ? 0.2 : input.state === "CONSUME" ? 0.08 : -0.08), 0, 1);
     const riskPenalty = input.riskReasons.some((item) => item.includes("probe") || item.includes("capture")) ? 0.14 : 0;
     const trustBoost = input.trustTier === "high" ? 0.08 : input.trustTier === "low" ? -0.12 : 0;
-    const score = clamp7(semanticFocus * 0.45 + momentum * 0.45 + trustBoost - riskPenalty - (input.shouldProbeScreen ? 0.08 : 0), 0, 1);
+    const score = clamp9(semanticFocus * 0.45 + momentum * 0.45 + trustBoost - riskPenalty - (input.shouldProbeScreen ? 0.08 : 0), 0, 1);
     const styleTags = [];
     if (input.state === "FOCUS")
       styleTags.push("low_interruption");
@@ -47391,20 +48419,20 @@ class PsycheConsultService {
     return `${base}:${markers.join(";")}`;
   }
   appendConsultLog(result) {
-    fs46.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}
+    fs48.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}
 `, "utf-8");
   }
   safeReadNativeSignals() {
     try {
       const sample = this.nativeSignalsProvider();
       return {
-        sampledAt: typeof sample.sampledAt === "string" ? sample.sampledAt : nowIso31(),
+        sampledAt: typeof sample.sampledAt === "string" ? sample.sampledAt : nowIso32(),
         signals: sample.signals ?? {},
         captureLimitations: this.normalizeCaptureLimitations(sample.captureLimitations)
       };
     } catch (error92) {
       return {
-        sampledAt: nowIso31(),
+        sampledAt: nowIso32(),
         signals: {},
         captureLimitations: [
           `native_signal_provider_failed:${error92 instanceof Error ? error92.message : String(error92)}`
@@ -47457,10 +48485,14 @@ class PsycheConsultService {
       return 0.01;
     return raw;
   }
-  shouldExplore() {
-    if (this.epsilon <= 0)
+  resolveExplorationRate(override) {
+    const value = Number.isFinite(override) ? Number(override) : this.epsilon;
+    return Math.max(0, Math.min(0.2, Number(value.toFixed(4))));
+  }
+  shouldExplore(rate) {
+    if (!Number.isFinite(rate) || rate <= 0)
       return false;
-    return this.random.next() < this.epsilon;
+    return this.random.next() < rate;
   }
   resolveShadowModeDays(override) {
     const raw = Number(override ?? process.env.MIYA_PSYCHE_SHADOW_MODE_DAYS ?? process.env.MIYA_PSYCHE_COLDSTART_DAYS ?? 7);
@@ -47469,20 +48501,20 @@ class PsycheConsultService {
     return Math.max(0, Math.min(30, Math.floor(raw)));
   }
   ensureLifecycleState() {
-    if (fs46.existsSync(this.lifecyclePath))
+    if (fs48.existsSync(this.lifecyclePath))
       return;
-    const seed = { firstSeenAt: nowIso31() };
-    fs46.writeFileSync(this.lifecyclePath, `${JSON.stringify(seed, null, 2)}
+    const seed = { firstSeenAt: nowIso32() };
+    fs48.writeFileSync(this.lifecyclePath, `${JSON.stringify(seed, null, 2)}
 `, "utf-8");
   }
   readLifecycleState() {
     try {
-      const parsed = JSON.parse(fs46.readFileSync(this.lifecyclePath, "utf-8"));
-      const firstSeenAt = typeof parsed.firstSeenAt === "string" ? parsed.firstSeenAt : nowIso31();
+      const parsed = JSON.parse(fs48.readFileSync(this.lifecyclePath, "utf-8"));
+      const firstSeenAt = typeof parsed.firstSeenAt === "string" ? parsed.firstSeenAt : nowIso32();
       return { firstSeenAt };
     } catch {
-      const fallback = { firstSeenAt: nowIso31() };
-      fs46.writeFileSync(this.lifecyclePath, `${JSON.stringify(fallback, null, 2)}
+      const fallback = { firstSeenAt: nowIso32() };
+      fs48.writeFileSync(this.lifecyclePath, `${JSON.stringify(fallback, null, 2)}
 `, "utf-8");
       return fallback;
     }
@@ -47516,6 +48548,9 @@ class PsycheConsultService {
   resolveNextCheckSec(input) {
     if (input.decision === "allow")
       return 0;
+    if (typeof input.waitOverrideSec === "number" && Number.isFinite(input.waitOverrideSec) && input.waitOverrideSec > 0) {
+      return Math.max(15, Math.min(3600, Math.floor(input.waitOverrideSec)));
+    }
     if (input.shadowModeApplied)
       return 120;
     if (input.urgency === "critical")
@@ -47568,10 +48603,10 @@ class PsycheConsultService {
     });
   }
   findRecentDeferredConsult(input) {
-    if (!fs46.existsSync(this.consultLogPath))
+    if (!fs48.existsSync(this.consultLogPath))
       return null;
     const nowMs = Date.parse(input.at);
-    const lines = fs46.readFileSync(this.consultLogPath, "utf-8").trim().split(/\r?\n/);
+    const lines = fs48.readFileSync(this.consultLogPath, "utf-8").trim().split(/\r?\n/);
     const recentLines = lines.slice(-120).reverse();
     for (const line of recentLines) {
       try {
@@ -47641,11 +48676,11 @@ class PsycheConsultService {
     const current = store.byState[state];
     let active;
     if (!current) {
-      active = { windowStartedAt: nowIso31(), used: 0 };
+      active = { windowStartedAt: nowIso32(), used: 0 };
     } else {
       const startedAtMs = Date.parse(current.windowStartedAt);
       if (!Number.isFinite(startedAtMs) || now - startedAtMs >= policy.windowSec * 1000) {
-        active = { windowStartedAt: nowIso31(), used: 0 };
+        active = { windowStartedAt: nowIso32(), used: 0 };
       } else {
         active = {
           windowStartedAt: current.windowStartedAt,
@@ -47658,22 +48693,22 @@ class PsycheConsultService {
       active.used += 1;
     }
     store.byState[state] = active;
-    fs46.writeFileSync(this.budgetPath, `${JSON.stringify(store, null, 2)}
+    fs48.writeFileSync(this.budgetPath, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
     return { blocked };
   }
   readBudgetStore() {
-    if (!fs46.existsSync(this.budgetPath))
+    if (!fs48.existsSync(this.budgetPath))
       return { byState: {} };
     try {
-      return JSON.parse(fs46.readFileSync(this.budgetPath, "utf-8"));
+      return JSON.parse(fs48.readFileSync(this.budgetPath, "utf-8"));
     } catch {
       return { byState: {} };
     }
   }
 }
 // src/desktop/runtime.ts
-function nowIso32() {
+function nowIso33() {
   return new Date().toISOString();
 }
 function actionScript() {
@@ -48208,7 +49243,7 @@ function parseJsonFromOutput(raw) {
   return null;
 }
 function dryRunResult(plan) {
-  const startedAt = nowIso32();
+  const startedAt = nowIso33();
   const steps = plan.actions.map((action) => ({
     id: action.id,
     kind: action.kind,
@@ -48221,7 +49256,7 @@ function dryRunResult(plan) {
     traceID: `${plan.planID}_dry_run`,
     platform: process.platform === "win32" ? "windows" : "other",
     startedAt,
-    finishedAt: nowIso32(),
+    finishedAt: nowIso33(),
     executedCount: 0,
     retryClass: "none",
     recoveryAdvice: "none",
@@ -48240,7 +49275,7 @@ function clonePlanWithActions(input) {
   return parseDesktopActionPlanV2({
     ...input.plan,
     planID: `${input.plan.planID}_${input.suffix}`,
-    createdAt: nowIso32(),
+    createdAt: nowIso33(),
     actions: input.actions
   });
 }
@@ -48303,7 +49338,7 @@ function retryableFailure(result) {
 }
 async function backoffBeforeRetry(attempt) {
   const delayMs = Math.min(500, 120 + Math.max(0, attempt - 1) * 180);
-  await new Promise((resolve3) => setTimeout(resolve3, delayMs));
+  await new Promise((resolve5) => setTimeout(resolve5, delayMs));
 }
 function buildPostActionVerifyPlan(plan, action, stepIndex) {
   if (!action.target || !action.target.value || action.target.mode === "coordinates")
@@ -48336,7 +49371,7 @@ async function executeDesktopActionPlanOnce(input) {
   const traceID = `desktop_exec_${Date.now().toString(36)}`;
   const planPayload = Buffer.from(JSON.stringify(plan), "utf-8").toString("base64");
   const timeoutMs = clampTimeoutMs(input.timeoutMs, 25000);
-  const startedAt = nowIso32();
+  const startedAt = nowIso33();
   const proc = Bun.spawn([
     "powershell",
     "-NoProfile",
@@ -48375,7 +49410,7 @@ async function executeDesktopActionPlanOnce(input) {
       traceID,
       platform: "windows",
       startedAt,
-      finishedAt: nowIso32(),
+      finishedAt: nowIso33(),
       executedCount: 0,
       failureReason: timedOut ? "execution_timeout" : `execution_parse_failed:${exitCode}`,
       inputMutexTriggered: false,
@@ -48405,7 +49440,7 @@ async function executeDesktopActionPlanOnce(input) {
     traceID,
     platform: "windows",
     startedAt: typeof parsed.startedAt === "string" && parsed.startedAt.trim().length > 0 ? parsed.startedAt : startedAt,
-    finishedAt: typeof parsed.finishedAt === "string" && parsed.finishedAt.trim().length > 0 ? parsed.finishedAt : nowIso32(),
+    finishedAt: typeof parsed.finishedAt === "string" && parsed.finishedAt.trim().length > 0 ? parsed.finishedAt : nowIso33(),
     executedCount: typeof parsed.executedCount === "number" && Number.isFinite(parsed.executedCount) ? Math.max(0, Math.floor(parsed.executedCount)) : 0,
     failureStepID: typeof parsed.failureStepID === "string" && parsed.failureStepID.trim().length > 0 ? parsed.failureStepID.trim() : undefined,
     failureReason: timedOut ? "execution_timeout" : typeof parsed.failureReason === "string" && parsed.failureReason.trim().length > 0 ? parsed.failureReason.trim() : undefined,
@@ -48450,8 +49485,8 @@ async function executeDesktopActionPlan(input) {
       dryRun: false,
       traceID: `${plan.planID}_platform`,
       platform: "other",
-      startedAt: nowIso32(),
-      finishedAt: nowIso32(),
+      startedAt: nowIso33(),
+      finishedAt: nowIso33(),
       executedCount: 0,
       plannedCount: actionsToRun.length,
       remainingCount,
@@ -48469,7 +49504,7 @@ async function executeDesktopActionPlan(input) {
       steps: []
     };
   }
-  const startedAt = nowIso32();
+  const startedAt = nowIso33();
   const traceID = `desktop_exec_seq_${Date.now().toString(36)}`;
   const timeoutMs = clampTimeoutMs(input.timeoutMs, 25000);
   const deadline = Date.now() + timeoutMs;
@@ -48564,7 +49599,7 @@ async function executeDesktopActionPlan(input) {
     traceID,
     platform: "windows",
     startedAt,
-    finishedAt: nowIso32(),
+    finishedAt: nowIso33(),
     executedCount,
     failureStepID,
     failureReason,
@@ -48579,7 +49614,7 @@ async function executeDesktopActionPlan(input) {
     traceID,
     platform: "windows",
     startedAt,
-    finishedAt: nowIso32(),
+    finishedAt: nowIso33(),
     executedCount,
     plannedCount: actionsToRun.length,
     remainingCount,
@@ -48719,8 +49754,8 @@ function summarizeMcpEcosystem(disabledMcps = []) {
 }
 
 // src/multimodal/image.ts
-import * as fs47 from "fs";
-import * as path45 from "path";
+import * as fs49 from "fs";
+import * as path46 from "path";
 var DEFAULT_IMAGE_MODEL = "local:flux.1-schnell";
 var DEFAULT_IMAGE_SIZE = "1024x1024";
 var MULTIMODAL_TEST_MODE_ENV = "MIYA_MULTIMODAL_TEST_MODE";
@@ -48730,9 +49765,9 @@ function sanitizePrompt(prompt) {
 }
 function toBase64FromFile(filePath9) {
   try {
-    if (!fs47.existsSync(filePath9))
+    if (!fs49.existsSync(filePath9))
       return null;
-    return fs47.readFileSync(filePath9).toString("base64");
+    return fs49.readFileSync(filePath9).toString("base64");
   } catch {
     return null;
   }
@@ -48757,7 +49792,7 @@ async function generateImage(projectDir, input) {
   const daemon = getMiyaClient(projectDir);
   const prompt = sanitizePrompt(input.prompt);
   if (!prompt)
-    throw new Error("invalid_prompt");
+    throw new Error("invalid_prompt:prompt must not be empty");
   const model = input.model?.trim() || DEFAULT_IMAGE_MODEL;
   const size = input.size?.trim() || DEFAULT_IMAGE_SIZE;
   const referenceMediaIDs = (input.referenceMediaIDs ?? []).filter(Boolean);
@@ -48768,8 +49803,8 @@ async function generateImage(projectDir, input) {
     localPath: item.localPath
   }));
   const outputDir = getMiyaImageTempDir(projectDir);
-  const outputPath = path45.join(outputDir, `flux-${Date.now()}.png`);
-  const profileDir = path45.join(getMiyaRuntimeDir(projectDir), "profiles", "companion", "current");
+  const outputPath = path46.join(outputDir, `flux-${Date.now()}.png`);
+  const profileDir = path46.join(getMiyaRuntimeDir(projectDir), "profiles", "companion", "current");
   let inference;
   if (useMultimodalTestMode()) {
     inference = {
@@ -48879,25 +49914,25 @@ function detectMultimodalIntent(text) {
   return { type: "unknown" };
 }
 // src/multimodal/vision-regression.ts
-import * as path46 from "path";
+import * as path47 from "path";
 import { fileURLToPath } from "url";
-var FIXTURE_FILE = path46.join(path46.dirname(fileURLToPath(import.meta.url)), "fixtures", "desktop-outbound-ocr-regression.json");
+var FIXTURE_FILE = path47.join(path47.dirname(fileURLToPath(import.meta.url)), "fixtures", "desktop-outbound-ocr-regression.json");
 // src/multimodal/voice.ts
-import * as fs49 from "fs";
-import * as path48 from "path";
+import * as fs51 from "fs";
+import * as path49 from "path";
 
 // src/voice/state.ts
 import { randomUUID as randomUUID18 } from "crypto";
-import * as fs48 from "fs";
-import * as path47 from "path";
-function nowIso33() {
+import * as fs50 from "fs";
+import * as path48 from "path";
+function nowIso34() {
   return new Date().toISOString();
 }
 function filePath9(projectDir) {
-  return path47.join(getMiyaRuntimeDir(projectDir), "voice.json");
+  return path48.join(getMiyaRuntimeDir(projectDir), "voice.json");
 }
 function ensureDir17(file3) {
-  fs48.mkdirSync(path47.dirname(file3), { recursive: true });
+  fs50.mkdirSync(path48.dirname(file3), { recursive: true });
 }
 function defaultState3() {
   return {
@@ -48912,10 +49947,10 @@ function defaultState3() {
 }
 function readVoiceState(projectDir) {
   const file3 = filePath9(projectDir);
-  if (!fs48.existsSync(file3))
+  if (!fs50.existsSync(file3))
     return defaultState3();
   try {
-    const parsed = JSON.parse(fs48.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs50.readFileSync(file3, "utf-8"));
     return {
       ...defaultState3(),
       ...parsed,
@@ -48928,7 +49963,7 @@ function readVoiceState(projectDir) {
 function writeVoiceState(projectDir, state) {
   const file3 = filePath9(projectDir);
   ensureDir17(file3);
-  fs48.writeFileSync(file3, `${JSON.stringify(state, null, 2)}
+  fs50.writeFileSync(file3, `${JSON.stringify(state, null, 2)}
 `, "utf-8");
   return state;
 }
@@ -48948,7 +49983,7 @@ function appendVoiceHistory(projectDir, input) {
     source: input.source,
     language: input.language,
     mediaID: input.mediaID,
-    createdAt: nowIso33()
+    createdAt: nowIso34()
   };
   const next = {
     ...state,
@@ -48990,8 +50025,9 @@ function resolveVoiceInputText(projectDir, input) {
 function ingestVoiceInput(projectDir, input) {
   const source = input.source ?? (input.mediaID ? "media" : "manual");
   const text = resolveVoiceInputText(projectDir, input);
-  if (!text)
-    throw new Error("invalid_voice_input");
+  if (!text) {
+    throw new Error("invalid_voice_input:text empty and media transcript unavailable");
+  }
   appendVoiceHistory(projectDir, {
     text,
     source,
@@ -49034,9 +50070,9 @@ function buildSilentWavBase64(durationMs) {
 }
 function toBase64FromFile2(filePath10) {
   try {
-    if (!fs49.existsSync(filePath10))
+    if (!fs51.existsSync(filePath10))
       return null;
-    return fs49.readFileSync(filePath10).toString("base64");
+    return fs51.readFileSync(filePath10).toString("base64");
   } catch {
     return null;
   }
@@ -49061,15 +50097,15 @@ async function synthesizeVoiceOutput(projectDir, input) {
   const daemon = getMiyaClient(projectDir);
   const text = input.text.trim();
   if (!text)
-    throw new Error("invalid_tts_text");
+    throw new Error("invalid_tts_text:text must not be empty");
   const voice = input.voice?.trim() || DEFAULT_VOICE;
   const model = input.model?.trim() || DEFAULT_TTS_MODEL;
   const format = normalizeFormat(input.format);
   const mimeType = format === "mp3" ? "audio/mpeg" : format === "ogg" ? "audio/ogg" : "audio/wav";
   const estDurationMs = Math.max(600, Math.min(7000, text.length * 55));
   const outputDir = getMiyaVoiceTempDir(projectDir);
-  const outputPath = path48.join(outputDir, `tts-${Date.now()}.${format}`);
-  const profileDir = path48.join(getMiyaRuntimeDir(projectDir), "profiles", "companion", "current");
+  const outputPath = path49.join(outputDir, `tts-${Date.now()}.${format}`);
+  const profileDir = path49.join(getMiyaRuntimeDir(projectDir), "profiles", "companion", "current");
   let tts;
   if (useMultimodalTestMode2()) {
     tts = {
@@ -49161,10 +50197,10 @@ import {
   randomUUID as randomUUID19,
   timingSafeEqual
 } from "crypto";
-import * as fs50 from "fs";
-import * as path49 from "path";
+import * as fs52 from "fs";
+import * as path50 from "path";
 var HEARTBEAT_STALE_MS = 2 * 60 * 1000;
-function nowIso34() {
+function nowIso35() {
   return new Date().toISOString();
 }
 function hashToken(token) {
@@ -49354,7 +50390,7 @@ function summarizeNodeGovernance(nodes, pendingPairs = 0) {
 }
 function normalizeNodeRecord(partial3) {
   const capabilityList = Array.isArray(partial3.capabilities) ? partial3.capabilities.map((item) => String(item)).filter(Boolean).sort() : [];
-  const fallbackHeartbeat = String(partial3.lastSeenAt ?? nowIso34());
+  const fallbackHeartbeat = String(partial3.lastSeenAt ?? nowIso35());
   const permissions = inferPermissionsFromCapabilities(capabilityList, partial3.permissions);
   const status = partial3.connected ? "online" : "offline";
   return {
@@ -49373,8 +50409,8 @@ function normalizeNodeRecord(partial3) {
     tokenLastUsedAt: typeof partial3.tokenLastUsedAt === "string" ? partial3.tokenLastUsedAt : undefined,
     lastHeartbeatAt: typeof partial3.lastHeartbeatAt === "string" ? partial3.lastHeartbeatAt : fallbackHeartbeat,
     lastSeenAt: String(partial3.lastSeenAt ?? fallbackHeartbeat),
-    createdAt: String(partial3.createdAt ?? nowIso34()),
-    updatedAt: String(partial3.updatedAt ?? nowIso34())
+    createdAt: String(partial3.createdAt ?? nowIso35()),
+    updatedAt: String(partial3.updatedAt ?? nowIso35())
   };
 }
 function applyHeartbeatHealth(store) {
@@ -49388,21 +50424,21 @@ function applyHeartbeatHealth(store) {
     if (stale && (node.connected || node.status === "online")) {
       node.connected = false;
       node.status = "offline";
-      node.updatedAt = nowIso34();
+      node.updatedAt = nowIso35();
       changed = true;
     }
   }
   return changed;
 }
 function filePath10(projectDir) {
-  return path49.join(getMiyaRuntimeDir(projectDir), "nodes.json");
+  return path50.join(getMiyaRuntimeDir(projectDir), "nodes.json");
 }
 function ensureDir18(file3) {
-  fs50.mkdirSync(path49.dirname(file3), { recursive: true });
+  fs52.mkdirSync(path50.dirname(file3), { recursive: true });
 }
-function readStore13(projectDir) {
+function readStore14(projectDir) {
   const file3 = filePath10(projectDir);
-  if (!fs50.existsSync(file3)) {
+  if (!fs52.existsSync(file3)) {
     return {
       nodes: {},
       devices: {},
@@ -49411,7 +50447,7 @@ function readStore13(projectDir) {
     };
   }
   try {
-    const parsed = JSON.parse(fs50.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs52.readFileSync(file3, "utf-8"));
     const rawNodes = parsed.nodes ?? {};
     const nodes = {};
     for (const [nodeID, node] of Object.entries(rawNodes)) {
@@ -49438,16 +50474,16 @@ function readStore13(projectDir) {
     };
   }
 }
-function writeStore13(projectDir, store) {
+function writeStore14(projectDir, store) {
   const file3 = filePath10(projectDir);
   ensureDir18(file3);
-  fs50.writeFileSync(file3, `${JSON.stringify(store, null, 2)}
+  fs52.writeFileSync(file3, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
 }
 function readStoreWithHealth(projectDir) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   if (applyHeartbeatHealth(store)) {
-    writeStore13(projectDir, store);
+    writeStore14(projectDir, store);
   }
   return store;
 }
@@ -49469,8 +50505,8 @@ function registerNode(projectDir, input) {
     throw new Error("node_token_invalid");
   }
   const nextCapabilities = [...new Set(input.capabilities)].sort();
-  const now = nowIso34();
-  const createdAt = store.nodes[input.nodeID]?.createdAt ?? nowIso34();
+  const now = nowIso35();
+  const createdAt = store.nodes[input.nodeID]?.createdAt ?? nowIso35();
   const lastHeartbeatAt = now;
   const tokenLastUsedAt = existing?.tokenHash ? now : existing?.tokenLastUsedAt;
   const node = {
@@ -49504,32 +50540,32 @@ function registerNode(projectDir, input) {
     updatedAt: now
   };
   store.devices[input.deviceID] = device;
-  writeStore13(projectDir, store);
+  writeStore14(projectDir, store);
   return node;
 }
 function touchNodeHeartbeat(projectDir, nodeID) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   const node = store.nodes[nodeID];
   if (!node)
     return null;
-  const now = nowIso34();
+  const now = nowIso35();
   node.connected = true;
   node.status = "online";
   node.lastHeartbeatAt = now;
   node.lastSeenAt = now;
   node.updatedAt = now;
-  writeStore13(projectDir, store);
+  writeStore14(projectDir, store);
   return node;
 }
 function markNodeDisconnected(projectDir, nodeID) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   const node = store.nodes[nodeID];
   if (!node)
     return;
   node.connected = false;
   node.status = "offline";
-  node.updatedAt = nowIso34();
-  writeStore13(projectDir, store);
+  node.updatedAt = nowIso35();
+  writeStore14(projectDir, store);
 }
 function listNodes(projectDir) {
   const store = readStoreWithHealth(projectDir);
@@ -49549,17 +50585,17 @@ function issueNodeToken(projectDir, nodeID) {
   if (!node)
     return null;
   const token = `nkt_${randomBytes2(24).toString("hex")}`;
-  const issuedAt = nowIso34();
+  const issuedAt = nowIso35();
   node.tokenHash = hashToken(token);
   node.tokenIssuedAt = issuedAt;
   node.tokenLastUsedAt = issuedAt;
   node.updatedAt = issuedAt;
   store.nodes[nodeID] = node;
-  writeStore13(projectDir, store);
+  writeStore14(projectDir, store);
   return { nodeID, token, issuedAt };
 }
 function createNodePairRequest(projectDir, input) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   const pending = store.pairs.find((item) => item.nodeID === input.nodeID && item.status === "pending");
   if (pending)
     return pending;
@@ -49568,78 +50604,78 @@ function createNodePairRequest(projectDir, input) {
     nodeID: input.nodeID,
     deviceID: input.deviceID,
     status: "pending",
-    requestedAt: nowIso34()
+    requestedAt: nowIso35()
   };
   store.pairs = [pair, ...store.pairs].slice(0, 1000);
-  writeStore13(projectDir, store);
+  writeStore14(projectDir, store);
   return pair;
 }
 function listNodePairs(projectDir, status) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   const pairs = status ? store.pairs.filter((item) => item.status === status) : store.pairs;
   return [...pairs].sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt));
 }
 function resolveNodePair(projectDir, pairID, status) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   const pair = store.pairs.find((item) => item.id === pairID);
   if (!pair || pair.status !== "pending")
     return null;
   pair.status = status;
-  pair.resolvedAt = nowIso34();
+  pair.resolvedAt = nowIso35();
   if (status === "approved") {
     const node = store.nodes[pair.nodeID];
     if (node) {
       node.paired = true;
-      node.updatedAt = nowIso34();
+      node.updatedAt = nowIso35();
     }
     const device = store.devices[pair.deviceID];
     if (device) {
       device.approved = true;
-      device.updatedAt = nowIso34();
+      device.updatedAt = nowIso35();
     }
   }
-  writeStore13(projectDir, store);
+  writeStore14(projectDir, store);
   return pair;
 }
 function createInvokeRequest(projectDir, input) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   const invoke = {
     id: `invoke_${randomUUID19()}`,
     nodeID: input.nodeID,
     capability: input.capability,
     args: input.args,
     status: "pending",
-    createdAt: nowIso34(),
-    updatedAt: nowIso34()
+    createdAt: nowIso35(),
+    updatedAt: nowIso35()
   };
   store.invokes[invoke.id] = invoke;
-  writeStore13(projectDir, store);
+  writeStore14(projectDir, store);
   return invoke;
 }
 function markInvokeSent(projectDir, invokeID) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   const invoke = store.invokes[invokeID];
   if (!invoke)
     return null;
   invoke.status = "sent";
-  invoke.updatedAt = nowIso34();
-  writeStore13(projectDir, store);
+  invoke.updatedAt = nowIso35();
+  writeStore14(projectDir, store);
   return invoke;
 }
 function resolveInvokeResult(projectDir, invokeID, input) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   const invoke = store.invokes[invokeID];
   if (!invoke)
     return null;
   invoke.status = input.ok ? "completed" : "failed";
   invoke.result = input.result;
   invoke.error = input.error;
-  invoke.updatedAt = nowIso34();
-  writeStore13(projectDir, store);
+  invoke.updatedAt = nowIso35();
+  writeStore14(projectDir, store);
   return invoke;
 }
 function listInvokeRequests(projectDir, limit = 50) {
-  const store = readStore13(projectDir);
+  const store = readStore14(projectDir);
   return Object.values(store.invokes).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, Math.max(1, limit));
 }
 
@@ -49758,10 +50794,10 @@ function evaluateOutboundDecisionFusion(input) {
 
 // src/policy/incident.ts
 import { randomUUID as randomUUID20 } from "crypto";
-import * as fs51 from "fs";
-import * as path50 from "path";
+import * as fs53 from "fs";
+import * as path51 from "path";
 function incidentFile(projectDir) {
-  return path50.join(getMiyaRuntimeDir(projectDir), "policy-incidents.jsonl");
+  return path51.join(getMiyaRuntimeDir(projectDir), "policy-incidents.jsonl");
 }
 function appendPolicyIncident(projectDir, incident) {
   assertSemanticTags(incident.semanticTags);
@@ -49782,16 +50818,16 @@ function appendPolicyIncident(projectDir, incident) {
     details: incident.details
   };
   const file3 = incidentFile(projectDir);
-  fs51.mkdirSync(path50.dirname(file3), { recursive: true });
-  fs51.appendFileSync(file3, `${JSON.stringify(payload)}
+  fs53.mkdirSync(path51.dirname(file3), { recursive: true });
+  fs53.appendFileSync(file3, `${JSON.stringify(payload)}
 `, "utf-8");
   return payload;
 }
 function listPolicyIncidents(projectDir, limit = 50) {
   const file3 = incidentFile(projectDir);
-  if (!fs51.existsSync(file3))
+  if (!fs53.existsSync(file3))
     return [];
-  const rows = fs51.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+  const rows = fs53.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -49805,28 +50841,28 @@ function listPolicyIncidents(projectDir, limit = 50) {
 import { randomUUID as randomUUID21 } from "crypto";
 
 // src/resource-scheduler/store.ts
-import * as fs52 from "fs";
-import * as path51 from "path";
+import * as fs54 from "fs";
+import * as path52 from "path";
 function schedulerDir(projectDir) {
-  return path51.join(getMiyaRuntimeDir(projectDir), "resource-scheduler");
+  return path52.join(getMiyaRuntimeDir(projectDir), "resource-scheduler");
 }
 function snapshotPath(projectDir) {
-  return path51.join(schedulerDir(projectDir), "state.json");
+  return path52.join(schedulerDir(projectDir), "state.json");
 }
 function eventsPath(projectDir) {
-  return path51.join(schedulerDir(projectDir), "events.jsonl");
+  return path52.join(schedulerDir(projectDir), "events.jsonl");
 }
 function ensureDir19(projectDir) {
-  fs52.mkdirSync(schedulerDir(projectDir), { recursive: true });
+  fs54.mkdirSync(schedulerDir(projectDir), { recursive: true });
 }
 function writeSchedulerSnapshot(projectDir, snapshot) {
   ensureDir19(projectDir);
-  fs52.writeFileSync(snapshotPath(projectDir), `${JSON.stringify(snapshot, null, 2)}
+  fs54.writeFileSync(snapshotPath(projectDir), `${JSON.stringify(snapshot, null, 2)}
 `, "utf-8");
 }
 function appendSchedulerEvent(projectDir, event) {
   ensureDir19(projectDir);
-  fs52.appendFileSync(eventsPath(projectDir), `${JSON.stringify(event)}
+  fs54.appendFileSync(eventsPath(projectDir), `${JSON.stringify(event)}
 `, "utf-8");
 }
 
@@ -49888,7 +50924,7 @@ function decideModelSwapAction(input) {
 }
 
 // src/resource-scheduler/scheduler.ts
-function nowIso35() {
+function nowIso36() {
   return new Date().toISOString();
 }
 function toNumber2(value, fallback) {
@@ -49926,7 +50962,7 @@ class ResourceScheduler {
   }
   async acquire(request) {
     const pendingID = `lease_${randomUUID21()}`;
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve5, reject) => {
       const timeoutMs = typeof request.timeoutMs === "number" && request.timeoutMs > 0 ? request.timeoutMs : undefined;
       const timeoutAtMs = timeoutMs ? Date.now() + timeoutMs : undefined;
       const pending = {
@@ -49934,7 +50970,7 @@ class ResourceScheduler {
         request,
         createdAtMs: Date.now(),
         timeoutAtMs,
-        resolve: resolve3,
+        resolve: resolve5,
         reject
       };
       this.queue.push(pending);
@@ -49946,7 +50982,7 @@ class ResourceScheduler {
         return a.createdAtMs - b.createdAtMs;
       });
       appendSchedulerEvent(this.projectDir, {
-        at: nowIso35(),
+        at: nowIso36(),
         type: "queued",
         leaseID: pendingID,
         kind: request.kind,
@@ -49971,7 +51007,7 @@ class ResourceScheduler {
     const hotsetUsedMB = loadedModels.filter((model) => model.residency === "hot").reduce((sum, model) => sum + model.vramMB, 0);
     const warmPoolUsedMB = loadedModels.filter((model) => model.residency === "warm").reduce((sum, model) => sum + model.vramMB, 0);
     return {
-      timestamp: nowIso35(),
+      timestamp: nowIso36(),
       totalVramMB: this.totalVramMB,
       safetyMarginMB: this.safetyMarginMB,
       usedVramMB: this.usedVramMB,
@@ -50037,7 +51073,7 @@ class ResourceScheduler {
       if (!this.canGrant(pending.request))
         return;
       this.queue.shift();
-      const grantedAt = nowIso35();
+      const grantedAt = nowIso36();
       const requestVramMB = Math.max(0, Math.floor(pending.request.vramMB ?? 0));
       const lease = {
         id: pending.id,
@@ -50059,7 +51095,7 @@ class ResourceScheduler {
         this.pinModel(pending.request.modelID);
         this.currentModelByKind.set(pending.request.kind, pending.request.modelID);
         appendSchedulerEvent(this.projectDir, {
-          at: nowIso35(),
+          at: nowIso36(),
           type: "model_swap",
           kind: pending.request.kind,
           action: swapAction,
@@ -50100,7 +51136,7 @@ class ResourceScheduler {
     }
     this.rebalanceHydraulics();
     appendSchedulerEvent(this.projectDir, {
-      at: nowIso35(),
+      at: nowIso36(),
       type: "released",
       leaseID,
       kind: lease.kind,
@@ -50144,7 +51180,7 @@ class ResourceScheduler {
     for (const pending of this.queue) {
       if (pending.timeoutAtMs && pending.timeoutAtMs <= now) {
         appendSchedulerEvent(this.projectDir, {
-          at: nowIso35(),
+          at: nowIso36(),
           type: "timeout",
           leaseID: pending.id,
           kind: pending.request.kind
@@ -50174,7 +51210,7 @@ class ResourceScheduler {
     if (offloaded) {
       this.offloadedModels.delete(modelID);
       appendSchedulerEvent(this.projectDir, {
-        at: nowIso35(),
+        at: nowIso36(),
         type: "model_reloaded",
         modelID,
         vramMB: offloaded.vramMB,
@@ -50190,7 +51226,7 @@ class ResourceScheduler {
       residency: "hot"
     });
     appendSchedulerEvent(this.projectDir, {
-      at: nowIso35(),
+      at: nowIso36(),
       type: "model_loaded",
       modelID,
       vramMB
@@ -50225,7 +51261,7 @@ class ResourceScheduler {
       }
     }
     appendSchedulerEvent(this.projectDir, {
-      at: nowIso35(),
+      at: nowIso36(),
       type: "model_unloaded",
       modelID: model.modelID,
       vramMB: model.vramMB,
@@ -50282,7 +51318,7 @@ class ResourceScheduler {
       if (next !== "offload" && previous !== next) {
         model.residency = next;
         appendSchedulerEvent(this.projectDir, {
-          at: nowIso35(),
+          at: nowIso36(),
           type: "model_residency",
           modelID: model.modelID,
           residency: next
@@ -50579,8 +51615,8 @@ function resolveAgentWithFeedback(intent, availableAgents, ranked) {
   return preferred?.agent ?? base;
 }
 // src/router/learner.ts
-import * as fs53 from "fs";
-import * as path52 from "path";
+import * as fs55 from "fs";
+import * as path53 from "path";
 var DEFAULT_LEARNING_WEIGHTS = {
   accept: 0.35,
   success: 0.35,
@@ -50588,37 +51624,37 @@ var DEFAULT_LEARNING_WEIGHTS = {
   risk: 0.15
 };
 function filePath11(projectDir) {
-  return path52.join(getMiyaRuntimeDir(projectDir), "router-history.json");
+  return path53.join(getMiyaRuntimeDir(projectDir), "router-history.json");
 }
 function weightFilePath(projectDir) {
-  return path52.join(getMiyaRuntimeDir(projectDir), "router-learning.json");
+  return path53.join(getMiyaRuntimeDir(projectDir), "router-learning.json");
 }
-function readStore14(projectDir) {
+function readStore15(projectDir) {
   const file3 = filePath11(projectDir);
-  if (!fs53.existsSync(file3))
+  if (!fs55.existsSync(file3))
     return { records: [] };
   try {
-    const parsed = JSON.parse(fs53.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs55.readFileSync(file3, "utf-8"));
     return { records: Array.isArray(parsed.records) ? parsed.records : [] };
   } catch {
     return { records: [] };
   }
 }
-function writeStore14(projectDir, store) {
+function writeStore15(projectDir, store) {
   const file3 = filePath11(projectDir);
-  fs53.mkdirSync(path52.dirname(file3), { recursive: true });
-  fs53.writeFileSync(file3, JSON.stringify(store, null, 2) + `
+  fs55.mkdirSync(path53.dirname(file3), { recursive: true });
+  fs55.writeFileSync(file3, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
 }
-function clamp8(value, min, max) {
+function clamp10(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 function sanitizeWeights(input) {
   const next = {
-    accept: clamp8(Number(input.accept ?? DEFAULT_LEARNING_WEIGHTS.accept), 0, 1),
-    success: clamp8(Number(input.success ?? DEFAULT_LEARNING_WEIGHTS.success), 0, 1),
-    cost: clamp8(Number(input.cost ?? DEFAULT_LEARNING_WEIGHTS.cost), 0, 1),
-    risk: clamp8(Number(input.risk ?? DEFAULT_LEARNING_WEIGHTS.risk), 0, 1)
+    accept: clamp10(Number(input.accept ?? DEFAULT_LEARNING_WEIGHTS.accept), 0, 1),
+    success: clamp10(Number(input.success ?? DEFAULT_LEARNING_WEIGHTS.success), 0, 1),
+    cost: clamp10(Number(input.cost ?? DEFAULT_LEARNING_WEIGHTS.cost), 0, 1),
+    risk: clamp10(Number(input.risk ?? DEFAULT_LEARNING_WEIGHTS.risk), 0, 1)
   };
   const total = next.accept + next.success + next.cost + next.risk;
   if (total <= 0)
@@ -50632,10 +51668,10 @@ function sanitizeWeights(input) {
 }
 function readRouteLearningWeights(projectDir) {
   const file3 = weightFilePath(projectDir);
-  if (!fs53.existsSync(file3))
+  if (!fs55.existsSync(file3))
     return { ...DEFAULT_LEARNING_WEIGHTS };
   try {
-    const parsed = JSON.parse(fs53.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs55.readFileSync(file3, "utf-8"));
     return sanitizeWeights(parsed);
   } catch {
     return { ...DEFAULT_LEARNING_WEIGHTS };
@@ -50645,25 +51681,25 @@ function writeRouteLearningWeights(projectDir, patch) {
   const current = readRouteLearningWeights(projectDir);
   const next = sanitizeWeights({ ...current, ...patch });
   const file3 = weightFilePath(projectDir);
-  fs53.mkdirSync(path52.dirname(file3), { recursive: true });
-  fs53.writeFileSync(file3, JSON.stringify(next, null, 2) + `
+  fs55.mkdirSync(path53.dirname(file3), { recursive: true });
+  fs55.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
 function addRouteFeedback(projectDir, record3) {
-  const store = readStore14(projectDir);
+  const store = readStore15(projectDir);
   const next = {
     ...record3,
     costUsdEstimate: typeof record3.costUsdEstimate === "number" ? Math.max(0, Number(record3.costUsdEstimate)) : undefined,
-    riskScore: typeof record3.riskScore === "number" ? clamp8(Number(record3.riskScore), 0, 1) : undefined,
+    riskScore: typeof record3.riskScore === "number" ? clamp10(Number(record3.riskScore), 0, 1) : undefined,
     at: new Date().toISOString()
   };
   store.records = [next, ...store.records].slice(0, 1000);
-  writeStore14(projectDir, store);
+  writeStore15(projectDir, store);
   return next;
 }
 function summarizeRouteHistory(projectDir) {
-  const records = readStore14(projectDir).records.slice(0, 50);
+  const records = readStore15(projectDir).records.slice(0, 50);
   if (records.length === 0)
     return "route_history=empty";
   const accepted = records.filter((item) => item.accepted).length;
@@ -50681,7 +51717,7 @@ function summarizeRouteHistory(projectDir) {
 }
 function rankAgentsByFeedback(projectDir, intent, availableAgents) {
   const weights = readRouteLearningWeights(projectDir);
-  const records = readStore14(projectDir).records.filter((item) => item.intent === intent).slice(0, 300);
+  const records = readStore15(projectDir).records.filter((item) => item.intent === intent).slice(0, 300);
   const scoredRaw = availableAgents.map((agent) => {
     const matched = records.filter((item) => item.suggestedAgent === agent);
     const accepted = matched.filter((item) => item.accepted).length;
@@ -50707,7 +51743,7 @@ function rankAgentsByFeedback(projectDir, intent, availableAgents) {
     const normalizedCost = maxCost <= minCost ? item.avgCostUsd > 0 ? 1 : 0 : (item.avgCostUsd - minCost) / (maxCost - minCost);
     const samplePrior = Math.min(0.15, item.samples / 80);
     const blended = weights.accept * item.acceptRate + weights.success * item.successRate + weights.cost * (1 - normalizedCost) + weights.risk * (1 - item.avgRisk) + samplePrior;
-    const score = Number(clamp8(blended, 0, 1.2).toFixed(4));
+    const score = Number(clamp10(blended, 0, 1.2).toFixed(4));
     return {
       ...item,
       score
@@ -50717,8 +51753,8 @@ function rankAgentsByFeedback(projectDir, intent, availableAgents) {
 }
 // src/router/runtime.ts
 import { createHash as createHash18 } from "crypto";
-import * as fs54 from "fs";
-import * as path53 from "path";
+import * as fs56 from "fs";
+import * as path54 from "path";
 var DEFAULT_MODE = {
   ecoMode: true,
   stageTokenMultiplier: {
@@ -50739,21 +51775,21 @@ var DEFAULT_MODE = {
   }
 };
 function modeFile(projectDir) {
-  return path53.join(getMiyaRuntimeDir(projectDir), "router-mode.json");
+  return path54.join(getMiyaRuntimeDir(projectDir), "router-mode.json");
 }
 function costFile(projectDir) {
-  return path53.join(getMiyaRuntimeDir(projectDir), "router-cost.jsonl");
+  return path54.join(getMiyaRuntimeDir(projectDir), "router-cost.jsonl");
 }
 function sessionStateFile(projectDir) {
-  return path53.join(getMiyaRuntimeDir(projectDir), "router-session-state.json");
+  return path54.join(getMiyaRuntimeDir(projectDir), "router-session-state.json");
 }
 function ensureDir20(projectDir) {
-  fs54.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+  fs56.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
 }
-function clamp9(value, min, max) {
+function clamp11(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
-function nowIso36() {
+function nowIso37() {
   return new Date().toISOString();
 }
 function parseMode(raw) {
@@ -50768,29 +51804,29 @@ function parseMode(raw) {
     ecoMode: input.ecoMode !== false,
     forcedStage,
     stageTokenMultiplier: {
-      low: clamp9(Number(stageTokenMultiplierInput.low ?? DEFAULT_MODE.stageTokenMultiplier.low), 0.2, 2.5),
-      medium: clamp9(Number(stageTokenMultiplierInput.medium ?? DEFAULT_MODE.stageTokenMultiplier.medium), 0.3, 3),
-      high: clamp9(Number(stageTokenMultiplierInput.high ?? DEFAULT_MODE.stageTokenMultiplier.high), 0.4, 4)
+      low: clamp11(Number(stageTokenMultiplierInput.low ?? DEFAULT_MODE.stageTokenMultiplier.low), 0.2, 2.5),
+      medium: clamp11(Number(stageTokenMultiplierInput.medium ?? DEFAULT_MODE.stageTokenMultiplier.medium), 0.3, 3),
+      high: clamp11(Number(stageTokenMultiplierInput.high ?? DEFAULT_MODE.stageTokenMultiplier.high), 0.4, 4)
     },
     stageCostUsdPer1k: {
-      low: clamp9(Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low), 0.0001, 0.1),
-      medium: clamp9(Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium), 0.0001, 0.2),
-      high: clamp9(Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high), 0.0001, 0.3)
+      low: clamp11(Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low), 0.0001, 0.1),
+      medium: clamp11(Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium), 0.0001, 0.2),
+      high: clamp11(Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high), 0.0001, 0.3)
     },
-    contextHardCapTokens: clamp9(Number.isFinite(contextHardCapTokens) ? contextHardCapTokens : DEFAULT_MODE.contextHardCapTokens, 300, 8000),
-    retryDeltaMaxLines: clamp9(Number.isFinite(retryDeltaMaxLines) ? retryDeltaMaxLines : DEFAULT_MODE.retryDeltaMaxLines, 4, 64),
+    contextHardCapTokens: clamp11(Number.isFinite(contextHardCapTokens) ? contextHardCapTokens : DEFAULT_MODE.contextHardCapTokens, 300, 8000),
+    retryDeltaMaxLines: clamp11(Number.isFinite(retryDeltaMaxLines) ? retryDeltaMaxLines : DEFAULT_MODE.retryDeltaMaxLines, 4, 64),
     retryBudget: {
-      autoRetry: clamp9(Number(retryBudgetInput.autoRetry ?? DEFAULT_MODE.retryBudget.autoRetry), 0, 8),
-      humanEdit: clamp9(Number(retryBudgetInput.humanEdit ?? DEFAULT_MODE.retryBudget.humanEdit), 0, 4)
+      autoRetry: clamp11(Number(retryBudgetInput.autoRetry ?? DEFAULT_MODE.retryBudget.autoRetry), 0, 8),
+      humanEdit: clamp11(Number(retryBudgetInput.humanEdit ?? DEFAULT_MODE.retryBudget.humanEdit), 0, 4)
     }
   };
 }
 function readRouterModeConfig(projectDir) {
   const file3 = modeFile(projectDir);
-  if (!fs54.existsSync(file3))
+  if (!fs56.existsSync(file3))
     return DEFAULT_MODE;
   try {
-    const parsed = JSON.parse(fs54.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs56.readFileSync(file3, "utf-8"));
     return parseMode(parsed);
   } catch {
     return DEFAULT_MODE;
@@ -50815,16 +51851,16 @@ function writeRouterModeConfig(projectDir, patch) {
       ...patch.retryBudget ?? {}
     }
   });
-  fs54.writeFileSync(modeFile(projectDir), `${JSON.stringify(next, null, 2)}
+  fs56.writeFileSync(modeFile(projectDir), `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
 function readSessionStore(projectDir) {
   const file3 = sessionStateFile(projectDir);
-  if (!fs54.existsSync(file3))
+  if (!fs56.existsSync(file3))
     return { sessions: {} };
   try {
-    const parsed = JSON.parse(fs54.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs56.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || !parsed.sessions)
       return { sessions: {} };
     return {
@@ -50832,15 +51868,15 @@ function readSessionStore(projectDir) {
         sessionID,
         {
           sessionID,
-          consecutiveFailures: clamp9(Number(state?.consecutiveFailures ?? 0), 0, 10),
+          consecutiveFailures: clamp11(Number(state?.consecutiveFailures ?? 0), 0, 10),
           lastStage: state?.lastStage === "low" || state?.lastStage === "medium" || state?.lastStage === "high" ? state.lastStage : "medium",
-          autoRetryUsed: clamp9(Number(state?.autoRetryUsed ?? 0), 0, 20),
-          humanEditUsed: clamp9(Number(state?.humanEditUsed ?? 0), 0, 20),
+          autoRetryUsed: clamp11(Number(state?.autoRetryUsed ?? 0), 0, 20),
+          humanEditUsed: clamp11(Number(state?.humanEditUsed ?? 0), 0, 20),
           lastFixability: state?.lastFixability === "impossible" || state?.lastFixability === "rewrite" || state?.lastFixability === "reduce_scope" || state?.lastFixability === "need_evidence" || state?.lastFixability === "retry_later" || state?.lastFixability === "unknown" ? state.lastFixability : "unknown",
           lastFailureReason: typeof state?.lastFailureReason === "string" ? state.lastFailureReason.slice(0, 200) : undefined,
           lastContextHash: typeof state?.lastContextHash === "string" ? state.lastContextHash.slice(0, 128) : undefined,
           lastContextText: typeof state?.lastContextText === "string" ? state.lastContextText.slice(0, 6000) : undefined,
-          updatedAt: String(state?.updatedAt ?? nowIso36())
+          updatedAt: String(state?.updatedAt ?? nowIso37())
         }
       ]))
     };
@@ -50850,7 +51886,7 @@ function readSessionStore(projectDir) {
 }
 function writeSessionStore(projectDir, store) {
   ensureDir20(projectDir);
-  fs54.writeFileSync(sessionStateFile(projectDir), `${JSON.stringify(store, null, 2)}
+  fs56.writeFileSync(sessionStateFile(projectDir), `${JSON.stringify(store, null, 2)}
 `, "utf-8");
 }
 function getSessionState2(projectDir, sessionID) {
@@ -50865,7 +51901,7 @@ function getSessionState2(projectDir, sessionID) {
     lastFailureReason: undefined,
     lastContextHash: undefined,
     lastContextText: undefined,
-    updatedAt: nowIso36()
+    updatedAt: nowIso37()
   };
 }
 function stageLevel(stage) {
@@ -50884,9 +51920,9 @@ function levelToStage(level) {
 }
 function readCostRows(projectDir, limit = 500) {
   const file3 = costFile(projectDir);
-  if (!fs54.existsSync(file3))
+  if (!fs56.existsSync(file3))
     return [];
-  const rows = fs54.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+  const rows = fs56.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -50897,7 +51933,7 @@ function readCostRows(projectDir, limit = 500) {
 }
 function appendCostRow(projectDir, row) {
   ensureDir20(projectDir);
-  fs54.appendFileSync(costFile(projectDir), `${JSON.stringify(row)}
+  fs56.appendFileSync(costFile(projectDir), `${JSON.stringify(row)}
 `, "utf-8");
 }
 function analyzeRouteComplexity(text) {
@@ -51181,7 +52217,7 @@ function prepareRoutePayload(projectDir, input) {
 }
 function recordRouteExecutionOutcome(input) {
   const row = {
-    at: nowIso36(),
+    at: nowIso37(),
     sessionID: input.sessionID,
     intent: input.intent,
     complexity: input.complexity,
@@ -51207,15 +52243,15 @@ function recordRouteExecutionOutcome(input) {
     lastFailureReason: undefined,
     lastContextHash: undefined,
     lastContextText: undefined,
-    updatedAt: nowIso36()
+    updatedAt: nowIso37()
   };
   const inferredFixability = input.success ? "unknown" : inferFixabilityFromReason(input.failureReason);
   const attemptType = input.attemptType ?? "auto";
-  const nextAutoUsed = input.success ? 0 : attemptType === "auto" ? clamp9(current.autoRetryUsed + 1, 0, 20) : current.autoRetryUsed;
-  const nextHumanUsed = input.success ? 0 : attemptType === "human" ? clamp9(current.humanEditUsed + 1, 0, 20) : current.humanEditUsed;
+  const nextAutoUsed = input.success ? 0 : attemptType === "auto" ? clamp11(current.autoRetryUsed + 1, 0, 20) : current.autoRetryUsed;
+  const nextHumanUsed = input.success ? 0 : attemptType === "human" ? clamp11(current.humanEditUsed + 1, 0, 20) : current.humanEditUsed;
   const next = {
     sessionID: input.sessionID,
-    consecutiveFailures: input.success ? 0 : clamp9(current.consecutiveFailures + 1, 0, 10),
+    consecutiveFailures: input.success ? 0 : clamp11(current.consecutiveFailures + 1, 0, 10),
     lastStage: input.stage,
     autoRetryUsed: Math.min(nextAutoUsed, mode.retryBudget.autoRetry + 6),
     humanEditUsed: Math.min(nextHumanUsed, mode.retryBudget.humanEdit + 4),
@@ -51223,7 +52259,7 @@ function recordRouteExecutionOutcome(input) {
     lastFailureReason: input.success ? undefined : String(input.failureReason ?? "").slice(0, 200),
     lastContextHash: typeof input.contextHash === "string" ? input.contextHash.slice(0, 128) : undefined,
     lastContextText: typeof input.contextText === "string" ? input.contextText.slice(0, 6000) : undefined,
-    updatedAt: nowIso36()
+    updatedAt: nowIso37()
   };
   store.sessions[input.sessionID] = next;
   writeSessionStore(input.projectDir, store);
@@ -51398,24 +52434,24 @@ function buildRequestHash(request, includeMessageContext = true) {
 }
 
 // src/safety/state-machine.ts
-import * as fs55 from "fs";
-import * as path54 from "path";
-function nowIso37() {
+import * as fs57 from "fs";
+import * as path55 from "path";
+function nowIso38() {
   return new Date().toISOString();
 }
 function stateFile(projectDir) {
-  return path54.join(getMiyaRuntimeDir(projectDir), "safety-state.json");
+  return path55.join(getMiyaRuntimeDir(projectDir), "safety-state.json");
 }
 function auditFile(projectDir) {
-  return path54.join(getMiyaRuntimeDir(projectDir), "safety-state-audit.jsonl");
+  return path55.join(getMiyaRuntimeDir(projectDir), "safety-state-audit.jsonl");
 }
 function ensureDir21(filePath12) {
-  fs55.mkdirSync(path54.dirname(filePath12), { recursive: true });
+  fs57.mkdirSync(path55.dirname(filePath12), { recursive: true });
 }
 function defaultState4() {
   return {
     version: 1,
-    updatedAt: nowIso37(),
+    updatedAt: nowIso38(),
     globalState: "running",
     domains: Object.fromEntries(POLICY_DOMAINS.map((domain3) => [domain3, "running"]))
   };
@@ -51424,21 +52460,21 @@ function writeState4(projectDir, state) {
   const file3 = stateFile(projectDir);
   const next = {
     ...state,
-    updatedAt: nowIso37()
+    updatedAt: nowIso38()
   };
   ensureDir21(file3);
-  fs55.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs57.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
 function readSafetyState(projectDir) {
   const file3 = stateFile(projectDir);
-  if (!fs55.existsSync(file3)) {
+  if (!fs57.existsSync(file3)) {
     const created = defaultState4();
     return writeState4(projectDir, created);
   }
   try {
-    const parsed = JSON.parse(fs55.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs57.readFileSync(file3, "utf-8"));
     const base = defaultState4();
     const domains = {
       ...base.domains,
@@ -51456,7 +52492,7 @@ function readSafetyState(projectDir) {
 function appendAudit(projectDir, row) {
   const file3 = auditFile(projectDir);
   ensureDir21(file3);
-  fs55.appendFileSync(file3, `${JSON.stringify(row)}
+  fs57.appendFileSync(file3, `${JSON.stringify(row)}
 `, "utf-8");
 }
 function syncPolicyDomain(projectDir, domain3, state) {
@@ -51489,7 +52525,7 @@ function transitionSafetyState(projectDir, input) {
   }
   appendAudit(projectDir, {
     id: `safety_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    at: nowIso37(),
+    at: nowIso38(),
     source: input.source,
     reason: input.reason,
     traceID: input.traceID,
@@ -51508,8 +52544,8 @@ function isDomainExecutionAllowed(projectDir, domain3) {
 
 // src/safety/store.ts
 import { randomUUID as randomUUID22 } from "crypto";
-import * as fs56 from "fs";
-import * as path55 from "path";
+import * as fs58 from "fs";
+import * as path56 from "path";
 
 // src/safety/tier.ts
 var SAFETY_RANK = {
@@ -51533,32 +52569,57 @@ function tierAtLeast(current, required3) {
 var RECORD_LIMIT = 500;
 var TOKEN_TTL_MS = 120000;
 var TOKEN_LIMIT_PER_SESSION = 200;
+function normalizeBooleanLike(input) {
+  if (typeof input === "boolean")
+    return input;
+  if (typeof input === "number")
+    return input !== 0;
+  if (typeof input === "string") {
+    const normalized = input.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1")
+      return true;
+    if (normalized === "false" || normalized === "0" || normalized === "")
+      return false;
+  }
+  return false;
+}
+function normalizeKillSwitchState(input) {
+  const row = input && typeof input === "object" ? input : {};
+  const data = row;
+  const active = normalizeBooleanLike(data.active);
+  return {
+    active,
+    reason: typeof data.reason === "string" && data.reason.trim().length > 0 ? data.reason.trim() : undefined,
+    trace_id: typeof data.trace_id === "string" && data.trace_id.trim().length > 0 ? data.trace_id.trim() : undefined,
+    activated_at: typeof data.activated_at === "string" && Number.isFinite(Date.parse(data.activated_at)) ? data.activated_at : undefined
+  };
+}
 function runtimeFile2(projectDir, name) {
-  return path55.join(getMiyaRuntimeDir(projectDir), name);
+  return path56.join(getMiyaRuntimeDir(projectDir), name);
 }
 function ensureDir22(file3) {
-  fs56.mkdirSync(path55.dirname(file3), { recursive: true });
+  fs58.mkdirSync(path56.dirname(file3), { recursive: true });
 }
 function readJson(file3, fallback) {
-  if (!fs56.existsSync(file3))
+  if (!fs58.existsSync(file3))
     return fallback;
   try {
-    return JSON.parse(fs56.readFileSync(file3, "utf-8"));
+    return JSON.parse(fs58.readFileSync(file3, "utf-8"));
   } catch {
     return fallback;
   }
 }
 function writeJson2(file3, value) {
   ensureDir22(file3);
-  fs56.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
+  fs58.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
 }
-function nowIso38() {
+function nowIso39() {
   return new Date().toISOString();
 }
 function syncGatewayStatus(projectDir, status) {
   const file3 = runtimeFile2(projectDir, "gateway.json");
-  if (!fs56.existsSync(file3))
+  if (!fs58.existsSync(file3))
     return;
   const current = readJson(file3, {});
   if (!current || typeof current !== "object")
@@ -51573,7 +52634,7 @@ function writeSelfApprovalRecord(projectDir, record3) {
   const current = readJson(file3, { records: [] });
   const next = {
     id: randomUUID22(),
-    created_at: nowIso38(),
+    created_at: nowIso39(),
     ...record3
   };
   current.records = [next, ...current.records].slice(0, RECORD_LIMIT);
@@ -51654,16 +52715,17 @@ function findApprovalToken(projectDir, sessionID, requestHashes, requiredTier) {
   return null;
 }
 function readKillSwitch(projectDir) {
-  return readJson(runtimeFile2(projectDir, "kill-switch.json"), {
+  const raw = readJson(runtimeFile2(projectDir, "kill-switch.json"), {
     active: false
   });
+  return normalizeKillSwitchState(raw);
 }
 function activateKillSwitch(projectDir, reason, traceID) {
   const next = {
     active: true,
     reason,
     trace_id: traceID,
-    activated_at: nowIso38()
+    activated_at: nowIso39()
   };
   writeJson2(runtimeFile2(projectDir, "kill-switch.json"), next);
   transitionSafetyState(projectDir, {
@@ -51691,18 +52753,18 @@ function releaseKillSwitch(projectDir) {
 
 // src/security/owner-identity.ts
 import { createHash as createHash20, randomUUID as randomUUID23 } from "crypto";
-import * as fs57 from "fs";
-import * as path56 from "path";
-function nowIso39() {
+import * as fs59 from "fs";
+import * as path57 from "path";
+function nowIso40() {
   return new Date().toISOString();
 }
 function filePath12(projectDir) {
-  return path56.join(getMiyaRuntimeDir(projectDir), "security", "owner-identity.json");
+  return path57.join(getMiyaRuntimeDir(projectDir), "security", "owner-identity.json");
 }
 function guestAuditPath(projectDir) {
-  return path56.join(getMiyaRuntimeDir(projectDir), "security", "guest-conversations.jsonl");
+  return path57.join(getMiyaRuntimeDir(projectDir), "security", "guest-conversations.jsonl");
 }
-function clamp10(input, min, max) {
+function clamp12(input, min, max) {
   if (!Number.isFinite(input))
     return min;
   return Math.min(max, Math.max(min, input));
@@ -51722,14 +52784,14 @@ function defaultVoiceprintThresholds() {
 function normalizeVoiceprintThresholds(input) {
   const base = defaultVoiceprintThresholds();
   const normalized = {
-    ownerMinScore: typeof input?.ownerMinScore === "number" ? clamp10(input.ownerMinScore, 0.5, 0.99) : base.ownerMinScore,
-    guestMaxScore: typeof input?.guestMaxScore === "number" ? clamp10(input.guestMaxScore, 0.01, 0.9) : base.guestMaxScore,
-    ownerMinLiveness: typeof input?.ownerMinLiveness === "number" ? clamp10(input.ownerMinLiveness, 0.1, 0.99) : base.ownerMinLiveness,
-    guestMaxLiveness: typeof input?.guestMaxLiveness === "number" ? clamp10(input.guestMaxLiveness, 0.01, 0.9) : base.guestMaxLiveness,
-    ownerMinDiarizationRatio: typeof input?.ownerMinDiarizationRatio === "number" ? clamp10(input.ownerMinDiarizationRatio, 0.1, 1) : base.ownerMinDiarizationRatio,
-    minSampleDurationSec: typeof input?.minSampleDurationSec === "number" ? clamp10(input.minSampleDurationSec, 0.5, 20) : base.minSampleDurationSec,
-    farTarget: typeof input?.farTarget === "number" ? clamp10(input.farTarget, 0.0001, 0.5) : base.farTarget,
-    frrTarget: typeof input?.frrTarget === "number" ? clamp10(input.frrTarget, 0.0001, 0.5) : base.frrTarget
+    ownerMinScore: typeof input?.ownerMinScore === "number" ? clamp12(input.ownerMinScore, 0.5, 0.99) : base.ownerMinScore,
+    guestMaxScore: typeof input?.guestMaxScore === "number" ? clamp12(input.guestMaxScore, 0.01, 0.9) : base.guestMaxScore,
+    ownerMinLiveness: typeof input?.ownerMinLiveness === "number" ? clamp12(input.ownerMinLiveness, 0.1, 0.99) : base.ownerMinLiveness,
+    guestMaxLiveness: typeof input?.guestMaxLiveness === "number" ? clamp12(input.guestMaxLiveness, 0.01, 0.9) : base.guestMaxLiveness,
+    ownerMinDiarizationRatio: typeof input?.ownerMinDiarizationRatio === "number" ? clamp12(input.ownerMinDiarizationRatio, 0.1, 1) : base.ownerMinDiarizationRatio,
+    minSampleDurationSec: typeof input?.minSampleDurationSec === "number" ? clamp12(input.minSampleDurationSec, 0.5, 20) : base.minSampleDurationSec,
+    farTarget: typeof input?.farTarget === "number" ? clamp12(input.farTarget, 0.0001, 0.5) : base.farTarget,
+    frrTarget: typeof input?.frrTarget === "number" ? clamp12(input.frrTarget, 0.0001, 0.5) : base.frrTarget
   };
   if (normalized.guestMaxScore >= normalized.ownerMinScore) {
     normalized.guestMaxScore = Math.max(0.01, normalized.ownerMinScore - 0.05);
@@ -51743,7 +52805,7 @@ function defaultState5() {
     voiceprintModelPath: "",
     voiceprintSampleDir: "",
     voiceprintThresholds: defaultVoiceprintThresholds(),
-    updatedAt: nowIso39()
+    updatedAt: nowIso40()
   };
 }
 function hashSecret(input) {
@@ -51757,7 +52819,7 @@ function defaultVoiceprintSampleDir(projectDir) {
 }
 function readOwnerIdentityState(projectDir) {
   const file3 = filePath12(projectDir);
-  if (!fs57.existsSync(file3)) {
+  if (!fs59.existsSync(file3)) {
     return {
       ...defaultState5(),
       voiceprintModelPath: defaultVoiceprintModelPath(projectDir),
@@ -51765,14 +52827,14 @@ function readOwnerIdentityState(projectDir) {
     };
   }
   try {
-    const parsed = JSON.parse(fs57.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs59.readFileSync(file3, "utf-8"));
     return {
       ...defaultState5(),
       ...parsed,
       voiceprintModelPath: typeof parsed.voiceprintModelPath === "string" ? parsed.voiceprintModelPath : defaultVoiceprintModelPath(projectDir),
       voiceprintSampleDir: typeof parsed.voiceprintSampleDir === "string" ? parsed.voiceprintSampleDir : defaultVoiceprintSampleDir(projectDir),
       voiceprintThresholds: normalizeVoiceprintThresholds(parsed.voiceprintThresholds),
-      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso39()
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso40()
     };
   } catch {
     return {
@@ -51784,13 +52846,13 @@ function readOwnerIdentityState(projectDir) {
 }
 function writeOwnerIdentityState(projectDir, state) {
   const file3 = filePath12(projectDir);
-  fs57.mkdirSync(path56.dirname(file3), { recursive: true });
+  fs59.mkdirSync(path57.dirname(file3), { recursive: true });
   const next = {
     ...state,
     voiceprintThresholds: normalizeVoiceprintThresholds(state.voiceprintThresholds),
-    updatedAt: nowIso39()
+    updatedAt: nowIso40()
   };
-  fs57.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs59.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
@@ -51809,8 +52871,8 @@ function initOwnerIdentity(projectDir, input) {
       ...input.voiceprintThresholds ?? {}
     }),
     mode: "owner",
-    lastSpeakerAt: nowIso39(),
-    updatedAt: nowIso39()
+    lastSpeakerAt: nowIso40(),
+    updatedAt: nowIso40()
   };
   return writeOwnerIdentityState(projectDir, next);
 }
@@ -51844,8 +52906,8 @@ function rotateOwnerSecrets(projectDir, input) {
     passwordHash: hashSecret(input.newPassword),
     passphraseHash: hashSecret(input.newPassphrase),
     mode: "owner",
-    lastSpeakerAt: nowIso39(),
-    updatedAt: nowIso39()
+    lastSpeakerAt: nowIso40(),
+    updatedAt: nowIso40()
   });
 }
 function updateVoiceprintThresholds(projectDir, patch) {
@@ -51856,7 +52918,7 @@ function updateVoiceprintThresholds(projectDir, patch) {
       ...current.voiceprintThresholds,
       ...patch
     }),
-    updatedAt: nowIso39()
+    updatedAt: nowIso40()
   });
 }
 function resolveInteractionMode(projectDir, input) {
@@ -51880,49 +52942,49 @@ function setInteractionMode(projectDir, mode) {
   return writeOwnerIdentityState(projectDir, {
     ...current,
     mode,
-    lastSpeakerAt: nowIso39(),
-    updatedAt: nowIso39()
+    lastSpeakerAt: nowIso40(),
+    updatedAt: nowIso40()
   });
 }
 function appendGuestConversation(projectDir, input) {
   const file3 = guestAuditPath(projectDir);
-  fs57.mkdirSync(path56.dirname(file3), { recursive: true });
+  fs59.mkdirSync(path57.dirname(file3), { recursive: true });
   const row = {
     id: `guest_${randomUUID23()}`,
-    at: nowIso39(),
+    at: nowIso40(),
     source: input.source,
     sessionID: input.sessionID,
     text: input.text
   };
-  fs57.appendFileSync(file3, `${JSON.stringify(row)}
+  fs59.appendFileSync(file3, `${JSON.stringify(row)}
 `, "utf-8");
 }
 
 // src/security/owner-sync.ts
 import { randomUUID as randomUUID24 } from "crypto";
-import * as fs58 from "fs";
-import * as path57 from "path";
-function nowIso40() {
+import * as fs60 from "fs";
+import * as path58 from "path";
+function nowIso41() {
   return new Date().toISOString();
 }
 function storeFile2(projectDir) {
-  return path57.join(getMiyaRuntimeDir(projectDir), "security", "owner-sync.json");
+  return path58.join(getMiyaRuntimeDir(projectDir), "security", "owner-sync.json");
 }
-function readStore15(projectDir) {
+function readStore16(projectDir) {
   const file3 = storeFile2(projectDir);
-  if (!fs58.existsSync(file3))
+  if (!fs60.existsSync(file3))
     return { tokens: [] };
   try {
-    const parsed = JSON.parse(fs58.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs60.readFileSync(file3, "utf-8"));
     return Array.isArray(parsed.tokens) ? parsed : { tokens: [] };
   } catch {
     return { tokens: [] };
   }
 }
-function writeStore15(projectDir, store) {
+function writeStore16(projectDir, store) {
   const file3 = storeFile2(projectDir);
-  fs58.mkdirSync(path57.dirname(file3), { recursive: true });
-  fs58.writeFileSync(file3, `${JSON.stringify(store, null, 2)}
+  fs60.mkdirSync(path58.dirname(file3), { recursive: true });
+  fs60.writeFileSync(file3, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
 }
 function purgeExpired(tokens) {
@@ -51944,15 +53006,15 @@ function createToken() {
 }
 function issueOwnerSyncToken(projectDir, input) {
   const ttlMs = Math.max(60000, Number(input.ttlMs ?? 10 * 60000));
-  const store = readStore15(projectDir);
+  const store = readStore16(projectDir);
   store.tokens = purgeExpired(store.tokens);
   const now = Date.now();
   const existing = store.tokens.find((item) => item.status === "pending" && item.action === input.action && item.payloadHash === input.payloadHash && Date.parse(item.expiresAt) > now);
   if (existing) {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return existing;
   }
-  const createdAt = nowIso40();
+  const createdAt = nowIso41();
   const record3 = {
     token: createToken(),
     action: input.action,
@@ -51963,91 +53025,91 @@ function issueOwnerSyncToken(projectDir, input) {
   };
   store.tokens.unshift(record3);
   store.tokens = store.tokens.slice(0, 500);
-  writeStore15(projectDir, store);
+  writeStore16(projectDir, store);
   return record3;
 }
 function approveOwnerSyncToken(projectDir, input) {
   const token = normalizeToken(input.token);
   if (!token)
     return { ok: false, reason: "owner_sync_token_empty" };
-  const store = readStore15(projectDir);
+  const store = readStore16(projectDir);
   store.tokens = purgeExpired(store.tokens);
   const found = store.tokens.find((item) => item.token === token);
   if (!found) {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return { ok: false, reason: "owner_sync_token_not_found" };
   }
   if (found.status !== "pending") {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return {
       ok: false,
       reason: `owner_sync_token_not_pending:${found.status}`
     };
   }
   if (Date.parse(found.expiresAt) <= Date.now()) {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return { ok: false, reason: "owner_sync_token_expired" };
   }
   found.status = "approved";
-  found.approvedAt = nowIso40();
+  found.approvedAt = nowIso41();
   found.approvedBy = { channel: input.channel, senderID: input.senderID };
-  writeStore15(projectDir, store);
+  writeStore16(projectDir, store);
   return { ok: true, record: found };
 }
 function verifyOwnerSyncToken(projectDir, input) {
   const token = normalizeToken(input.token);
   if (!token)
     return { ok: false, reason: "owner_sync_token_empty" };
-  const store = readStore15(projectDir);
+  const store = readStore16(projectDir);
   store.tokens = purgeExpired(store.tokens);
   const found = store.tokens.find((item) => item.token === token);
   if (!found) {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return { ok: false, reason: "owner_sync_token_not_found" };
   }
   if (found.status !== "approved") {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return {
       ok: false,
       reason: `owner_sync_token_not_approved:${found.status}`
     };
   }
   if (found.action !== input.action) {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return { ok: false, reason: "owner_sync_token_action_mismatch" };
   }
   if (found.payloadHash !== input.payloadHash) {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return { ok: false, reason: "owner_sync_token_payload_mismatch" };
   }
   if (Date.parse(found.expiresAt) <= Date.now()) {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return { ok: false, reason: "owner_sync_token_expired" };
   }
-  writeStore15(projectDir, store);
+  writeStore16(projectDir, store);
   return { ok: true, record: found };
 }
 function consumeOwnerSyncToken(projectDir, tokenInput) {
   const token = normalizeToken(tokenInput);
   if (!token)
     return { ok: false, reason: "owner_sync_token_empty" };
-  const store = readStore15(projectDir);
+  const store = readStore16(projectDir);
   store.tokens = purgeExpired(store.tokens);
   const found = store.tokens.find((item) => item.token === token);
   if (!found) {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return { ok: false, reason: "owner_sync_token_not_found" };
   }
   if (found.status !== "approved") {
-    writeStore15(projectDir, store);
+    writeStore16(projectDir, store);
     return {
       ok: false,
       reason: `owner_sync_token_not_approved:${found.status}`
     };
   }
   found.status = "consumed";
-  found.consumedAt = nowIso40();
-  writeStore15(projectDir, store);
+  found.consumedAt = nowIso41();
+  writeStore16(projectDir, store);
   return { ok: true };
 }
 function detectOwnerSyncTokenFromText(text) {
@@ -52061,29 +53123,29 @@ function detectOwnerSyncTokenFromText(text) {
 }
 
 // src/sessions/index.ts
-import * as fs59 from "fs";
-import * as path58 from "path";
+import * as fs61 from "fs";
+import * as path59 from "path";
 var DEFAULT_POLICY = {
   activation: "active",
   reply: "auto",
   queueStrategy: "fifo"
 };
-function nowIso41() {
+function nowIso42() {
   return new Date().toISOString();
 }
 function filePath13(projectDir) {
-  return path58.join(getMiyaRuntimeDir(projectDir), "sessions.json");
+  return path59.join(getMiyaRuntimeDir(projectDir), "sessions.json");
 }
 function ensureDir23(file3) {
-  fs59.mkdirSync(path58.dirname(file3), { recursive: true });
+  fs61.mkdirSync(path59.dirname(file3), { recursive: true });
 }
-function readStore16(projectDir) {
+function readStore17(projectDir) {
   const file3 = filePath13(projectDir);
-  if (!fs59.existsSync(file3)) {
+  if (!fs61.existsSync(file3)) {
     return { sessions: {} };
   }
   try {
-    const parsed = JSON.parse(fs59.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs61.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || !parsed.sessions) {
       return { sessions: {} };
     }
@@ -52112,7 +53174,7 @@ function readStore16(projectDir) {
     return { sessions: {} };
   }
 }
-function writeStore16(projectDir, store) {
+function writeStore17(projectDir, store) {
   const file3 = filePath13(projectDir);
   ensureDir23(file3);
   const encrypted = { sessions: {} };
@@ -52132,7 +53194,7 @@ function writeStore16(projectDir, store) {
       }))
     };
   }
-  fs59.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
+  fs61.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
 `, "utf-8");
 }
 function sanitizeSession(value) {
@@ -52151,18 +53213,18 @@ function sanitizeSession(value) {
   };
 }
 function listSessions(projectDir) {
-  const store = readStore16(projectDir);
+  const store = readStore17(projectDir);
   return Object.values(store.sessions).map(sanitizeSession).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 function getSession(projectDir, sessionID) {
-  const store = readStore16(projectDir);
+  const store = readStore17(projectDir);
   const session = store.sessions[sessionID];
   return session ? sanitizeSession(session) : null;
 }
 function upsertSession(projectDir, input) {
-  const store = readStore16(projectDir);
+  const store = readStore17(projectDir);
   const existing = store.sessions[input.id];
-  const createdAt = existing?.createdAt ?? nowIso41();
+  const createdAt = existing?.createdAt ?? nowIso42();
   const session = sanitizeSession({
     id: input.id,
     kind: input.kind ?? existing?.kind ?? "channel",
@@ -52175,14 +53237,14 @@ function upsertSession(projectDir, input) {
     },
     queue: existing?.queue ?? [],
     createdAt,
-    updatedAt: nowIso41()
+    updatedAt: nowIso42()
   });
   store.sessions[input.id] = session;
-  writeStore16(projectDir, store);
+  writeStore17(projectDir, store);
   return session;
 }
 function setSessionPolicy(projectDir, sessionID, patch) {
-  const store = readStore16(projectDir);
+  const store = readStore17(projectDir);
   const existing = store.sessions[sessionID];
   if (!existing)
     return null;
@@ -52192,14 +53254,14 @@ function setSessionPolicy(projectDir, sessionID, patch) {
       ...existing.policy,
       ...patch
     },
-    updatedAt: nowIso41()
+    updatedAt: nowIso42()
   });
   store.sessions[sessionID] = next;
-  writeStore16(projectDir, store);
+  writeStore17(projectDir, store);
   return next;
 }
 function enqueueSessionMessage(projectDir, sessionID, input) {
-  const store = readStore16(projectDir);
+  const store = readStore17(projectDir);
   const existing = sanitizeSession(store.sessions[sessionID] ?? upsertSession(projectDir, {
     id: sessionID
   }));
@@ -52207,20 +53269,20 @@ function enqueueSessionMessage(projectDir, sessionID, input) {
     id: `queue_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     text: input.text,
     source: input.source,
-    createdAt: nowIso41()
+    createdAt: nowIso42()
   };
   const nextQueue = [...existing.queue, message];
   const next = {
     ...existing,
     queue: nextQueue,
-    updatedAt: nowIso41()
+    updatedAt: nowIso42()
   };
   store.sessions[sessionID] = next;
-  writeStore16(projectDir, store);
+  writeStore17(projectDir, store);
   return message;
 }
 function dequeueSessionMessage(projectDir, sessionID) {
-  const store = readStore16(projectDir);
+  const store = readStore17(projectDir);
   const existing = store.sessions[sessionID];
   if (!existing || existing.queue.length === 0) {
     return null;
@@ -52229,16 +53291,16 @@ function dequeueSessionMessage(projectDir, sessionID) {
   store.sessions[sessionID] = {
     ...existing,
     queue: rest,
-    updatedAt: nowIso41()
+    updatedAt: nowIso42()
   };
-  writeStore16(projectDir, store);
+  writeStore17(projectDir, store);
   return first;
 }
 
 // src/skills/loader.ts
-import * as fs60 from "fs";
+import * as fs62 from "fs";
 import * as os7 from "os";
-import * as path59 from "path";
+import * as path60 from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 
 // src/skills/frontmatter.ts
@@ -52342,19 +53404,19 @@ function evaluateSkillGate(frontmatter) {
 
 // src/skills/loader.ts
 function isSkillDir(dir) {
-  const skillFile = path59.join(dir, "SKILL.md");
-  return fs60.existsSync(skillFile);
+  const skillFile = path60.join(dir, "SKILL.md");
+  return fs62.existsSync(skillFile);
 }
 function listSkillDirs(rootDir) {
-  if (!fs60.existsSync(rootDir))
+  if (!fs62.existsSync(rootDir))
     return [];
-  const entries = fs60.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path59.join(rootDir, entry2.name));
+  const entries = fs62.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path60.join(rootDir, entry2.name));
   return entries.filter(isSkillDir);
 }
 function builtinSkillRoots(projectDir) {
   const roots = new Set;
-  roots.add(path59.join(projectDir, "miya-src", "src", "skills"));
-  roots.add(path59.dirname(fileURLToPath2(import.meta.url)));
+  roots.add(path60.join(projectDir, "miya-src", "src", "skills"));
+  roots.add(path60.dirname(fileURLToPath2(import.meta.url)));
   return [...roots];
 }
 function enforcePermissionMetadataGate(source, frontmatter, gate) {
@@ -52369,8 +53431,8 @@ function enforcePermissionMetadataGate(source, frontmatter, gate) {
   };
 }
 function discoverSkills(projectDir, extraDirs = []) {
-  const workspaceRoot = path59.join(projectDir, "skills");
-  const globalRoot = path59.join(os7.homedir(), ".config", "opencode", "miya", "skills");
+  const workspaceRoot = path60.join(projectDir, "skills");
+  const globalRoot = path60.join(os7.homedir(), ".config", "opencode", "miya", "skills");
   const scopedDirs = [
     { source: "workspace", dirs: listSkillDirs(workspaceRoot) },
     { source: "global", dirs: listSkillDirs(globalRoot) },
@@ -52380,7 +53442,7 @@ function discoverSkills(projectDir, extraDirs = []) {
     },
     {
       source: "extra",
-      dirs: extraDirs.flatMap((root) => listSkillDirs(path59.resolve(projectDir, root)))
+      dirs: extraDirs.flatMap((root) => listSkillDirs(path60.resolve(projectDir, root)))
     }
   ];
   const precedence = {
@@ -52392,15 +53454,15 @@ function discoverSkills(projectDir, extraDirs = []) {
   const byName = new Map;
   for (const scope of scopedDirs) {
     for (const dir of scope.dirs) {
-      const skillFile = path59.join(dir, "SKILL.md");
+      const skillFile = path60.join(dir, "SKILL.md");
       let content = "";
       try {
-        content = fs60.readFileSync(skillFile, "utf-8");
+        content = fs62.readFileSync(skillFile, "utf-8");
       } catch {
         continue;
       }
       const frontmatter = parseSkillFrontmatter(content);
-      const name = frontmatter.name ?? path59.basename(dir);
+      const name = frontmatter.name ?? path60.basename(dir);
       const gate = enforcePermissionMetadataGate(scope.source, frontmatter, evaluateSkillGate(frontmatter));
       const descriptor = {
         id: name,
@@ -52421,36 +53483,36 @@ function discoverSkills(projectDir, extraDirs = []) {
 }
 
 // src/skills/state.ts
-import * as fs61 from "fs";
-import * as path60 from "path";
-function nowIso42() {
+import * as fs63 from "fs";
+import * as path61 from "path";
+function nowIso43() {
   return new Date().toISOString();
 }
 function filePath14(projectDir) {
-  return path60.join(getMiyaRuntimeDir(projectDir), "skills.json");
+  return path61.join(getMiyaRuntimeDir(projectDir), "skills.json");
 }
 function ensureDir24(file3) {
-  fs61.mkdirSync(path60.dirname(file3), { recursive: true });
+  fs63.mkdirSync(path61.dirname(file3), { recursive: true });
 }
 function readState2(projectDir) {
   const file3 = filePath14(projectDir);
-  if (!fs61.existsSync(file3)) {
-    return { enabled: [], updatedAt: nowIso42() };
+  if (!fs63.existsSync(file3)) {
+    return { enabled: [], updatedAt: nowIso43() };
   }
   try {
-    const parsed = JSON.parse(fs61.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs63.readFileSync(file3, "utf-8"));
     return {
       enabled: Array.isArray(parsed.enabled) ? parsed.enabled.map(String) : [],
-      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso42()
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso43()
     };
   } catch {
-    return { enabled: [], updatedAt: nowIso42() };
+    return { enabled: [], updatedAt: nowIso43() };
   }
 }
 function writeState5(projectDir, state) {
   const file3 = filePath14(projectDir);
   ensureDir24(file3);
-  fs61.writeFileSync(file3, `${JSON.stringify(state, null, 2)}
+  fs63.writeFileSync(file3, `${JSON.stringify(state, null, 2)}
 `, "utf-8");
 }
 function listEnabledSkills(projectDir) {
@@ -52465,7 +53527,7 @@ function setSkillEnabled(projectDir, skillID, enabled) {
     normalized.delete(skillID);
   const next = {
     enabled: [...normalized].sort(),
-    updatedAt: nowIso42()
+    updatedAt: nowIso43()
   };
   writeState5(projectDir, next);
   return next.enabled;
@@ -52473,14 +53535,14 @@ function setSkillEnabled(projectDir, skillID, enabled) {
 
 // src/skills/sync.ts
 import { createHash as createHash22 } from "crypto";
-import * as fs63 from "fs";
+import * as fs65 from "fs";
 import * as os8 from "os";
-import * as path62 from "path";
+import * as path63 from "path";
 
 // src/skills/governance.ts
 import { createHash as createHash21 } from "crypto";
-import * as fs62 from "fs";
-import * as path61 from "path";
+import * as fs64 from "fs";
+import * as path62 from "path";
 var DEFAULT_STORE = {
   version: 1,
   updatedAt: new Date(0).toISOString(),
@@ -52498,18 +53560,18 @@ var DEFAULT_STRICT_ALLOWED_PERMISSIONS = [
   "skills_install",
   "local_build"
 ];
-function nowIso43() {
+function nowIso44() {
   return new Date().toISOString();
 }
 function governanceFile(projectDir) {
-  return path61.join(getMiyaRuntimeDir(projectDir), "ecosystem-governance.json");
+  return path62.join(getMiyaRuntimeDir(projectDir), "ecosystem-governance.json");
 }
-function readStore17(projectDir) {
+function readStore18(projectDir) {
   const file3 = governanceFile(projectDir);
-  if (!fs62.existsSync(file3))
+  if (!fs64.existsSync(file3))
     return { ...DEFAULT_STORE };
   try {
-    const parsed = JSON.parse(fs62.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs64.readFileSync(file3, "utf-8"));
     return {
       version: 1,
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date(0).toISOString(),
@@ -52519,15 +53581,15 @@ function readStore17(projectDir) {
     return { ...DEFAULT_STORE };
   }
 }
-function writeStore17(projectDir, store) {
+function writeStore18(projectDir, store) {
   const file3 = governanceFile(projectDir);
-  fs62.mkdirSync(path61.dirname(file3), { recursive: true });
+  fs64.mkdirSync(path62.dirname(file3), { recursive: true });
   const next = {
     version: 1,
-    updatedAt: nowIso43(),
+    updatedAt: nowIso44(),
     records: store.records
   };
-  fs62.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs64.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
@@ -52547,11 +53609,11 @@ function compareSemver(a, b) {
   return 0;
 }
 function readCompatConfig(localDir) {
-  const file3 = path61.join(localDir, "miya.compat.json");
-  if (!fs62.existsSync(file3))
+  const file3 = path62.join(localDir, "miya.compat.json");
+  if (!fs64.existsSync(file3))
     return {};
   try {
-    return JSON.parse(fs62.readFileSync(file3, "utf-8"));
+    return JSON.parse(fs64.readFileSync(file3, "utf-8"));
   } catch {
     return {};
   }
@@ -52585,19 +53647,19 @@ function requiredFiles(localDir) {
 }
 function runSmoke(localDir) {
   const files = requiredFiles(localDir);
-  const missing = files.filter((entry2) => !fs62.existsSync(path61.join(localDir, entry2)));
+  const missing = files.filter((entry2) => !fs64.existsSync(path62.join(localDir, entry2)));
   return {
     ok: missing.length === 0,
     requiredFiles: files,
     missingFiles: missing,
-    checkedAt: nowIso43()
+    checkedAt: nowIso44()
   };
 }
 function normalizeRelativePath(relPath) {
   return relPath.replace(/\\/g, "/");
 }
 function listRelativeFiles(localDir) {
-  const root = path61.resolve(localDir);
+  const root = path62.resolve(localDir);
   const queue = [
     { dir: root, depth: 0 }
   ];
@@ -52610,13 +53672,13 @@ function listRelativeFiles(localDir) {
       break;
     let entries = [];
     try {
-      entries = fs62.readdirSync(current.dir, { withFileTypes: true });
+      entries = fs64.readdirSync(current.dir, { withFileTypes: true });
     } catch {
       continue;
     }
     for (const entry2 of entries) {
-      const abs = path61.join(current.dir, entry2.name);
-      const rel = normalizeRelativePath(path61.relative(root, abs));
+      const abs = path62.join(current.dir, entry2.name);
+      const rel = normalizeRelativePath(path62.relative(root, abs));
       if (!rel || rel.startsWith(".."))
         continue;
       if (entry2.isDirectory()) {
@@ -52638,7 +53700,7 @@ function runRegression(localDir, strict = false) {
   const compat3 = readCompatConfig(localDir);
   const files = listRelativeFiles(localDir);
   const required3 = Array.isArray(compat3.regression?.requiredFiles) && compat3.regression?.requiredFiles.length > 0 ? compat3.regression.requiredFiles.map(String).map(normalizeRelativePath).slice(0, 80) : requiredFiles(localDir).map(normalizeRelativePath);
-  const missingFiles = required3.filter((entry2) => !fs62.existsSync(path61.join(localDir, entry2)));
+  const missingFiles = required3.filter((entry2) => !fs64.existsSync(path62.join(localDir, entry2)));
   const testArtifacts = files.filter((entry2) => /(^|\/)(__tests__|tests|test)\b|\.test\.[cm]?[jt]sx?$|\.spec\.[cm]?[jt]sx?$/i.test(entry2));
   const requireTestArtifacts = strict || (typeof compat3.regression?.requireTests === "boolean" ? compat3.regression.requireTests : false);
   const ok = missingFiles.length === 0 && (!requireTestArtifacts || testArtifacts.length > 0);
@@ -52648,7 +53710,7 @@ function runRegression(localDir, strict = false) {
     missingFiles,
     requireTestArtifacts,
     testArtifacts: testArtifacts.slice(0, 200),
-    checkedAt: nowIso43()
+    checkedAt: nowIso44()
   };
 }
 function parsePermissionList(values) {
@@ -52689,10 +53751,10 @@ function runSecurity(localDir, strict = false) {
   const allowed = resolveAllowedPermissions(compat3, strict);
   const denied = resolveDeniedPermissions(compat3);
   for (const rel of skillFiles) {
-    const file3 = path61.join(localDir, rel);
+    const file3 = path62.join(localDir, rel);
     let content = "";
     try {
-      content = fs62.readFileSync(file3, "utf-8");
+      content = fs64.readFileSync(file3, "utf-8");
     } catch {
       continue;
     }
@@ -52725,28 +53787,28 @@ function runSecurity(localDir, strict = false) {
     checkedSkillFiles: skillFiles,
     missingPermissionMetadata,
     disallowedPermissions,
-    checkedAt: nowIso43()
+    checkedAt: nowIso44()
   };
 }
 function buildDigest(localDir, revision) {
   const hasher = createHash21("sha256");
   hasher.update(revision);
   for (const rel of ["SKILL.md", "README.md"]) {
-    const file3 = path61.join(localDir, rel);
-    if (!fs62.existsSync(file3))
+    const file3 = path62.join(localDir, rel);
+    if (!fs64.existsSync(file3))
       continue;
     hasher.update(rel);
     hasher.update(`
 `);
-    hasher.update(fs62.readFileSync(file3, "utf-8"));
+    hasher.update(fs64.readFileSync(file3, "utf-8"));
     hasher.update(`
 `);
   }
   return hasher.digest("hex");
 }
 function refreshSourcePackGovernance(projectDir, input) {
-  const store = readStore17(projectDir);
-  const now = nowIso43();
+  const store = readStore18(projectDir);
+  const now = nowIso44();
   const record3 = {
     sourcePackID: input.sourcePackID,
     revision: input.revision,
@@ -52766,11 +53828,11 @@ function refreshSourcePackGovernance(projectDir, input) {
     updatedAt: now
   };
   store.records[input.sourcePackID] = record3;
-  writeStore17(projectDir, store);
+  writeStore18(projectDir, store);
   return record3;
 }
 function getSourcePackGovernance(projectDir, sourcePackID) {
-  const store = readStore17(projectDir);
+  const store = readStore18(projectDir);
   return store.records[sourcePackID];
 }
 function verifySourcePackGovernance(projectDir, input) {
@@ -52809,7 +53871,7 @@ function verifySourcePackGovernance(projectDir, input) {
       smoke,
       regression,
       security,
-      updatedAt: nowIso43()
+      updatedAt: nowIso44()
     }
   };
 }
@@ -52826,18 +53888,18 @@ var TRUSTED_SOURCE_ALLOWLIST = [
   /^https?:\/\/github\.com\/(openclaw|openclaw-girl-agent|Yeachan-Heo|code-yeongyu|SumeLabs|MemTensor|mmy4shadow)\//i,
   /^git@github\.com:(openclaw|openclaw-girl-agent|Yeachan-Heo|code-yeongyu|SumeLabs|MemTensor|mmy4shadow)\//i
 ];
-function nowIso44(options) {
+function nowIso45(options) {
   return options?.now?.() ?? new Date().toISOString();
 }
 function stateFile2(projectDir) {
-  return path62.join(getMiyaRuntimeDir(projectDir), "ecosystem-bridge.json");
+  return path63.join(getMiyaRuntimeDir(projectDir), "ecosystem-bridge.json");
 }
 function readState3(projectDir) {
   const file3 = stateFile2(projectDir);
-  if (!fs63.existsSync(file3))
+  if (!fs65.existsSync(file3))
     return { ...DEFAULT_STATE3 };
   try {
-    const parsed = JSON.parse(fs63.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs65.readFileSync(file3, "utf-8"));
     return {
       version: 1,
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date(0).toISOString(),
@@ -52851,13 +53913,13 @@ function readState3(projectDir) {
 }
 function writeState6(projectDir, state, options) {
   const file3 = stateFile2(projectDir);
-  fs63.mkdirSync(path62.dirname(file3), { recursive: true });
+  fs65.mkdirSync(path63.dirname(file3), { recursive: true });
   const next = {
     ...state,
     version: 1,
-    updatedAt: nowIso44(options)
+    updatedAt: nowIso45(options)
   };
-  fs63.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs65.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
 }
 function runGit(args, cwd) {
@@ -52883,23 +53945,23 @@ function normalizeText5(value) {
 }
 function defaultSourceRoots(projectDir) {
   return [
-    path62.join(projectDir, "skills"),
-    path62.join(os8.homedir(), ".config", "opencode", "miya", "skills")
+    path63.join(projectDir, "skills"),
+    path63.join(os8.homedir(), ".config", "opencode", "miya", "skills")
   ];
 }
 function listSkillReposFromRoot(rootDir) {
-  if (!fs63.existsSync(rootDir))
+  if (!fs65.existsSync(rootDir))
     return [];
-  return fs63.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path62.join(rootDir, entry2.name)).filter((dir) => {
-    return fs63.existsSync(path62.join(dir, "SKILL.md")) && fs63.existsSync(path62.join(dir, ".git"));
+  return fs65.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path63.join(rootDir, entry2.name)).filter((dir) => {
+    return fs65.existsSync(path63.join(dir, "SKILL.md")) && fs65.existsSync(path63.join(dir, ".git"));
   });
 }
 function sanitizeIdSegment(input) {
   return input.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 function buildSourcePackID(repo, localDir) {
-  const base = sanitizeIdSegment(path62.basename(localDir) || "source-pack") || "source-pack";
-  const fingerprint = createHash22("sha256").update(`${repo ?? ""}|${path62.resolve(localDir)}`).digest("hex").slice(0, 12);
+  const base = sanitizeIdSegment(path63.basename(localDir) || "source-pack") || "source-pack";
+  const fingerprint = createHash22("sha256").update(`${repo ?? ""}|${path63.resolve(localDir)}`).digest("hex").slice(0, 12);
   return `${base}-${fingerprint}`;
 }
 function trustLevelForRepo(repo) {
@@ -52908,16 +53970,16 @@ function trustLevelForRepo(repo) {
   return TRUSTED_SOURCE_ALLOWLIST.some((rule) => rule.test(repo)) ? "allowlisted" : "untrusted";
 }
 function resolveSkillName(localDir) {
-  const manifest = path62.join(localDir, "SKILL.md");
-  if (!fs63.existsSync(manifest))
-    return path62.basename(localDir);
+  const manifest = path63.join(localDir, "SKILL.md");
+  if (!fs65.existsSync(manifest))
+    return path63.basename(localDir);
   try {
-    const raw = fs63.readFileSync(manifest, "utf-8");
+    const raw = fs65.readFileSync(manifest, "utf-8");
     const heading = /^#\s+(.+)$/m.exec(raw)?.[1]?.trim();
     if (heading)
       return heading;
   } catch {}
-  return path62.basename(localDir);
+  return path63.basename(localDir);
 }
 function readGitValue(options, cwd, args) {
   const result = git(options, args, cwd);
@@ -52962,7 +54024,7 @@ function discoverSourcePacks(projectDir, state, options) {
   const dirs = new Set;
   for (const root of roots) {
     for (const repoDir of listSkillReposFromRoot(root)) {
-      dirs.add(path62.resolve(repoDir));
+      dirs.add(path63.resolve(repoDir));
     }
   }
   const packs = [];
@@ -52983,7 +54045,7 @@ function discoverSourcePacks(projectDir, state, options) {
     const governance = getSourcePackGovernance(projectDir, sourcePackID);
     packs.push({
       sourcePackID,
-      name: path62.basename(localDir),
+      name: path63.basename(localDir),
       skillName: resolveSkillName(localDir),
       repo,
       localDir,
@@ -53019,7 +54081,7 @@ function ensureImportPlan(state, sourcePack, options) {
       ...existing,
       sourcePackID: sourcePack.sourcePackID,
       localDir: sourcePack.localDir,
-      updatedAt: nowIso44(options)
+      updatedAt: nowIso45(options)
     };
     state.importPlans[sourcePack.sourcePackID] = refreshed;
     return refreshed;
@@ -53029,8 +54091,8 @@ function ensureImportPlan(state, sourcePack, options) {
     localDir: sourcePack.localDir,
     importMode: "skills_only",
     permissionMode: "sandbox_read_only",
-    createdAt: nowIso44(options),
-    updatedAt: nowIso44(options)
+    createdAt: nowIso45(options),
+    updatedAt: nowIso45(options)
   };
   state.importPlans[sourcePack.sourcePackID] = created;
   return created;
@@ -53091,7 +54153,7 @@ function pullSourcePack(projectDir, sourcePackID, options) {
   ensureImportPlan(resolved.state, resolved.sourcePack, options);
   updateSourcePackState(resolved.state, resolved.sourcePack, {
     latestRevision,
-    lastPulledAt: nowIso44(options),
+    lastPulledAt: nowIso45(options),
     lastError: undefined
   });
   writeState6(projectDir, resolved.state, options);
@@ -53105,7 +54167,7 @@ function pullSourcePack(projectDir, sourcePackID, options) {
     localDir: resolved.sourcePack.localDir,
     latestRevision,
     compareRef,
-    pulledAt: nowIso44(options),
+    pulledAt: nowIso45(options),
     governance
   };
 }
@@ -53156,7 +54218,7 @@ function applySourcePack(projectDir, sourcePackID, input = {}, options) {
     sourcePackID,
     revision: targetRevision,
     previousRevision: previousRevision !== targetRevision ? previousRevision : resolved.state.pinnedReleases[sourcePackID]?.previousRevision,
-    appliedAt: nowIso44(options)
+    appliedAt: nowIso45(options)
   };
   writeState6(projectDir, resolved.state, options);
   const governance = refreshSourcePackGovernance(projectDir, {
@@ -53190,7 +54252,7 @@ function rollbackSourcePack(projectDir, sourcePackID, options) {
     sourcePackID,
     revision: rollbackRevision,
     previousRevision,
-    appliedAt: nowIso44(options)
+    appliedAt: nowIso45(options)
   };
   writeState6(projectDir, resolved.state, options);
   const governance = refreshSourcePackGovernance(projectDir, {
@@ -53255,26 +54317,26 @@ function preflightSourcePackGovernance(projectDir, sourcePackID, options) {
 
 // src/system/autostart.ts
 import { spawnSync as spawnSync10 } from "child_process";
-import * as fs64 from "fs";
-import * as path63 from "path";
+import * as fs66 from "fs";
+import * as path64 from "path";
 var TEST_MODE_ENV = "MIYA_AUTOSTART_TEST_MODE";
 var TEST_TASKS_ENV = "MIYA_AUTOSTART_TEST_TASKS_JSON";
 var DEFAULT_TASK_NAME = "MiyaOpenCodeGatewayAutostart";
-function nowIso45() {
+function nowIso46() {
   return new Date().toISOString();
 }
 function stateFile3(projectDir) {
-  return path63.join(getMiyaRuntimeDir(projectDir), "autostart.json");
+  return path64.join(getMiyaRuntimeDir(projectDir), "autostart.json");
 }
 function isTestMode() {
   const raw = String(process.env[TEST_MODE_ENV] ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
 }
 function readJson2(file3) {
-  if (!fs64.existsSync(file3))
+  if (!fs66.existsSync(file3))
     return {};
   try {
-    const parsed = JSON.parse(fs64.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs66.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       return {};
     return parsed;
@@ -53283,8 +54345,8 @@ function readJson2(file3) {
   }
 }
 function writeJson3(file3, value) {
-  fs64.mkdirSync(path63.dirname(file3), { recursive: true });
-  fs64.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
+  fs66.mkdirSync(path64.dirname(file3), { recursive: true });
+  fs66.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
 }
 function quotePowerShellLiteral(value) {
@@ -53297,7 +54359,7 @@ function isLegacyAutostartCommand(command) {
   if (normalized.includes("miya-gateway-start")) {
     return true;
   }
-  if (/--workspace\s+['"][^'"]*[\\\/]\.opencode[\\\/]miya-src['"]/i.test(command)) {
+  if (/--workspace\s+['"][^'"]*[\\/]\.opencode[\\/]miya-src['"]/i.test(command)) {
     return true;
   }
   return /miya-src(?:\\\\|\\|\/)miya-src(?:\\\\|\\|\/)dist(?:\\\\|\\|\/)cli(?:\\\\|\\|\/)gateway-supervisor\.node\.js/i.test(command);
@@ -53310,22 +54372,22 @@ function resolveAutostartCommand(projectDir, current) {
   return currentCommand;
 }
 function defaultCommand(projectDir) {
-  const resolvedProjectDir = path63.resolve(projectDir);
+  const resolvedProjectDir = path64.resolve(projectDir);
   let workspaceDir = resolvedProjectDir;
-  if (path63.basename(resolvedProjectDir).toLowerCase() === "miya-src") {
-    const parent = path63.dirname(resolvedProjectDir);
-    if (path63.basename(parent).toLowerCase() === ".opencode") {
+  if (path64.basename(resolvedProjectDir).toLowerCase() === "miya-src") {
+    const parent = path64.dirname(resolvedProjectDir);
+    if (path64.basename(parent).toLowerCase() === ".opencode") {
       workspaceDir = parent;
     }
   }
   const escapedProjectDir = quotePowerShellLiteral(workspaceDir);
-  const baseName = path63.basename(workspaceDir).toLowerCase();
+  const baseName = path64.basename(workspaceDir).toLowerCase();
   const candidateSet = new Set;
-  candidateSet.add(path63.join(workspaceDir, "dist", "cli", "gateway-supervisor.node.js"));
+  candidateSet.add(path64.join(workspaceDir, "dist", "cli", "gateway-supervisor.node.js"));
   if (baseName === "miya-src") {
-    candidateSet.add(path63.join(path63.dirname(workspaceDir), "miya-src", "dist", "cli", "gateway-supervisor.node.js"));
+    candidateSet.add(path64.join(path64.dirname(workspaceDir), "miya-src", "dist", "cli", "gateway-supervisor.node.js"));
   } else {
-    candidateSet.add(path63.join(workspaceDir, "miya-src", "dist", "cli", "gateway-supervisor.node.js"));
+    candidateSet.add(path64.join(workspaceDir, "miya-src", "dist", "cli", "gateway-supervisor.node.js"));
   }
   const supervisorCandidates = [...candidateSet].map((item) => quotePowerShellLiteral(item));
   const scriptList = supervisorCandidates.map((item) => `'${item}'`).join(", ");
@@ -53339,7 +54401,7 @@ function normalizeState3(projectDir, raw) {
     enabled,
     taskName: taskNameRaw || DEFAULT_TASK_NAME,
     command: resolveAutostartCommand(projectDir, commandRaw),
-    updatedAt: typeof raw?.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt : nowIso45()
+    updatedAt: typeof raw?.updatedAt === "string" && raw.updatedAt.trim() ? raw.updatedAt : nowIso46()
   };
 }
 function readState4(projectDir) {
@@ -53658,7 +54720,7 @@ function setAutostartEnabled(projectDir, input) {
     enabled: input.enabled,
     taskName: typeof input.taskName === "string" && input.taskName.trim() ? input.taskName.trim() : current.taskName || DEFAULT_TASK_NAME,
     command: typeof input.command === "string" && input.command.trim() ? input.command.trim() : resolveAutostartCommand(projectDir, current.command),
-    updatedAt: nowIso45()
+    updatedAt: nowIso46()
   };
   if (process.platform !== "win32") {
     writeState7(projectDir, next);
@@ -53693,23 +54755,28 @@ function setAutostartEnabled(projectDir, input) {
 }
 
 // src/gateway/control-ui.ts
-import fs65 from "fs";
-import path64 from "path";
+import fs67 from "fs";
+import path65 from "path";
 
 // src/gateway/control-ui-shared.ts
 function normalizeControlUiBasePath(basePath) {
   if (!basePath)
     return "";
-  let normalized = basePath.trim();
+  let normalized = basePath.trim().replaceAll("\\", "/");
   if (!normalized)
     return "";
   if (!normalized.startsWith("/"))
     normalized = `/${normalized}`;
+  normalized = normalized.replace(/\/+/g, "/");
   if (normalized === "/")
     return "";
   if (normalized.endsWith("/"))
     normalized = normalized.slice(0, -1);
-  return normalized;
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "." || segment === ".." || segment.includes("\x00"))) {
+    return "";
+  }
+  return segments.length > 0 ? `/${segments.join("/")}` : "";
 }
 
 // src/gateway/control-ui.ts
@@ -53763,7 +54830,11 @@ function textResponse(status, body) {
 function isSafeRelativePath(relPath) {
   if (!relPath)
     return false;
-  const normalized = path64.posix.normalize(relPath);
+  if (relPath.includes("\\"))
+    return false;
+  const normalized = path65.posix.normalize(relPath);
+  if (path65.posix.isAbsolute(normalized))
+    return false;
   if (normalized.startsWith("../") || normalized === "..")
     return false;
   if (normalized.includes("\x00"))
@@ -53785,19 +54856,26 @@ function resolveRequestedFile(pathname, basePath) {
   const assetsIndex = pathname.indexOf("/assets/");
   const rel = assetsIndex >= 0 ? pathname.slice(assetsIndex + 1) : pathname.slice(1);
   const requested = rel && !rel.endsWith("/") ? rel : `${rel}index.html`;
-  return requested || "index.html";
+  const decodedRequested = (() => {
+    try {
+      return decodeURIComponent(requested);
+    } catch {
+      return "";
+    }
+  })();
+  return decodedRequested || "index.html";
 }
 function resolveRootState(projectDir) {
   const envRoot = process.env.MIYA_GATEWAY_UI_ROOT?.trim();
   const candidates = envRoot ? [envRoot] : [
-    path64.join(projectDir, "miya-src", "gateway-ui", "dist"),
-    path64.join(projectDir, "gateway-ui", "dist"),
-    path64.join(projectDir, ".opencode", "miya", "gateway-ui", "dist"),
-    path64.join(projectDir, ".opencode", "miya", "gateway-ui")
+    path65.join(projectDir, "miya-src", "gateway-ui", "dist"),
+    path65.join(projectDir, "gateway-ui", "dist"),
+    path65.join(projectDir, ".opencode", "miya", "gateway-ui", "dist"),
+    path65.join(projectDir, ".opencode", "miya", "gateway-ui")
   ];
   for (const candidate of candidates) {
-    const indexPath = path64.join(candidate, "index.html");
-    if (fs65.existsSync(indexPath) && fs65.statSync(indexPath).isFile()) {
+    const indexPath = path65.join(candidate, "index.html");
+    if (fs67.existsSync(indexPath) && fs67.statSync(indexPath).isFile()) {
       return { kind: "resolved", path: candidate };
     }
   }
@@ -53832,27 +54910,28 @@ function handleControlUiHttpRequest(request, opts) {
   }
   if (!root || root.kind !== "resolved")
     return null;
-  const filePath15 = path64.join(root.path, requestedFile);
-  if (!filePath15.startsWith(root.path)) {
+  const filePath15 = path65.join(root.path, requestedFile);
+  const relFromRoot = path65.relative(root.path, filePath15);
+  if (relFromRoot.startsWith("..") || path65.isAbsolute(relFromRoot)) {
     return textResponse(404, "Not Found");
   }
-  const indexPath = path64.join(root.path, "index.html");
-  const resolvedPath = fs65.existsSync(filePath15) && fs65.statSync(filePath15).isFile() ? filePath15 : indexPath;
-  if (!fs65.existsSync(resolvedPath) || !fs65.statSync(resolvedPath).isFile()) {
+  const indexPath = path65.join(root.path, "index.html");
+  const resolvedPath = fs67.existsSync(filePath15) && fs67.statSync(filePath15).isFile() ? filePath15 : indexPath;
+  if (!fs67.existsSync(resolvedPath) || !fs67.statSync(resolvedPath).isFile()) {
     return textResponse(404, "Not Found");
   }
-  const headers = securityHeaders(contentTypeForExt(path64.extname(resolvedPath).toLowerCase()));
+  const headers = securityHeaders(contentTypeForExt(path65.extname(resolvedPath).toLowerCase()));
   if (request.method === "HEAD") {
     return new Response(null, { status: 200, headers });
   }
-  return new Response(fs65.readFileSync(resolvedPath), {
+  return new Response(fs67.readFileSync(resolvedPath), {
     status: 200,
     headers
   });
 }
 
 // src/gateway/cortex-arbiter.ts
-function clamp11(value, min, max) {
+function clamp13(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 function normalizeReasonList(input) {
@@ -53893,7 +54972,7 @@ function detectUserExplicitIntent(text) {
   }
   return {
     preference,
-    confidence: Number(clamp11(confidence, 0, 1).toFixed(3)),
+    confidence: Number(clamp13(confidence, 0, 1).toFixed(3)),
     why
   };
 }
@@ -53994,17 +55073,55 @@ function arbitrateCortex(input) {
 }
 
 // src/gateway/kernel/action-ledger.ts
-import { createHash as createHash23, createHmac as createHmac2, randomUUID as randomUUID25 } from "crypto";
-import * as fs66 from "fs";
-import * as path65 from "path";
+import { createHash as createHash23, createHmac as createHmac2, randomBytes as randomBytes3, randomUUID as randomUUID25 } from "crypto";
+import * as fs68 from "fs";
+import * as path66 from "path";
 function ledgerFile(projectDir) {
-  return path65.join(getMiyaRuntimeDir(projectDir), "audit", "tool-action-ledger.jsonl");
+  return path66.join(getMiyaRuntimeDir(projectDir), "audit", "tool-action-ledger.jsonl");
 }
-function nowIso46() {
+function ledgerSecretFile(projectDir) {
+  return path66.join(getMiyaRuntimeDir(projectDir), "audit", "tool-action-ledger.secret");
+}
+function nowIso47() {
   return new Date().toISOString();
 }
 function digest2(input) {
   return createHash23("sha256").update(input).digest("hex");
+}
+function canonicalSerialize(value, seen = new WeakSet) {
+  if (value === null)
+    return "null";
+  if (value === undefined)
+    return "undefined";
+  if (typeof value === "string")
+    return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return JSON.stringify(value);
+  if (typeof value === "bigint")
+    return `"${value.toString()}n"`;
+  if (typeof value === "function")
+    return '"[function]"';
+  if (typeof value === "symbol")
+    return JSON.stringify(String(value));
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalSerialize(item, seen)).join(",")}]`;
+  }
+  if (value instanceof Date)
+    return JSON.stringify(value.toISOString());
+  if (typeof value === "object") {
+    if (seen.has(value))
+      return '"[circular]"';
+    seen.add(value);
+    const obj = value;
+    const keys = Object.keys(obj).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalSerialize(obj[key], seen)}`).join(",")}}`;
+  }
+  return JSON.stringify(String(value));
+}
+function hashPayload(value) {
+  const serialized = canonicalSerialize(value);
+  const bounded = serialized.length > 131072 ? serialized.slice(0, 131072) : serialized;
+  return digest2(bounded);
 }
 function summarizeParams(params) {
   const keys = Object.keys(params).sort();
@@ -54021,6 +55138,10 @@ function summarizeParams(params) {
       snippets.push(`${key}=${String(value)}`);
       continue;
     }
+    if (value === null || value === undefined) {
+      snippets.push(`${key}=${String(value)}`);
+      continue;
+    }
     if (Array.isArray(value)) {
       snippets.push(`${key}=[len:${value.length}]`);
       continue;
@@ -54029,7 +55150,7 @@ function summarizeParams(params) {
       snippets.push(`${key}={object}`);
     }
   }
-  return snippets.join(" | ");
+  return snippets.length > 0 ? snippets.join(" | ") : `(keys:${keys.length})`;
 }
 function summarizeResult(result) {
   if (result === null || result === undefined)
@@ -54044,15 +55165,33 @@ function summarizeResult(result) {
     return String(result).slice(0, 400);
   }
 }
-function replayToken2(eventID, method, inputHash) {
-  const secret = process.env.MIYA_ACTION_LEDGER_SECRET?.trim() || "miya-action-ledger-v1";
+function resolveReplaySecret(projectDir) {
+  const envSecret = process.env.MIYA_ACTION_LEDGER_SECRET?.trim();
+  if (envSecret)
+    return envSecret;
+  const file3 = ledgerSecretFile(projectDir);
+  try {
+    const existing = fs68.readFileSync(file3, "utf-8").trim();
+    if (existing)
+      return existing;
+  } catch {}
+  const generated = randomBytes3(32).toString("hex");
+  try {
+    fs68.mkdirSync(path66.dirname(file3), { recursive: true });
+    fs68.writeFileSync(file3, `${generated}
+`, { encoding: "utf-8", mode: 384 });
+  } catch {}
+  return generated;
+}
+function replayToken2(projectDir, eventID, method, inputHash) {
+  const secret = resolveReplaySecret(projectDir);
   return createHmac2("sha256", secret).update(`${eventID}:${method}:${inputHash}`).digest("hex");
 }
 function safeReadRows(file3) {
-  if (!fs66.existsSync(file3))
+  if (!fs68.existsSync(file3))
     return [];
   const rows = [];
-  const lines = fs66.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean);
+  const lines = fs68.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean);
   for (const line of lines) {
     try {
       rows.push(JSON.parse(line));
@@ -54074,16 +55213,16 @@ function deriveApprovalBasis(params) {
 }
 function appendToolActionLedgerEvent(projectDir, input) {
   const file3 = ledgerFile(projectDir);
-  fs66.mkdirSync(path65.dirname(file3), { recursive: true });
+  fs68.mkdirSync(path66.dirname(file3), { recursive: true });
   const rows = safeReadRows(file3);
   const previousHash = rows[rows.length - 1]?.entryHash ?? "GENESIS";
   const inputSummary = summarizeParams(input.params);
-  const inputHash = digest2(inputSummary);
+  const inputHash = hashPayload(input.params);
   const resultText = input.status === "completed" ? summarizeResult(input.result) : summarizeResult(input.error);
   const resultHash = digest2(resultText);
   const id = `tae_${randomUUID25()}`;
   const approvalBasis = input.approvalBasis?.trim() || deriveApprovalBasis(input.params);
-  const at = nowIso46();
+  const at = nowIso47();
   const entryHash = digest2([
     id,
     at,
@@ -54107,11 +55246,11 @@ function appendToolActionLedgerEvent(projectDir, input) {
     inputHash,
     approvalBasis,
     resultHash,
-    replayToken: replayToken2(id, input.method, inputHash),
+    replayToken: replayToken2(projectDir, id, input.method, inputHash),
     previousHash,
     entryHash
   };
-  fs66.appendFileSync(file3, `${JSON.stringify(event)}
+  fs68.appendFileSync(file3, `${JSON.stringify(event)}
 `, "utf-8");
   return event;
 }
@@ -54120,10 +55259,15 @@ function listToolActionLedgerEvents(projectDir, limit = 100) {
   return rows.slice(-Math.max(1, Math.min(1000, limit))).reverse();
 }
 
-// src/gateway/methods/channels.ts
-function registerDomainMethods(methods, domain3, prefixes, register) {
+// src/gateway/methods/domain-registration.ts
+function registerGatewayDomainMethods(methods, domain3, prefixes, register) {
+  const beforeHandlers = new Map(methods.list().map((method) => [method, methods.handlerOf(method)]));
   const before = new Set(methods.list());
   register(methods);
+  const overridden = [...beforeHandlers.entries()].filter(([method, handler]) => methods.handlerOf(method) !== handler).map(([method]) => method);
+  if (overridden.length > 0) {
+    throw new Error(`gateway_domain_registration_override:${domain3}:${overridden.join(",")}`);
+  }
   const added = methods.list().filter((method) => !before.has(method));
   if (added.length === 0) {
     throw new Error(`gateway_domain_registration_empty:${domain3}`);
@@ -54133,25 +55277,15 @@ function registerDomainMethods(methods, domain3, prefixes, register) {
     throw new Error(`gateway_domain_registration_invalid:${domain3}:${invalid.join(",")}`);
   }
 }
+
+// src/gateway/methods/channels.ts
 function registerGatewayChannelMethods(methods, register) {
-  registerDomainMethods(methods, "channels", ["channels."], register);
+  registerGatewayDomainMethods(methods, "channels", ["channels."], register);
 }
 
 // src/gateway/methods/companion.ts
-function registerDomainMethods2(methods, domain3, prefixes, register) {
-  const before = new Set(methods.list());
-  register(methods);
-  const added = methods.list().filter((method) => !before.has(method));
-  if (added.length === 0) {
-    throw new Error(`gateway_domain_registration_empty:${domain3}`);
-  }
-  const invalid = added.filter((method) => !prefixes.some((prefix) => method.startsWith(prefix)));
-  if (invalid.length > 0) {
-    throw new Error(`gateway_domain_registration_invalid:${domain3}:${invalid.join(",")}`);
-  }
-}
 function registerGatewayCompanionMethods(methods, register) {
-  registerDomainMethods2(methods, "companion", ["companion."], register);
+  registerGatewayDomainMethods(methods, "companion", ["companion."], register);
 }
 
 // src/gateway/mode-policy.ts
@@ -54335,7 +55469,7 @@ function registerGatewayCoreMethods(methods, deps) {
         daemonStatus: daemonSnapshot.statusText
       });
       if (index < rounds - 1) {
-        await new Promise((resolve7) => setTimeout(resolve7, waitMs));
+        await new Promise((resolve9) => setTimeout(resolve9, waitMs));
       }
     }
     return {
@@ -54350,37 +55484,13 @@ function registerGatewayCoreMethods(methods, deps) {
 }
 
 // src/gateway/methods/memory.ts
-function registerDomainMethods3(methods, domain3, prefixes, register) {
-  const before = new Set(methods.list());
-  register(methods);
-  const added = methods.list().filter((method) => !before.has(method));
-  if (added.length === 0) {
-    throw new Error(`gateway_domain_registration_empty:${domain3}`);
-  }
-  const invalid = added.filter((method) => !prefixes.some((prefix) => method.startsWith(prefix)));
-  if (invalid.length > 0) {
-    throw new Error(`gateway_domain_registration_invalid:${domain3}:${invalid.join(",")}`);
-  }
-}
 function registerGatewayMemoryMethods(methods, register) {
-  registerDomainMethods3(methods, "memory", ["companion.memory.", "companion.learning.", "miya.memory."], register);
+  registerGatewayDomainMethods(methods, "memory", ["companion.memory.", "companion.learning.", "miya.memory."], register);
 }
 
 // src/gateway/methods/nodes.ts
-function registerDomainMethods4(methods, domain3, prefixes, register) {
-  const before = new Set(methods.list());
-  register(methods);
-  const added = methods.list().filter((method) => !before.has(method));
-  if (added.length === 0) {
-    throw new Error(`gateway_domain_registration_empty:${domain3}`);
-  }
-  const invalid = added.filter((method) => !prefixes.some((prefix) => method.startsWith(prefix)));
-  if (invalid.length > 0) {
-    throw new Error(`gateway_domain_registration_invalid:${domain3}:${invalid.join(",")}`);
-  }
-}
 function registerGatewayNodeMethods(methods, register) {
-  registerDomainMethods4(methods, "nodes", [
+  registerGatewayDomainMethods(methods, "nodes", [
     "nodes.",
     "devices.",
     "skills.",
@@ -54395,20 +55505,8 @@ function registerGatewayNodeMethods(methods, register) {
 }
 
 // src/gateway/methods/security.ts
-function registerDomainMethods5(methods, domain3, prefixes, register) {
-  const before = new Set(methods.list());
-  register(methods);
-  const added = methods.list().filter((method) => !before.has(method));
-  if (added.length === 0) {
-    throw new Error(`gateway_domain_registration_empty:${domain3}`);
-  }
-  const invalid = added.filter((method) => !prefixes.some((prefix) => method.startsWith(prefix)));
-  if (invalid.length > 0) {
-    throw new Error(`gateway_domain_registration_invalid:${domain3}:${invalid.join(",")}`);
-  }
-}
 function registerGatewaySecurityMethods(methods, register) {
-  registerDomainMethods5(methods, "security", [
+  registerGatewayDomainMethods(methods, "security", [
     "security.",
     "policy.",
     "daemon.",
@@ -54549,7 +55647,7 @@ var CHAT_HINT = [
   /(\u5B9D\u8D1D|\u4EB2\u7231|\u966A\u6211|\u665A\u5B89|\u62B1\u62B1|\u60F3\u4F60|\u6492\u5A07|\u804A\u5929|\u60C5\u7EEA|\u5B89\u6170)/,
   /\b(love|hug|dear|chat|lonely|comfort)\b/i
 ];
-function clamp12(value, min, max) {
+function clamp14(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 function isWorkHint(text) {
@@ -54672,7 +55770,7 @@ function evaluateModeKernel(input) {
   const second = ranked[1]?.[1] ?? 0;
   const margin = primary - second;
   const signalDensity = normalizeReasonList2(reasons).length;
-  const confidence = clamp12(0.45 + clamp12(margin / Math.max(primary, 1), 0, 1) * 0.4 + Math.min(0.15, signalDensity * 0.015), 0.35, 0.99);
+  const confidence = clamp14(0.45 + clamp14(margin / Math.max(primary, 1), 0, 1) * 0.4 + Math.min(0.15, signalDensity * 0.015), 0.35, 0.99);
   let mode;
   if (explicitMixed && workScore >= 1 && chatScore >= 1) {
     mode = "mixed";
@@ -54698,7 +55796,7 @@ function evaluateModeKernel(input) {
 }
 
 // src/gateway/negotiation-budget.ts
-function nowIso47() {
+function nowIso48() {
   return new Date().toISOString();
 }
 function sanitizeBudget(input) {
@@ -54714,14 +55812,14 @@ function applyNegotiationBudget(store, input) {
     ...existing,
     fixability,
     budget: fixability === "impossible" ? { autoRetry: 0, humanEdit: 0 } : budget,
-    updatedAt: nowIso47()
+    updatedAt: nowIso48()
   } : {
     key: input.key,
     fixability,
     budget: fixability === "impossible" ? { autoRetry: 0, humanEdit: 0 } : budget,
     autoUsed: 0,
     humanUsed: 0,
-    updatedAt: nowIso47()
+    updatedAt: nowIso48()
   };
   if (!input.attemptType) {
     store.set(input.key, state);
@@ -54744,7 +55842,7 @@ function applyNegotiationBudget(store, input) {
     }
     state.humanUsed += 1;
   }
-  state.updatedAt = nowIso47();
+  state.updatedAt = nowIso48();
   store.set(input.key, state);
   return { allowed: true, state };
 }
@@ -54972,13 +56070,13 @@ class GatewayMethodRegistry {
       this.rejectedOverloaded += 1;
       throw new Error(`gateway_backpressure_overloaded:in_flight=${this.inFlight}:queued=${this.queue.length}`);
     }
-    return await new Promise((resolve7, reject) => {
+    return await new Promise((resolve9, reject) => {
       const queued = {
         method,
         params,
         context,
         enqueuedAtMs: Date.now(),
-        resolve: resolve7,
+        resolve: resolve9,
         reject,
         timeout: setTimeout(() => {
           const index = this.queue.indexOf(queued);
@@ -55055,8 +56153,8 @@ class GatewayMethodRegistry {
 }
 function parseIncomingFrame(message) {
   let payload = message;
-  if (typeof message === "string") {
-    const raw = message.trim();
+  if (typeof message === "string" || message instanceof Uint8Array || message instanceof ArrayBuffer) {
+    const raw = typeof message === "string" ? message.trim() : new TextDecoder().decode(message instanceof ArrayBuffer ? new Uint8Array(message) : message).trim();
     if (!raw)
       return { error: "empty_message" };
     if (raw === "status") {
@@ -55143,15 +56241,15 @@ function toJsonCompatible(input) {
 }
 
 // src/gateway/turn-evidence.ts
-import * as fs67 from "fs";
-import * as path66 from "path";
+import * as fs69 from "fs";
+import * as path67 from "path";
 function evidenceFile(projectDir) {
-  return path66.join(getMiyaRuntimeDir(projectDir), "gateway-turn-evidence.jsonl");
+  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-turn-evidence.jsonl");
 }
 function appendTurnEvidencePack(projectDir, pack) {
   const file3 = evidenceFile(projectDir);
-  fs67.mkdirSync(path66.dirname(file3), { recursive: true });
-  fs67.appendFileSync(file3, `${JSON.stringify(pack)}
+  fs69.mkdirSync(path67.dirname(file3), { recursive: true });
+  fs69.appendFileSync(file3, `${JSON.stringify(pack)}
 `, "utf-8");
 }
 
@@ -55163,7 +56261,7 @@ var ownerTokens = new Map;
 var controlUiFallbackLoggedAtByDir = new Map;
 var statusSnapshotFailureLoggedAtByDir = new Map;
 var followerRecoveryTimers = new Map;
-function nowIso48() {
+function nowIso49() {
   return new Date().toISOString();
 }
 var LOOPBACK_NO_PROXY = "localhost,127.0.0.1,::1";
@@ -55181,7 +56279,7 @@ function ensureLoopbackNoProxy() {
 }
 function buildGatewayHealthPayload(runtime) {
   return {
-    at: nowIso48(),
+    at: nowIso49(),
     pid: process.pid,
     uptimeMs: Math.max(0, Date.now() - Date.parse(runtime.startedAt)),
     wsConnections: runtime.wsConnectionCount,
@@ -55225,7 +56323,7 @@ function appendNexusInsight(runtime, input) {
   if (!trimmed)
     return;
   runtime.nexus.insights.push({
-    at: input.at ?? nowIso48(),
+    at: input.at ?? nowIso49(),
     text: trimmed,
     auditID: input.auditID
   });
@@ -55249,17 +56347,17 @@ function registerGatewayDependencies(projectDir, deps) {
   dependencies.set(projectDir, { ...current, ...deps });
 }
 function gatewayFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway.json");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway.json");
 }
 function gatewayAuthFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-auth.json");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-auth.json");
 }
 function gatewayGlobalStateFile() {
   if (process.platform === "win32") {
-    const appData = String(process.env.APPDATA ?? "").trim() || path67.join(os9.homedir(), "AppData", "Roaming");
-    return path67.join(appData, "miya", "gateway.json");
+    const appData = String(process.env.APPDATA ?? "").trim() || path68.join(os9.homedir(), "AppData", "Roaming");
+    return path68.join(appData, "miya", "gateway.json");
   }
-  return path67.join(os9.homedir(), ".config", "miya", "gateway.json");
+  return path68.join(os9.homedir(), ".config", "miya", "gateway.json");
 }
 function toWsUrl(httpUrl3) {
   const parsed = new URL(httpUrl3);
@@ -55316,7 +56414,7 @@ function resolveGatewayAuthConfig(projectDir) {
     writeJsonAtomic(file3, {
       token,
       source: "generated",
-      createdAt: nowIso48(),
+      createdAt: nowIso49(),
       note: "Generated by Miya Gateway for local control-plane authentication."
     });
   }
@@ -55344,9 +56442,14 @@ var DEFAULT_PSYCHE_MODE = {
   resonanceEnabled: true,
   captureProbeEnabled: true,
   signalOverrideEnabled: false,
+  playCompanionEnabled: false,
+  proactivityExploreRate: 0.05,
   slowBrainEnabled: true,
   slowBrainShadowEnabled: true,
   slowBrainShadowRollout: 15,
+  periodicRetrainEnabled: false,
+  periodicRetrainIntervalHours: 7 * 24,
+  periodicRetrainMinOutcomes: 1e4,
   shadowCohortSalt: "miya-psyche-shadow-v1",
   proactivePingEnabled: true,
   proactivePingMinIntervalMinutes: 90,
@@ -55361,22 +56464,22 @@ var DEFAULT_LEARNING_GATE = {
   persistentRequiresApproval: true
 };
 function trustModeFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-trust-mode.json");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-trust-mode.json");
 }
 function psycheModeFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-mode.json");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-mode.json");
 }
 function psycheModeHistoryFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-mode-history.jsonl");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-mode-history.jsonl");
 }
 function psycheShadowAuditFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-shadow-audit.jsonl");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-shadow-audit.jsonl");
 }
 function learningGateFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-learning-gate.json");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-learning-gate.json");
 }
 function proactivePingStateFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-proactive-ping-state.json");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-proactive-ping-state.json");
 }
 function normalizeTrustMode2(input) {
   const silentMinRaw = Number(input?.silentMin ?? DEFAULT_TRUST_MODE.silentMin);
@@ -55431,15 +56534,26 @@ function normalizePsycheMode(input) {
   const proactivePingMinIntervalMinutes = Number.isFinite(proactivePingMinIntervalRaw) ? Math.max(1, Math.min(24 * 60, Math.round(proactivePingMinIntervalRaw))) : DEFAULT_PSYCHE_MODE.proactivePingMinIntervalMinutes;
   const proactivePingMaxPerDayRaw = Number(input?.proactivePingMaxPerDay ?? DEFAULT_PSYCHE_MODE.proactivePingMaxPerDay);
   const proactivePingMaxPerDay = Number.isFinite(proactivePingMaxPerDayRaw) ? Math.max(1, Math.min(200, Math.round(proactivePingMaxPerDayRaw))) : DEFAULT_PSYCHE_MODE.proactivePingMaxPerDay;
+  const proactivityExploreRateRaw = Number(input?.proactivityExploreRate ?? DEFAULT_PSYCHE_MODE.proactivityExploreRate);
+  const proactivityExploreRate = Number.isFinite(proactivityExploreRateRaw) ? Math.max(0, Math.min(0.2, Number(proactivityExploreRateRaw.toFixed(4)))) : DEFAULT_PSYCHE_MODE.proactivityExploreRate;
+  const periodicRetrainIntervalHoursRaw = Number(input?.periodicRetrainIntervalHours ?? DEFAULT_PSYCHE_MODE.periodicRetrainIntervalHours);
+  const periodicRetrainIntervalHours = Number.isFinite(periodicRetrainIntervalHoursRaw) ? Math.max(1, Math.min(24 * 90, Math.round(periodicRetrainIntervalHoursRaw))) : DEFAULT_PSYCHE_MODE.periodicRetrainIntervalHours;
+  const periodicRetrainMinOutcomesRaw = Number(input?.periodicRetrainMinOutcomes ?? DEFAULT_PSYCHE_MODE.periodicRetrainMinOutcomes);
+  const periodicRetrainMinOutcomes = Number.isFinite(periodicRetrainMinOutcomesRaw) ? Math.max(50, Math.min(500000, Math.round(periodicRetrainMinOutcomesRaw))) : DEFAULT_PSYCHE_MODE.periodicRetrainMinOutcomes;
   const timezoneOffsetRaw = Number(input?.quietHoursTimezoneOffsetMinutes ?? DEFAULT_PSYCHE_MODE.quietHoursTimezoneOffsetMinutes);
   const quietHoursTimezoneOffsetMinutes = Number.isFinite(timezoneOffsetRaw) ? Math.max(-12 * 60, Math.min(14 * 60, Math.round(timezoneOffsetRaw))) : DEFAULT_PSYCHE_MODE.quietHoursTimezoneOffsetMinutes;
   return {
     resonanceEnabled: typeof input?.resonanceEnabled === "boolean" ? input.resonanceEnabled : DEFAULT_PSYCHE_MODE.resonanceEnabled,
     captureProbeEnabled: typeof input?.captureProbeEnabled === "boolean" ? input.captureProbeEnabled : DEFAULT_PSYCHE_MODE.captureProbeEnabled,
     signalOverrideEnabled: typeof input?.signalOverrideEnabled === "boolean" ? input.signalOverrideEnabled : DEFAULT_PSYCHE_MODE.signalOverrideEnabled,
+    playCompanionEnabled: typeof input?.playCompanionEnabled === "boolean" ? input.playCompanionEnabled : DEFAULT_PSYCHE_MODE.playCompanionEnabled,
+    proactivityExploreRate,
     slowBrainEnabled: typeof input?.slowBrainEnabled === "boolean" ? input.slowBrainEnabled : DEFAULT_PSYCHE_MODE.slowBrainEnabled,
     slowBrainShadowEnabled: typeof input?.slowBrainShadowEnabled === "boolean" ? input.slowBrainShadowEnabled : DEFAULT_PSYCHE_MODE.slowBrainShadowEnabled,
     slowBrainShadowRollout: rollout,
+    periodicRetrainEnabled: typeof input?.periodicRetrainEnabled === "boolean" ? input.periodicRetrainEnabled : DEFAULT_PSYCHE_MODE.periodicRetrainEnabled,
+    periodicRetrainIntervalHours,
+    periodicRetrainMinOutcomes,
     shadowCohortSalt: typeof input?.shadowCohortSalt === "string" && input.shadowCohortSalt.trim().length > 0 ? input.shadowCohortSalt.trim().slice(0, 80) : DEFAULT_PSYCHE_MODE.shadowCohortSalt,
     proactivePingEnabled: typeof input?.proactivePingEnabled === "boolean" ? input.proactivePingEnabled : DEFAULT_PSYCHE_MODE.proactivePingEnabled,
     proactivePingMinIntervalMinutes,
@@ -55458,9 +56572,14 @@ function readPsycheModeConfig(projectDir) {
     resonanceEnabled: typeof raw.resonanceEnabled === "boolean" ? raw.resonanceEnabled : undefined,
     captureProbeEnabled: typeof raw.captureProbeEnabled === "boolean" ? raw.captureProbeEnabled : undefined,
     signalOverrideEnabled: typeof raw.signalOverrideEnabled === "boolean" ? raw.signalOverrideEnabled : undefined,
+    playCompanionEnabled: typeof raw.playCompanionEnabled === "boolean" ? raw.playCompanionEnabled : undefined,
+    proactivityExploreRate: typeof raw.proactivityExploreRate === "number" ? raw.proactivityExploreRate : undefined,
     slowBrainEnabled: typeof raw.slowBrainEnabled === "boolean" ? raw.slowBrainEnabled : undefined,
     slowBrainShadowEnabled: typeof raw.slowBrainShadowEnabled === "boolean" ? raw.slowBrainShadowEnabled : undefined,
     slowBrainShadowRollout: typeof raw.slowBrainShadowRollout === "number" ? raw.slowBrainShadowRollout : undefined,
+    periodicRetrainEnabled: typeof raw.periodicRetrainEnabled === "boolean" ? raw.periodicRetrainEnabled : undefined,
+    periodicRetrainIntervalHours: typeof raw.periodicRetrainIntervalHours === "number" ? raw.periodicRetrainIntervalHours : undefined,
+    periodicRetrainMinOutcomes: typeof raw.periodicRetrainMinOutcomes === "number" ? raw.periodicRetrainMinOutcomes : undefined,
     shadowCohortSalt: typeof raw.shadowCohortSalt === "string" ? raw.shadowCohortSalt : undefined,
     proactivePingEnabled: typeof raw.proactivePingEnabled === "boolean" ? raw.proactivePingEnabled : undefined,
     proactivePingMinIntervalMinutes: typeof raw.proactivePingMinIntervalMinutes === "number" ? raw.proactivePingMinIntervalMinutes : undefined,
@@ -55478,11 +56597,11 @@ function writePsycheModeConfig(projectDir, config3) {
     ...config3
   });
   writeJsonAtomic(psycheModeFile(projectDir), normalized);
-  fs68.mkdirSync(path67.dirname(psycheModeHistoryFile(projectDir)), {
+  fs70.mkdirSync(path68.dirname(psycheModeHistoryFile(projectDir)), {
     recursive: true
   });
-  fs68.appendFileSync(psycheModeHistoryFile(projectDir), `${JSON.stringify({
-    at: nowIso48(),
+  fs70.appendFileSync(psycheModeHistoryFile(projectDir), `${JSON.stringify({
+    at: nowIso49(),
     token: `psy_mode_${randomUUID26()}`,
     previous: current,
     next: normalized
@@ -55492,10 +56611,10 @@ function writePsycheModeConfig(projectDir, config3) {
 }
 function rollbackPsycheModeConfig(projectDir, token) {
   const file3 = psycheModeHistoryFile(projectDir);
-  if (!fs68.existsSync(file3)) {
+  if (!fs70.existsSync(file3)) {
     return { mode: readPsycheModeConfig(projectDir) };
   }
-  const rows = fs68.readFileSync(file3, "utf-8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+  const rows = fs70.readFileSync(file3, "utf-8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -55515,22 +56634,22 @@ function rollbackPsycheModeConfig(projectDir, token) {
   };
 }
 function appendPsycheShadowAudit(projectDir, input) {
-  fs68.mkdirSync(path67.dirname(psycheShadowAuditFile(projectDir)), {
+  fs70.mkdirSync(path68.dirname(psycheShadowAuditFile(projectDir)), {
     recursive: true
   });
-  fs68.appendFileSync(psycheShadowAuditFile(projectDir), `${JSON.stringify({
+  fs70.appendFileSync(psycheShadowAuditFile(projectDir), `${JSON.stringify({
     id: `psy_shadow_${randomUUID26()}`,
-    at: input.at ?? nowIso48(),
+    at: input.at ?? nowIso49(),
     ...input
   })}
 `, "utf-8");
 }
 function readPsycheShadowAuditSummary(projectDir, limit = 200) {
   const file3 = psycheShadowAuditFile(projectDir);
-  if (!fs68.existsSync(file3)) {
+  if (!fs70.existsSync(file3)) {
     return { samples: 0, divergence: 0, divergenceRate: 0, recent: [] };
   }
-  const rows = fs68.readFileSync(file3, "utf-8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+  const rows = fs70.readFileSync(file3, "utf-8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -55607,10 +56726,10 @@ async function withTimeout(promise3, timeoutMs, code) {
   }
 }
 function gatewayOwnerLockFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-owner.json");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-owner.json");
 }
 function ensureDir25(file3) {
-  fs68.mkdirSync(path67.dirname(file3), { recursive: true });
+  fs70.mkdirSync(path68.dirname(file3), { recursive: true });
 }
 function isRetryableAtomicReplaceError(error92) {
   if (!error92 || typeof error92 !== "object")
@@ -55625,41 +56744,41 @@ function writeJsonAtomic(file3, payload) {
   let lastError;
   for (let attempt = 0;attempt < 4; attempt += 1) {
     const tmp = `${file3}.tmp.${process.pid}.${Date.now()}.${attempt}`;
-    fs68.writeFileSync(tmp, content, "utf-8");
+    fs70.writeFileSync(tmp, content, "utf-8");
     try {
-      fs68.renameSync(tmp, file3);
+      fs70.renameSync(tmp, file3);
       return;
     } catch (error92) {
       lastError = error92;
       if (!isRetryableAtomicReplaceError(error92)) {
         try {
-          fs68.unlinkSync(tmp);
+          fs70.unlinkSync(tmp);
         } catch {}
         throw error92;
       }
       try {
-        fs68.copyFileSync(tmp, file3);
-        fs68.unlinkSync(tmp);
+        fs70.copyFileSync(tmp, file3);
+        fs70.unlinkSync(tmp);
         return;
       } catch (copyError) {
         lastError = copyError;
         try {
-          fs68.unlinkSync(tmp);
+          fs70.unlinkSync(tmp);
         } catch {}
       }
     }
   }
   try {
-    fs68.writeFileSync(file3, content, "utf-8");
+    fs70.writeFileSync(file3, content, "utf-8");
     return;
   } catch {}
   throw lastError instanceof Error ? lastError : new Error("gateway_state_write_failed");
 }
 function safeReadJsonObject(file3) {
-  if (!fs68.existsSync(file3))
+  if (!fs70.existsSync(file3))
     return null;
   try {
-    const parsed = JSON.parse(fs68.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs70.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       return null;
     return parsed;
@@ -55728,8 +56847,8 @@ function writeOwnerLock(projectDir, token) {
   const lock = {
     pid: process.pid,
     token,
-    updatedAt: nowIso48(),
-    startedAt: existing?.pid === process.pid && existing.token === token ? existing.startedAt : nowIso48()
+    updatedAt: nowIso49(),
+    startedAt: existing?.pid === process.pid && existing.token === token ? existing.startedAt : nowIso49()
   };
   writeJsonAtomic(file3, lock);
   return lock;
@@ -55748,7 +56867,7 @@ function removeOwnerLock(projectDir) {
     return;
   if (lock.pid === process.pid && lock.token === token) {
     try {
-      fs68.unlinkSync(file3);
+      fs70.unlinkSync(file3);
     } catch {}
   }
 }
@@ -55760,7 +56879,7 @@ function acquireGatewayOwner(projectDir) {
   if (lock && lock.pid === process.pid && lock.token === existingToken && isOwnerLockFresh(lock)) {
     const refreshed = {
       ...lock,
-      updatedAt: nowIso48()
+      updatedAt: nowIso49()
     };
     writeJsonAtomic(lockFile, refreshed);
     return { owned: true, owner: refreshed };
@@ -55815,14 +56934,14 @@ function describeGatewayState(state) {
 }
 function clearGatewayStateFile(projectDir) {
   try {
-    fs68.unlinkSync(gatewayFile(projectDir));
+    fs70.unlinkSync(gatewayFile(projectDir));
   } catch {}
   try {
     const globalFile = gatewayGlobalStateFile();
     const raw = safeReadJsonObject(globalFile);
     const pid = Number(raw?.pid);
     if (Number.isFinite(pid) && pid === process.pid) {
-      fs68.unlinkSync(globalFile);
+      fs70.unlinkSync(globalFile);
     }
   } catch {}
 }
@@ -55967,7 +57086,7 @@ function buildStatusFallbackPayload(projectDir, runtime, error92) {
     };
   } catch {}
   return {
-    updatedAt: nowIso48(),
+    updatedAt: nowIso49(),
     gateway,
     daemon,
     policyHash: "",
@@ -56358,15 +57477,15 @@ function assertConsoleMethodAllowed(method, context) {
   throw new Error(`console_method_forbidden:${method}`);
 }
 function interventionAuditFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "audit", "intervention.jsonl");
+  return path68.join(getMiyaRuntimeDir(projectDir), "audit", "intervention.jsonl");
 }
 function appendInterventionAudit(projectDir, input) {
   const id = `intervention_${randomUUID26()}`;
   const file3 = interventionAuditFile(projectDir);
-  fs68.mkdirSync(path67.dirname(file3), { recursive: true });
-  fs68.appendFileSync(file3, `${JSON.stringify({
+  fs70.mkdirSync(path68.dirname(file3), { recursive: true });
+  fs70.appendFileSync(file3, `${JSON.stringify({
     id,
-    at: nowIso48(),
+    at: nowIso49(),
     ...input
   })}
 `, "utf-8");
@@ -56480,7 +57599,7 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
   });
   const audioPath = (input.mediaPath ?? "").trim();
   const cmdRaw = String(process.env.MIYA_VOICEPRINT_VERIFY_CMD ?? "").trim();
-  if (!audioPath || !fs68.existsSync(audioPath)) {
+  if (!audioPath || !fs70.existsSync(audioPath)) {
     return {
       mode: strict ? "unknown" : hintMode,
       score: input.speakerScore,
@@ -56503,14 +57622,14 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
     };
   }
   const state = readOwnerIdentityState(projectDir);
-  if (!state.voiceprintModelPath || !fs68.existsSync(state.voiceprintModelPath)) {
+  if (!state.voiceprintModelPath || !fs70.existsSync(state.voiceprintModelPath)) {
     return {
       mode: strict ? "unknown" : hintMode,
       score: input.speakerScore,
       source: "strict_model_missing"
     };
   }
-  if (!state.voiceprintSampleDir || !fs68.existsSync(state.voiceprintSampleDir)) {
+  if (!state.voiceprintSampleDir || !fs70.existsSync(state.voiceprintSampleDir)) {
     return {
       mode: strict ? "unknown" : hintMode,
       score: input.speakerScore,
@@ -56722,7 +57841,7 @@ function readProactivePingState(projectDir, mode, now = new Date) {
 }
 function writeProactivePingState(projectDir, state) {
   writeJsonAtomic(proactivePingStateFile(projectDir), {
-    updatedAt: nowIso48(),
+    updatedAt: nowIso49(),
     dayKey: state.dayKey,
     sentToday: state.sentToday,
     sentByTarget: state.sentByTarget
@@ -56804,7 +57923,7 @@ function markProactivePingSent(projectDir, mode, channel, destination, at = new 
   writeProactivePingState(projectDir, state);
 }
 function pendingOutboundQueueFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "gateway-pending-outbound-queue.json");
+  return path68.join(getMiyaRuntimeDir(projectDir), "gateway-pending-outbound-queue.json");
 }
 function readPendingOutboundQueue(projectDir) {
   const file3 = pendingOutboundQueueFile(projectDir);
@@ -56823,8 +57942,8 @@ function readPendingOutboundQueue(projectDir) {
     if (typeof requestObj.destination !== "string" || typeof requestObj.text !== "string")
       continue;
     const id = parseText2(row.id) || `poq_${randomUUID26()}`;
-    const createdAt = parseText2(row.createdAt) || nowIso48();
-    const nextRunAt = parseText2(row.nextRunAt) || nowIso48();
+    const createdAt = parseText2(row.createdAt) || nowIso49();
+    const nextRunAt = parseText2(row.nextRunAt) || nowIso49();
     const attemptsRaw = Number(row.attempts);
     const attempts = Number.isFinite(attemptsRaw) ? Math.max(0, Math.floor(attemptsRaw)) : 0;
     const payloadHash = parseText2(row.payloadHash) || hashText5(`${requestObj.channel}|${requestObj.destination}|${requestObj.text}|${requestObj.mediaPath ?? ""}`);
@@ -56842,7 +57961,7 @@ function readPendingOutboundQueue(projectDir) {
 }
 function writePendingOutboundQueue(projectDir, items) {
   writeJsonAtomic(pendingOutboundQueueFile(projectDir), {
-    updatedAt: nowIso48(),
+    updatedAt: nowIso49(),
     items: items.slice(-400)
   });
 }
@@ -56900,7 +58019,7 @@ function enqueuePendingOutbound(input) {
   }
   const item = {
     id: `poq_${randomUUID26()}`,
-    createdAt: nowIso48(),
+    createdAt: nowIso49(),
     nextRunAt: nextRunAtIso,
     attempts: 0,
     lastReason: input.reason,
@@ -57345,6 +58464,8 @@ async function sendChannelMessageGuarded(projectDir, runtime, input) {
         userInitiated,
         allowScreenProbe: psycheMode.captureProbeEnabled,
         allowSignalOverride: signalOverrideEnabled,
+        allowPlayCompanion: psycheMode.playCompanionEnabled,
+        epsilonOverride: psycheMode.proactivityExploreRate,
         signals: overrideSignals,
         captureLimitations: input.outboundCheck?.captureLimitations,
         trust: {
@@ -57520,6 +58641,8 @@ async function sendChannelMessageGuarded(projectDir, runtime, input) {
         userInitiated,
         allowScreenProbe: false,
         allowSignalOverride: signalOverrideEnabled,
+        allowPlayCompanion: psycheMode.playCompanionEnabled,
+        epsilonOverride: psycheMode.proactivityExploreRate,
         signals: overrideSignals,
         captureLimitations: input.outboundCheck?.captureLimitations,
         trust: {
@@ -57886,7 +59009,7 @@ function runGatewaySecurityAudit(projectDir, runtime) {
   else if (findings.some((item) => item.severity === "warn"))
     status = "warn";
   return {
-    scannedAt: nowIso48(),
+    scannedAt: nowIso49(),
     status,
     findings
   };
@@ -57911,11 +59034,11 @@ function resolveEvidenceImageFile(projectDir, auditIDRaw, slotRaw) {
   const candidate = slot === "pre" ? row.preSendScreenshotPath : row.postSendScreenshotPath;
   if (!candidate || typeof candidate !== "string")
     return null;
-  const resolved = path67.resolve(candidate);
-  const runtimeDir2 = path67.resolve(getMiyaRuntimeDir(projectDir));
+  const resolved = path68.resolve(candidate);
+  const runtimeDir2 = path68.resolve(getMiyaRuntimeDir(projectDir));
   if (!resolved.startsWith(runtimeDir2))
     return null;
-  if (!fs68.existsSync(resolved))
+  if (!fs70.existsSync(resolved))
     return null;
   return resolved;
 }
@@ -57966,7 +59089,7 @@ function buildSnapshot(projectDir, runtime) {
   runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, kill);
   const nextPending = [...runtime.pendingOutboundQueue].sort((a, b) => Date.parse(a.nextRunAt) - Date.parse(b.nextRunAt)).at(0);
   const base = {
-    updatedAt: nowIso48(),
+    updatedAt: nowIso49(),
     gateway: toPublicGatewayState(syncGatewayState(projectDir, runtime)),
     runtime: {
       isOwner: owner.isOwner,
@@ -58110,12 +59233,12 @@ function buildSnapshot(projectDir, runtime) {
   };
 }
 function daemonProgressAuditFile(projectDir) {
-  return path67.join(getMiyaRuntimeDir(projectDir), "audit", "daemon-job-progress.jsonl");
+  return path68.join(getMiyaRuntimeDir(projectDir), "audit", "daemon-job-progress.jsonl");
 }
 function appendDaemonProgressAudit(projectDir, input) {
   const file3 = daemonProgressAuditFile(projectDir);
-  fs68.mkdirSync(path67.dirname(file3), { recursive: true });
-  fs68.appendFileSync(file3, `${JSON.stringify({ id: `dprogress_${randomUUID26()}`, ...input })}
+  fs70.mkdirSync(path68.dirname(file3), { recursive: true });
+  fs70.appendFileSync(file3, `${JSON.stringify({ id: `dprogress_${randomUUID26()}`, ...input })}
 `, "utf-8");
 }
 async function routeSessionMessage(projectDir, input) {
@@ -58253,7 +59376,7 @@ async function routeSessionMessage(projectDir, input) {
   const finalizeTurn = (result) => {
     appendTurnEvidencePack(projectDir, {
       turnID,
-      at: nowIso48(),
+      at: nowIso49(),
       sessionID: input.sessionID,
       source: input.source,
       modeKernel: {
@@ -58304,7 +59427,7 @@ async function routeSessionMessage(projectDir, input) {
       contextPipeline: {
         lowConfidenceSafeFallback,
         personaWorldPromptInjected,
-        learningInjected: Boolean(learning.snippet && learning.snippet.trim()),
+        learningInjected: Boolean(learning.snippet?.trim()),
         retryDeltaApplied: payloadPlan.retryDeltaApplied,
         hardCapApplied: payloadPlan.hardCapped
       }
@@ -58901,7 +60024,7 @@ async function runWizardTrainingWorker(projectDir, runtime) {
     const daemon = getMiyaClient(projectDir);
     const profileDir = getCompanionProfileCurrentDir(projectDir, queued.sessionId);
     if (queued.job.type === "training.image") {
-      const photosDir = path67.join(profileDir, "photos");
+      const photosDir = path68.join(profileDir, "photos");
       const result2 = await daemon.runFluxTraining({
         profileDir,
         photosDir,
@@ -58947,7 +60070,7 @@ async function runWizardTrainingWorker(projectDir, runtime) {
       });
       return;
     }
-    const voiceSamplePath = path67.join(profileDir, "voice", "original_sample.wav");
+    const voiceSamplePath = path68.join(profileDir, "voice", "original_sample.wav");
     const result = await daemon.runSovitsTraining({
       profileDir,
       voiceSamplePath,
@@ -59130,7 +60253,7 @@ function createMethods(projectDir, runtime) {
       autoUiBlockedByEnv: process.env.MIYA_AUTO_UI_OPEN === "0"
     };
     return {
-      generatedAt: nowIso48(),
+      generatedAt: nowIso49(),
       coupling,
       autostart,
       gateway: {
@@ -59195,7 +60318,7 @@ function createMethods(projectDir, runtime) {
   registerGatewayCoreMethods(methods, {
     projectDir,
     runtime,
-    now: nowIso48,
+    now: nowIso49,
     buildSnapshot: () => buildSnapshot(projectDir, runtime),
     buildGatewayState: () => syncGatewayState(projectDir, runtime),
     scheduleGatewayStop: () => {
@@ -59245,7 +60368,7 @@ function createMethods(projectDir, runtime) {
   methods.register("startup.autostart.conflicts.get", async () => {
     const status = getAutostartStatus(projectDir);
     return {
-      generatedAt: nowIso48(),
+      generatedAt: nowIso49(),
       conflictDetected: status.conflictDetected,
       conflictCount: status.conflicts.length,
       conflicts: status.conflicts
@@ -59259,7 +60382,7 @@ function createMethods(projectDir, runtime) {
       disableConflicts: params.disableConflicts !== false
     });
     return {
-      generatedAt: nowIso48(),
+      generatedAt: nowIso49(),
       ...resolution,
       status: getAutostartStatus(projectDir)
     };
@@ -59274,7 +60397,7 @@ function createMethods(projectDir, runtime) {
   methods.register("lifecycle.sync.plan", async () => {
     const snapshot = buildLifecycleStatusSnapshot();
     return {
-      generatedAt: nowIso48(),
+      generatedAt: nowIso49(),
       status: snapshot,
       ...buildLifecycleSyncPlan(snapshot)
     };
@@ -59369,7 +60492,7 @@ function createMethods(projectDir, runtime) {
     const skillSchemas = includeSkills ? buildSkillCapabilitySchemas(skills) : [];
     const capabilities = [...gatewaySchemas, ...skillSchemas].sort((a, b) => a.id.localeCompare(b.id)).slice(0, limit);
     return {
-      generatedAt: nowIso48(),
+      generatedAt: nowIso49(),
       scope,
       total: capabilities.length,
       capabilities
@@ -59661,7 +60784,7 @@ function createMethods(projectDir, runtime) {
         pendingQueueDelivery: outboundCheckRaw && typeof outboundCheckRaw.pendingQueueDelivery === "boolean" ? Boolean(outboundCheckRaw.pendingQueueDelivery) : undefined,
         evidenceConfidence: outboundCheckRaw && typeof outboundCheckRaw.evidenceConfidence === "number" && Number.isFinite(outboundCheckRaw.evidenceConfidence) ? Number(outboundCheckRaw.evidenceConfidence) : undefined,
         captureLimitations: outboundCheckRaw && Array.isArray(outboundCheckRaw.captureLimitations) ? outboundCheckRaw.captureLimitations.filter((item) => typeof item === "string").map((item) => item.trim()).filter((item) => item.length > 0).slice(0, 32) : undefined,
-        psycheSignals: outboundCheckRaw && outboundCheckRaw.psycheSignals && typeof outboundCheckRaw.psycheSignals === "object" && !Array.isArray(outboundCheckRaw.psycheSignals) ? outboundCheckRaw.psycheSignals : undefined
+        psycheSignals: outboundCheckRaw?.psycheSignals && typeof outboundCheckRaw.psycheSignals === "object" && !Array.isArray(outboundCheckRaw.psycheSignals) ? outboundCheckRaw.psycheSignals : undefined
       };
       const confirmationRaw = params.confirmation && typeof params.confirmation === "object" ? params.confirmation : null;
       return sendChannelMessageGuarded(projectDir, runtime, {
@@ -59977,7 +61100,7 @@ function createMethods(projectDir, runtime) {
       });
       publishGatewayEvent(runtime, "gateway.killswitch.mode", {
         mode: runtime.nexus.killSwitchMode,
-        at: nowIso48()
+        at: nowIso49()
       });
       return {
         mode: runtime.nexus.killSwitchMode,
@@ -60022,7 +61145,7 @@ function createMethods(projectDir, runtime) {
         auditID
       });
       publishGatewayEvent(runtime, "intervention.approve", {
-        at: nowIso48(),
+        at: nowIso49(),
         auditID,
         sessionID,
         permission,
@@ -60052,7 +61175,7 @@ function createMethods(projectDir, runtime) {
         payload: { domain: domain3, result }
       });
       publishGatewayEvent(runtime, "intervention.pause", {
-        at: nowIso48(),
+        at: nowIso49(),
         auditID,
         domain: domain3,
         result
@@ -60074,7 +61197,7 @@ function createMethods(projectDir, runtime) {
         payload: { reason, result }
       });
       publishGatewayEvent(runtime, "intervention.kill", {
-        at: nowIso48(),
+        at: nowIso49(),
         auditID,
         reason,
         result
@@ -60089,7 +61212,7 @@ function createMethods(projectDir, runtime) {
       const text = parseText2(params.text);
       if (!text)
         throw new Error("invalid_annotation_text");
-      const at = parseText2(params.at) || nowIso48();
+      const at = parseText2(params.at) || nowIso49();
       const targetAuditID = parseText2(params.auditID) || undefined;
       const annotation = await methods2.invoke("insight.append", {
         text,
@@ -60133,7 +61256,7 @@ function createMethods(projectDir, runtime) {
         text: `Trust mode updated: silent>=${next.silentMin}, modal<=${next.modalMax}`
       });
       publishGatewayEvent(runtime, "trust.mode.update", {
-        at: nowIso48(),
+        at: nowIso49(),
         mode: next
       });
       return {
@@ -60175,9 +61298,14 @@ function createMethods(projectDir, runtime) {
         resonanceEnabled: typeof params.resonanceEnabled === "boolean" ? Boolean(params.resonanceEnabled) : undefined,
         captureProbeEnabled: typeof params.captureProbeEnabled === "boolean" ? Boolean(params.captureProbeEnabled) : undefined,
         signalOverrideEnabled: typeof params.signalOverrideEnabled === "boolean" ? Boolean(params.signalOverrideEnabled) : undefined,
+        playCompanionEnabled: typeof params.playCompanionEnabled === "boolean" ? Boolean(params.playCompanionEnabled) : undefined,
+        proactivityExploreRate: typeof params.proactivityExploreRate === "number" ? Number(params.proactivityExploreRate) : undefined,
         slowBrainEnabled: typeof params.slowBrainEnabled === "boolean" ? Boolean(params.slowBrainEnabled) : undefined,
         slowBrainShadowEnabled: typeof params.slowBrainShadowEnabled === "boolean" ? Boolean(params.slowBrainShadowEnabled) : undefined,
         slowBrainShadowRollout: typeof params.slowBrainShadowRollout === "number" ? Number(params.slowBrainShadowRollout) : undefined,
+        periodicRetrainEnabled: typeof params.periodicRetrainEnabled === "boolean" ? Boolean(params.periodicRetrainEnabled) : undefined,
+        periodicRetrainIntervalHours: typeof params.periodicRetrainIntervalHours === "number" ? Number(params.periodicRetrainIntervalHours) : undefined,
+        periodicRetrainMinOutcomes: typeof params.periodicRetrainMinOutcomes === "number" ? Number(params.periodicRetrainMinOutcomes) : undefined,
         shadowCohortSalt: typeof params.shadowCohortSalt === "string" ? String(params.shadowCohortSalt) : undefined,
         proactivePingEnabled: typeof params.proactivePingEnabled === "boolean" ? Boolean(params.proactivePingEnabled) : undefined,
         proactivePingMinIntervalMinutes: typeof params.proactivePingMinIntervalMinutes === "number" ? Number(params.proactivePingMinIntervalMinutes) : undefined,
@@ -60189,10 +61317,10 @@ function createMethods(projectDir, runtime) {
       });
       runtime.nexus.psycheMode = next;
       appendNexusInsight(runtime, {
-        text: `\u5B88\u95E8\u5458\u6A21\u5F0F\u5DF2\u66F4\u65B0\uFF1A\u5171\u9E23\u5C42=${next.resonanceEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}\uFF0C\u622A\u56FE\u6838\u9A8C=${next.captureProbeEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}\uFF0C\u4FE1\u53F7\u8986\u76D6=${next.signalOverrideEnabled ? "\u8C03\u8BD5\u5F00\u542F" : "\u5173\u95ED"}\uFF0Cslow_brain=${next.slowBrainEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}\uFF0Cshadow=${next.slowBrainShadowEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}(${next.slowBrainShadowRollout}%)\uFF0Cproactive=${next.proactivePingEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}(\u95F4\u9694${next.proactivePingMinIntervalMinutes}m/\u65E5\u4E0A\u9650${next.proactivePingMaxPerDay})\uFF0Cquiet=${next.quietHoursEnabled ? `${next.quietHoursStart}-${next.quietHoursEnd}` : "\u5173\u95ED"}`
+        text: `\u5B88\u95E8\u5458\u6A21\u5F0F\u5DF2\u66F4\u65B0\uFF1A\u5171\u9E23\u5C42=${next.resonanceEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}\uFF0C\u622A\u56FE\u6838\u9A8C=${next.captureProbeEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}\uFF0C\u4FE1\u53F7\u8986\u76D6=${next.signalOverrideEnabled ? "\u8C03\u8BD5\u5F00\u542F" : "\u5173\u95ED"}\uFF0C\u6E38\u620F\u966A\u4F34=${next.playCompanionEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}\uFF0C\u63A2\u7D22\u7387\u03B5=${next.proactivityExploreRate.toFixed(3)}\uFF0Cslow_brain=${next.slowBrainEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}\uFF0Cshadow=${next.slowBrainShadowEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}(${next.slowBrainShadowRollout}%)\uFF0C\u5468\u671F\u91CD\u8BAD=${next.periodicRetrainEnabled ? `\u5F00\u542F(${next.periodicRetrainIntervalHours}h/${next.periodicRetrainMinOutcomes}\u6837\u672C)` : "\u5173\u95ED"}\uFF0Cproactive=${next.proactivePingEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}(\u95F4\u9694${next.proactivePingMinIntervalMinutes}m/\u65E5\u4E0A\u9650${next.proactivePingMaxPerDay})\uFF0Cquiet=${next.quietHoursEnabled ? `${next.quietHoursStart}-${next.quietHoursEnd}` : "\u5173\u95ED"}`
       });
       publishGatewayEvent(runtime, "psyche.mode.update", {
-        at: nowIso48(),
+        at: nowIso49(),
         mode: next,
         consultEnabled: resolvePsycheConsultEnabled(projectDir, next)
       });
@@ -60210,7 +61338,7 @@ function createMethods(projectDir, runtime) {
         text: `\u5B88\u95E8\u5458\u6A21\u5F0F\u5DF2\u56DE\u6EDA\uFF1Atoken=${restored.rollbackToken ?? "latest"}`
       });
       publishGatewayEvent(runtime, "psyche.mode.rollback", {
-        at: nowIso48(),
+        at: nowIso49(),
         mode: restored.mode,
         rollbackToken: restored.rollbackToken
       });
@@ -60238,6 +61366,9 @@ function createMethods(projectDir, runtime) {
         quietHoursActive: isQuietHoursActive(mode, now),
         quietHoursReleaseSec: nextQuietHoursReleaseSeconds(mode, now)
       };
+    });
+    methods2.register("psyche.proactivity.stats.get", async () => {
+      return readInteractionStats(path68.join(getMiyaRuntimeDir(projectDir), "daemon", "psyche", "proactivity", "interaction-stats.json"));
     });
     methods2.register("psyche.proactive.ping", async (params) => {
       const channel = parseChannel(params.channel);
@@ -60285,7 +61416,7 @@ function createMethods(projectDir, runtime) {
         text: `\u5B66\u4E60\u95F8\u95E8\u5DF2\u66F4\u65B0\uFF1Acandidate=${next.candidateMode}, persistent_requires_approval=${next.persistentRequiresApproval ? "1" : "0"}`
       });
       publishGatewayEvent(runtime, "learning.gate.update", {
-        at: nowIso48(),
+        at: nowIso49(),
         gate: next
       });
       return { gate: next };
@@ -60294,7 +61425,7 @@ function createMethods(projectDir, runtime) {
       const text = parseText2(params.text);
       if (!text)
         throw new Error("invalid_insight_text");
-      const at = parseText2(params.at) || nowIso48();
+      const at = parseText2(params.at) || nowIso49();
       const auditID = parseText2(params.auditID);
       appendNexusInsight(runtime, { text, at, auditID: auditID || undefined });
       publishGatewayEvent(runtime, "insight.append", {
@@ -60500,7 +61631,7 @@ function createMethods(projectDir, runtime) {
     });
     methods2.register("ecosystem.bridge.registry.list", async () => {
       return {
-        generatedAt: nowIso48(),
+        generatedAt: nowIso49(),
         total: listEcosystemBridgeRegistry().length,
         entries: listEcosystemBridgeRegistry()
       };
@@ -60639,11 +61770,11 @@ function createMethods(projectDir, runtime) {
       });
       if (!token.ok)
         throw new Error(`approval_required:${token.reason}`);
-      const root = path67.join(os9.homedir(), ".config", "opencode", "miya", "skills");
-      fs68.mkdirSync(root, { recursive: true });
+      const root = path68.join(os9.homedir(), ".config", "opencode", "miya", "skills");
+      fs70.mkdirSync(root, { recursive: true });
       const name = targetName || repo.split("/").filter(Boolean).pop()?.replace(/\.git$/i, "") || `skill-${Date.now().toString(36)}`;
-      const target = path67.join(root, name);
-      if (fs68.existsSync(target))
+      const target = path68.join(root, name);
+      if (fs70.existsSync(target))
         return { ok: false, message: `target_exists:${target}` };
       const proc = Bun.spawnSync(["git", "clone", "--depth", "1", repo, target], {
         stdout: "pipe",
@@ -60655,16 +61786,16 @@ function createMethods(projectDir, runtime) {
           message: Buffer.from(proc.stderr).toString("utf-8").trim() || "git_clone_failed"
         };
       }
-      const installed = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []).find((item) => path67.resolve(item.dir) === path67.resolve(target));
+      const installed = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []).find((item) => path68.resolve(item.dir) === path68.resolve(target));
       if (!installed) {
-        fs68.rmSync(target, { recursive: true, force: true });
+        fs70.rmSync(target, { recursive: true, force: true });
         return {
           ok: false,
           message: "installed_skill_invalid:manifest_not_found"
         };
       }
       if (installed.gate.reasons.includes("missing_permission_metadata")) {
-        fs68.rmSync(target, { recursive: true, force: true });
+        fs70.rmSync(target, { recursive: true, force: true });
         return {
           ok: false,
           message: "installed_skill_invalid:missing_permission_metadata"
@@ -60827,7 +61958,7 @@ function createMethods(projectDir, runtime) {
           if (sttEnabled && media?.localPath) {
             if (useGatewayAsrTestMode()) {
               asr = {
-                text: `[asr:${path67.basename(media.localPath)}]`,
+                text: `[asr:${path68.basename(media.localPath)}]`,
                 language: language || "unknown",
                 confidence: 0.81,
                 model: "test:whisper",
@@ -60853,7 +61984,7 @@ function createMethods(projectDir, runtime) {
                 transcriptConfidence: asr?.confidence,
                 transcriptLanguage: asr?.language ?? language,
                 transcriptModel: asr?.model,
-                transcriptAt: nowIso48(),
+                transcriptAt: nowIso49(),
                 transcriptSource: "miya_local_asr"
               });
             }
@@ -61758,10 +62889,21 @@ function createMethods(projectDir, runtime) {
   }
   return methods;
 }
+function bootstrapDaemonLauncher(projectDir) {
+  try {
+    ensureMiyaLauncher(projectDir);
+  } catch (error92) {
+    log("[gateway] daemon launcher bootstrap failed", {
+      projectDir,
+      error: error92 instanceof Error ? error92.message : String(error92)
+    });
+  }
+}
 function ensureGatewayRunning(projectDir) {
   ensureLoopbackNoProxy();
   const existing = runtimes.get(projectDir);
   if (existing) {
+    bootstrapDaemonLauncher(projectDir);
     const owner2 = acquireGatewayOwner(projectDir);
     if (owner2.owned) {
       touchOwnerLock(projectDir);
@@ -61857,14 +62999,20 @@ function ensureGatewayRunning(projectDir) {
       const url3 = new URL(request.url);
       const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
       const pathWithBase = (suffix) => uiBasePath ? `${uiBasePath}${suffix}` : suffix;
-      const isWsPath = url3.pathname === "/ws" || url3.pathname === pathWithBase("/ws");
+      const pathVariants = (suffix) => {
+        const variants = [suffix, pathWithBase(suffix), `/miya${suffix}`];
+        return [...new Set(variants)];
+      };
+      const isPathMatch = (suffix) => pathVariants(suffix).includes(url3.pathname);
+      const isPathPrefixMatch = (suffix) => pathVariants(suffix).some((candidate) => url3.pathname.startsWith(candidate));
+      const isWsPath = isPathMatch("/ws");
       if (isWsPath) {
         const upgraded = currentServer.upgrade(request, { data: {} });
         if (upgraded)
           return;
         return new Response("websocket upgrade failed", { status: 400 });
       }
-      const isStatusPath = url3.pathname === "/api/status" || url3.pathname === pathWithBase("/api/status");
+      const isStatusPath = isPathMatch("/api/status");
       if (isStatusPath) {
         try {
           return Response.json(buildSnapshot(projectDir, runtime), {
@@ -61881,7 +63029,7 @@ function ensureGatewayRunning(projectDir) {
           });
         }
       }
-      const isHealthPath = url3.pathname === "/health" || url3.pathname === pathWithBase("/health");
+      const isHealthPath = isPathMatch("/health");
       if (isHealthPath) {
         return Response.json({
           ok: true,
@@ -61894,7 +63042,7 @@ function ensureGatewayRunning(projectDir) {
           headers: { "cache-control": "no-store" }
         });
       }
-      const isSimpleStatusPath = url3.pathname === "/status" || url3.pathname === pathWithBase("/status");
+      const isSimpleStatusPath = isPathMatch("/status");
       if (isSimpleStatusPath) {
         try {
           return Response.json(buildSnapshot(projectDir, runtime), {
@@ -61911,7 +63059,7 @@ function ensureGatewayRunning(projectDir) {
           });
         }
       }
-      const isEvidenceImagePath = url3.pathname === "/api/evidence/image" || url3.pathname === pathWithBase("/api/evidence/image");
+      const isEvidenceImagePath = isPathMatch("/api/evidence/image");
       if (isEvidenceImagePath) {
         const auditID = String(url3.searchParams.get("auditID") ?? "").trim();
         const slot = String(url3.searchParams.get("slot") ?? "").trim().toLowerCase();
@@ -61922,7 +63070,7 @@ function ensureGatewayRunning(projectDir) {
             headers: { "cache-control": "no-store" }
           });
         }
-        const ext = path67.extname(file3).toLowerCase();
+        const ext = path68.extname(file3).toLowerCase();
         const contentType = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "application/octet-stream";
         return new Response(Bun.file(file3), {
           status: 200,
@@ -61941,7 +63089,7 @@ function ensureGatewayRunning(projectDir) {
         }
         return controlUiResponse;
       }
-      const isWebchatPath = url3.pathname === "/webchat" || url3.pathname === pathWithBase("/webchat");
+      const isWebchatPath = isPathMatch("/webchat");
       if (isWebchatPath) {
         return new Response(renderWebChatHtml(), {
           headers: {
@@ -61950,7 +63098,7 @@ function ensureGatewayRunning(projectDir) {
           }
         });
       }
-      const isWebhookPath = url3.pathname.startsWith("/api/webhooks/") || url3.pathname.startsWith(pathWithBase("/api/webhooks/"));
+      const isWebhookPath = isPathPrefixMatch("/api/webhooks/");
       if (isWebhookPath) {
         return new Response("HTTP control API disabled; use WebSocket RPC (/ws).", {
           status: 410,
@@ -61960,7 +63108,7 @@ function ensureGatewayRunning(projectDir) {
           }
         });
       }
-      const isLegacyConsolePath = url3.pathname === "/legacy-console" || url3.pathname === pathWithBase("/legacy-console");
+      const isLegacyConsolePath = isPathMatch("/legacy-console");
       if (isLegacyConsolePath) {
         return new Response(renderConsoleHtml(buildSnapshot(projectDir, runtime)), {
           headers: {
@@ -62212,7 +63360,7 @@ function ensureGatewayRunning(projectDir) {
     throw error92;
   }
   runtime = {
-    startedAt: nowIso48(),
+    startedAt: nowIso49(),
     server,
     methods,
     stateVersion: 1,
@@ -62316,6 +63464,7 @@ function ensureGatewayRunning(projectDir) {
     publishGatewayEvent(runtime, event.type, event);
   });
   runtime.channelRuntime.start();
+  bootstrapDaemonLauncher(projectDir);
   log("[gateway] runtime started", {
     projectDir,
     state: toGatewayState(projectDir, runtime),
@@ -62554,8 +63703,8 @@ reason=not_running`;
 }
 
 // src/safety/evidence.ts
-import * as fs69 from "fs";
-import * as path68 from "path";
+import * as fs71 from "fs";
+import * as path69 from "path";
 var MAX_OUTPUT = 8000;
 var LARGE_FILE_LIMIT = 2 * 1024 * 1024;
 var SECRET_RULES = [
@@ -62595,6 +63744,10 @@ async function runCommand3(projectDir, command, timeoutMs = 60000) {
 [timeout]` : stderr
   };
 }
+function splitChangedFiles(output) {
+  return output.split(`
+`).map((line) => line.trim()).filter((line) => line.length > 0);
+}
 function scanSecrets(content) {
   const hits = [];
   for (const rule of SECRET_RULES) {
@@ -62625,8 +63778,35 @@ ${diffStat.stdout}`);
   if (!diffStat.ok)
     issues.push(`git diff --stat failed: ${diffStat.stderr || diffStat.code}`);
   const changed = await runCommand3(projectDir, ["git", "diff", "--name-only"]);
-  const changedFiles = changed.stdout.split(`
-`).map((line) => line.trim()).filter((line) => line.length > 0);
+  const changedCached = await runCommand3(projectDir, [
+    "git",
+    "diff",
+    "--cached",
+    "--name-only"
+  ]);
+  const changedUntracked = await runCommand3(projectDir, [
+    "git",
+    "ls-files",
+    "--others",
+    "--exclude-standard"
+  ]);
+  checks5.push("git diff --name-only");
+  checks5.push("git diff --cached --name-only");
+  checks5.push("git ls-files --others --exclude-standard");
+  if (!changed.ok) {
+    issues.push(`git diff --name-only failed: ${changed.stderr || changed.code}`);
+  }
+  if (!changedCached.ok) {
+    issues.push(`git diff --cached --name-only failed: ${changedCached.stderr || changedCached.code}`);
+  }
+  if (!changedUntracked.ok) {
+    issues.push(`git ls-files --others --exclude-standard failed: ${changedUntracked.stderr || changedUntracked.code}`);
+  }
+  const changedFiles = [
+    ...splitChangedFiles(changed.stdout),
+    ...splitChangedFiles(changedCached.stdout),
+    ...splitChangedFiles(changedUntracked.stdout)
+  ].filter((file3, index, list) => list.indexOf(file3) === index);
   if (changedFiles.some((file3) => file3.startsWith("miya-src/"))) {
     const test = await runCommand3(projectDir, ["bun", "--cwd", "miya-src", "test"], 120000);
     checks5.push("bun --cwd miya-src test");
@@ -62642,25 +63822,37 @@ ${test.stderr}`);
   }
   if (tier === "THOROUGH") {
     const diff = await runCommand3(projectDir, ["git", "diff"]);
+    const diffCached = await runCommand3(projectDir, ["git", "diff", "--cached"]);
     checks5.push("git diff");
+    checks5.push("git diff --cached");
     evidence.push(`git_diff_exit=${diff.code}`);
+    evidence.push(`git_diff_cached_exit=${diffCached.code}`);
     const diffText = [diff.stdout, diff.stderr].filter(Boolean).join(`
+`);
+    const diffCachedText = [diffCached.stdout, diffCached.stderr].filter(Boolean).join(`
 `);
     if (diffText)
       evidence.push(`git_diff:
 ${diffText}`);
+    if (diffCachedText)
+      evidence.push(`git_diff_cached:
+${diffCachedText}`);
     if (!diff.ok)
       issues.push(`git diff failed: ${diff.stderr || diff.code}`);
-    const secretHits = scanSecrets(diffText);
+    if (!diffCached.ok) {
+      issues.push(`git diff --cached failed: ${diffCached.stderr || diffCached.code}`);
+    }
+    const secretHits = scanSecrets([diffText, diffCachedText].join(`
+`));
     if (secretHits.length > 0) {
       issues.push(`secret scan matched: ${secretHits.join(", ")}`);
     }
     checks5.push("secret scan (workspace diff)");
     const oversized = changedFiles.map((file3) => {
-      const full = path68.join(projectDir, file3);
-      if (!fs69.existsSync(full))
+      const full = path69.join(projectDir, file3);
+      if (!fs71.existsSync(full))
         return null;
-      const stat = fs69.statSync(full);
+      const stat = fs71.statSync(full);
       if (!stat.isFile())
         return null;
       if (stat.size <= LARGE_FILE_LIMIT)
@@ -62789,7 +63981,7 @@ function formatValidationResult(validation) {
 }
 function openUrl(url3) {
   if (process.platform === "win32") {
-    const child2 = spawn4("rundll32.exe", ["url.dll,FileProtocolHandler", url3], {
+    const child2 = spawn5("rundll32.exe", ["url.dll,FileProtocolHandler", url3], {
       detached: true,
       stdio: "ignore",
       windowsHide: true
@@ -62798,11 +63990,11 @@ function openUrl(url3) {
     return;
   }
   if (process.platform === "darwin") {
-    const child2 = spawn4("open", [url3], { detached: true, stdio: "ignore" });
+    const child2 = spawn5("open", [url3], { detached: true, stdio: "ignore" });
     child2.unref();
     return;
   }
-  const child = spawn4("xdg-open", [url3], { detached: true, stdio: "ignore" });
+  const child = spawn5("xdg-open", [url3], { detached: true, stdio: "ignore" });
   child.unref();
 }
 function stringifyPatch(input) {
@@ -63049,8 +64241,15 @@ function parseDaemonOutgoingFrame(input) {
 
 // src/daemon/launcher.ts
 var runtimes2 = new Map;
+function toFiniteNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function toClampedInteger(value, fallback, minimum) {
+  return Math.max(minimum, Math.floor(toFiniteNumber(value, fallback)));
+}
 function launcherIdlePruneMs() {
-  return Math.max(5000, Number(process.env.MIYA_DAEMON_IDLE_PRUNE_MS ?? 15000));
+  return toClampedInteger(process.env.MIYA_DAEMON_IDLE_PRUNE_MS, 15000, 5000);
 }
 function touchRuntime(runtime) {
   runtime.lastAccessAtMs = Date.now();
@@ -63072,7 +64271,7 @@ function pruneIdleRuntimes(exceptProjectDir) {
       cleanupExistingDaemon(projectDir);
     }
     try {
-      fs70.rmSync(runtime.parentLockFile, { force: true });
+      fs72.rmSync(runtime.parentLockFile, { force: true });
     } catch {}
     runtimes2.delete(projectDir);
   }
@@ -63082,7 +64281,7 @@ function emitLauncherEvent(runtime, type, payload) {
     return;
   const event = {
     type,
-    at: nowIso49(),
+    at: nowIso50(),
     payload,
     snapshot: { ...runtime.snapshot }
   };
@@ -63097,7 +64296,7 @@ function syncBackpressureSnapshot(runtime) {
   runtime.snapshot.rejectedRequests = runtime.rejectedRequests;
   runtime.snapshot.lastRejectReason = runtime.lastRejectReason;
 }
-function nowIso49() {
+function nowIso50() {
   return new Date().toISOString();
 }
 function parsePsycheSignalHubSnapshot(raw) {
@@ -63129,30 +64328,30 @@ function parsePsycheSignalHubSnapshot(raw) {
   };
 }
 function daemonDir(projectDir) {
-  return path69.join(getMiyaRuntimeDir(projectDir), "daemon");
+  return path70.join(getMiyaRuntimeDir(projectDir), "daemon");
 }
 function daemonPidFile(projectDir) {
-  return path69.join(daemonDir(projectDir), "daemon.pid");
+  return path70.join(daemonDir(projectDir), "daemon.pid");
 }
 function daemonLauncherStoreFile(projectDir) {
-  return path69.join(daemonDir(projectDir), "launcher.runtime.json");
+  return path70.join(daemonDir(projectDir), "launcher.runtime.json");
 }
 function daemonLogFile(projectDir, kind) {
-  return path69.join(daemonDir(projectDir), kind === "stdout" ? "host.stdout.log" : "host.stderr.log");
+  return path70.join(daemonDir(projectDir), kind === "stdout" ? "host.stdout.log" : "host.stderr.log");
 }
 function ensureDaemonDir(projectDir) {
-  fs70.mkdirSync(daemonDir(projectDir), { recursive: true });
+  fs72.mkdirSync(daemonDir(projectDir), { recursive: true });
 }
 function safeWriteJson2(filePath15, payload) {
-  fs70.mkdirSync(path69.dirname(filePath15), { recursive: true });
-  fs70.writeFileSync(filePath15, `${JSON.stringify(payload, null, 2)}
+  fs72.mkdirSync(path70.dirname(filePath15), { recursive: true });
+  fs72.writeFileSync(filePath15, `${JSON.stringify(payload, null, 2)}
 `, "utf-8");
 }
 function safeReadJson3(filePath15) {
-  if (!fs70.existsSync(filePath15))
+  if (!fs72.existsSync(filePath15))
     return null;
   try {
-    const parsed = JSON.parse(fs70.readFileSync(filePath15, "utf-8"));
+    const parsed = JSON.parse(fs72.readFileSync(filePath15, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       return null;
     return parsed;
@@ -63193,14 +64392,14 @@ function writeLauncherPersistedState(runtime) {
     consecutiveLaunchFailures: runtime.consecutiveLaunchFailures,
     lastRejectReason: runtime.lastRejectReason,
     manualStopUntilMs: runtime.manualStopUntilMs,
-    updatedAt: nowIso49()
+    updatedAt: nowIso50()
   });
 }
 function resolveHostScriptPath() {
-  const here = path69.dirname(fileURLToPath3(import.meta.url));
-  const tsFile = path69.join(here, "host.ts");
-  const jsFile = path69.join(here, "host.js");
-  if (fs70.existsSync(tsFile))
+  const here = path70.dirname(fileURLToPath3(import.meta.url));
+  const tsFile = path70.join(here, "host.ts");
+  const jsFile = path70.join(here, "host.js");
+  if (fs72.existsSync(tsFile))
     return tsFile;
   return jsFile;
 }
@@ -63236,8 +64435,8 @@ function resolveBunBinary() {
     const byBun = Bun.which("bun");
     if (byBun) {
       if (byBun.toLowerCase().endsWith(".cmd")) {
-        const exeCandidate = byBun.slice(0, -4) + ".exe";
-        if (fs70.existsSync(exeCandidate))
+        const exeCandidate = `${byBun.slice(0, -4)}.exe`;
+        if (fs72.existsSync(exeCandidate))
           return exeCandidate;
       }
       return byBun;
@@ -63247,7 +64446,7 @@ function resolveBunBinary() {
     if (byWhich)
       return byWhich;
   }
-  const execBase = path69.basename(process.execPath).toLowerCase();
+  const execBase = path70.basename(process.execPath).toLowerCase();
   if (execBase === "bun" || execBase === "bun.exe")
     return process.execPath;
   return null;
@@ -63354,7 +64553,7 @@ function spawnDaemon(runtime) {
     noteLaunchFailure(runtime, "bun_not_found");
     return "failed";
   }
-  const binaryBase = path69.basename(bunBinary).toLowerCase();
+  const binaryBase = path70.basename(bunBinary).toLowerCase();
   if (binaryBase.includes("powershell") || binaryBase === "pwsh.exe") {
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = "Miya Daemon Disabled (invalid_runtime_binary)";
@@ -63365,9 +64564,9 @@ function spawnDaemon(runtime) {
   let hostStdout;
   let hostStderr;
   try {
-    hostStdout = fs70.openSync(daemonLogFile(runtime.projectDir, "stdout"), "a");
-    hostStderr = fs70.openSync(daemonLogFile(runtime.projectDir, "stderr"), "a");
-    const child = spawn5(bunBinary, [
+    hostStdout = fs72.openSync(daemonLogFile(runtime.projectDir, "stdout"), "a");
+    hostStderr = fs72.openSync(daemonLogFile(runtime.projectDir, "stderr"), "a");
+    const child = spawn6(bunBinary, [
       hostScript,
       "--project-dir",
       runtime.projectDir,
@@ -63390,12 +64589,12 @@ function spawnDaemon(runtime) {
   } finally {
     if (typeof hostStdout === "number") {
       try {
-        fs70.closeSync(hostStdout);
+        fs72.closeSync(hostStdout);
       } catch {}
     }
     if (typeof hostStderr === "number") {
       try {
-        fs70.closeSync(hostStderr);
+        fs72.closeSync(hostStderr);
       } catch {}
     }
   }
@@ -63404,9 +64603,9 @@ function spawnDaemon(runtime) {
 }
 function readPidFile(projectDir) {
   const file3 = daemonPidFile(projectDir);
-  if (!fs70.existsSync(file3))
+  if (!fs72.existsSync(file3))
     return null;
-  const raw = fs70.readFileSync(file3, "utf-8").trim();
+  const raw = fs72.readFileSync(file3, "utf-8").trim();
   const pid = Number(raw);
   if (!Number.isFinite(pid) || pid <= 0)
     return null;
@@ -63432,7 +64631,7 @@ function writeParentLock(runtime) {
   safeWriteJson2(runtime.parentLockFile, {
     pid: process.pid,
     plugin: "miya",
-    updatedAt: nowIso49()
+    updatedAt: nowIso50()
   });
 }
 function connectWebSocket(runtime, lock, epoch) {
@@ -63552,15 +64751,15 @@ function daemonRequest(runtime, method, params, timeoutMs = 8000) {
     method,
     params
   });
-  return new Promise((resolve8, reject) => {
+  return new Promise((resolve10, reject) => {
     const timeout = setTimeout(() => {
       runtime.pending.delete(id);
       runtime.lastRejectReason = "timeout";
       runtime.rejectedRequests += 1;
       syncBackpressureSnapshot(runtime);
       reject(new Error("daemon_request_timeout"));
-    }, Math.max(1000, timeoutMs));
-    runtime.pending.set(id, { resolve: resolve8, reject, timeout });
+    }, toClampedInteger(timeoutMs, 60000, 1000));
+    runtime.pending.set(id, { resolve: resolve10, reject, timeout });
     syncBackpressureSnapshot(runtime);
     runtime.ws?.send(JSON.stringify(frame));
   });
@@ -63814,10 +65013,10 @@ function ensureMiyaLauncher(projectDir) {
   const config3 = readConfig(projectDir);
   const persisted = readLauncherPersistedState(projectDir);
   const backpressure = config3.runtime?.backpressure;
-  const configuredMaxPending = typeof backpressure?.daemon_max_pending_requests === "number" ? Number(backpressure.daemon_max_pending_requests) : Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64);
-  const configuredMaxFailures = typeof backpressure?.daemon_max_consecutive_failures === "number" ? Number(backpressure.daemon_max_consecutive_failures) : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
-  const configuredManualStopCooldown = typeof backpressure?.daemon_manual_stop_cooldown_ms === "number" ? Number(backpressure.daemon_manual_stop_cooldown_ms) : Number(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS ?? 180000);
-  const configuredRetryHaltCooldown = typeof backpressure?.daemon_retry_halt_cooldown_ms === "number" ? Number(backpressure.daemon_retry_halt_cooldown_ms) : Number(process.env.MIYA_DAEMON_RETRY_HALT_COOLDOWN_MS ?? 300000);
+  const configuredMaxPending = typeof backpressure?.daemon_max_pending_requests === "number" ? Number(backpressure.daemon_max_pending_requests) : toFiniteNumber(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS, 64);
+  const configuredMaxFailures = typeof backpressure?.daemon_max_consecutive_failures === "number" ? Number(backpressure.daemon_max_consecutive_failures) : toFiniteNumber(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES, 5);
+  const configuredManualStopCooldown = typeof backpressure?.daemon_manual_stop_cooldown_ms === "number" ? Number(backpressure.daemon_manual_stop_cooldown_ms) : toFiniteNumber(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS, 180000);
+  const configuredRetryHaltCooldown = typeof backpressure?.daemon_retry_halt_cooldown_ms === "number" ? Number(backpressure.daemon_retry_halt_cooldown_ms) : toFiniteNumber(process.env.MIYA_DAEMON_RETRY_HALT_COOLDOWN_MS, 300000);
   const daemonToken = lifecycleMode === "service_experimental" ? String(process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? "") : randomUUID27();
   const desiredState = persisted.desiredState;
   const initialLifecycleState = desiredState === "stopped" ? "STOPPED" : persisted.retryHalted ? "BACKOFF" : "STARTING";
@@ -63829,26 +65028,26 @@ function ensureMiyaLauncher(projectDir) {
     desiredState,
     lifecycleState: initialLifecycleState,
     runEpoch: Math.max(1, persisted.runEpoch),
-    parentLockFile: path69.join(daemonDir(projectDir), "parent.lock.json"),
-    daemonLockFile: path69.join(daemonDir(projectDir), "daemon.lock.json"),
+    parentLockFile: path70.join(daemonDir(projectDir), "parent.lock.json"),
+    daemonLockFile: path70.join(daemonDir(projectDir), "daemon.lock.json"),
     runtimeStoreFile: daemonLauncherStoreFile(projectDir),
     reconnectBackoffMs: 1000,
     connected: false,
     reqSeq: 0,
     pending: new Map,
-    maxPendingRequests: Math.max(4, Math.floor(configuredMaxPending)),
+    maxPendingRequests: toClampedInteger(configuredMaxPending, 64, 4),
     rejectedRequests: 0,
     lastRejectReason: undefined,
     listeners: new Set,
     lastSpawnAttemptAtMs: 0,
     launchCooldownUntilMs: 0,
     manualStopUntilMs: persisted.manualStopUntilMs,
-    manualStopCooldownMs: Math.max(1e4, Math.floor(configuredManualStopCooldown)),
+    manualStopCooldownMs: toClampedInteger(configuredManualStopCooldown, 180000, 1e4),
     consecutiveLaunchFailures: persisted.consecutiveLaunchFailures,
     retryHalted: persisted.retryHalted,
     retryHaltedUntilMs: persisted.retryHaltedUntilMs,
-    retryHaltCooldownMs: Math.max(30000, Math.floor(configuredRetryHaltCooldown)),
-    maxConsecutiveLaunchFailures: Math.max(1, Math.floor(configuredMaxFailures)),
+    retryHaltCooldownMs: toClampedInteger(configuredRetryHaltCooldown, 300000, 30000),
+    maxConsecutiveLaunchFailures: toClampedInteger(configuredMaxFailures, 5, 1),
     lastAccessAtMs: Date.now(),
     snapshot: {
       connected: false,
@@ -63862,7 +65061,7 @@ function ensureMiyaLauncher(projectDir) {
       lifecycleMode,
       pendingRequests: 0,
       rejectedRequests: 0,
-      startedAt: nowIso49()
+      startedAt: nowIso50()
     }
   };
   syncLifecycleSnapshot(runtime);
@@ -63889,7 +65088,7 @@ function getLauncherDaemonSnapshot(projectDir) {
       retryHalted: false,
       pendingRequests: 0,
       rejectedRequests: 0,
-      startedAt: nowIso49()
+      startedAt: nowIso50()
     };
   }
   touchRuntime(runtime);
@@ -63902,7 +65101,7 @@ function getLauncherBackpressureStats(projectDir) {
   if (!runtime) {
     return {
       connected: false,
-      maxPendingRequests: Math.max(4, Math.floor(Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64))),
+      maxPendingRequests: Math.max(4, Math.floor(toFiniteNumber(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS, 64))),
       pendingRequests: 0,
       rejectedRequests: 0
     };
@@ -63921,13 +65120,13 @@ function stopMiyaLauncher(projectDir) {
   const runtime = runtimes2.get(projectDir);
   if (!runtime) {
     const persisted = readLauncherPersistedState(projectDir);
-    const manualStopCooldownMs = Math.max(1e4, Math.floor(Number(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS ?? 180000)));
+    const manualStopCooldownMs = Math.max(1e4, Math.floor(toFiniteNumber(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS, 180000)));
     safeWriteJson2(daemonLauncherStoreFile(projectDir), {
       ...persisted,
       desiredState: "stopped",
       runEpoch: Math.max(1, persisted.runEpoch) + 1,
       manualStopUntilMs: Date.now() + manualStopCooldownMs,
-      updatedAt: nowIso49()
+      updatedAt: nowIso50()
     });
     return;
   }
@@ -63944,7 +65143,7 @@ function stopMiyaLauncher(projectDir) {
     cleanupExistingDaemon(projectDir);
   }
   try {
-    fs70.rmSync(runtime.parentLockFile, { force: true });
+    fs72.rmSync(runtime.parentLockFile, { force: true });
   } catch {}
   writeLauncherPersistedState(runtime);
   runtimes2.delete(projectDir);
@@ -63970,7 +65169,7 @@ async function waitForDaemonConnection(runtime, timeoutMs) {
     ensureDaemonLaunched(runtime, epoch);
     if (runtime.ws?.readyState === WebSocket.OPEN && runtime.connected)
       return;
-    await new Promise((resolve8) => setTimeout(resolve8, 150));
+    await new Promise((resolve10) => setTimeout(resolve10, 150));
   }
   throw new Error("daemon_connect_timeout");
 }
@@ -63980,14 +65179,15 @@ async function daemonInvoke(projectDir, method, params, timeoutMs = 60000) {
   if (!runtime)
     throw new Error("daemon_runtime_missing");
   touchRuntime(runtime);
-  await waitForDaemonConnection(runtime, Math.min(timeoutMs, 15000));
-  return daemonRequest(runtime, method, params, timeoutMs);
+  const normalizedTimeoutMs = toClampedInteger(timeoutMs, 60000, 1000);
+  await waitForDaemonConnection(runtime, Math.min(normalizedTimeoutMs, 15000));
+  return daemonRequest(runtime, method, params, normalizedTimeoutMs);
 }
 process.on("exit", () => {
   for (const runtime of runtimes2.values()) {
     cleanupRuntime(runtime);
     try {
-      fs70.rmSync(runtime.parentLockFile, { force: true });
+      fs72.rmSync(runtime.parentLockFile, { force: true });
     } catch {}
   }
 });
@@ -64043,6 +65243,9 @@ class MiyaClient {
   }
   async psycheSlowBrainGet() {
     return daemonInvoke(this.projectDir, "daemon.psyche.slowbrain.get", {}, 1e4);
+  }
+  async psycheProactivityGet() {
+    return daemonInvoke(this.projectDir, "daemon.psyche.proactivity.get", {}, 1e4);
   }
   async psycheSlowBrainRetrain(input) {
     return daemonInvoke(this.projectDir, "daemon.psyche.slowbrain.retrain", {
@@ -64810,8 +66013,8 @@ ${commandPrompt}`;
   };
 }
 // src/intake/store.ts
-import * as fs71 from "fs";
-import * as path70 from "path";
+import * as fs73 from "fs";
+import * as path71 from "path";
 var DEFAULT_STATE4 = {
   proposals: [],
   whitelist: [],
@@ -64820,12 +66023,12 @@ var DEFAULT_STATE4 = {
 };
 var MAX_PROPOSALS = 1000;
 var MAX_LIST_ENTRIES = 1000;
-var MAX_EVENTS = 5000;
+var MAX_EVENTS2 = 5000;
 function filePath15(projectDir) {
-  return path70.join(getMiyaRuntimeDir(projectDir), "intake.json");
+  return path71.join(getMiyaRuntimeDir(projectDir), "intake.json");
 }
 function ensureDir26(file3) {
-  fs71.mkdirSync(path70.dirname(file3), { recursive: true });
+  fs73.mkdirSync(path71.dirname(file3), { recursive: true });
 }
 function randomId2(prefix) {
   const time5 = Date.now().toString(36);
@@ -64849,11 +66052,11 @@ function createIntakeId(prefix) {
 }
 function readIntakeState(projectDir) {
   const file3 = filePath15(projectDir);
-  if (!fs71.existsSync(file3)) {
+  if (!fs73.existsSync(file3)) {
     return { ...DEFAULT_STATE4 };
   }
   try {
-    const parsed = JSON.parse(fs71.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs73.readFileSync(file3, "utf-8"));
     return sanitizeState(parsed);
   } catch {
     return { ...DEFAULT_STATE4 };
@@ -64866,14 +66069,14 @@ function writeIntakeState(projectDir, state) {
     proposals: state.proposals.slice(0, MAX_PROPOSALS),
     whitelist: state.whitelist.slice(0, MAX_LIST_ENTRIES),
     blacklist: state.blacklist.slice(0, MAX_LIST_ENTRIES),
-    events: state.events.slice(0, MAX_EVENTS)
+    events: state.events.slice(0, MAX_EVENTS2)
   };
-  fs71.writeFileSync(file3, `${JSON.stringify(normalized, null, 2)}
+  fs73.writeFileSync(file3, `${JSON.stringify(normalized, null, 2)}
 `, "utf-8");
 }
 
 // src/intake/service.ts
-function nowIso50() {
+function nowIso51() {
   return new Date().toISOString();
 }
 function asBool(value, fallback) {
@@ -65023,7 +66226,7 @@ function addUniqueRule(list, scope, value, reason) {
     scope,
     value,
     reason,
-    createdAt: nowIso50()
+    createdAt: nowIso51()
   };
   list.unshift(next);
   return next;
@@ -65040,7 +66243,7 @@ function scopeValueFromSource(scope, source) {
 function appendEvent(state, event) {
   const next = {
     id: createIntakeId("event"),
-    timestamp: nowIso50(),
+    timestamp: nowIso51(),
     ...event
   };
   state.events.unshift(next);
@@ -65115,8 +66318,8 @@ function proposeIntake(projectDir, input) {
       risks: safeArray(input.risks),
       evidence: safeArray(input.evidence, 20),
       proposedChanges: input.proposedChanges,
-      requestedAt: nowIso50(),
-      resolvedAt: nowIso50(),
+      requestedAt: nowIso51(),
+      resolvedAt: nowIso51(),
       resolution: {
         decision: "auto_rejected_by_blacklist",
         scope: blackRule.scope,
@@ -65143,8 +66346,8 @@ function proposeIntake(projectDir, input) {
       risks: safeArray(input.risks),
       evidence: safeArray(input.evidence, 20),
       proposedChanges: input.proposedChanges,
-      requestedAt: nowIso50(),
-      resolvedAt: nowIso50(),
+      requestedAt: nowIso51(),
+      resolvedAt: nowIso51(),
       resolution: {
         decision: "auto_allowed_by_whitelist",
         scope: whiteRule.scope,
@@ -65169,7 +66372,7 @@ function proposeIntake(projectDir, input) {
     risks: safeArray(input.risks),
     evidence: safeArray(input.evidence, 20),
     proposedChanges: input.proposedChanges,
-    requestedAt: nowIso50()
+    requestedAt: nowIso51()
   };
   state.proposals.unshift(proposal);
   writeIntakeState(projectDir, state);
@@ -65222,7 +66425,7 @@ function decideIntake(projectDir, input) {
     }
   }
   proposal.status = nextStatus;
-  proposal.resolvedAt = nowIso50();
+  proposal.resolvedAt = nowIso51();
   proposal.resolution = {
     decision: input.decision,
     scope,
@@ -65560,7 +66763,7 @@ function shouldInterceptWriteAfterWebsearch(projectDir, input) {
 
 // src/safety/index.ts
 var z5 = tool.schema;
-function nowIso51() {
+function nowIso52() {
   return new Date().toISOString();
 }
 function toPermissionRequest(input) {
@@ -65789,7 +66992,7 @@ trace_id=${kill.trace_id ?? "n/a"}`;
       return `kill_switch_active=${next.active}
 trace_id=${traceID}
 reason=${next.reason ?? "n/a"}
-activated_at=${next.activated_at ?? nowIso51()}`;
+activated_at=${next.activated_at ?? nowIso52()}`;
     }
   });
   const miya_kill_release = tool({
@@ -65823,16 +67026,16 @@ activated_at=${next.activated_at ?? nowIso51()}`;
 }
 
 // src/tools/ast-grep/cli.ts
-import { existsSync as existsSync66 } from "fs";
-var {spawn: spawn6 } = globalThis.Bun;
+import { existsSync as existsSync67 } from "fs";
+var {spawn: spawn7 } = globalThis.Bun;
 
 // src/tools/ast-grep/constants.ts
-import { existsSync as existsSync65, statSync as statSync3 } from "fs";
+import { existsSync as existsSync66, statSync as statSync3 } from "fs";
 import { createRequire as createRequire3 } from "module";
 import { dirname as dirname48, join as join71 } from "path";
 
 // src/tools/ast-grep/downloader.ts
-import { chmodSync, existsSync as existsSync64, mkdirSync as mkdirSync56, unlinkSync as unlinkSync3 } from "fs";
+import { chmodSync, existsSync as existsSync65, mkdirSync as mkdirSync56, unlinkSync as unlinkSync3 } from "fs";
 import { createRequire as createRequire2 } from "module";
 import { homedir as homedir7 } from "os";
 import { join as join70 } from "path";
@@ -65871,7 +67074,7 @@ function getBinaryName() {
 }
 function getCachedBinaryPath() {
   const binaryPath = join70(getCacheDir(), getBinaryName());
-  return existsSync64(binaryPath) ? binaryPath : null;
+  return existsSync65(binaryPath) ? binaryPath : null;
 }
 async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   const platformKey = `${process.platform}-${process.arch}`;
@@ -65883,7 +67086,7 @@ async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   const cacheDir = getCacheDir();
   const binaryName = getBinaryName();
   const binaryPath = join70(cacheDir, binaryName);
-  if (existsSync64(binaryPath)) {
+  if (existsSync65(binaryPath)) {
     return binaryPath;
   }
   const { arch, os: os10 } = platformInfo;
@@ -65891,7 +67094,7 @@ async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   const downloadUrl = `https://github.com/${REPO}/releases/download/${version3}/${assetName}`;
   console.log("[miya] Downloading ast-grep binary...");
   try {
-    if (!existsSync64(cacheDir)) {
+    if (!existsSync65(cacheDir)) {
       mkdirSync56(cacheDir, { recursive: true });
     }
     const response = await fetch(downloadUrl, { redirect: "follow" });
@@ -65902,10 +67105,10 @@ async function downloadAstGrep(version3 = DEFAULT_VERSION) {
     const arrayBuffer = await response.arrayBuffer();
     await Bun.write(archivePath, arrayBuffer);
     await extractZip(archivePath, cacheDir);
-    if (existsSync64(archivePath)) {
+    if (existsSync65(archivePath)) {
       unlinkSync3(archivePath);
     }
-    if (process.platform !== "win32" && existsSync64(binaryPath)) {
+    if (process.platform !== "win32" && existsSync65(binaryPath)) {
       chmodSync(binaryPath, 493);
     }
     console.log("[miya] ast-grep binary ready.");
@@ -65988,7 +67191,7 @@ function findSgCliPathSync() {
     const cliPkgPath = require2.resolve("@ast-grep/cli/package.json");
     const cliDir = dirname48(cliPkgPath);
     const sgPath = join71(cliDir, binaryName);
-    if (existsSync65(sgPath) && isValidBinary(sgPath)) {
+    if (existsSync66(sgPath) && isValidBinary(sgPath)) {
       return sgPath;
     }
   } catch {}
@@ -66000,16 +67203,16 @@ function findSgCliPathSync() {
       const pkgDir = dirname48(pkgPath);
       const astGrepName = process.platform === "win32" ? "ast-grep.exe" : "ast-grep";
       const binaryPath = join71(pkgDir, astGrepName);
-      if (existsSync65(binaryPath) && isValidBinary(binaryPath)) {
+      if (existsSync66(binaryPath) && isValidBinary(binaryPath)) {
         return binaryPath;
       }
     } catch {}
   }
   if (process.platform === "darwin") {
     const homebrewPaths = ["/opt/homebrew/bin/sg", "/usr/local/bin/sg"];
-    for (const path71 of homebrewPaths) {
-      if (existsSync65(path71) && isValidBinary(path71)) {
-        return path71;
+    for (const path72 of homebrewPaths) {
+      if (existsSync66(path72) && isValidBinary(path72)) {
+        return path72;
       }
     }
   }
@@ -66026,8 +67229,8 @@ function getSgCliPath() {
   }
   return "sg";
 }
-function setSgCliPath(path71) {
-  resolvedCliPath = path71;
+function setSgCliPath(path72) {
+  resolvedCliPath = path72;
 }
 var DEFAULT_TIMEOUT_MS3 = 300000;
 var DEFAULT_MAX_OUTPUT_BYTES = 1 * 1024 * 1024;
@@ -66037,7 +67240,7 @@ var DEFAULT_MAX_MATCHES = 500;
 var initPromise = null;
 async function getAstGrepPath() {
   const currentPath = getSgCliPath();
-  if (currentPath !== "sg" && existsSync66(currentPath)) {
+  if (currentPath !== "sg" && existsSync67(currentPath)) {
     return currentPath;
   }
   if (initPromise) {
@@ -66045,7 +67248,7 @@ async function getAstGrepPath() {
   }
   initPromise = (async () => {
     const syncPath = findSgCliPathSync();
-    if (syncPath && existsSync66(syncPath)) {
+    if (syncPath && existsSync67(syncPath)) {
       setSgCliPath(syncPath);
       return syncPath;
     }
@@ -66084,14 +67287,14 @@ async function runSg(options) {
   const paths = options.paths && options.paths.length > 0 ? options.paths : ["."];
   args.push(...paths);
   let cliPath = getSgCliPath();
-  if (!existsSync66(cliPath) && cliPath !== "sg") {
+  if (!existsSync67(cliPath) && cliPath !== "sg") {
     const downloadedPath = await getAstGrepPath();
     if (downloadedPath) {
       cliPath = downloadedPath;
     }
   }
   const timeout = DEFAULT_TIMEOUT_MS3;
-  const proc = spawn6([cliPath, ...args], {
+  const proc = spawn7([cliPath, ...args], {
     stdout: "pipe",
     stderr: "pipe"
   });
@@ -66590,8 +67793,8 @@ function createAutoflowTools(projectDir, manager) {
   };
 }
 // src/tools/automation.ts
-import * as fs72 from "fs";
-import * as path71 from "path";
+import * as fs74 from "fs";
+import * as path72 from "path";
 var z7 = tool.schema;
 function formatJobs(jobs) {
   if (jobs.length === 0) {
@@ -66655,21 +67858,21 @@ function parseNaturalSchedule(input) {
   return { time: time5, command };
 }
 function readAutoGitStatus(projectDir) {
-  const file3 = path71.join(getMiyaRuntimeDir(projectDir), "auto-git-push.json");
-  if (!fs72.existsSync(file3))
+  const file3 = path72.join(getMiyaRuntimeDir(projectDir), "auto-git-push.json");
+  if (!fs74.existsSync(file3))
     return {};
   try {
-    return JSON.parse(fs72.readFileSync(file3, "utf-8"));
+    return JSON.parse(fs74.readFileSync(file3, "utf-8"));
   } catch {
     return {};
   }
 }
 function readGatewayStatus(projectDir) {
-  const file3 = path71.join(getMiyaRuntimeDir(projectDir), "gateway.json");
-  if (!fs72.existsSync(file3))
+  const file3 = path72.join(getMiyaRuntimeDir(projectDir), "gateway.json");
+  if (!fs74.existsSync(file3))
     return {};
   try {
-    return JSON.parse(fs72.readFileSync(file3, "utf-8"));
+    return JSON.parse(fs74.readFileSync(file3, "utf-8"));
   } catch {
     return {};
   }
@@ -67220,17 +68423,17 @@ function createCapabilityTools(getToolNames) {
   };
 }
 // src/tools/grep/cli.ts
-var {spawn: spawn7 } = globalThis.Bun;
+var {spawn: spawn8 } = globalThis.Bun;
 
 // src/tools/grep/constants.ts
 import { spawnSync as spawnSync11 } from "child_process";
-import { existsSync as existsSync69 } from "fs";
+import { existsSync as existsSync70 } from "fs";
 import { dirname as dirname49, join as join74 } from "path";
 
 // src/tools/grep/downloader.ts
 import {
   chmodSync as chmodSync2,
-  existsSync as existsSync68,
+  existsSync as existsSync69,
   mkdirSync as mkdirSync57,
   readdirSync as readdirSync6,
   unlinkSync as unlinkSync4
@@ -67246,7 +68449,7 @@ function getRgPath() {
 }
 function getInstalledRipgrepPath() {
   const rgPath = getRgPath();
-  return existsSync68(rgPath) ? rgPath : null;
+  return existsSync69(rgPath) ? rgPath : null;
 }
 
 // src/tools/grep/constants.ts
@@ -67281,7 +68484,7 @@ function getOpenCodeBundledRg() {
     join74(execDir, "..", "libexec", rgName)
   ];
   for (const candidate of candidates) {
-    if (existsSync69(candidate)) {
+    if (existsSync70(candidate)) {
       return candidate;
     }
   }
@@ -67429,7 +68632,7 @@ async function runRg(options) {
   }
   const paths = options.paths?.length ? options.paths : ["."];
   args.push(...paths);
-  const proc = spawn7([cli.path, ...args], {
+  const proc = spawn8([cli.path, ...args], {
     stdout: "pipe",
     stderr: "pipe"
   });
@@ -67617,14 +68820,14 @@ status=${updated.status}`;
 }
 // src/tools/lsp/client.ts
 var import_node = __toESM(require_main(), 1);
-import { readFileSync as readFileSync63 } from "fs";
-import { extname as extname4, resolve as resolve8 } from "path";
+import { readFileSync as readFileSync64 } from "fs";
+import { extname as extname4, resolve as resolve10 } from "path";
 import { Readable, Writable } from "stream";
 import { pathToFileURL } from "url";
-var {spawn: spawn8 } = globalThis.Bun;
+var {spawn: spawn9 } = globalThis.Bun;
 
 // src/tools/lsp/config.ts
-import { existsSync as existsSync70 } from "fs";
+import { existsSync as existsSync71 } from "fs";
 import { homedir as homedir8 } from "os";
 import { join as join75 } from "path";
 
@@ -67771,7 +68974,7 @@ function isServerInstalled(command) {
     return false;
   const cmd = command[0];
   if (cmd.includes("/") || cmd.includes("\\")) {
-    return existsSync70(cmd);
+    return existsSync71(cmd);
   }
   const isWindows = process.platform === "win32";
   const ext = isWindows ? ".exe" : "";
@@ -67779,17 +68982,17 @@ function isServerInstalled(command) {
   const pathSeparator = isWindows ? ";" : ":";
   const paths = pathEnv.split(pathSeparator);
   for (const p of paths) {
-    if (existsSync70(join75(p, cmd)) || existsSync70(join75(p, cmd + ext))) {
+    if (existsSync71(join75(p, cmd)) || existsSync71(join75(p, cmd + ext))) {
       return true;
     }
   }
   const cwd = process.cwd();
   const localBin = join75(cwd, "node_modules", ".bin", cmd);
-  if (existsSync70(localBin) || existsSync70(localBin + ext)) {
+  if (existsSync71(localBin) || existsSync71(localBin + ext)) {
     return true;
   }
   const globalBin = join75(homedir8(), ".config", "opencode", "bin", cmd);
-  if (existsSync70(globalBin) || existsSync70(globalBin + ext)) {
+  if (existsSync71(globalBin) || existsSync71(globalBin + ext)) {
     return true;
   }
   return false;
@@ -67933,7 +69136,7 @@ class LSPClient {
     this.server = server;
   }
   async start() {
-    this.proc = spawn8(this.server.command, {
+    this.proc = spawn9(this.server.command, {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
@@ -68002,7 +69205,7 @@ class LSPClient {
       this.processExited = true;
     });
     this.connection.listen();
-    await new Promise((resolve9) => setTimeout(resolve9, 100));
+    await new Promise((resolve11) => setTimeout(resolve11, 100));
     if (this.proc.exitCode !== null) {
       const stderr = this.stderrBuffer.join(`
 `);
@@ -68067,10 +69270,10 @@ stderr: ${stderr}` : ""));
     await new Promise((r) => setTimeout(r, 300));
   }
   async openFile(filePath16) {
-    const absPath = resolve8(filePath16);
+    const absPath = resolve10(filePath16);
     if (this.openedFiles.has(absPath))
       return;
-    const text = readFileSync63(absPath, "utf-8");
+    const text = readFileSync64(absPath, "utf-8");
     const ext = extname4(absPath);
     const languageId = getLanguageId(ext);
     this.connection?.sendNotification("textDocument/didOpen", {
@@ -68085,7 +69288,7 @@ stderr: ${stderr}` : ""));
     await new Promise((r) => setTimeout(r, 1000));
   }
   async definition(filePath16, line, character) {
-    const absPath = resolve8(filePath16);
+    const absPath = resolve10(filePath16);
     await this.openFile(absPath);
     return this.connection?.sendRequest("textDocument/definition", {
       textDocument: { uri: pathToFileURL(absPath).href },
@@ -68093,7 +69296,7 @@ stderr: ${stderr}` : ""));
     });
   }
   async references(filePath16, line, character, includeDeclaration = true) {
-    const absPath = resolve8(filePath16);
+    const absPath = resolve10(filePath16);
     await this.openFile(absPath);
     return this.connection?.sendRequest("textDocument/references", {
       textDocument: { uri: pathToFileURL(absPath).href },
@@ -68102,7 +69305,7 @@ stderr: ${stderr}` : ""));
     });
   }
   async diagnostics(filePath16) {
-    const absPath = resolve8(filePath16);
+    const absPath = resolve10(filePath16);
     const uri = pathToFileURL(absPath).href;
     await this.openFile(absPath);
     await new Promise((r) => setTimeout(r, 500));
@@ -68117,7 +69320,7 @@ stderr: ${stderr}` : ""));
     return { items: this.diagnosticsStore.get(uri) ?? [] };
   }
   async rename(filePath16, line, character, newName) {
-    const absPath = resolve8(filePath16);
+    const absPath = resolve10(filePath16);
     await this.openFile(absPath);
     return this.connection?.sendRequest("textDocument/rename", {
       textDocument: { uri: pathToFileURL(absPath).href },
@@ -68145,16 +69348,16 @@ stderr: ${stderr}` : ""));
 }
 // src/tools/lsp/utils.ts
 import {
-  existsSync as existsSync71,
-  readFileSync as readFileSync64,
+  existsSync as existsSync72,
+  readFileSync as readFileSync65,
   statSync as statSync4,
   unlinkSync as unlinkSync5,
-  writeFileSync as writeFileSync51
+  writeFileSync as writeFileSync53
 } from "fs";
-import { dirname as dirname50, extname as extname5, join as join76, resolve as resolve9 } from "path";
+import { dirname as dirname50, extname as extname5, join as join76, resolve as resolve11 } from "path";
 import { fileURLToPath as fileURLToPath4 } from "url";
 function findWorkspaceRoot(filePath16) {
-  let dir = resolve9(filePath16);
+  let dir = resolve11(filePath16);
   try {
     if (!statSync4(dir).isDirectory()) {
       dir = dirname50(dir);
@@ -68172,14 +69375,14 @@ function findWorkspaceRoot(filePath16) {
   let prevDir = "";
   while (dir !== prevDir) {
     for (const marker of markers) {
-      if (existsSync71(join76(dir, marker))) {
+      if (existsSync72(join76(dir, marker))) {
         return dir;
       }
     }
     prevDir = dir;
     dir = dirname50(dir);
   }
-  return dirname50(resolve9(filePath16));
+  return dirname50(resolve11(filePath16));
 }
 function uriToPath(uri) {
   return fileURLToPath4(uri);
@@ -68198,7 +69401,7 @@ function formatServerLookupError(result) {
   return `No LSP server configured for extension: ${result.extension}`;
 }
 async function withLspClient(filePath16, fn) {
-  const absPath = resolve9(filePath16);
+  const absPath = resolve11(filePath16);
   const ext = extname5(absPath);
   const result = findServerForExtension(ext);
   if (result.status !== "found") {
@@ -68261,7 +69464,7 @@ function filterDiagnosticsBySeverity(diagnostics, severityFilter) {
 }
 function applyTextEditsToFile(filePath16, edits) {
   try {
-    const content = readFileSync64(filePath16, "utf-8");
+    const content = readFileSync65(filePath16, "utf-8");
     const lines = content.split(`
 `);
     const sortedEdits = [...edits].sort((a, b) => {
@@ -68286,7 +69489,7 @@ function applyTextEditsToFile(filePath16, edits) {
 `));
       }
     }
-    writeFileSync51(filePath16, lines.join(`
+    writeFileSync53(filePath16, lines.join(`
 `), "utf-8");
     return { success: true, editCount: edits.length };
   } catch (err) {
@@ -68331,7 +69534,7 @@ function applyWorkspaceEdit(edit) {
         if (change.kind === "create") {
           try {
             const filePath16 = uriToPath(change.uri);
-            writeFileSync51(filePath16, "", "utf-8");
+            writeFileSync53(filePath16, "", "utf-8");
             result.filesModified.push(filePath16);
           } catch (err) {
             result.success = false;
@@ -68341,8 +69544,8 @@ function applyWorkspaceEdit(edit) {
           try {
             const oldPath = uriToPath(change.oldUri);
             const newPath = uriToPath(change.newUri);
-            const content = readFileSync64(oldPath, "utf-8");
-            writeFileSync51(newPath, content, "utf-8");
+            const content = readFileSync65(oldPath, "utf-8");
+            writeFileSync53(newPath, content, "utf-8");
             unlinkSync5(oldPath);
             result.filesModified.push(newPath);
           } catch (err) {
@@ -69923,17 +71126,17 @@ var autoUiOpenAtByDir = new Map;
 var dockLaunchAtByDir = new Map;
 var gatewayConsoleLaunchAtByDir = new Map;
 function autoUiOpenGuardFile(projectDir) {
-  return path72.join(getMiyaRuntimeDir(projectDir), "ui-auto-open.guard.json");
+  return path73.join(getMiyaRuntimeDir(projectDir), "ui-auto-open.guard.json");
 }
 function dockLaunchGuardFile(projectDir) {
-  return path72.join(getMiyaRuntimeDir(projectDir), "dock-launch.guard.json");
+  return path73.join(getMiyaRuntimeDir(projectDir), "dock-launch.guard.json");
 }
 function readLastAutoUiOpenAt(projectDir) {
   const file3 = autoUiOpenGuardFile(projectDir);
-  if (!fs73.existsSync(file3))
+  if (!fs75.existsSync(file3))
     return 0;
   try {
-    const parsed = JSON.parse(fs73.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs75.readFileSync(file3, "utf-8"));
     const atMs = Number(parsed?.atMs ?? 0);
     return Number.isFinite(atMs) ? atMs : 0;
   } catch {
@@ -69942,16 +71145,16 @@ function readLastAutoUiOpenAt(projectDir) {
 }
 function writeLastAutoUiOpenAt(projectDir, atMs) {
   const file3 = autoUiOpenGuardFile(projectDir);
-  fs73.mkdirSync(path72.dirname(file3), { recursive: true });
-  fs73.writeFileSync(file3, `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
+  fs75.mkdirSync(path73.dirname(file3), { recursive: true });
+  fs75.writeFileSync(file3, `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
 `, "utf-8");
 }
 function readLastDockLaunchAt(projectDir) {
   const file3 = dockLaunchGuardFile(projectDir);
-  if (!fs73.existsSync(file3))
+  if (!fs75.existsSync(file3))
     return 0;
   try {
-    const parsed = JSON.parse(fs73.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs75.readFileSync(file3, "utf-8"));
     const atMs = Number(parsed?.atMs ?? 0);
     return Number.isFinite(atMs) ? atMs : 0;
   } catch {
@@ -69960,8 +71163,8 @@ function readLastDockLaunchAt(projectDir) {
 }
 function writeLastDockLaunchAt(projectDir, atMs) {
   const file3 = dockLaunchGuardFile(projectDir);
-  fs73.mkdirSync(path72.dirname(file3), { recursive: true });
-  fs73.writeFileSync(file3, `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
+  fs75.mkdirSync(path73.dirname(file3), { recursive: true });
+  fs75.writeFileSync(file3, `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
 `, "utf-8");
 }
 function isPidAlive2(pid) {
@@ -69976,7 +71179,7 @@ function isPidAlive2(pid) {
 }
 function openUrlSilently(url3) {
   if (process.platform === "win32") {
-    const child2 = spawn9("rundll32.exe", ["url.dll,FileProtocolHandler", url3], {
+    const child2 = spawn10("rundll32.exe", ["url.dll,FileProtocolHandler", url3], {
       detached: true,
       stdio: "ignore",
       windowsHide: true
@@ -69985,14 +71188,14 @@ function openUrlSilently(url3) {
     return;
   }
   if (process.platform === "darwin") {
-    const child2 = spawn9("open", [url3], {
+    const child2 = spawn10("open", [url3], {
       detached: true,
       stdio: "ignore"
     });
     child2.unref();
     return;
   }
-  const child = spawn9("xdg-open", [url3], {
+  const child = spawn10("xdg-open", [url3], {
     detached: true,
     stdio: "ignore"
   });
@@ -70065,18 +71268,18 @@ function launchDockSilently(projectDir) {
   const lastAt = Math.max(lastAtInProcess, lastAtCrossProcess);
   if (now - lastAt < 30000)
     return;
-  const pidFile = path72.join(projectDir, "miya-src", "tools", "miya-dock", "miya-dock.pid");
-  if (fs73.existsSync(pidFile)) {
+  const pidFile = path73.join(projectDir, "miya-src", "tools", "miya-dock", "miya-dock.pid");
+  if (fs75.existsSync(pidFile)) {
     try {
-      const pid = Number(fs73.readFileSync(pidFile, "utf-8").trim());
+      const pid = Number(fs75.readFileSync(pidFile, "utf-8").trim());
       if (isPidAlive2(pid))
         return;
     } catch {}
   }
-  const ps1 = path72.join(projectDir, "miya-src", "tools", "miya-dock", "miya-dock.ps1");
-  if (!fs73.existsSync(ps1))
+  const ps1 = path73.join(projectDir, "miya-src", "tools", "miya-dock", "miya-dock.ps1");
+  if (!fs75.existsSync(ps1))
     return;
-  const child = spawn9("powershell.exe", [
+  const child = spawn10("powershell.exe", [
     "-NoProfile",
     "-ExecutionPolicy",
     "Bypass",
@@ -70201,14 +71404,14 @@ function isInteractiveSession() {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 function sleep(ms) {
-  return new Promise((resolve10) => setTimeout(resolve10, ms));
+  return new Promise((resolve12) => setTimeout(resolve12, ms));
 }
 function readRuntimeGatewayState(projectDir) {
-  const file3 = path72.join(getMiyaRuntimeDir(projectDir), "gateway.json");
-  if (!fs73.existsSync(file3))
+  const file3 = path73.join(getMiyaRuntimeDir(projectDir), "gateway.json");
+  if (!fs75.existsSync(file3))
     return null;
   try {
-    const parsed = JSON.parse(fs73.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs75.readFileSync(file3, "utf-8"));
     const url3 = String(parsed.url ?? "").trim();
     if (!url3)
       return null;
@@ -70235,34 +71438,34 @@ function readRuntimeGatewayState(projectDir) {
   }
 }
 function runtimeGatewaySupervisorFile(projectDir) {
-  return path72.join(getMiyaRuntimeDir(projectDir), "gateway-supervisor.json");
+  return path73.join(getMiyaRuntimeDir(projectDir), "gateway-supervisor.json");
 }
 function runtimeGatewaySupervisorStopFile(projectDir) {
-  return path72.join(getMiyaRuntimeDir(projectDir), "gateway-supervisor.stop");
+  return path73.join(getMiyaRuntimeDir(projectDir), "gateway-supervisor.stop");
 }
 function runtimeGatewayBootstrapLogFile(projectDir) {
-  return path72.join(getMiyaRuntimeDir(projectDir), "gateway-bootstrap.log");
+  return path73.join(getMiyaRuntimeDir(projectDir), "gateway-bootstrap.log");
 }
 function appendGatewayBootstrapLog(projectDir, message) {
   try {
-    fs73.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
-    fs73.appendFileSync(runtimeGatewayBootstrapLogFile(projectDir), `[${new Date().toISOString()}] ${message}
+    fs75.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+    fs75.appendFileSync(runtimeGatewayBootstrapLogFile(projectDir), `[${new Date().toISOString()}] ${message}
 `, "utf-8");
   } catch {}
 }
 function gatewayGlobalStateFile2() {
   if (process.platform === "win32") {
-    const appData = String(process.env.APPDATA ?? "").trim() || path72.join(os10.homedir(), "AppData", "Roaming");
-    return path72.join(appData, "miya", "gateway.json");
+    const appData = String(process.env.APPDATA ?? "").trim() || path73.join(os10.homedir(), "AppData", "Roaming");
+    return path73.join(appData, "miya", "gateway.json");
   }
-  return path72.join(os10.homedir(), ".config", "miya", "gateway.json");
+  return path73.join(os10.homedir(), ".config", "miya", "gateway.json");
 }
 function readGlobalGatewayState() {
   const file3 = gatewayGlobalStateFile2();
-  if (!fs73.existsSync(file3))
+  if (!fs75.existsSync(file3))
     return null;
   try {
-    const parsed = JSON.parse(fs73.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs75.readFileSync(file3, "utf-8"));
     const url3 = String(parsed.http ?? "").trim();
     const pid = Number(parsed.pid);
     const startedAt = String(parsed.startedAt ?? "").trim();
@@ -70287,10 +71490,10 @@ function readGlobalGatewayState() {
 }
 function readGatewaySupervisorState(projectDir) {
   const file3 = runtimeGatewaySupervisorFile(projectDir);
-  if (!fs73.existsSync(file3))
+  if (!fs75.existsSync(file3))
     return null;
   try {
-    const parsed = JSON.parse(fs73.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs75.readFileSync(file3, "utf-8"));
     const pid = Number(parsed.pid);
     const status = String(parsed.status ?? "").trim().toLowerCase();
     if (!Number.isFinite(pid) || pid <= 0 || !status)
@@ -70302,14 +71505,14 @@ function readGatewaySupervisorState(projectDir) {
 }
 function resolveGatewaySupervisorScript(projectDir) {
   const bundled = fileURLToPath5(new URL("./cli/gateway-supervisor.node.js", import.meta.url));
-  if (fs73.existsSync(bundled))
+  if (fs75.existsSync(bundled))
     return bundled;
   const candidates = [
-    path72.join(projectDir, "miya-src", "dist", "cli", "gateway-supervisor.node.js"),
-    path72.join(projectDir, "dist", "cli", "gateway-supervisor.node.js")
+    path73.join(projectDir, "miya-src", "dist", "cli", "gateway-supervisor.node.js"),
+    path73.join(projectDir, "dist", "cli", "gateway-supervisor.node.js")
   ];
   for (const candidate of candidates) {
-    if (fs73.existsSync(candidate))
+    if (fs75.existsSync(candidate))
       return candidate;
   }
   return null;
@@ -70319,7 +71522,7 @@ function resolveGatewaySupervisorNodeBin() {
     String(process.env.MIYA_GATEWAY_NODE_BIN ?? "").trim(),
     "node",
     "bun",
-    /(node|bun)(\.exe)?$/i.test(path72.basename(process.execPath)) ? process.execPath : ""
+    /(node|bun)(\.exe)?$/i.test(path73.basename(process.execPath)) ? process.execPath : ""
   ].filter(Boolean);
   for (const candidate of candidates) {
     try {
@@ -70341,9 +71544,9 @@ function startGatewaySupervisorDetached(projectDir) {
     return false;
   }
   try {
-    fs73.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
+    fs75.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
   } catch {}
-  const child = spawn9(nodeBin, [script, "--workspace", projectDir], {
+  const child = spawn10(nodeBin, [script, "--workspace", projectDir], {
     cwd: projectDir,
     detached: true,
     stdio: "ignore",
@@ -70373,11 +71576,11 @@ function startGatewaySupervisorVisibleConsole(projectDir) {
   if (now - lastAt < 15000)
     return false;
   try {
-    fs73.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
+    fs75.unlinkSync(runtimeGatewaySupervisorStopFile(projectDir));
   } catch {}
   try {
     const inner = `title miya-gateway && "${nodeBin}" "${script}" --workspace "${projectDir}" --verbose`;
-    const child = spawn9("cmd.exe", ["/d", "/c", "start", '"miya-gateway"', "cmd.exe", "/d", "/k", inner], {
+    const child = spawn10("cmd.exe", ["/d", "/c", "start", '"miya-gateway"', "cmd.exe", "/d", "/k", inner], {
       cwd: projectDir,
       detached: true,
       stdio: "ignore",
@@ -70774,12 +71977,12 @@ var MiyaPlugin = async (ctx) => {
         }
       }
       const canUseBinding = Boolean(existingBinding && existingBinding.sourceTool === sourceTool);
-      const bundleId = providedBundleID || (canUseBinding ? existingBinding.bundleId : "");
-      const policyHash = providedPolicyHash || (canUseBinding ? existingBinding.policyHash : "");
+      const bundleId = providedBundleID || (canUseBinding ? existingBinding?.bundleId : "");
+      const policyHash = providedPolicyHash || (canUseBinding ? existingBinding?.policyHash : "");
       if (!bundleId || !policyHash) {
         throw new Error("miya_plan_bundle_required:autonomous_run_requires_plan_bundle_id_and_policy_hash");
       }
-      const riskTier = providedRiskTier || (canUseBinding ? existingBinding.riskTier : "THOROUGH");
+      const riskTier = providedRiskTier || (canUseBinding ? existingBinding?.riskTier : "THOROUGH");
       const normalizedArgs = {
         ...argObject,
         plan_bundle_id: bundleId,

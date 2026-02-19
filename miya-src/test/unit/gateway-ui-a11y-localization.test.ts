@@ -16,4 +16,12 @@ describe('gateway ui localization and accessibility', () => {
     expect(appSource.includes('aria-live="assertive"')).toBe(true);
     expect(appSource.includes('aria-live="polite"')).toBe(true);
   });
+
+  test('parses malformed encoded routes without throwing runtime errors', () => {
+    expect(appSource.includes('function safeDecodeRouteSegment')).toBe(true);
+    expect(appSource.includes('safeDecodeRouteSegment(matched[2])')).toBe(true);
+    expect(appSource.includes('safeDecodeRouteSegment(memoryMatched[2])')).toBe(
+      true,
+    );
+  });
 });

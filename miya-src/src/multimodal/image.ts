@@ -52,7 +52,7 @@ export async function generateImage(
 ): Promise<GenerateImageResult> {
   const daemon = getMiyaClient(projectDir);
   const prompt = sanitizePrompt(input.prompt);
-  if (!prompt) throw new Error('invalid_prompt');
+  if (!prompt) throw new Error('invalid_prompt:prompt must not be empty');
 
   const model = input.model?.trim() || DEFAULT_IMAGE_MODEL;
   const size = input.size?.trim() || DEFAULT_IMAGE_SIZE;

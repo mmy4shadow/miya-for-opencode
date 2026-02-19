@@ -1,3 +1,4 @@
+import { readInteractionStats } from './proactivity/interaction-stats';
 import { type ScreenProbeResult } from './screen-probe';
 import { type NativeSentinelSignalSample } from './sensors';
 import { type SentinelSignals, type SentinelState } from './state-machine';
@@ -11,6 +12,8 @@ export interface PsycheConsultRequest {
     userInitiated?: boolean;
     allowScreenProbe?: boolean;
     allowSignalOverride?: boolean;
+    allowPlayCompanion?: boolean;
+    epsilonOverride?: number;
     signals?: SentinelSignals;
     captureLimitations?: string[];
     trust?: {
@@ -70,6 +73,13 @@ export interface PsycheConsultResult {
         awayAllowThreshold: number;
         deferRetryBaseSec: number;
     };
+    proactivity: {
+        action: 'send_now' | 'wait_5m' | 'wait_15m' | 'wait_30m' | 'skip';
+        waitSec: number;
+        scoreNow: number;
+        scoreWait: number;
+        reasonCodes: string[];
+    };
     insightText: string;
 }
 export interface PsycheOutcomeRequest {
@@ -115,6 +125,8 @@ export declare class PsycheConsultService {
     private readonly budgetPath;
     private readonly probeBudgetPath;
     private readonly trainingDataLogPath;
+    private readonly interactionStatsPath;
+    private readonly proactivityDecisionLogPath;
     private readonly trustPath;
     private readonly lifecyclePath;
     private readonly epsilon;
@@ -132,6 +144,7 @@ export declare class PsycheConsultService {
     });
     consult(input: PsycheConsultRequest): PsycheConsultResult;
     registerOutcome(input: PsycheOutcomeRequest): PsycheOutcomeResult;
+    getProactivityStats(): ReturnType<typeof readInteractionStats>;
     private pickDecision;
     private resolveFixability;
     private computeResonanceProfile;
@@ -145,6 +158,7 @@ export declare class PsycheConsultService {
     private resolveProbeTimeoutMs;
     private probeBudgetConfig;
     private resolveEpsilonFromEnv;
+    private resolveExplorationRate;
     private shouldExplore;
     private resolveShadowModeDays;
     private ensureLifecycleState;

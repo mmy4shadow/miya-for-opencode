@@ -146,6 +146,65 @@ describe('psyche consult service', () => {
     expect(result.reason).toContain('epsilon_exploration');
   });
 
+  test('keeps play state in defer even when epsilon triggers by default', () => {
+    const service = buildService(tempProjectDir(), {
+      epsilon: 0.1,
+      shadowModeDays: 0,
+      random: { next: () => 0 },
+    });
+    const result = service.consult({
+      intent: 'outbound.send.wechat',
+      urgency: 'high',
+      userInitiated: false,
+      channel: 'wechat',
+      signals: {
+        foreground: 'game',
+        gamepadActive: true,
+        idleSec: 15,
+      },
+    });
+    expect(result.state).toBe('PLAY');
+    expect(result.decision).toBe('defer');
+    expect(result.reasons).toContain('play_guard_hold');
+    expect(result.reasons).not.toContain('epsilon_exploration');
+  });
+
+  test('supports play companion override with explicit mode switch', () => {
+    const projectDir = tempProjectDir();
+    const service = buildService(projectDir, {
+      epsilon: 0,
+      shadowModeDays: 0,
+    });
+    for (let i = 0; i < 6; i += 1) {
+      service.registerOutcome({
+        consultAuditID: `seed-play-${i}`,
+        intent: 'outbound.send.wechat',
+        urgency: 'critical',
+        channel: 'wechat',
+        userInitiated: false,
+        state: 'PLAY',
+        delivered: true,
+        explicitFeedback: 'positive',
+        userReplyWithinSec: 60,
+      });
+    }
+    const result = service.consult({
+      intent: 'outbound.send.wechat',
+      urgency: 'critical',
+      userInitiated: false,
+      channel: 'wechat',
+      allowPlayCompanion: true,
+      signals: {
+        foreground: 'game',
+        gamepadActive: true,
+        idleSec: 12,
+      },
+    });
+    expect(result.state).toBe('PLAY');
+    expect(result.decision).toBe('allow');
+    expect(result.reasons).toContain('play_companion_enabled');
+  });
+
   test('returns fixability and zero budget for low-trust deny', () => {
     const service = buildService(tempProjectDir(), {
       epsilon: 0,

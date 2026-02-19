@@ -40,7 +40,11 @@ export function ingestVoiceInput(
 ): VoiceInputResult {
   const source = input.source ?? (input.mediaID ? 'media' : 'manual');
   const text = resolveVoiceInputText(projectDir, input);
-  if (!text) throw new Error('invalid_voice_input');
+  if (!text) {
+    throw new Error(
+      'invalid_voice_input:text empty and media transcript unavailable',
+    );
+  }
 
   appendVoiceHistory(projectDir, {
     text,
@@ -121,7 +125,7 @@ export async function synthesizeVoiceOutput(
 ): Promise<VoiceOutputResult> {
   const daemon = getMiyaClient(projectDir);
   const text = input.text.trim();
-  if (!text) throw new Error('invalid_tts_text');
+  if (!text) throw new Error('invalid_tts_text:text must not be empty');
 
   const voice = input.voice?.trim() || DEFAULT_VOICE;
   const model = input.model?.trim() || DEFAULT_TTS_MODEL;

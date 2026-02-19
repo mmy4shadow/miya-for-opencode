@@ -56,6 +56,46 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - Gateway 新增 health 广播：订阅连接建立后立即推送一次 `gateway.health`，并以 2.5s 心跳周期广播 `uptime/memory/wsConnections`，为前端实时状态订阅提供统一事件层（`miya-src/src/gateway/index.ts`）。
 - Gateway/worker/supervisor 启动前统一补齐 loopback 直连环境：`NO_PROXY/no_proxy` 自动合并 `localhost,127.0.0.1,::1`，降低“系统代理误劫持本地控制链路”的概率（`miya-src/src/gateway/index.ts`、`miya-src/src/cli/gateway-worker.ts`、`miya-src/src/cli/gateway-supervisor.ts`）。
 
+### 2026-02-19 九维补充审计状态同步（本轮）
+
+- 诊断可观测性已补硬化：`mode-observability` 对历史损坏数据新增归一化与写盘清洗，避免 `NaN` 指标与字符串拼接计数（`miya-src/src/gateway/mode-observability.ts`、`miya-src/test/unit/diagnostic-observability-hardening.test.ts`）。
+- 生态桥接元数据已纠偏：`open-llm-vtuber` 媒体侧效应与策略域命名统一为 `media_generate`，避免权限语义漂移（`miya-src/src/compat/ecosystem-bridge-registry.ts`、`miya-src/test/unit/ecosystem-bridge-integration-consistency.test.ts`）。
+- 占位符/部分实现守门已补齐：新增“拆域仍为壳层阶段”的自动检测与文档一致性检查，防止规划文档与代码状态错位（`miya-src/test/unit/partial-implementation-gap-analysis.test.ts`）。
+- 兼容层状态口径修正：
+  - `Gateway v2 alias`：已落地并可用（保留旧方法兼容）。
+  - `Daemon v2 alias 显式重命名表`：进行中（当前仅保留 `v2.` 前缀回退路径，尚无批量重命名映射；保持“未完成能力不宣称完成”口径）。
+
+### 2026-02-19 交互感知系统增量落地（本轮）
+
+- 目标口径修正：不新建平行 `world_model/` 技术栈，基于既有 `psyche` 主链做增量增强，避免跨语言分裂与维护成本上升。
+- 已完成：交互行为统计层（`miya-src/src/daemon/psyche/proactivity/interaction-stats.ts`）
+  - 新增 `consult/outcome` 事件累积与 1h/24h 指标聚合（回复率、负反馈率、用户主动率、回复时延中位数）。
+- 已完成：上下文向量层（`miya-src/src/daemon/psyche/proactivity/context-vector.ts`）
+  - 将传感器、风险、信任、共鸣、行为统计统一编码为稳定特征向量，供主动策略评估复用。
+- 已完成：反事实评分与策略层（`miya-src/src/daemon/psyche/proactivity/counterfactual.ts`、`miya-src/src/daemon/psyche/proactivity/policy.ts`）
+  - 引入 `send_now / wait_5m / wait_15m / wait_30m / skip` 候选动作评估。
+  - 在不绕过硬风控前提下，仅对“允许发送”路径做时机优化（可降级为 defer + wait）。
+- 已完成：主链路接入（`miya-src/src/daemon/psyche/consult.ts`）
+  - 接入新策略输出，新增 `proactivity` 决策信息落盘与返回字段。
+  - 保留 `epsilon` 探索语义，避免新策略覆盖探索分支导致行为回退。
+- 已完成：冲突项修正（2026-02-19 第二轮）
+  - 修复 `PLAY` 状态被 `epsilon` 探索强行放行的问题；默认保持 hold，需显式开启 `playCompanionEnabled` 才允许“游戏中陪伴”。
+  - 修复 `GetLastInputInfo` 采样口径：改为 32-bit tick 回绕安全差分，并在 idle 异常回跳时标记 `input_idle_clock_anomaly` 防误判。
+  - 修复慢脑自动训练时机：daemon `runMemoryWorkerTick` 改为读取 `gateway-psyche-mode.json` 的周期重训策略，默认关闭自动重训；开启后按间隔与样本阈值触发。
+- 已完成：控制平面观测补充（`miya-src/src/gateway/index.ts`）
+  - 新增 `psyche.proactivity.stats.get` 查询接口，复用统一统计文件。
+- 已完成：守门员模式参数扩展（`miya-src/src/gateway/index.ts`）
+  - 新增 `playCompanionEnabled`、`proactivityExploreRate`、`periodicRetrainEnabled`、`periodicRetrainIntervalHours`、`periodicRetrainMinOutcomes`，并透传到 daemon consult / retrain 调度。
+- 已完成：回归测试与单测补齐
+  - `miya-src/src/daemon/psyche/proactivity/interaction-stats.test.ts`
+  - `miya-src/src/daemon/psyche/proactivity/context-vector.test.ts`
+  - `miya-src/src/daemon/psyche/proactivity/policy.test.ts`
+  - 既有 `consult/security-interaction` 关键链路回归通过。
+
+状态结论：
+- “Miya 交互感知系统”已从“规则 + bandit”升级为“规则/风控 + 行为统计 + 反事实时机策略”的可观测版本。
+- “重模型（MLP/GRU）替换当前策略”保持进行中：待 shadow 指标达到瓶颈后再评估，不在本轮强推。
+
 ### 2026-02-18 代码实读复核（逻辑闭环/触发链路）
 
 - 结论：当前主链路可运行，但仍存在“接口壳层已接入、能力未真正下沉”的未闭环点；本节结论覆盖同日“已落地”表述中的冲突项。

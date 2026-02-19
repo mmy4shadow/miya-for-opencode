@@ -750,6 +750,21 @@ describe('JSONC config support', () => {
     expect(config.agents?.oracle?.model).toBe('json-model');
   });
 
+  test('falls back to .json when .jsonc exists but is invalid', () => {
+    const projectDir = path.join(tempDir, 'project');
+    const projectConfigDir = path.join(projectDir, '.opencode');
+    fs.mkdirSync(projectConfigDir, { recursive: true });
+
+    fs.writeFileSync(path.join(projectConfigDir, 'miya.jsonc'), '{ invalid }');
+    fs.writeFileSync(
+      path.join(projectConfigDir, 'miya.json'),
+      JSON.stringify({ agents: { oracle: { model: 'json-fallback-model' } } }),
+    );
+
+    const config = loadPluginConfig(projectDir);
+    expect(config.agents?.oracle?.model).toBe('json-fallback-model');
+  });
+
   test('loads user config from .jsonc', () => {
     const userOpencodeDir = path.join(tempDir, 'user-config', 'opencode');
     fs.mkdirSync(userOpencodeDir, { recursive: true });

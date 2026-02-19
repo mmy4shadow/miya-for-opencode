@@ -99,6 +99,8 @@ export declare class MiyaClient {
         userInitiated?: boolean;
         allowScreenProbe?: boolean;
         allowSignalOverride?: boolean;
+        allowPlayCompanion?: boolean;
+        epsilonOverride?: number;
         signals?: SentinelSignals;
         captureLimitations?: string[];
         trust?: {
@@ -130,6 +132,7 @@ export declare class MiyaClient {
     }): Promise<PsycheOutcomeResult>;
     psycheSignalsGet(): Promise<unknown>;
     psycheSlowBrainGet(): Promise<unknown>;
+    psycheProactivityGet(): Promise<unknown>;
     psycheSlowBrainRetrain(input?: {
         force?: boolean;
         minOutcomes?: number;

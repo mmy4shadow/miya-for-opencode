@@ -113,8 +113,8 @@ const ECOSYSTEM_BRIDGE_ENTRIES: EcosystemBridgeEntry[] = [
       platforms: ['windows', 'linux', 'macos'],
     },
     permissionMetadata: {
-      sideEffects: ['voice_output', 'media_generation'],
-      requiredDomains: ['memory_write'],
+      sideEffects: ['voice_output', 'media_generate'],
+      requiredDomains: ['media_generate'],
     },
     rollbackPlan: DEFAULT_ROLLBACK,
     auditFields: AUDIT_FIELDS,

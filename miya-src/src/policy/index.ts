@@ -35,6 +35,45 @@ export interface MiyaPolicy {
   };
 }
 
+function normalizePolicyDomainState(
+  value: unknown,
+  fallback: PolicyDomainState,
+): PolicyDomainState {
+  return value === 'running' || value === 'paused' ? value : fallback;
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value;
+  return fallback;
+}
+
+function normalizePositiveInt(
+  value: unknown,
+  fallback: number,
+  min: number,
+): number {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.floor(parsed));
+}
+
+function normalizeAllowedChannels(
+  value: unknown,
+  fallback: Array<'qq' | 'wechat'>,
+): Array<'qq' | 'wechat'> {
+  if (!Array.isArray(value)) return fallback;
+  const allowed = value.filter(
+    (item): item is 'qq' | 'wechat' => item === 'qq' || item === 'wechat',
+  );
+  if (allowed.length === 0) return fallback;
+  return [...new Set(allowed)];
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -88,18 +127,55 @@ export function readPolicy(projectDir: string): MiyaPolicy {
     const base = defaultPolicy();
     const parsedDomains =
       parsed.domains && typeof parsed.domains === 'object'
-        ? (parsed.domains as Partial<Record<PolicyDomain, PolicyDomainState>>)
+        ? (parsed.domains as Partial<Record<PolicyDomain, unknown>>)
+        : {};
+    const mergedDomains = Object.fromEntries(
+      POLICY_DOMAINS.map((domain) => [
+        domain,
+        normalizePolicyDomainState(parsedDomains[domain], base.domains[domain]),
+      ]),
+    ) as Record<PolicyDomain, PolicyDomainState>;
+    const parsedOutbound =
+      parsed.outbound && typeof parsed.outbound === 'object'
+        ? (parsed.outbound as Partial<MiyaPolicy['outbound']>)
         : {};
     return {
       ...base,
       ...parsed,
-      domains: {
-        ...base.domains,
-        ...parsedDomains,
-      },
+      domains: mergedDomains,
       outbound: {
-        ...base.outbound,
-        ...(parsed.outbound ?? {}),
+        allowedChannels: normalizeAllowedChannels(
+          parsedOutbound.allowedChannels,
+          base.outbound.allowedChannels,
+        ),
+        requireArchAdvisorApproval: normalizeBoolean(
+          parsedOutbound.requireArchAdvisorApproval,
+          base.outbound.requireArchAdvisorApproval,
+        ),
+        requireAllowlist: normalizeBoolean(
+          parsedOutbound.requireAllowlist,
+          base.outbound.requireAllowlist,
+        ),
+        minIntervalMs: normalizePositiveInt(
+          parsedOutbound.minIntervalMs,
+          base.outbound.minIntervalMs,
+          500,
+        ),
+        burstWindowMs: normalizePositiveInt(
+          parsedOutbound.burstWindowMs,
+          base.outbound.burstWindowMs,
+          1_000,
+        ),
+        burstLimit: normalizePositiveInt(
+          parsedOutbound.burstLimit,
+          base.outbound.burstLimit,
+          1,
+        ),
+        duplicateWindowMs: normalizePositiveInt(
+          parsedOutbound.duplicateWindowMs,
+          base.outbound.duplicateWindowMs,
+          1_000,
+        ),
       },
     };
   } catch {

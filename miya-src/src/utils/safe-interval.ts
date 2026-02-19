@@ -29,20 +29,22 @@ export function safeInterval(
       if (running) return;
       if (Date.now() < cooldownUntilMs) return;
       running = true;
-      Promise.resolve(run())
+      Promise.resolve()
+        .then(run)
         .then(() => {
           consecutiveErrors = 0;
         })
         .catch((error) => {
-          consecutiveErrors += 1;
-          if (consecutiveErrors >= maxConsecutiveErrors) {
+          const nextConsecutiveErrors = consecutiveErrors + 1;
+          consecutiveErrors = nextConsecutiveErrors;
+          if (nextConsecutiveErrors >= maxConsecutiveErrors) {
             cooldownUntilMs = Date.now() + cooldownMs;
             consecutiveErrors = 0;
           }
           options?.onError?.({
             taskName,
             error,
-            consecutiveErrors: Math.max(1, consecutiveErrors),
+            consecutiveErrors: nextConsecutiveErrors,
             cooldownUntilMs:
               cooldownUntilMs > Date.now() ? cooldownUntilMs : undefined,
           });

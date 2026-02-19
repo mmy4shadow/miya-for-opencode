@@ -381,9 +381,7 @@ export class MiyaAutomationService {
       job.lastRunAt = result.endedAt;
       job.lastStatus = result.status;
       job.lastExitCode = result.exitCode;
-      if (trigger !== 'scheduler') {
-        job.nextRunAt = computeNextDailyRun(job.schedule.time, new Date());
-      }
+      job.nextRunAt = computeNextDailyRun(job.schedule.time, new Date());
       Object.assign(job, touchJob(job));
       appendHistoryRecord(this.projectDir, {
         id: createHistoryId(),
@@ -414,9 +412,7 @@ export class MiyaAutomationService {
     job.lastRunAt = result.endedAt;
     job.lastStatus = result.status;
     job.lastExitCode = result.exitCode;
-    if (trigger !== 'scheduler') {
-      job.nextRunAt = computeNextDailyRun(job.schedule.time, new Date());
-    }
+    job.nextRunAt = computeNextDailyRun(job.schedule.time, new Date());
     Object.assign(job, touchJob(job));
 
     const history: MiyaJobHistoryRecord = {

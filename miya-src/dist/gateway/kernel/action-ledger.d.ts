@@ -15,6 +15,17 @@ export interface ToolActionLedgerEvent {
     previousHash: string;
     entryHash: string;
 }
+export interface ToolActionLedgerIssue {
+    line: number;
+    id?: string;
+    reason: string;
+}
+export interface ToolActionLedgerVerificationReport {
+    ok: boolean;
+    total: number;
+    valid: number;
+    issues: ToolActionLedgerIssue[];
+}
 export declare function appendToolActionLedgerEvent(projectDir: string, input: {
     method: string;
     clientID: string;
@@ -26,3 +37,4 @@ export declare function appendToolActionLedgerEvent(projectDir: string, input: {
     approvalBasis?: string;
 }): ToolActionLedgerEvent;
 export declare function listToolActionLedgerEvents(projectDir: string, limit?: number): ToolActionLedgerEvent[];
+export declare function verifyToolActionLedger(projectDir: string): ToolActionLedgerVerificationReport;

@@ -221,6 +221,8 @@ export class MiyaClient {
     userInitiated?: boolean;
     allowScreenProbe?: boolean;
     allowSignalOverride?: boolean;
+    allowPlayCompanion?: boolean;
+    epsilonOverride?: number;
     signals?: SentinelSignals;
     captureLimitations?: string[];
     trust?: {
@@ -279,6 +281,15 @@ export class MiyaClient {
     return daemonInvoke(
       this.projectDir,
       'daemon.psyche.slowbrain.get',
+      {},
+      10_000,
+    );
+  }
+
+  async psycheProactivityGet(): Promise<unknown> {
+    return daemonInvoke(
+      this.projectDir,
+      'daemon.psyche.proactivity.get',
       {},
       10_000,
     );
