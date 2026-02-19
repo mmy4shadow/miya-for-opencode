@@ -142,6 +142,7 @@ import {
   subscribeLauncherEvents,
 } from '../daemon';
 import {
+  readInteractionStats,
   readPsycheTrainingSummary,
   readSlowBrainState,
   retrainSlowBrainPolicy,
@@ -375,9 +376,14 @@ interface PsycheModeConfig {
   resonanceEnabled: boolean;
   captureProbeEnabled: boolean;
   signalOverrideEnabled: boolean;
+  playCompanionEnabled: boolean;
+  proactivityExploreRate: number;
   slowBrainEnabled: boolean;
   slowBrainShadowEnabled: boolean;
   slowBrainShadowRollout: number;
+  periodicRetrainEnabled: boolean;
+  periodicRetrainIntervalHours: number;
+  periodicRetrainMinOutcomes: number;
   shadowCohortSalt: string;
   proactivePingEnabled: boolean;
   proactivePingMinIntervalMinutes: number;
@@ -915,9 +921,14 @@ const DEFAULT_PSYCHE_MODE: PsycheModeConfig = {
   resonanceEnabled: true,
   captureProbeEnabled: true,
   signalOverrideEnabled: false,
+  playCompanionEnabled: false,
+  proactivityExploreRate: 0.05,
   slowBrainEnabled: true,
   slowBrainShadowEnabled: true,
   slowBrainShadowRollout: 15,
+  periodicRetrainEnabled: false,
+  periodicRetrainIntervalHours: 7 * 24,
+  periodicRetrainMinOutcomes: 10_000,
   shadowCohortSalt: 'miya-psyche-shadow-v1',
   proactivePingEnabled: true,
   proactivePingMinIntervalMinutes: 90,
@@ -1059,6 +1070,30 @@ function normalizePsycheMode(
   const proactivePingMaxPerDay = Number.isFinite(proactivePingMaxPerDayRaw)
     ? Math.max(1, Math.min(200, Math.round(proactivePingMaxPerDayRaw)))
     : DEFAULT_PSYCHE_MODE.proactivePingMaxPerDay;
+  const proactivityExploreRateRaw = Number(
+    input?.proactivityExploreRate ?? DEFAULT_PSYCHE_MODE.proactivityExploreRate,
+  );
+  const proactivityExploreRate = Number.isFinite(proactivityExploreRateRaw)
+    ? Math.max(0, Math.min(0.2, Number(proactivityExploreRateRaw.toFixed(4))))
+    : DEFAULT_PSYCHE_MODE.proactivityExploreRate;
+  const periodicRetrainIntervalHoursRaw = Number(
+    input?.periodicRetrainIntervalHours ??
+      DEFAULT_PSYCHE_MODE.periodicRetrainIntervalHours,
+  );
+  const periodicRetrainIntervalHours = Number.isFinite(
+    periodicRetrainIntervalHoursRaw,
+  )
+    ? Math.max(1, Math.min(24 * 90, Math.round(periodicRetrainIntervalHoursRaw)))
+    : DEFAULT_PSYCHE_MODE.periodicRetrainIntervalHours;
+  const periodicRetrainMinOutcomesRaw = Number(
+    input?.periodicRetrainMinOutcomes ??
+      DEFAULT_PSYCHE_MODE.periodicRetrainMinOutcomes,
+  );
+  const periodicRetrainMinOutcomes = Number.isFinite(
+    periodicRetrainMinOutcomesRaw,
+  )
+    ? Math.max(50, Math.min(500_000, Math.round(periodicRetrainMinOutcomesRaw)))
+    : DEFAULT_PSYCHE_MODE.periodicRetrainMinOutcomes;
   const timezoneOffsetRaw = Number(
     input?.quietHoursTimezoneOffsetMinutes ??
       DEFAULT_PSYCHE_MODE.quietHoursTimezoneOffsetMinutes,
@@ -1079,6 +1114,11 @@ function normalizePsycheMode(
       typeof input?.signalOverrideEnabled === 'boolean'
         ? input.signalOverrideEnabled
         : DEFAULT_PSYCHE_MODE.signalOverrideEnabled,
+    playCompanionEnabled:
+      typeof input?.playCompanionEnabled === 'boolean'
+        ? input.playCompanionEnabled
+        : DEFAULT_PSYCHE_MODE.playCompanionEnabled,
+    proactivityExploreRate,
     slowBrainEnabled:
       typeof input?.slowBrainEnabled === 'boolean'
         ? input.slowBrainEnabled
@@ -1088,6 +1128,12 @@ function normalizePsycheMode(
         ? input.slowBrainShadowEnabled
         : DEFAULT_PSYCHE_MODE.slowBrainShadowEnabled,
     slowBrainShadowRollout: rollout,
+    periodicRetrainEnabled:
+      typeof input?.periodicRetrainEnabled === 'boolean'
+        ? input.periodicRetrainEnabled
+        : DEFAULT_PSYCHE_MODE.periodicRetrainEnabled,
+    periodicRetrainIntervalHours,
+    periodicRetrainMinOutcomes,
     shadowCohortSalt:
       typeof input?.shadowCohortSalt === 'string' &&
       input.shadowCohortSalt.trim().length > 0
@@ -1131,6 +1177,14 @@ function readPsycheModeConfig(projectDir: string): PsycheModeConfig {
       typeof raw.signalOverrideEnabled === 'boolean'
         ? raw.signalOverrideEnabled
         : undefined,
+    playCompanionEnabled:
+      typeof raw.playCompanionEnabled === 'boolean'
+        ? raw.playCompanionEnabled
+        : undefined,
+    proactivityExploreRate:
+      typeof raw.proactivityExploreRate === 'number'
+        ? raw.proactivityExploreRate
+        : undefined,
     slowBrainEnabled:
       typeof raw.slowBrainEnabled === 'boolean'
         ? raw.slowBrainEnabled
@@ -1142,6 +1196,18 @@ function readPsycheModeConfig(projectDir: string): PsycheModeConfig {
     slowBrainShadowRollout:
       typeof raw.slowBrainShadowRollout === 'number'
         ? raw.slowBrainShadowRollout
+        : undefined,
+    periodicRetrainEnabled:
+      typeof raw.periodicRetrainEnabled === 'boolean'
+        ? raw.periodicRetrainEnabled
+        : undefined,
+    periodicRetrainIntervalHours:
+      typeof raw.periodicRetrainIntervalHours === 'number'
+        ? raw.periodicRetrainIntervalHours
+        : undefined,
+    periodicRetrainMinOutcomes:
+      typeof raw.periodicRetrainMinOutcomes === 'number'
+        ? raw.periodicRetrainMinOutcomes
         : undefined,
     shadowCohortSalt:
       typeof raw.shadowCohortSalt === 'string'
@@ -3727,6 +3793,8 @@ async function sendChannelMessageGuarded(
           userInitiated,
           allowScreenProbe: psycheMode.captureProbeEnabled,
           allowSignalOverride: signalOverrideEnabled,
+          allowPlayCompanion: psycheMode.playCompanionEnabled,
+          epsilonOverride: psycheMode.proactivityExploreRate,
           signals: overrideSignals,
           captureLimitations: input.outboundCheck?.captureLimitations,
           trust: {
@@ -3926,6 +3994,8 @@ async function sendChannelMessageGuarded(
           userInitiated,
           allowScreenProbe: false,
           allowSignalOverride: signalOverrideEnabled,
+          allowPlayCompanion: psycheMode.playCompanionEnabled,
+          epsilonOverride: psycheMode.proactivityExploreRate,
           signals: overrideSignals,
           captureLimitations: input.outboundCheck?.captureLimitations,
           trust: {
@@ -7270,6 +7340,14 @@ function createMethods(
           typeof params.signalOverrideEnabled === 'boolean'
             ? Boolean(params.signalOverrideEnabled)
             : undefined,
+        playCompanionEnabled:
+          typeof params.playCompanionEnabled === 'boolean'
+            ? Boolean(params.playCompanionEnabled)
+            : undefined,
+        proactivityExploreRate:
+          typeof params.proactivityExploreRate === 'number'
+            ? Number(params.proactivityExploreRate)
+            : undefined,
         slowBrainEnabled:
           typeof params.slowBrainEnabled === 'boolean'
             ? Boolean(params.slowBrainEnabled)
@@ -7281,6 +7359,18 @@ function createMethods(
         slowBrainShadowRollout:
           typeof params.slowBrainShadowRollout === 'number'
             ? Number(params.slowBrainShadowRollout)
+            : undefined,
+        periodicRetrainEnabled:
+          typeof params.periodicRetrainEnabled === 'boolean'
+            ? Boolean(params.periodicRetrainEnabled)
+            : undefined,
+        periodicRetrainIntervalHours:
+          typeof params.periodicRetrainIntervalHours === 'number'
+            ? Number(params.periodicRetrainIntervalHours)
+            : undefined,
+        periodicRetrainMinOutcomes:
+          typeof params.periodicRetrainMinOutcomes === 'number'
+            ? Number(params.periodicRetrainMinOutcomes)
             : undefined,
         shadowCohortSalt:
           typeof params.shadowCohortSalt === 'string'
@@ -7317,7 +7407,7 @@ function createMethods(
       });
       runtime.nexus.psycheMode = next;
       appendNexusInsight(runtime, {
-        text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}，信号覆盖=${next.signalOverrideEnabled ? '调试开启' : '关闭'}，slow_brain=${next.slowBrainEnabled ? '开启' : '关闭'}，shadow=${next.slowBrainShadowEnabled ? '开启' : '关闭'}(${next.slowBrainShadowRollout}%)，proactive=${next.proactivePingEnabled ? '开启' : '关闭'}(间隔${next.proactivePingMinIntervalMinutes}m/日上限${next.proactivePingMaxPerDay})，quiet=${next.quietHoursEnabled ? `${next.quietHoursStart}-${next.quietHoursEnd}` : '关闭'}`,
+        text: `守门员模式已更新：共鸣层=${next.resonanceEnabled ? '开启' : '关闭'}，截图核验=${next.captureProbeEnabled ? '开启' : '关闭'}，信号覆盖=${next.signalOverrideEnabled ? '调试开启' : '关闭'}，游戏陪伴=${next.playCompanionEnabled ? '开启' : '关闭'}，探索率ε=${next.proactivityExploreRate.toFixed(3)}，slow_brain=${next.slowBrainEnabled ? '开启' : '关闭'}，shadow=${next.slowBrainShadowEnabled ? '开启' : '关闭'}(${next.slowBrainShadowRollout}%)，周期重训=${next.periodicRetrainEnabled ? `开启(${next.periodicRetrainIntervalHours}h/${next.periodicRetrainMinOutcomes}样本)` : '关闭'}，proactive=${next.proactivePingEnabled ? '开启' : '关闭'}(间隔${next.proactivePingMinIntervalMinutes}m/日上限${next.proactivePingMaxPerDay})，quiet=${next.quietHoursEnabled ? `${next.quietHoursStart}-${next.quietHoursEnd}` : '关闭'}`,
       });
       publishGatewayEvent(runtime, 'psyche.mode.update', {
         at: nowIso(),
@@ -7368,6 +7458,17 @@ function createMethods(
         quietHoursReleaseSec: nextQuietHoursReleaseSeconds(mode, now),
       };
     });
+      methods.register('psyche.proactivity.stats.get', async () => {
+        return readInteractionStats(
+          path.join(
+            getMiyaRuntimeDir(projectDir),
+            'daemon',
+            'psyche',
+            'proactivity',
+            'interaction-stats.json',
+          ),
+        );
+      });
     methods.register('psyche.proactive.ping', async (params) => {
       const channel = parseChannel(params.channel);
       const destination = parseText(params.destination);
@@ -9586,8 +9687,8 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
 
   let runtime!: GatewayRuntime;
   const methods = new GatewayMethodRegistry();
-  const controlUi = createControlUiRequestOptions(projectDir);
   const authConfig = resolveGatewayAuthConfig(projectDir);
+  const controlUi = createControlUiRequestOptions(projectDir, authConfig.token);
   const channelRuntime = new ChannelRuntime(projectDir, {
     onInbound: async (message) => {
       await onInboundMessage(projectDir, runtime, message);
@@ -9612,7 +9713,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     Bun.serve({
       hostname: listen.hostname,
       port,
-      fetch(request, currentServer) {
+      async fetch(request, currentServer) {
         const url = new URL(request.url);
         const uiBasePath = normalizeControlUiBasePath(runtime.controlUi.basePath);
         const pathWithBase = (suffix: `/${string}`): string =>
@@ -9752,6 +9853,97 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         }
 
         const isWebhookPath = isPathPrefixMatch('/api/webhooks/');
+        const isHttpRpcPath = isPathMatch('/api/rpc');
+        if (isHttpRpcPath) {
+          if (request.method !== 'POST') {
+            return new Response('Method Not Allowed', {
+              status: 405,
+              headers: {
+                'content-type': 'text/plain; charset=utf-8',
+                'cache-control': 'no-store',
+              },
+            });
+          }
+          const headerToken =
+            request.headers.get('x-miya-gateway-token')?.trim() ??
+            request.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() ??
+            '';
+          const queryToken = url.searchParams.get('token')?.trim() ?? '';
+          const incomingToken = headerToken || queryToken;
+          if (!incomingToken || incomingToken !== runtime.auth.token) {
+            return Response.json(
+              {
+                ok: false,
+                error: 'invalid_gateway_token',
+              },
+              {
+                status: 401,
+                headers: {
+                  'cache-control': 'no-store',
+                },
+              },
+            );
+          }
+          try {
+            const body = (await request.json()) as {
+              method?: string;
+              params?: Record<string, unknown>;
+            };
+            const method = parseText(body?.method);
+            if (!method) {
+              return Response.json(
+                {
+                  ok: false,
+                  error: 'invalid_gateway_method',
+                },
+                {
+                  status: 400,
+                  headers: {
+                    'cache-control': 'no-store',
+                  },
+                },
+              );
+            }
+            const result = await invokeGatewayMethod(
+              projectDir,
+              runtime,
+              method,
+              body?.params ?? {},
+              {
+                clientID: 'http-ui',
+                role: 'ui',
+              } as GatewayMethodContext,
+            );
+            if (method !== 'gateway.status.get') {
+              maybeBroadcast(projectDir, runtime);
+            }
+            return Response.json(
+              {
+                ok: true,
+                result,
+              },
+              {
+                headers: {
+                  'cache-control': 'no-store',
+                },
+              },
+            );
+          } catch (error) {
+            return Response.json(
+              {
+                ok: false,
+                error:
+                  error instanceof Error ? error.message : String(error ?? ''),
+              },
+              {
+                status: 500,
+                headers: {
+                  'cache-control': 'no-store',
+                },
+              },
+            );
+          }
+        }
         if (isWebhookPath) {
           return new Response(
             'HTTP control API disabled; use WebSocket RPC (/ws).',

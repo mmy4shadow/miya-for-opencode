@@ -63,6 +63,25 @@ function normalizeRiskTier(input: AutopilotRunInput): PlanBundleV1['riskTier'] {
   return 'STANDARD';
 }
 
+function normalizeTimeoutMs(timeoutMs: number | undefined): number {
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs)) {
+    return 60_000;
+  }
+  return Math.max(1_000, Math.min(10 * 60 * 1000, Math.floor(timeoutMs)));
+}
+
+function normalizeMaxRetries(
+  maxRetriesPerCommand: number | undefined,
+): number {
+  if (
+    typeof maxRetriesPerCommand !== 'number' ||
+    !Number.isFinite(maxRetriesPerCommand)
+  ) {
+    return 1;
+  }
+  return Math.max(0, Math.min(3, Math.floor(maxRetriesPerCommand)));
+}
+
 function toFrozenSteps(plan: AutopilotPlan): PlanBundleV1['steps'] {
   return plan.steps.map((step) => ({
     id: step.id,
@@ -130,11 +149,8 @@ export function createPlanBundleV1(input: {
     String(input.runInput.planBundleID ?? '').trim() || `pb_${randomUUID()}`;
   const mode = normalizeMode(input.runInput);
   const riskTier = normalizeRiskTier(input.runInput);
-  const maxRetries =
-    typeof input.runInput.maxRetriesPerCommand === 'number'
-      ? Math.max(0, Math.floor(input.runInput.maxRetriesPerCommand))
-      : 1;
-  const timeoutMs = Math.max(1_000, Math.floor(input.runInput.timeoutMs));
+  const maxRetries = normalizeMaxRetries(input.runInput.maxRetriesPerCommand);
+  const timeoutMs = normalizeTimeoutMs(input.runInput.timeoutMs);
   const capabilities = Array.isArray(input.runInput.capabilitiesNeeded)
     ? input.runInput.capabilitiesNeeded
         .map((item) => String(item).trim())
