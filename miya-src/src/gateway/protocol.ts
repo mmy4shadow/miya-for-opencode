@@ -238,6 +238,19 @@ interface GatewayMethodRegistryOptions {
   queueTimeoutMs?: number;
 }
 
+function toFiniteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toClampedInteger(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+): number {
+  return Math.max(minimum, Math.floor(toFiniteNumber(value, fallback)));
+}
+
 interface QueuedInvocation {
   method: string;
   params: Record<string, unknown>;
@@ -260,25 +273,20 @@ export class GatewayMethodRegistry {
   private readonly queueTimeoutMs: number;
 
   constructor(options: GatewayMethodRegistryOptions = {}) {
-    this.maxInFlight = Math.max(
+    this.maxInFlight = toClampedInteger(
+      options.maxInFlight ?? process.env.MIYA_GATEWAY_MAX_IN_FLIGHT,
+      8,
       1,
-      Math.floor(
-        options.maxInFlight ??
-          Number(process.env.MIYA_GATEWAY_MAX_IN_FLIGHT ?? 8),
-      ),
     );
-    this.maxQueued = Math.max(
+    this.maxQueued = toClampedInteger(
+      options.maxQueued ?? process.env.MIYA_GATEWAY_MAX_QUEUED,
+      64,
       1,
-      Math.floor(
-        options.maxQueued ?? Number(process.env.MIYA_GATEWAY_MAX_QUEUED ?? 64),
-      ),
     );
-    this.queueTimeoutMs = Math.max(
+    this.queueTimeoutMs = toClampedInteger(
+      options.queueTimeoutMs ?? process.env.MIYA_GATEWAY_QUEUE_TIMEOUT_MS,
+      15_000,
       100,
-      Math.floor(
-        options.queueTimeoutMs ??
-          Number(process.env.MIYA_GATEWAY_QUEUE_TIMEOUT_MS ?? 15_000),
-      ),
     );
   }
 
@@ -429,8 +437,19 @@ export function parseIncomingFrame(message: unknown): {
   error?: string;
 } {
   let payload: unknown = message;
-  if (typeof message === 'string') {
-    const raw = message.trim();
+  if (
+    typeof message === 'string' ||
+    message instanceof Uint8Array ||
+    message instanceof ArrayBuffer
+  ) {
+    const raw =
+      typeof message === 'string'
+        ? message.trim()
+        : new TextDecoder()
+            .decode(
+              message instanceof ArrayBuffer ? new Uint8Array(message) : message,
+            )
+            .trim();
     if (!raw) return { error: 'empty_message' };
     if (raw === 'status') {
       payload = {

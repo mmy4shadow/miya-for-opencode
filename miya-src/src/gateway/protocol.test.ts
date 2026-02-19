@@ -221,6 +221,46 @@ describe('gateway protocol', () => {
     await first;
   });
 
+  test('normalizes invalid backpressure env values to safe defaults', async () => {
+    const prevMaxInFlight = process.env.MIYA_GATEWAY_MAX_IN_FLIGHT;
+    const prevMaxQueued = process.env.MIYA_GATEWAY_MAX_QUEUED;
+    const prevQueueTimeout = process.env.MIYA_GATEWAY_QUEUE_TIMEOUT_MS;
+    process.env.MIYA_GATEWAY_MAX_IN_FLIGHT = 'NaN';
+    process.env.MIYA_GATEWAY_MAX_QUEUED = 'bad';
+    process.env.MIYA_GATEWAY_QUEUE_TIMEOUT_MS = 'not-a-number';
+    try {
+      const registry = new GatewayMethodRegistry();
+      registry.register('echo', async (params) => params);
+      const result = await registry.invoke(
+        'echo',
+        { ok: true },
+        { clientID: 'c1', role: 'ui' },
+      );
+      expect(result).toEqual({ ok: true });
+      const stats = registry.stats();
+      expect(Number.isFinite(stats.maxInFlight)).toBe(true);
+      expect(Number.isFinite(stats.maxQueued)).toBe(true);
+      expect(stats.maxInFlight).toBeGreaterThanOrEqual(1);
+      expect(stats.maxQueued).toBeGreaterThanOrEqual(1);
+    } finally {
+      if (prevMaxInFlight === undefined) {
+        delete process.env.MIYA_GATEWAY_MAX_IN_FLIGHT;
+      } else {
+        process.env.MIYA_GATEWAY_MAX_IN_FLIGHT = prevMaxInFlight;
+      }
+      if (prevMaxQueued === undefined) {
+        delete process.env.MIYA_GATEWAY_MAX_QUEUED;
+      } else {
+        process.env.MIYA_GATEWAY_MAX_QUEUED = prevMaxQueued;
+      }
+      if (prevQueueTimeout === undefined) {
+        delete process.env.MIYA_GATEWAY_QUEUE_TIMEOUT_MS;
+      } else {
+        process.env.MIYA_GATEWAY_QUEUE_TIMEOUT_MS = prevQueueTimeout;
+      }
+    }
+  });
+
   test('serializes response and event frames', () => {
     const ok = toResponseFrame({
       id: 'r1',
