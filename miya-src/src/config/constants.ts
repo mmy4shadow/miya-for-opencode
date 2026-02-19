@@ -27,8 +27,13 @@ export const SUBAGENT_NAMES = [
 ] as const;
 
 export const ORCHESTRATOR_NAME = '1-task-manager' as const;
+export const CODE_SIMPLICITY_REVIEWER_NAME = '7-code-simplicity-reviewer' as const;
 
-export const ALL_AGENT_NAMES = [ORCHESTRATOR_NAME, ...SUBAGENT_NAMES] as const;
+export const ALL_AGENT_NAMES = [
+  ORCHESTRATOR_NAME,
+  ...SUBAGENT_NAMES,
+  CODE_SIMPLICITY_REVIEWER_NAME,
+] as const;
 
 // Agent name type (for use in DEFAULT_MODELS)
 export type AgentName = (typeof ALL_AGENT_NAMES)[number];
@@ -46,6 +51,7 @@ export const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]> = {
   '4-architecture-advisor': [],
   '5-code-fixer': ['2-code-search'],
   '6-ui-designer': ['2-code-search'],
+  '7-code-simplicity-reviewer': [],
 };
 
 // Default models for each agent
@@ -56,7 +62,8 @@ export const DEFAULT_MODELS: Record<AgentName, string> = {
   '3-docs-helper': 'openrouter/moonshotai/kimi-k2.5',
   '4-architecture-advisor': 'openrouter/moonshotai/kimi-k2.5',
   '5-code-fixer': 'openrouter/z-ai/glm-5',
-  '6-ui-designer': 'openrouter/minimax/z-ai/glm-5',
+  '6-ui-designer': 'openrouter/z-ai/glm-5',
+  '7-code-simplicity-reviewer': 'openrouter/z-ai/glm-5',
 };
 
 // Polling configuration

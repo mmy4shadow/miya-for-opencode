@@ -511,11 +511,11 @@ function parseAgentPatchSet(
     const key = rawKey.trim();
     if (!key) continue;
     const parts = key.split('.');
-    if (parts[0] === 'default_agent' && typeof value === 'string') {
+    if ((parts[0] === 'default_agent' || parts[0] === 'defaultAgent') && typeof value === 'string') {
       defaultAgentFromPatch = value;
       continue;
     }
-    if (parts[0] === 'agent') {
+    if (parts[0] === 'agent' || parts[0] === 'agents') {
       if (parts.length < 3) continue;
       const agentNameRaw = parts[1] ?? '';
       const field = parts.slice(2).join('.');
@@ -590,6 +590,49 @@ function parseAgentPatchSet(
     if (item) normalized.push(item);
   }
   return normalized;
+}
+
+export function persistAgentRuntimeFromConfigSnapshot(
+  projectDir: string,
+  snapshot: unknown,
+): { updated: number; activeAgentId?: string } {
+  if (!isObject(snapshot)) return { updated: 0 };
+
+  const activeAgentId =
+    normalizeAgentName(String(snapshot.default_agent ?? snapshot.defaultAgent ?? '')) ?? undefined;
+  const agentMap = isObject(snapshot.agent)
+    ? snapshot.agent
+    : isObject(snapshot.agents)
+      ? snapshot.agents
+      : {};
+
+  let updated = 0;
+  for (const [rawAgentName, rawAgentConfig] of Object.entries(agentMap)) {
+    if (!isObject(rawAgentConfig)) continue;
+    const agentName = normalizeAgentName(rawAgentName);
+    if (!agentName) continue;
+    const changed = persistAgentRuntimeSelection(projectDir, {
+      agentName,
+      model: rawAgentConfig.model,
+      variant: rawAgentConfig.variant,
+      providerID: rawAgentConfig.providerID,
+      options: rawAgentConfig.options,
+      apiKey: rawAgentConfig.apiKey,
+      baseURL: rawAgentConfig.baseURL,
+      activeAgentId: activeAgentId === agentName ? activeAgentId : undefined,
+    });
+    if (changed) updated += 1;
+  }
+
+  if (activeAgentId) {
+    const changed = persistAgentRuntimeSelection(projectDir, {
+      agentName: activeAgentId,
+      activeAgentId,
+    });
+    if (changed) updated += 1;
+  }
+
+  return { updated, activeAgentId };
 }
 
 export function extractAgentModelSelectionsFromEvent(

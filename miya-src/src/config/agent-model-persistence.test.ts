@@ -10,6 +10,7 @@ import {
   normalizeAgentName,
   normalizeModelRef,
   persistAgentModelSelection,
+  persistAgentRuntimeFromConfigSnapshot,
   persistAgentRuntimeSelection,
   readPersistedAgentModels,
   readPersistedAgentRuntime,
@@ -228,6 +229,51 @@ describe('agent-model-persistence', () => {
     expect(extracted[0]?.providerID).toBe('openai');
     expect(extracted[0]?.baseURL).toBe('https://regional.example/v1');
     expect(extracted[0]?.apiKey).toBe('{env:OPENAI_AGENT6_KEY}');
+  });
+
+  test('extracts settings patch with agents.* keys and defaultAgent', () => {
+    const extracted = extractAgentModelSelectionsFromEvent({
+      type: 'settings.saved',
+      properties: {
+        patch: {
+          set: {
+            defaultAgent: '5-code-fixer',
+            'agents.3-docs-helper.model': 'openrouter/moonshotai/kimi-k2.5',
+            'agents.6-ui-designer.model': 'google/gemini-2.5-pro',
+          },
+        },
+      },
+    });
+
+    expect(extracted).toHaveLength(2);
+    const byAgent = Object.fromEntries(extracted.map((item) => [item.agentName, item]));
+    expect(byAgent['3-docs-helper']?.model).toBe('openrouter/moonshotai/kimi-k2.5');
+    expect(byAgent['3-docs-helper']?.activeAgentId).toBe('5-code-fixer');
+    expect(byAgent['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
+  });
+
+  test('syncs persisted runtime from opencode config snapshot', () => {
+    const result = persistAgentRuntimeFromConfigSnapshot(tempDir, {
+      default_agent: '6-ui-designer',
+      agent: {
+        '3-docs-helper': {
+          model: 'openrouter/moonshotai/kimi-k2.5',
+          providerID: 'openrouter',
+        },
+        '6-ui-designer': {
+          model: 'google/gemini-2.5-pro',
+          providerID: 'google',
+          baseURL: 'https://gemini.example/v1',
+        },
+      },
+    });
+
+    expect(result.updated).toBeGreaterThan(0);
+    expect(result.activeAgentId).toBe('6-ui-designer');
+    const runtime = readPersistedAgentRuntime(tempDir);
+    expect(runtime.activeAgentId).toBe('6-ui-designer');
+    expect(runtime.agents['3-docs-helper']?.model).toBe('openrouter/moonshotai/kimi-k2.5');
+    expect(runtime.agents['6-ui-designer']?.baseURL).toBe('https://gemini.example/v1');
   });
 
   test('persists six agent configs independently without overwriting each other', () => {

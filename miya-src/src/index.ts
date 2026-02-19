@@ -8,6 +8,7 @@ import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
 import {
   extractAgentModelSelectionsFromEvent,
+  persistAgentRuntimeFromConfigSnapshot,
   persistAgentRuntimeSelection,
   readPersistedAgentRuntime,
 } from './config/agent-model-persistence';
@@ -91,9 +92,14 @@ function deepMergeObject(
 }
 
 const autoUiOpenAtByDir = new Map<string, number>();
+const dockLaunchAtByDir = new Map<string, number>();
 
 function autoUiOpenGuardFile(projectDir: string): string {
   return path.join(projectDir, '.opencode', 'miya', 'ui-auto-open.guard.json');
+}
+
+function dockLaunchGuardFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'dock-launch.guard.json');
 }
 
 function readLastAutoUiOpenAt(projectDir: string): number {
@@ -110,6 +116,28 @@ function readLastAutoUiOpenAt(projectDir: string): number {
 
 function writeLastAutoUiOpenAt(projectDir: string, atMs: number): void {
   const file = autoUiOpenGuardFile(projectDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}\n`,
+    'utf-8',
+  );
+}
+
+function readLastDockLaunchAt(projectDir: string): number {
+  const file = dockLaunchGuardFile(projectDir);
+  if (!fs.existsSync(file)) return 0;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown };
+    const atMs = Number(parsed?.atMs ?? 0);
+    return Number.isFinite(atMs) ? atMs : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeLastDockLaunchAt(projectDir: string, atMs: number): void {
+  const file = dockLaunchGuardFile(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -170,6 +198,15 @@ function launchDockSilently(projectDir: string): void {
   }
   const bat = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-launch.bat');
   if (!fs.existsSync(bat)) return;
+  const now = Date.now();
+  const memLast = dockLaunchAtByDir.get(projectDir) ?? 0;
+  const persistedLast = readLastDockLaunchAt(projectDir);
+  const cooldownMs = 5 * 60_000;
+  if (now - memLast < 15_000 || now - persistedLast < cooldownMs) {
+    return;
+  }
+  dockLaunchAtByDir.set(projectDir, now);
+  writeLastDockLaunchAt(projectDir, now);
   const child = spawn('cmd', ['/c', bat], {
     cwd: projectDir,
     detached: true,
@@ -193,6 +230,68 @@ function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
 
 function isInteractiveSession(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+function parseModelRef(model: unknown): { providerID: string; modelID: string } | null {
+  if (typeof model !== 'string') return null;
+  const text = model.trim();
+  if (!text) return null;
+  const slash = text.indexOf('/');
+  if (slash <= 0 || slash >= text.length - 1) return null;
+  return {
+    providerID: text.slice(0, slash),
+    modelID: text.slice(slash + 1),
+  };
+}
+
+const LEGACY_MODEL_REWRITE: Record<string, string> = {
+  'openrouter/minimax/z-ai/glm-5': 'openrouter/z-ai/glm-5',
+};
+
+function providerHasModel(
+  providerMap: Record<string, unknown>,
+  model: string,
+): boolean | null {
+  const parsed = parseModelRef(model);
+  if (!parsed) return false;
+  const provider = providerMap[parsed.providerID];
+  if (!isPlainObject(provider)) return null;
+  const models = provider.models;
+  if (!isPlainObject(models)) return null;
+  return Object.prototype.hasOwnProperty.call(models, parsed.modelID);
+}
+
+function sanitizeConfiguredAgentModels(
+  opencodeConfig: Record<string, unknown>,
+): { adjusted: Array<{ agent: string; from: string; to: string | null }> } {
+  const agentMap = isPlainObject(opencodeConfig.agent)
+    ? (opencodeConfig.agent as Record<string, unknown>)
+    : {};
+  const providerMap = isPlainObject(opencodeConfig.provider)
+    ? (opencodeConfig.provider as Record<string, unknown>)
+    : {};
+
+  const adjusted: Array<{ agent: string; from: string; to: string | null }> = [];
+  for (const [agentName, rawAgent] of Object.entries(agentMap)) {
+    if (!isPlainObject(rawAgent)) continue;
+    const modelRaw = typeof rawAgent.model === 'string' ? rawAgent.model.trim() : '';
+    const model = LEGACY_MODEL_REWRITE[modelRaw] ?? modelRaw;
+    if (!model) continue;
+    if (model !== modelRaw) {
+      rawAgent.model = model;
+      adjusted.push({ agent: agentName, from: modelRaw, to: model });
+      continue;
+    }
+    const exists = providerHasModel(providerMap, model);
+    if (exists === null) continue;
+    if (exists) continue;
+
+    delete rawAgent.model;
+    delete rawAgent.providerID;
+    adjusted.push({ agent: agentName, from: model, to: null });
+  }
+
+  return { adjusted };
 }
 
 const MiyaPlugin: Plugin = async (ctx) => {
@@ -234,13 +333,15 @@ const MiyaPlugin: Plugin = async (ctx) => {
     process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
     dashboardConfig.dockAutoLaunch === true;
   const interactiveSession = isInteractiveSession();
+  const allowAutoOpenWithoutTty = process.platform === 'win32';
+  const canAutoOpenInSession = interactiveSession || allowAutoOpenWithoutTty;
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);
     log('[miya-launcher] daemon bootstrap', daemonLaunch);
     if (
       autoOpenEnabled &&
       !autoOpenBlockedByEnv &&
-      interactiveSession &&
+      canAutoOpenInSession &&
       shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
     ) {
       setTimeout(async () => {
@@ -271,6 +372,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
         autoOpenEnabled,
         autoOpenBlockedByEnv,
         interactiveSession,
+        canAutoOpenInSession,
         cooldownMs: autoOpenCooldownMs,
       });
     }
@@ -694,6 +796,12 @@ const MiyaPlugin: Plugin = async (ctx) => {
         ? (config.provider as Record<string, unknown>)
         : {};
       opencodeConfig.provider = deepMergeObject(existingProvider, pluginProvider);
+      const sanitizeResult = sanitizeConfiguredAgentModels(opencodeConfig);
+      if (sanitizeResult.adjusted.length > 0) {
+        log('[model-persistence] sanitized invalid agent model assignments', {
+          adjusted: sanitizeResult.adjusted,
+        });
+      }
 
       // Merge MCP configs
       const configMcp = opencodeConfig.mcp as
@@ -744,6 +852,17 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
         // Update agent config with permissions
         agentConfigEntry.permission = agentPermission;
+      }
+
+      const syncResult = persistAgentRuntimeFromConfigSnapshot(
+        ctx.directory,
+        opencodeConfig,
+      );
+      if (syncResult.updated > 0) {
+        log('[model-persistence] synchronized from opencode config snapshot', {
+          updated: syncResult.updated,
+          activeAgentId: syncResult.activeAgentId,
+        });
       }
     },
 

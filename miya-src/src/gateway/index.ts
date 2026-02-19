@@ -67,6 +67,7 @@ import {
 } from '../nodes';
 import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
 import {
+  ensureMiyaLauncher,
   getLauncherBackpressureStats,
   getLauncherDaemonSnapshot,
   getMiyaClient,
@@ -2408,6 +2409,9 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const ownerIdentity = readOwnerIdentityState(projectDir);
   const persistedRuntime = readPersistedAgentRuntime(projectDir);
   const owner = ownerSummary(projectDir);
+  if (owner.isOwner) {
+    ensureMiyaLauncher(projectDir);
+  }
   const autoflowSessions = listAutoflowSessions(projectDir, 30);
   const autoflowPersistentConfig = readAutoflowPersistentConfig(projectDir);
   const autoflowPersistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, 30);

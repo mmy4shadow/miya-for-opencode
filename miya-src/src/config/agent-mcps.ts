@@ -14,6 +14,7 @@ export const DEFAULT_AGENT_MCPS: Record<AgentName, string[]> = {
   '4-architecture-advisor': [],
   '5-code-fixer': [],
   '6-ui-designer': [],
+  '7-code-simplicity-reviewer': [],
 };
 
 /**
