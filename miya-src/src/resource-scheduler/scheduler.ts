@@ -34,6 +34,11 @@ interface LoadedModel {
   lastUsedAtMs: number;
 }
 
+interface WarmPoolEntry {
+  modelID: string;
+  cachedAtMs: number;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -44,11 +49,23 @@ function toNumber(value: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function toStringList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export class ResourceScheduler {
   private readonly projectDir: string;
   private readonly totalVramMB: number;
   private readonly safetyMarginMB: number;
   private readonly maxConcurrentTasks: number;
+  private readonly hotsetModelIDs = new Set<string>();
+  private readonly warmPool = new Map<string, WarmPoolEntry>();
+  private readonly warmPoolLimit: number;
+  private readonly isolateTrainingLane: boolean;
   private readonly queue: PendingRequest[] = [];
   private readonly active = new Map<string, ActiveLease>();
   private readonly loadedModels = new Map<string, LoadedModel>();
@@ -69,6 +86,19 @@ export class ResourceScheduler {
     this.maxConcurrentTasks =
       options.maxConcurrentTasks ??
       toNumber(process.env.MIYA_RESOURCE_MAX_CONCURRENT, 2);
+    this.warmPoolLimit =
+      options.warmPoolLimit ??
+      toNumber(process.env.MIYA_RESOURCE_WARM_POOL_LIMIT, 8);
+    this.isolateTrainingLane =
+      options.isolateTrainingLane ??
+      process.env.MIYA_RESOURCE_ISOLATE_TRAINING_LANE !== '0';
+    const hotset = new Set<string>([
+      ...(Array.isArray(options.hotsetModelIDs) ? options.hotsetModelIDs : []),
+      ...toStringList(process.env.MIYA_RESOURCE_HOTSET_MODELS),
+    ]);
+    for (const modelID of hotset) {
+      if (modelID) this.hotsetModelIDs.add(modelID);
+    }
     this.recordSnapshot();
   }
 
@@ -137,6 +167,13 @@ export class ResourceScheduler {
           vramMB: model.vramMB,
           pins: model.pins,
           lastUsedAt: new Date(model.lastUsedAtMs).toISOString(),
+        })),
+      hotsetModelIDs: [...this.hotsetModelIDs.values()],
+      warmPoolModels: [...this.warmPool.values()]
+        .sort((a, b) => b.cachedAtMs - a.cachedAtMs)
+        .map((model) => ({
+          modelID: model.modelID,
+          cachedAt: new Date(model.cachedAtMs).toISOString(),
         })),
     };
   }
@@ -269,6 +306,10 @@ export class ResourceScheduler {
 
   private canGrant(request: ResourceRequest): boolean {
     if (this.active.size >= this.maxConcurrentTasks) return false;
+    if (this.isolateTrainingLane) {
+      if (this.isTrainingKind(request.kind) && this.hasActiveInferenceTask()) return false;
+      if (!this.isTrainingKind(request.kind) && this.hasActiveTrainingTask()) return false;
+    }
 
     const neededVramMB = Math.max(0, Math.floor(request.vramMB ?? 0));
     if (neededVramMB === 0) return true;
@@ -339,6 +380,15 @@ export class ResourceScheduler {
       existing.lastUsedAtMs = Date.now();
       return;
     }
+    const warmEntry = this.warmPool.get(modelID);
+    if (warmEntry) {
+      this.warmPool.delete(modelID);
+      appendSchedulerEvent(this.projectDir, {
+        at: nowIso(),
+        type: 'model_restored_from_warm_pool',
+        modelID,
+      });
+    }
     this.evictModelsIfNeeded(vramMB);
     this.loadedModels.set(modelID, {
       modelID,
@@ -359,9 +409,15 @@ export class ResourceScheduler {
     if (this.availableVramMB() >= requiredVramMB) return;
     const candidates = [...this.loadedModels.values()]
       .filter((item) => item.pins <= 0)
-      .sort((a, b) => a.lastUsedAtMs - b.lastUsedAtMs);
+      .sort((a, b) => {
+        const hotA = this.hotsetModelIDs.has(a.modelID) ? 1 : 0;
+        const hotB = this.hotsetModelIDs.has(b.modelID) ? 1 : 0;
+        if (hotA !== hotB) return hotA - hotB;
+        return a.lastUsedAtMs - b.lastUsedAtMs;
+      });
     for (const candidate of candidates) {
       this.loadedModels.delete(candidate.modelID);
+      this.addToWarmPool(candidate.modelID);
       appendSchedulerEvent(this.projectDir, {
         at: nowIso(),
         type: 'model_unloaded',
@@ -391,6 +447,43 @@ export class ResourceScheduler {
     const model = this.loadedModels.get(modelID);
     if (!model) return;
     model.lastUsedAtMs = Date.now();
+  }
+
+  private isTrainingKind(kind: ResourceRequest['kind']): boolean {
+    return kind === 'training.image' || kind === 'training.voice';
+  }
+
+  private hasActiveTrainingTask(): boolean {
+    for (const lease of this.active.values()) {
+      if (this.isTrainingKind(lease.kind)) return true;
+    }
+    return false;
+  }
+
+  private hasActiveInferenceTask(): boolean {
+    for (const lease of this.active.values()) {
+      if (!this.isTrainingKind(lease.kind)) return true;
+    }
+    return false;
+  }
+
+  private addToWarmPool(modelID: string): void {
+    if (!modelID || this.hotsetModelIDs.has(modelID) || this.warmPoolLimit <= 0) return;
+    this.warmPool.set(modelID, {
+      modelID,
+      cachedAtMs: Date.now(),
+    });
+    this.pruneWarmPool();
+  }
+
+  private pruneWarmPool(): void {
+    if (this.warmPool.size <= this.warmPoolLimit) return;
+    const entries = [...this.warmPool.values()].sort((a, b) => a.cachedAtMs - b.cachedAtMs);
+    while (this.warmPool.size > this.warmPoolLimit) {
+      const candidate = entries.shift();
+      if (!candidate) break;
+      this.warmPool.delete(candidate.modelID);
+    }
   }
 
   private recordSnapshot(): void {

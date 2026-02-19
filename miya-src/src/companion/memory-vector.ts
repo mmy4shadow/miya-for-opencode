@@ -397,6 +397,74 @@ export function listCompanionMemoryCorrections(
   return readCorrectionStore(projectDir).items;
 }
 
+export function updateCompanionMemoryVector(
+  projectDir: string,
+  input: {
+    memoryID: string;
+    text?: string;
+    memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
+    confidence?: number;
+    tier?: 'L1' | 'L2' | 'L3';
+    status?: 'pending' | 'active' | 'superseded';
+  },
+): CompanionMemoryVector | null {
+  const store = readStore(projectDir);
+  const target = store.items.find((item) => item.id === input.memoryID);
+  if (!target) return null;
+
+  const nextText =
+    typeof input.text === 'string' && input.text.trim()
+      ? normalizeText(input.text)
+      : target.text;
+  const confidenceInput =
+    typeof input.confidence === 'number' && Number.isFinite(input.confidence)
+      ? Math.max(0, Math.min(1, Number(input.confidence)))
+      : target.confidence;
+
+  target.text = nextText;
+  target.embedding = textToEmbedding(nextText);
+  target.conflictKey = extractConflictKey(nextText).key;
+  target.confidence = confidenceInput;
+  target.tier =
+    input.tier ??
+    (confidenceInput >= 0.95 ? 'L1' : confidenceInput >= 0.6 ? 'L2' : 'L3');
+  target.memoryKind =
+    input.memoryKind === 'Fact' ||
+    input.memoryKind === 'Insight' ||
+    input.memoryKind === 'UserPreference'
+      ? input.memoryKind
+      : target.memoryKind;
+  if (
+    input.status === 'pending' ||
+    input.status === 'active' ||
+    input.status === 'superseded'
+  ) {
+    target.status = input.status;
+  }
+  target.updatedAt = nowIso();
+  if (target.status === 'active') {
+    target.lastAccessedAt = target.updatedAt;
+  }
+  writeStore(projectDir, store);
+  return target;
+}
+
+export function archiveCompanionMemoryVector(
+  projectDir: string,
+  input: {
+    memoryID: string;
+    archived: boolean;
+  },
+): CompanionMemoryVector | null {
+  const store = readStore(projectDir);
+  const target = store.items.find((item) => item.id === input.memoryID);
+  if (!target) return null;
+  target.isArchived = Boolean(input.archived);
+  target.updatedAt = nowIso();
+  writeStore(projectDir, store);
+  return target;
+}
+
 export function confirmCompanionMemoryVector(
   projectDir: string,
   input: {

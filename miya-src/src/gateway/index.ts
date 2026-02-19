@@ -117,12 +117,14 @@ import {
   syncCompanionProfileMemoryFacts,
 } from '../companion/store';
 import {
+  archiveCompanionMemoryVector,
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
   listCompanionMemoryCorrections,
   listCompanionMemoryVectors,
   listPendingCompanionMemoryVectors,
   searchCompanionMemoryVectors,
+  updateCompanionMemoryVector,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
 import { getCompanionMemorySqliteStats } from '../companion/memory-sqlite';
@@ -1191,6 +1193,10 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'companion.memory.list',
   'companion.memory.pending.list',
   'companion.memory.corrections.list',
+  'companion.memory.add',
+  'companion.memory.confirm',
+  'companion.memory.update',
+  'companion.memory.archive',
   'companion.memory.search',
   'companion.memory.vector.list',
   'miya.memory.sqlite.stats',
@@ -2711,7 +2717,7 @@ async function routeSessionMessage(
     text: enrichedText,
     stage: plan.stage,
   });
-  const routedAgents = buildRoutedAgentSequence(plan, availableAgents);
+  const routedAgents = buildRoutedAgentSequence(plan, availableAgents, safeText);
   let lastAttemptedAgent = routedAgents[0] ?? plan.agent;
 
   try {
@@ -2793,14 +2799,64 @@ function buildRoutedAgentSequence(
   plan: {
     agent: string;
     plannedAgents: string[];
+    complexity?: 'low' | 'medium' | 'high';
+    enableEarlyExit?: boolean;
+    maxAgents?: number;
   },
   availableAgents: string[],
+  originalText: string,
 ): string[] {
   const source = plan.plannedAgents.length > 0 ? plan.plannedAgents : [plan.agent];
   const filtered = source.filter((agent) => availableAgents.includes(agent));
   const unique = filtered.filter((agent, index, arr) => arr.indexOf(agent) === index);
-  if (unique.length > 0) return unique;
-  return [plan.agent];
+  const base = unique.length > 0 ? unique : [plan.agent];
+
+  if (plan.complexity === 'low') {
+    return base.slice(0, 1);
+  }
+
+  if (plan.complexity === 'medium') {
+    if (plan.enableEarlyExit && shouldEarlyExitForMediumTask(originalText)) {
+      return base.slice(0, 1);
+    }
+    const mediumLimit = Math.max(2, Math.min(3, plan.maxAgents ?? 3));
+    return base.slice(0, mediumLimit);
+  }
+
+  const highLimit = Math.max(1, plan.maxAgents ?? base.length);
+  return base.slice(0, highLimit);
+}
+
+function shouldEarlyExitForMediumTask(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+
+  const quickFixSignals = [
+    'type error',
+    'ts',
+    'typescript',
+    'lint',
+    '修复',
+    '报错',
+    '错误',
+    'hotfix',
+    'bugfix',
+  ];
+  const multiStepSignals = [
+    '重构',
+    '架构',
+    '并行',
+    '完整流程',
+    '端到端',
+    'multi-step',
+    'workflow',
+    '新增页面',
+    '登录页面',
+  ];
+
+  const hasQuickFixSignal = quickFixSignals.some((token) => normalized.includes(token));
+  const hasMultiStepSignal = multiStepSignals.some((token) => normalized.includes(token));
+  return hasQuickFixSignal && !hasMultiStepSignal;
 }
 
 function buildRoutedAgentPayload(input: {
@@ -5442,6 +5498,59 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       },
       profile,
     };
+  });
+  methods.register('companion.memory.update', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const memoryID = parseText(params.memoryID);
+    if (!memoryID) throw new Error('invalid_memory_id');
+    const updated = updateCompanionMemoryVector(projectDir, {
+      memoryID,
+      text: parseText(params.text) || undefined,
+      memoryKind:
+        parseText(params.memoryKind) === 'Fact' ||
+        parseText(params.memoryKind) === 'Insight' ||
+        parseText(params.memoryKind) === 'UserPreference'
+          ? (parseText(params.memoryKind) as 'Fact' | 'Insight' | 'UserPreference')
+          : undefined,
+      confidence:
+        typeof params.confidence === 'number' && Number.isFinite(params.confidence)
+          ? Number(params.confidence)
+          : undefined,
+      tier:
+        parseText(params.tier) === 'L1' ||
+        parseText(params.tier) === 'L2' ||
+        parseText(params.tier) === 'L3'
+          ? (parseText(params.tier) as 'L1' | 'L2' | 'L3')
+          : undefined,
+      status:
+        parseText(params.status) === 'pending' ||
+        parseText(params.status) === 'active' ||
+        parseText(params.status) === 'superseded'
+          ? (parseText(params.status) as 'pending' | 'active' | 'superseded')
+          : undefined,
+    });
+    if (!updated) throw new Error('memory_not_found');
+    const profile = syncCompanionProfileMemoryFacts(projectDir);
+    return { memory: updated, profile };
+  });
+  methods.register('companion.memory.archive', async (params) => {
+    requireOwnerMode(projectDir);
+    const policyHash = parseText(params.policyHash) || undefined;
+    requirePolicyHash(projectDir, policyHash);
+    requireDomainRunning(projectDir, 'memory_write');
+    const memoryID = parseText(params.memoryID);
+    if (!memoryID) throw new Error('invalid_memory_id');
+    const archived =
+      typeof params.archived === 'boolean' ? Boolean(params.archived) : true;
+    const updated = archiveCompanionMemoryVector(projectDir, {
+      memoryID,
+      archived,
+    });
+    if (!updated) throw new Error('memory_not_found');
+    return { memory: updated };
   });
   methods.register('companion.memory.search', async (params) => {
     requireOwnerMode(projectDir);

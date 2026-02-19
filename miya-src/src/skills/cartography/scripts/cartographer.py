@@ -24,7 +24,7 @@ from pathlib import Path, PurePath
 from typing import Dict, List, Optional, Set, Tuple
 
 VERSION = "1.0.0"
-STATE_DIR = ".slim"
+STATE_DIR = ".miya"
 STATE_FILE = "cartography.json"
 CODEMAP_FILE = "codemap.md"
 

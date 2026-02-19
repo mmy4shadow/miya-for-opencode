@@ -293,6 +293,21 @@ interface MemoryRecord {
   lastAccessedAt?: string;
 }
 
+interface EcosystemBridgeSummary {
+  sourcePacks?: Array<{
+    sourcePackID?: string;
+    trustLevel?: 'allowlisted' | 'untrusted' | 'unknown';
+  }>;
+  conflicts?: Array<{
+    type?: string;
+    skillName?: string;
+  }>;
+  pinnedReleases?: Array<{
+    sourcePackID?: string;
+    revision?: string;
+  }>;
+}
+
 type NotificationLevel = 'info' | 'success' | 'error';
 
 interface UiNotification {
@@ -612,6 +627,8 @@ export default function App() {
   const [uiLocale, setUiLocale] = useState(() => resolveUiLocale());
   const [taskRuns, setTaskRuns] = useState<MiyaJobRun[]>([]);
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
+  const [ecosystemBridge, setEcosystemBridge] =
+    useState<EcosystemBridgeSummary>({});
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
   const [rpcConnected, setRpcConnected] = useState(false);
@@ -766,12 +783,13 @@ export default function App() {
           }: ${status.statusError.message}${hint}`,
         );
       }
-      const [domainsResult, jobsResult, runsResult, identityResult] =
+      const [domainsResult, jobsResult, runsResult, identityResult, ecosystemResult] =
         await Promise.allSettled([
           invokeGateway('policy.domains.list'),
           invokeGateway('cron.list'),
           invokeGateway('cron.runs.list', { limit: 80 }),
           invokeGateway('security.identity.status'),
+          invokeGateway('miya.sync.list'),
         ]);
 
       if (domainsResult.status === 'fulfilled') {
@@ -810,6 +828,18 @@ export default function App() {
           runsResult.reason instanceof Error
             ? runsResult.reason.message
             : String(runsResult.reason),
+        );
+      }
+      if (ecosystemResult.status === 'fulfilled') {
+        const value = ecosystemResult.value as EcosystemBridgeSummary;
+        setEcosystemBridge(
+          value && typeof value === 'object' ? value : {},
+        );
+      } else {
+        rpcErrors.push(
+          ecosystemResult.reason instanceof Error
+            ? ecosystemResult.reason.message
+            : String(ecosystemResult.reason),
         );
       }
       let resolvedIdentityMode: 'owner' | 'guest' | 'unknown' = identityMode;
@@ -1132,6 +1162,27 @@ export default function App() {
       topEnabled: enabled.slice(0, 3),
     };
   }, [snapshot.skills?.discovered, snapshot.skills?.enabled]);
+
+  const ecosystemSummary = useMemo(() => {
+    const packs = Array.isArray(ecosystemBridge.sourcePacks)
+      ? ecosystemBridge.sourcePacks
+      : [];
+    const conflicts = Array.isArray(ecosystemBridge.conflicts)
+      ? ecosystemBridge.conflicts
+      : [];
+    const pinned = Array.isArray(ecosystemBridge.pinnedReleases)
+      ? ecosystemBridge.pinnedReleases
+      : [];
+    const allowlisted = packs.filter((item) => item.trustLevel === 'allowlisted').length;
+    const untrusted = packs.filter((item) => item.trustLevel === 'untrusted').length;
+    return {
+      packs: packs.length,
+      allowlisted,
+      untrusted,
+      conflicts: conflicts.length,
+      pinned: pinned.length,
+    };
+  }, [ecosystemBridge.conflicts, ecosystemBridge.pinnedReleases, ecosystemBridge.sourcePacks]);
 
   const contextHelp = useMemo(() => {
     if (view === 'tasks-list') {
@@ -2606,6 +2657,43 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+              </article>
+
+              <article className={panelClass}>
+                <h2 className="text-sm font-semibold">
+                  生态兼容（OpenClaw/OpenCode 互通）
+                </h2>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">桥接源包</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-800">
+                      {ecosystemSummary.packs}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">冲突项</p>
+                    <p
+                      className={`mt-1 text-lg font-semibold ${ecosystemSummary.conflicts > 0 ? 'text-rose-700' : 'text-emerald-700'}`}
+                    >
+                      {ecosystemSummary.conflicts}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">Allowlisted</p>
+                    <p className="mt-1 text-slate-800">
+                      {ecosystemSummary.allowlisted}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">Pinned 版本</p>
+                    <p className="mt-1 text-slate-800">
+                      {ecosystemSummary.pinned}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  建议保持 untrusted 源包为 0；若出现冲突，请先在网关执行 diff/rollback 再继续同步。
+                </p>
               </article>
 
               <article className={panelClass}>

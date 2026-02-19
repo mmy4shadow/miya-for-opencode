@@ -122,4 +122,79 @@ describe('resource scheduler', () => {
     expect(snapshot.loadedModels.some((item) => item.modelID === 'model-c')).toBe(true);
     expect(snapshot.loadedModels.length).toBeLessThanOrEqual(2);
   });
+
+  test('keeps hotset models and tracks evicted models in warm pool', async () => {
+    const scheduler = new ResourceScheduler(tempProjectDir(), {
+      totalVramMB: 3000,
+      safetyMarginMB: 0,
+      maxConcurrentTasks: 1,
+      hotsetModelIDs: ['model-a'],
+      warmPoolLimit: 4,
+    });
+
+    await scheduler.withLease(
+      {
+        kind: 'image.generate',
+        vramMB: 200,
+        modelID: 'model-a',
+        modelVramMB: 1200,
+      },
+      () => undefined,
+    );
+    await scheduler.withLease(
+      {
+        kind: 'voice.tts',
+        vramMB: 200,
+        modelID: 'model-b',
+        modelVramMB: 1200,
+      },
+      () => undefined,
+    );
+    await scheduler.withLease(
+      {
+        kind: 'vision.analyze',
+        vramMB: 200,
+        modelID: 'model-c',
+        modelVramMB: 1200,
+      },
+      () => undefined,
+    );
+
+    const snapshot = scheduler.snapshot();
+    expect(snapshot.loadedModels.some((item) => item.modelID === 'model-a')).toBe(true);
+    expect(snapshot.warmPoolModels.length).toBeGreaterThan(0);
+  });
+
+  test('isolates training and inference lanes when enabled', async () => {
+    const scheduler = new ResourceScheduler(tempProjectDir(), {
+      totalVramMB: 8192,
+      safetyMarginMB: 256,
+      maxConcurrentTasks: 2,
+      isolateTrainingLane: true,
+    });
+
+    const trainingLease = await scheduler.acquire({
+      kind: 'training.image',
+      priority: 30,
+      vramMB: 256,
+    });
+
+    let inferenceGranted = false;
+    const inferencePromise = scheduler.acquire({
+      kind: 'generic',
+      priority: 100,
+      vramMB: 128,
+    });
+    inferencePromise.then(() => {
+      inferenceGranted = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(inferenceGranted).toBe(false);
+
+    trainingLease.release();
+    const granted = await inferencePromise;
+    granted.release();
+    expect(inferenceGranted).toBe(true);
+  });
 });

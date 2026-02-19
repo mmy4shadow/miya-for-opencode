@@ -3,11 +3,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  archiveCompanionMemoryVector,
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
   listCompanionMemoryCorrections,
   listPendingCompanionMemoryVectors,
   searchCompanionMemoryVectors,
+  updateCompanionMemoryVector,
   upsertCompanionMemoryVector,
 } from './memory-vector';
 
@@ -111,5 +113,37 @@ describe('companion memory vectors', () => {
     expect(pendingCorrections.length).toBe(0);
     const storeHit = searchCompanionMemoryVectors(projectDir, '不喜欢 抹茶拿铁', 5, { threshold: 0 });
     expect(storeHit.some((item) => item.id === corrected.id)).toBe(true);
+  });
+
+  test('supports memory update and archive toggling', () => {
+    const projectDir = tempProjectDir();
+    const created = upsertCompanionMemoryVector(projectDir, {
+      text: '我喜欢拿铁',
+      source: 'test',
+      activate: true,
+      memoryKind: 'Fact',
+    });
+    const updated = updateCompanionMemoryVector(projectDir, {
+      memoryID: created.id,
+      text: '我更喜欢燕麦拿铁',
+      memoryKind: 'UserPreference',
+      confidence: 0.92,
+      status: 'active',
+    });
+    expect(updated?.text).toContain('燕麦拿铁');
+    expect(updated?.memoryKind).toBe('UserPreference');
+    expect(updated?.confidence).toBe(0.92);
+
+    const archived = archiveCompanionMemoryVector(projectDir, {
+      memoryID: created.id,
+      archived: true,
+    });
+    expect(archived?.isArchived).toBe(true);
+
+    const restored = archiveCompanionMemoryVector(projectDir, {
+      memoryID: created.id,
+      archived: false,
+    });
+    expect(restored?.isArchived).toBe(false);
   });
 });

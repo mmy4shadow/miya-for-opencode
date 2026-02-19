@@ -17,7 +17,7 @@ You help users understand and map repositories by creating hierarchical codemaps
 
 ### Step 1: Check for Existing State
 
-**First, check if `.slim/cartography.json` exists in the repo root.**
+**First, check if `.miya/cartography.json` exists in the repo root.**
 
 If it **exists**: Skip to Step 3 (Detect Changes) - no need to re-initialize.
 
@@ -43,7 +43,7 @@ python3 ~/.config/opencode/skills/cartography/scripts/cartographer.py init \
 ```
 
 This creates:
-- `.slim/cartography.json` - File and folder hashes for change detection
+- `.miya/cartography.json` - File and folder hashes for change detection
 - Empty `codemap.md` files in all relevant subdirectories
 
 4. **Delegate to Explorer agents** - Spawn one explorer per folder to read code and fill in its specific `codemap.md` file.

@@ -30,6 +30,9 @@ export interface ResourceSchedulerOptions {
   totalVramMB?: number;
   safetyMarginMB?: number;
   maxConcurrentTasks?: number;
+  hotsetModelIDs?: string[];
+  warmPoolLimit?: number;
+  isolateTrainingLane?: boolean;
 }
 
 export interface ResourceSchedulerSnapshot {
@@ -44,6 +47,11 @@ export interface ResourceSchedulerSnapshot {
     vramMB: number;
     pins: number;
     lastUsedAt: string;
+  }>;
+  hotsetModelIDs: string[];
+  warmPoolModels: Array<{
+    modelID: string;
+    cachedAt: string;
   }>;
 }
 

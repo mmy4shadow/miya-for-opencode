@@ -2617,4 +2617,114 @@ Miya插件已经具备了坚实的架构基础：
 7.https://github.com/zeroclaw-labs/zeroclaw.git
 我的源码地址：https://github.com/mmy4shadow/miya-for-opencode.git
 
-对比miya和https://github.com/opensouls/opensouls.git，https://github.com/letta-ai/letta.git，https://github.com/OpenHands/OpenHands.git，https://github.com/Open-LLM-VTuber/Open-LLM-VTuber.git，https://github.com/mem0ai/mem0.git，https://github.com/SillyTavern/SillyTavern.git，https://github.com/openclaw/openclaw.git，https://github.com/Yeachan-Heo/oh-my-claudecode.git，https://github.com/SumeLabs/clawra.git，https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git，https://github.com/code-yeongyu/oh-my-opencode.git，https://github.com/MemTensor/MemOS.git，https://github.com/alvinunreal/oh-my-opencode-slim.git，https://github.com/zeroclaw-labs/zeroclaw.git，https://github.com/openakita/openakita.git。仔细阅读规划和源码，先理解设计意图，在现有基础上miya还能怎么优化，给出优化方案
+对比miya和https://github.com/opensouls/opensouls.git，https://github.com/letta-ai/letta.git，https://github.com/OpenHands/OpenHands.git，https://github.com/Open-LLM-VTuber/Open-LLM-VTuber.git，https://github.com/mem0ai/mem0.git，https://github.com/SillyTavern/SillyTavern.git，https://github.com/openclaw/openclaw.git，https://github.com/Yeachan-Heo/oh-my-claudecode.git，https://github.com/SumeLabs/clawra.git，https://github.com/openclaw-girl-agent/openclaw-ai-girlfriend-by-clawra.git，https://github.com/code-yeongyu/oh-my-opencode.git，https://github.com/MemTensor/MemOS.git，https://github.com/zeroclaw-labs/zeroclaw.git，https://github.com/openakita/openakita.git。仔细阅读规划和源码，先理解设计意图，在现有基础上miya还能怎么优化，给出优化方案
+
+---
+
+## 2026-02-19 五大核心方向增量优化方案（在现有源码基础上）
+
+本节为“目标导向 + 现状对齐 + 可执行增量”方案。口径原则：不另起平行架构，不破坏现有接口，不减少既有功能。
+
+### 方向一：生态兼容（OpenClaw / OpenCode 技能市场互通）
+
+- 目标：统一技能包描述、导入治理、运行权限映射，实现“可发现、可审计、可回滚”。
+- 现状（已具备）：
+  - 已有生态桥接与 source pack 管理：`miya-src/src/skills/sync.ts`
+  - 已有 OpenClaw 适配入口：`miya-src/src/adapters/openclaw/client.ts`、`miya-src/src/adapters/openclaw/server.py`
+- 增量优化：
+  - `P0` 统一技能格式清单（`capability schema + permission metadata + auditFields` 强校验）
+  - `P0` 适配器模式补齐“能力映射表”（skill/tag/permission/sideEffects）
+  - `P1` Gateway UI 增加“生态桥接”页：来源、版本、信任级、冲突、回滚入口
+  - `P1` OpenCode/OpenClaw 导入前 smoke + 签名 + 依赖白名单联合预检
+- 验收：
+  - 同一技能包可在 Miya/OpenCode/OpenClaw 三侧被识别
+  - 导入冲突有明确阻断原因和一键回滚路径
+
+### 方向二：记忆可视化（Gateway UI 记忆栏目增强）
+
+- 目标：将“可读”升级为“可检索、可编辑、可治理、可追踪”。
+- 现状（已具备）：
+  - 记忆查询/编辑/归档接口已落地：`miya-src/src/gateway/index.ts`
+  - UI 已支持记忆搜索筛选与批量操作：`miya-src/gateway-ui/src/App.tsx`
+- 增量优化：
+  - `P0` 记忆列表增加“来源链路 + 置信度 + 最近命中次数”
+  - `P0` 详情页增加“生成依据（会话片段/工具轨迹）”与“影响范围”
+  - `P1` 搜索支持组合过滤（域/阶段/置信度/时间/标签）+ 保存筛选器
+  - `P1` 编辑治理支持“版本历史 + 回退 + 审批态变更审计”
+  - `P2`（可选）图谱可视化：事实节点、关系边、冲突高亮、低置信衰减提示
+- 验收：
+  - 记忆误写可在 UI 内完成定位、回滚、复核
+  - 记忆召回命中率与误命中率可观测（按周趋势）
+
+### 方向三：模型优化（显存管理与预热）
+
+- 目标：显存稳态可控、切模低抖动、训练推理互不抢占。
+- 现状（已具备）：
+  - 资源调度与驱逐机制已存在：`miya-src/src/resource-scheduler/scheduler.ts`
+  - daemon 侧已有 VRAM 互斥和预算接口：`miya-src/src/daemon/service.ts`、`miya-src/src/gateway/index.ts`
+- 增量优化：
+  - `P0` Hotset 常驻池：按最近命中频次固定保留高价值模型
+  - `P0` Warm Pool 预热池：空闲窗口预加载到 RAM（不抢显存）
+  - `P1` 训练/推理隔离：训练任务默认低优先级并限制峰值显存占用
+  - `P1` 自动驱逐与恢复：基于 LRU + 优先级 + 冷启动成本综合决策
+  - `P2` 预测式预热：按时段和任务模式预测下一模型并提前准备
+- 验收：
+  - 模型切换平均耗时下降，OOM 事件显著减少
+  - 高峰期任务失败率与重试次数下降
+
+### 方向四：开发者体验（交互式向导和文档）
+
+- 目标：首次可用、故障可诊断、提示可执行。
+- 现状（已具备）：
+  - Wizard/诊断链路存在：`miya-src/src/companion/wizard.ts`、`miya-src/src/gateway/index.ts`
+  - 文档与门禁已有基础：`miya-src/tools/doc-lint.ts`
+- 增量优化：
+  - `P0` 初始化配置向导（最小必填 + 一键校验 + 可恢复草稿）
+  - `P0` 自动诊断工具（环境/路径/权限/代理/端口冲突）统一报告
+  - `P1` 内置文档中心（按角色：用户/开发者/维护者）与版本对应
+  - `P1` 错误提示标准化：错误码 + 原因 + 修复命令 + 风险说明
+- 验收：
+  - 首次部署时间缩短，常见问题可通过提示命令自助恢复
+
+### 方向五：智能编排（按需代理调用，重点）
+
+- 目标：Task Manager 从“全量拉起”升级为“复杂度驱动 + 动态编排 + 上下文压缩 + 提前退出”。
+- 现状（已具备）：
+  - 已有复杂度评估与路由计划：`miya-src/src/router/runtime.ts`
+  - 已有路由工具输出关键字段：`miya-src/src/tools/router.ts`
+  - 已有多代理与背景任务执行链：`miya-src/src/background/background-manager.ts`
+- 核心优化（冻结）：
+  - 复杂度评估：`simple / medium / complex`
+  - 代理选择：
+    - simple -> 单代理（默认 `5-code-fixer` 或路由首选）
+    - medium -> 2-3 代理（`1-task-manager + 专家代理`）
+    - complex -> 完整流程（全链路代理协作）
+  - 上下文策略：
+    - Full（complex）
+    - Summary（medium）
+    - Minimal（simple）
+  - 支持“任务完成即提前退出”，禁止无效链路继续消耗
+- 分期实施：
+  - `P0` 把 `plannedAgents/contextStrategy/enableEarlyExit` 接入 Task Manager 实际执行门禁
+  - `P0` 增加“代理间上下文压缩器”（摘要、证据锚点、保留关键约束）
+  - `P1` 加入“失败重路由”与“代价感知重试”（先低成本修复，再升级复杂度）
+  - `P1` 增加“任务完成判据”统一模块（测试通过、lint 通过、目标达成）
+  - `P2` 引入策略学习闭环（任务类型 -> 最优代理组合）
+- 量化目标（冻结）：
+  - simple/medium 任务 token 节省 30-50%
+  - simple 场景可达约 70% token 节省（示例：单纯类型错误修复）
+  - 平均任务完成时延下降，且回归通过率不下降
+
+### 示例编排（目标行为）
+
+- “修复类型错误” -> `5-code-fixer` 单代理 + minimal 上下文 + 提前退出
+- “添加登录页面” -> `1-task-manager + 6-ui-designer + 5-code-fixer` + summary 上下文
+- “重构认证系统” -> 完整流程 + full 上下文 + 多阶段验证
+
+### 实施顺序建议（按收益/风险）
+
+1. 智能编排 `P0`（最高优先，直接降 token 和时延）
+2. 生态兼容 `P0`（统一格式与安全治理）
+3. 显存优化 `P0`（稳定本地推理）
+4. 记忆可视化 `P0`（可追踪、可回滚）
+5. 开发者体验 `P0`（降低维护成本）
