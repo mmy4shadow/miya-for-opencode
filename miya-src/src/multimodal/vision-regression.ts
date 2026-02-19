@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseDesktopOcrSignals } from './vision';
 
 export interface DesktopOcrRegressionCase {
@@ -28,7 +29,7 @@ export interface DesktopOcrRegressionResult {
 }
 
 const FIXTURE_FILE = path.join(
-  import.meta.dir,
+  path.dirname(fileURLToPath(import.meta.url)),
   'fixtures',
   'desktop-outbound-ocr-regression.json',
 );

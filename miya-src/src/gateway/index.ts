@@ -1,8 +1,11 @@
 import { type PluginInput, type ToolDefinition, tool } from '@opencode-ai/plugin';
+import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import WebSocket, { WebSocketServer, type RawData as WsRawData } from 'ws';
 import type { MiyaAutomationService } from '../automation';
 import type { BackgroundTaskManager } from '../background';
 import { readChannelStore } from '../channel';
@@ -251,16 +254,24 @@ interface GatewayDependencies {
   extraSkillDirs?: string[];
 }
 
+interface GatewayServerRuntime {
+  hostname: string;
+  port: number;
+  httpServer: ReturnType<typeof createServer>;
+  wsServer: WebSocketServer;
+}
+
 interface GatewayRuntime {
   startedAt: string;
-  server: ReturnType<typeof Bun.serve>;
+  server: GatewayServerRuntime;
   methods: GatewayMethodRegistry;
   stateVersion: number;
   controlUi: ReturnType<typeof createControlUiRequestOptions>;
   channelRuntime: ChannelRuntime;
   outboundSendDedupe: Map<string, { ts: number; result: unknown }>;
-  nodeSockets: Map<string, Bun.ServerWebSocket<unknown>>;
-  wsMeta: WeakMap<Bun.ServerWebSocket<unknown>, GatewayWsData>;
+  wsClients: Set<WebSocket>;
+  nodeSockets: Map<string, WebSocket>;
+  wsMeta: WeakMap<WebSocket, GatewayWsData>;
   wizardTickTimer?: ReturnType<typeof setInterval>;
   ownerBeatTimer?: ReturnType<typeof setInterval>;
   memoryReflectTimer?: ReturnType<typeof setInterval>;
@@ -912,7 +923,7 @@ function logControlUiFallback(
 }
 
 function toGatewayState(projectDir: string, runtime: GatewayRuntime): GatewayState {
-  const host = String(runtime.server.hostname ?? '127.0.0.1') || '127.0.0.1';
+  const host = String(runtime.server.hostname || '127.0.0.1') || '127.0.0.1';
   return {
     url: `http://${host}:${gatewayPort(runtime)}`,
     port: gatewayPort(runtime),
@@ -966,7 +977,13 @@ export function stopGateway(projectDir: string): {
     runtime.channelRuntime.stop();
   } catch {}
   try {
-    runtime.server.stop(true);
+    for (const ws of runtime.wsClients) {
+      try {
+        ws.close();
+      } catch {}
+    }
+    runtime.server.wsServer.close();
+    runtime.server.httpServer.close();
   } catch {}
   runtimes.delete(projectDir);
   clearGatewayStateFile(projectDir);
@@ -2320,7 +2337,7 @@ function collectDoctorIssues(
   base: Omit<GatewaySnapshot, 'doctor'>,
 ): DoctorIssue[] {
   const issues: DoctorIssue[] = [];
-  const host = String(runtime.server.hostname ?? '127.0.0.1');
+  const host = String(runtime.server.hostname || '127.0.0.1');
   if (host !== '127.0.0.1' && host !== 'localhost') {
     issues.push({
       code: 'gateway_bind_non_loopback',
@@ -3273,7 +3290,7 @@ function maybeBroadcast(projectDir: string, runtime: GatewayRuntime): void {
     payload: buildSnapshot(projectDir, runtime),
     stateVersion: { gateway: runtime.stateVersion },
   });
-  runtime.server.publish('miya:broadcast', JSON.stringify(frame));
+  publishFrame(runtime, frame.event, frame);
 }
 
 function publishGatewayEvent(
@@ -3282,16 +3299,31 @@ function publishGatewayEvent(
   payload: unknown,
 ): void {
   runtime.stateVersion += 1;
-  runtime.server.publish(
-    'miya:broadcast',
-    JSON.stringify(
-      toEventFrame({
-        event,
-        payload,
-        stateVersion: { gateway: runtime.stateVersion },
-      }),
-    ),
+  publishFrame(
+    runtime,
+    event,
+    toEventFrame({
+      event,
+      payload,
+      stateVersion: { gateway: runtime.stateVersion },
+    }),
   );
+}
+
+function isEventSubscribed(wsData: GatewayWsData, event: string): boolean {
+  return wsData.subscriptions.has('*') || wsData.subscriptions.has(event);
+}
+
+function publishFrame(runtime: GatewayRuntime, event: string, frame: unknown): void {
+  const encoded = JSON.stringify(frame);
+  for (const ws of runtime.wsClients) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    const wsData = ensureWsData(runtime, ws);
+    if (!wsData.authenticated || !isEventSubscribed(wsData, event)) continue;
+    try {
+      ws.send(encoded);
+    } catch {}
+  }
 }
 
 async function runWizardTrainingWorker(
@@ -3413,7 +3445,7 @@ async function runWizardTrainingWorker(
 
 function ensureWsData(
   runtime: GatewayRuntime,
-  ws: Bun.ServerWebSocket<unknown>,
+  ws: WebSocket,
 ): GatewayWsData {
   const existing = runtime.wsMeta.get(ws);
   if (existing) {
@@ -4650,7 +4682,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const pair = createNodePairRequest(projectDir, { nodeID, deviceID });
     const ws = (
       context as GatewayMethodContext & {
-        ws?: Bun.ServerWebSocket<unknown>;
+        ws?: WebSocket;
       }
     ).ws;
     if (ws) runtime.nodeSockets.set(nodeID, ws);
@@ -4895,14 +4927,14 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const target = path.join(root, name);
     if (fs.existsSync(target)) return { ok: false, message: `target_exists:${target}` };
 
-    const proc = Bun.spawnSync(['git', 'clone', '--depth', '1', repo, target], {
-      stdout: 'pipe',
-      stderr: 'pipe',
+    const proc = spawnSync('git', ['clone', '--depth', '1', repo, target], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    if (proc.exitCode !== 0) {
+    if (proc.status !== 0) {
       return {
         ok: false,
-        message: Buffer.from(proc.stderr).toString('utf-8').trim() || 'git_clone_failed',
+        message: String(proc.stderr || '').trim() || 'git_clone_failed',
       };
     }
     const installed = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []).find(
@@ -4946,19 +4978,19 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
 
-    const proc = Bun.spawnSync(['git', '-C', dir, 'pull', '--ff-only'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
+    const proc = spawnSync('git', ['-C', dir, 'pull', '--ff-only'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    if (proc.exitCode !== 0) {
+    if (proc.status !== 0) {
       return {
         ok: false,
-        message: Buffer.from(proc.stderr).toString('utf-8').trim() || 'git_pull_failed',
+        message: String(proc.stderr || '').trim() || 'git_pull_failed',
       };
     }
     return {
       ok: true,
-      message: Buffer.from(proc.stdout).toString('utf-8').trim() || 'updated',
+      message: String(proc.stdout || '').trim() || 'updated',
     };
   });
 
@@ -5965,6 +5997,147 @@ async function _handleWebhook(
   return new Response('Not Found', { status: 404 });
 }
 
+function normalizeNodeHeaders(headers: IncomingMessage['headers']): HeadersInit {
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value === 'string') {
+      normalized[key] = value;
+      continue;
+    }
+    if (Array.isArray(value) && value.length > 0) {
+      normalized[key] = value.join(', ');
+    }
+  }
+  return normalized;
+}
+
+function toNodeRequest(
+  req: IncomingMessage,
+  hostname: string,
+  port: number,
+): Request {
+  const hostHeader =
+    typeof req.headers.host === 'string' && req.headers.host.trim()
+      ? req.headers.host.trim()
+      : `${hostname}:${port}`;
+  const requestUrl = new URL(req.url || '/', `http://${hostHeader}`);
+  return new Request(requestUrl, {
+    method: req.method ?? 'GET',
+    headers: normalizeNodeHeaders(req.headers),
+  });
+}
+
+async function sendNodeResponse(
+  req: IncomingMessage,
+  res: ServerResponse,
+  response: Response,
+): Promise<void> {
+  res.statusCode = response.status;
+  for (const [key, value] of response.headers.entries()) {
+    res.setHeader(key, value);
+  }
+  if ((req.method ?? 'GET').toUpperCase() === 'HEAD') {
+    res.end();
+    return;
+  }
+  if (!response.body) {
+    res.end();
+    return;
+  }
+  const body = Buffer.from(await response.arrayBuffer());
+  res.end(body);
+}
+
+function normalizeWsInput(message: WsRawData): string {
+  if (typeof message === 'string') return message;
+  if (Buffer.isBuffer(message)) return message.toString('utf-8');
+  if (Array.isArray(message)) return Buffer.concat(message).toString('utf-8');
+  return Buffer.from(message).toString('utf-8');
+}
+
+function reserveGatewayPort(hostname: string, configuredPort: number): number {
+  if (configuredPort > 0) {
+    return configuredPort;
+  }
+  const script = [
+    "const net=require('node:net');",
+    'const host=process.argv[1]||"127.0.0.1";',
+    'const s=net.createServer();',
+    's.listen(0,host,()=>{',
+    'const address=s.address();',
+    "if(address&&typeof address==='object'){process.stdout.write(String(address.port));}",
+    's.close(()=>process.exit(0));',
+    '});',
+    "s.on('error',()=>process.exit(1));",
+  ].join('');
+  const probe = spawnSync('node', ['-e', script, hostname], {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (probe.status !== 0) {
+    throw new Error(`gateway_port_reservation_failed:${String(probe.stderr || '').trim()}`);
+  }
+  const reserved = Number(String(probe.stdout || '').trim());
+  if (!Number.isFinite(reserved) || reserved <= 0) {
+    throw new Error('gateway_port_reservation_invalid');
+  }
+  return Math.floor(reserved);
+}
+
+async function routeGatewayHttpRequest(
+  projectDir: string,
+  runtime: GatewayRuntime,
+  request: Request,
+  controlUi: ReturnType<typeof createControlUiRequestOptions>,
+): Promise<Response> {
+  const url = new URL(request.url);
+  if (url.pathname === '/api/status') {
+    return Response.json(buildSnapshot(projectDir, runtime), {
+      headers: { 'cache-control': 'no-store' },
+    });
+  }
+
+  const controlUiResponse = handleControlUiHttpRequest(request, controlUi);
+  if (controlUiResponse) {
+    const missingUiFallback =
+      controlUiResponse.status === 503 && controlUi.root?.kind !== 'resolved';
+    if (missingUiFallback) {
+      logControlUiFallback(projectDir, url.pathname, controlUi, controlUiResponse.status);
+    }
+    if (!missingUiFallback) return controlUiResponse;
+  }
+
+  if (url.pathname === '/webchat') {
+    return new Response(renderWebChatHtml(), {
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+      },
+    });
+  }
+
+  if (url.pathname.startsWith('/api/webhooks/')) {
+    return new Response('HTTP control API disabled; use WebSocket RPC (/ws).', {
+      status: 410,
+      headers: {
+        'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store',
+      },
+    });
+  }
+
+  if (url.pathname === '/' || url.pathname === '/index.html') {
+    return new Response(renderConsoleHtml(buildSnapshot(projectDir, runtime)), {
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+      },
+    });
+  }
+
+  return new Response('Not Found', { status: 404 });
+}
+
 export function ensureGatewayRunning(projectDir: string): GatewayState {
   const existing = runtimes.get(projectDir);
   if (existing) {
@@ -6054,80 +6227,98 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     owner: describeOwnerLock(readGatewayOwnerLock(projectDir)),
     controlUiRoot: controlUi.root?.kind ?? 'unknown',
   });
-  let server: ReturnType<typeof Bun.serve>;
   try {
-    server = Bun.serve({
-    hostname: listen.hostname,
-    port: listen.port,
-    fetch(request, currentServer) {
-      const url = new URL(request.url);
-      if (url.pathname === '/ws') {
-        const upgraded = currentServer.upgrade(request, { data: {} });
-        if (upgraded) return;
-        return new Response('websocket upgrade failed', { status: 400 });
-      }
-
-      if (url.pathname === '/api/status') {
-        return Response.json(buildSnapshot(projectDir, runtime), {
-          headers: { 'cache-control': 'no-store' },
+    const port = reserveGatewayPort(listen.hostname, listen.port);
+    const wsServer = new WebSocketServer({ noServer: true });
+    const httpServer = createServer((req, res) => {
+      void (async () => {
+        const request = toNodeRequest(req, listen.hostname, port);
+        const response = await routeGatewayHttpRequest(projectDir, runtime, request, controlUi);
+        await sendNodeResponse(req, res, response);
+      })().catch((error) => {
+        log('[gateway] http request failed', {
+          projectDir,
+          error: error instanceof Error ? error.message : String(error),
         });
-      }
-
-      const controlUiResponse = handleControlUiHttpRequest(request, controlUi);
-      if (controlUiResponse) {
-        const missingUiFallback =
-          controlUiResponse.status === 503 && controlUi.root?.kind !== 'resolved';
-        if (missingUiFallback) {
-          logControlUiFallback(projectDir, url.pathname, controlUi, controlUiResponse.status);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          res.setHeader('content-type', 'text/plain; charset=utf-8');
         }
-        if (!missingUiFallback) return controlUiResponse;
-      }
+        if (!res.writableEnded) {
+          res.end('Internal Server Error');
+        }
+      });
+    });
 
-      if (url.pathname === '/webchat') {
-        return new Response(renderWebChatHtml(), {
-          headers: {
-            'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'no-store',
-          },
-        });
+    httpServer.on('upgrade', (req, socket, head) => {
+      const requestUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+      if (requestUrl.pathname !== '/ws') {
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+        socket.destroy();
+        return;
       }
+      wsServer.handleUpgrade(req, socket, head, (ws) => {
+        wsServer.emit('connection', ws, req);
+      });
+    });
 
-      if (url.pathname.startsWith('/api/webhooks/')) {
-        return new Response('HTTP control API disabled; use WebSocket RPC (/ws).', {
-          status: 410,
-          headers: {
-            'content-type': 'text/plain; charset=utf-8',
-            'cache-control': 'no-store',
-          },
-        });
-      }
-
-      if (url.pathname === '/' || url.pathname === '/index.html') {
-        return new Response(renderConsoleHtml(buildSnapshot(projectDir, runtime)), {
-          headers: {
-            'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'no-store',
-          },
-        });
-      }
-
-      return new Response('Not Found', { status: 404 });
-    },
-    websocket: {
-      open(ws) {
-        ensureWsData(runtime, ws);
+    runtime = {
+      startedAt: nowIso(),
+      server: {
+        hostname: listen.hostname,
+        port,
+        httpServer,
+        wsServer,
       },
-      close(ws) {
+      methods,
+      stateVersion: 1,
+      controlUi,
+      channelRuntime,
+      outboundSendDedupe: new Map(),
+      wsClients: new Set(),
+      nodeSockets: new Map(),
+      wsMeta: new WeakMap(),
+      wizardTickTimer: undefined,
+      ownerBeatTimer: undefined,
+      memoryReflectTimer: undefined,
+      wizardRunnerBusy: false,
+      dependencyAssistHashes: new Set(),
+      daemonLauncherUnsubscribe: undefined,
+      negotiationBudgets: new Map(),
+      nexus: {
+        sessionId: 'main',
+        activeTool: undefined,
+        permission: undefined,
+        pendingTickets: 0,
+        killSwitchMode: 'off',
+        insights: [],
+        trust: undefined,
+        trustMode: readTrustModeConfig(projectDir),
+        psycheMode: readPsycheModeConfig(projectDir),
+        learningGate: readLearningGateConfig(projectDir),
+        guardianSafeHoldReason: undefined,
+      },
+    };
+
+    runtime.methods = createMethods(projectDir, runtime);
+
+    wsServer.on('connection', (ws) => {
+      runtime.wsClients.add(ws);
+      ensureWsData(runtime, ws);
+
+      ws.on('close', () => {
         const wsData = ensureWsData(runtime, ws);
         if (wsData.nodeID) {
           runtime.nodeSockets.delete(wsData.nodeID);
           markNodeDisconnected(projectDir, wsData.nodeID);
         }
+        runtime.wsClients.delete(ws);
         runtime.wsMeta.delete(ws);
-      },
-      async message(ws, message) {
+      });
+
+      ws.on('message', async (input) => {
         const wsData = ensureWsData(runtime, ws);
-        const parsed = parseIncomingFrame(message);
+        const parsed = parseIncomingFrame(normalizeWsInput(input));
         if (!parsed.frame) {
           ws.send(
             JSON.stringify(
@@ -6198,7 +6389,6 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         }
 
         if (frame.method === 'gateway.subscribe') {
-          ws.subscribe('miya:broadcast');
           wsData.subscriptions = new Set(
             Array.isArray(frame.params?.events) ? frame.params.events.map(String) : ['*'],
           );
@@ -6213,7 +6403,6 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
               }),
             ),
           );
-          // Send initial snapshot after subscribe acknowledgement to keep RPC-only sockets fast.
           setTimeout(() => {
             try {
               ws.send(
@@ -6275,9 +6464,11 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
             ),
           );
         }
-      },
-    },
+      });
     });
+
+    httpServer.listen(port, listen.hostname);
+
   } catch (error) {
     clearGatewayStateFile(projectDir);
     removeOwnerLock(projectDir);
@@ -6288,40 +6479,6 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     });
     throw error;
   }
-
-  runtime = {
-    startedAt: nowIso(),
-    server,
-    methods,
-    stateVersion: 1,
-    controlUi,
-    channelRuntime,
-    outboundSendDedupe: new Map(),
-    nodeSockets: new Map(),
-    wsMeta: new WeakMap(),
-    wizardTickTimer: undefined,
-    ownerBeatTimer: undefined,
-    memoryReflectTimer: undefined,
-    wizardRunnerBusy: false,
-    dependencyAssistHashes: new Set(),
-    daemonLauncherUnsubscribe: undefined,
-    negotiationBudgets: new Map(),
-    nexus: {
-      sessionId: 'main',
-      activeTool: undefined,
-      permission: undefined,
-      pendingTickets: 0,
-      killSwitchMode: 'off',
-      insights: [],
-      trust: undefined,
-      trustMode: readTrustModeConfig(projectDir),
-      psycheMode: readPsycheModeConfig(projectDir),
-      learningGate: readLearningGateConfig(projectDir),
-      guardianSafeHoldReason: undefined,
-    },
-  };
-
-  runtime.methods = createMethods(projectDir, runtime);
   runtimes.set(projectDir, runtime);
   runtime.wizardTickTimer = setInterval(() => {
     void runWizardTrainingWorker(projectDir, runtime);

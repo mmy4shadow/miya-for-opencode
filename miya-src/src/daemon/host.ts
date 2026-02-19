@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import type { Duplex } from 'node:stream';
+import WebSocket, { WebSocketServer, type RawData as WsRawData } from 'ws';
 import { getMiyaRuntimeDir } from '../workflow';
 import { readConfig, validateConfigPatch, applyConfigPatch } from '../settings';
 import { assertPolicyHash, currentPolicyHash } from '../policy';
@@ -123,15 +126,209 @@ function stableHash(input: unknown): string {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex');
 }
 
+function normalizeWsInput(message: WsRawData): string {
+  if (typeof message === 'string') return message;
+  if (Buffer.isBuffer(message)) return message.toString('utf-8');
+  if (Array.isArray(message)) return Buffer.concat(message).toString('utf-8');
+  return Buffer.from(message).toString('utf-8');
+}
+
+function reservePort(hostname: string, configuredPort: number): number {
+  if (configuredPort > 0) return configuredPort;
+  const script = [
+    "const net=require('node:net');",
+    'const host=process.argv[1]||"127.0.0.1";',
+    'const s=net.createServer();',
+    's.listen(0,host,()=>{',
+    'const address=s.address();',
+    "if(address&&typeof address==='object'){process.stdout.write(String(address.port));}",
+    's.close(()=>process.exit(0));',
+    '});',
+    "s.on('error',()=>process.exit(1));",
+  ].join('');
+  const probe = spawnSync('node', ['-e', script, hostname], {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (probe.status !== 0) {
+    throw new Error(`daemon_port_reservation_failed:${String(probe.stderr || '').trim()}`);
+  }
+  const parsed = Number(String(probe.stdout || '').trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error('daemon_port_reservation_invalid');
+  }
+  return Math.floor(parsed);
+}
+
+function toNodeRequest(
+  req: IncomingMessage,
+  hostname: string,
+  port: number,
+): Request {
+  const hostHeader =
+    typeof req.headers?.host === 'string' && req.headers.host.trim()
+      ? req.headers.host.trim()
+      : `${hostname}:${port}`;
+  const requestUrl = new URL(req.url || '/', `http://${hostHeader}`);
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(req.headers ?? {})) {
+    if (typeof value === 'string') {
+      headers[key] = value;
+    } else if (Array.isArray(value) && value.length > 0) {
+      headers[key] = value.join(', ');
+    }
+  }
+  return new Request(requestUrl, {
+    method: req.method ?? 'GET',
+    headers,
+  });
+}
+
+async function writeNodeResponse(
+  res: ServerResponse,
+  response: Response,
+  method: string,
+): Promise<void> {
+  res.statusCode = response.status;
+  for (const [key, value] of response.headers.entries()) {
+    res.setHeader(key, value);
+  }
+  if (method.toUpperCase() === 'HEAD') {
+    res.end();
+    return;
+  }
+  if (!response.body) {
+    res.end();
+    return;
+  }
+  const body = Buffer.from(await response.arrayBuffer());
+  res.end(body);
+}
+
+function writeUpgradeResponse(socket: Duplex, response: Response): void {
+  const statusText = response.statusText || 'OK';
+  const lines = [`HTTP/1.1 ${response.status} ${statusText}`];
+  for (const [key, value] of response.headers.entries()) {
+    lines.push(`${key}: ${value}`);
+  }
+  void response
+    .arrayBuffer()
+    .then((bodyBuffer) => {
+      const body = Buffer.from(bodyBuffer);
+      lines.push(`content-length: ${body.byteLength}`);
+      lines.push('', '');
+      socket.write(lines.join('\r\n'));
+      if (body.byteLength > 0) {
+        socket.write(body);
+      }
+      socket.destroy();
+    })
+    .catch(() => {
+      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+      socket.destroy();
+    });
+}
+
+interface NodeServeOptions {
+  hostname: string;
+  port: number;
+  fetch: (
+    request: Request,
+    currentServer: {
+      upgrade: (request: Request) => boolean;
+    },
+  ) => Response | void | Promise<Response | void>;
+  websocket: {
+    open: (ws: WebSocket) => void;
+    close: (ws: WebSocket) => void;
+    message: (ws: WebSocket, input: WsRawData) => void | Promise<void>;
+  };
+}
+
+function serveWithNode(options: NodeServeOptions): {
+  port: number;
+  stop: (_force?: boolean) => void;
+} {
+  const port = reservePort(options.hostname, options.port);
+  const wsServer = new WebSocketServer({ noServer: true });
+  const httpServer = createServer((req, res) => {
+    void (async () => {
+      const request = toNodeRequest(req, options.hostname, port);
+      const response =
+        (await options.fetch(request, { upgrade: () => false })) ??
+        new Response('Not Found', { status: 404 });
+      await writeNodeResponse(res, response, req.method ?? 'GET');
+    })().catch(() => {
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.setHeader('content-type', 'text/plain; charset=utf-8');
+      }
+      if (!res.writableEnded) {
+        res.end('Internal Server Error');
+      }
+    });
+  });
+
+  wsServer.on('connection', (ws) => {
+    options.websocket.open(ws);
+    ws.on('close', () => options.websocket.close(ws));
+    ws.on('message', (input) => {
+      void options.websocket.message(ws, input);
+    });
+  });
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    const request = toNodeRequest(req, options.hostname, port);
+    let upgraded = false;
+    const currentServer = {
+      upgrade: () => {
+        if (upgraded) return false;
+        upgraded = true;
+        wsServer.handleUpgrade(req, socket, head, (ws) => {
+          wsServer.emit('connection', ws, req);
+        });
+        return true;
+      },
+    };
+    void Promise.resolve(options.fetch(request, currentServer))
+      .then((response) => {
+        if (upgraded) return;
+        writeUpgradeResponse(socket, response ?? new Response('upgrade_failed', { status: 400 }));
+      })
+      .catch(() => {
+        if (!upgraded) {
+          socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+          socket.destroy();
+        }
+      });
+  });
+
+  httpServer.listen(port, options.hostname);
+
+  return {
+    port,
+    stop() {
+      for (const client of wsServer.clients) {
+        try {
+          client.close();
+        } catch {}
+      }
+      wsServer.close();
+      httpServer.close();
+    },
+  };
+}
+
 const args = parseArgs(process.argv);
 ensureRuntimeDir(args.projectDir);
-const sockets = new Set<Bun.ServerWebSocket<unknown>>();
+const sockets = new Set<WebSocket>();
 const daemonService = new MiyaDaemonService(args.projectDir, {
   onProgress: (event) => {
+    const payload = JSON.parse(JSON.stringify(event)) as Record<string, unknown>;
     const frame = DaemonEventFrameSchema.parse({
       type: 'event',
       event: 'job.progress',
-      payload: event,
+      payload,
     });
     for (const ws of sockets) {
       try {
@@ -181,7 +378,7 @@ function baseStatus(): Record<string, unknown> {
   };
 }
 
-const server = Bun.serve({
+const server = serveWithNode({
   hostname: '127.0.0.1',
   port: 0,
   fetch(request, instance) {
@@ -214,7 +411,7 @@ const server = Bun.serve({
       sockets.delete(ws);
     },
     async message(ws, input) {
-      const parsed = parseDaemonIncomingFrame(input);
+      const parsed = parseDaemonIncomingFrame(normalizeWsInput(input));
       if (!parsed.frame) {
         ws.send(
           JSON.stringify(

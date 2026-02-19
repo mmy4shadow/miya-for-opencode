@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getMiyaRuntimeDir } from '../workflow';
 import { readConfig } from '../settings';
@@ -186,11 +186,25 @@ function resetLaunchFailureState(runtime: LauncherRuntime): void {
   syncBackpressureSnapshot(runtime);
 }
 
-function resolveBunBinary(): string | null {
-  const byWhich = Bun.which('bun') ?? Bun.which('bun.exe');
-  if (byWhich) return byWhich;
-  const execBase = path.basename(process.execPath).toLowerCase();
-  if (execBase === 'bun' || execBase === 'bun.exe') return process.execPath;
+function resolveNodeBinary(): string | null {
+  const configured = process.env.MIYA_NODE_BIN?.trim();
+  const candidates = [
+    configured || null,
+    (() => {
+      const execBase = path.basename(process.execPath).toLowerCase();
+      return execBase === 'node' || execBase === 'node.exe' ? process.execPath : null;
+    })(),
+    process.platform === 'win32' ? 'node.exe' : 'node',
+  ].filter((item): item is string => Boolean(item));
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync(candidate, ['--version'], {
+        stdio: ['ignore', 'ignore', 'ignore'],
+        timeout: 2_000,
+      });
+      if (probe.status === 0) return candidate;
+    } catch {}
+  }
   return null;
 }
 
@@ -217,14 +231,14 @@ function spawnDaemon(runtime: LauncherRuntime): boolean {
   }
   runtime.lastSpawnAttemptAtMs = now;
   cleanupExistingDaemon(runtime.projectDir);
-  const bunBinary = resolveBunBinary();
-  if (!bunBinary) {
+  const nodeBinary = resolveNodeBinary();
+  if (!nodeBinary) {
     runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = 'Miya Daemon Disabled (bun_not_found)';
-    noteLaunchFailure(runtime, 'bun_not_found');
+    runtime.snapshot.statusText = 'Miya Daemon Disabled (node_not_found)';
+    noteLaunchFailure(runtime, 'node_not_found');
     return false;
   }
-  const binaryBase = path.basename(bunBinary).toLowerCase();
+  const binaryBase = path.basename(nodeBinary).toLowerCase();
   if (binaryBase.includes('powershell') || binaryBase === 'pwsh.exe') {
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = 'Miya Daemon Disabled (invalid_runtime_binary)';
@@ -232,19 +246,21 @@ function spawnDaemon(runtime: LauncherRuntime): boolean {
     return false;
   }
   const hostScript = resolveHostScriptPath();
+  const nodeArgs = [
+    ...(hostScript.endsWith('.ts') ? ['--import', 'tsx'] : []),
+    hostScript,
+    '--project-dir',
+    runtime.projectDir,
+    '--parent-lock-file',
+    runtime.parentLockFile,
+    '--token',
+    runtime.daemonToken,
+  ];
   spawn(
-    bunBinary,
-    [
-      hostScript,
-      '--project-dir',
-      runtime.projectDir,
-      '--parent-lock-file',
-      runtime.parentLockFile,
-      '--token',
-      runtime.daemonToken,
-    ],
+    nodeBinary,
+    nodeArgs,
     {
-      cwd: runtime.projectDir,
+      cwd: path.dirname(hostScript),
       detached: true,
       stdio: 'ignore',
       windowsHide: true,

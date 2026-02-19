@@ -157,7 +157,8 @@ export function handleControlUiHttpRequest(
   if (request.method === 'HEAD') {
     return new Response(null, { status: 200, headers });
   }
-  return new Response(Bun.file(resolvedPath), {
+  const body = fs.readFileSync(resolvedPath);
+  return new Response(body, {
     status: 200,
     headers,
   });

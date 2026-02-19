@@ -1,8 +1,76 @@
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
-import { Database } from 'bun:sqlite';
 import { getMiyaRuntimeDir } from '../workflow';
 import type { CompanionMemoryVector } from './memory-vector';
+
+const require = createRequire(import.meta.url);
+
+interface SqlStatement {
+  run: (...params: unknown[]) => unknown;
+  get: (...params: unknown[]) => unknown;
+  all: (...params: unknown[]) => unknown[];
+}
+
+interface SqlDatabase {
+  exec: (sql: string) => unknown;
+  query: (sql: string) => SqlStatement;
+  transaction: <T extends (...args: any[]) => unknown>(fn: T) => T;
+  close: () => void;
+}
+
+function createSqlDatabase(file: string): SqlDatabase {
+  try {
+    const bunSqlite = require('bun:sqlite') as {
+      Database: new (dbPath: string) => SqlDatabase;
+    };
+    return new bunSqlite.Database(file);
+  } catch {}
+
+  try {
+    const nodeSqlite = require('node:sqlite') as {
+      DatabaseSync: new (dbPath: string) => {
+        exec: (sql: string) => unknown;
+        prepare: (sql: string) => {
+          run: (...params: unknown[]) => unknown;
+          get: (...params: unknown[]) => unknown;
+          all: (...params: unknown[]) => unknown[];
+        };
+        close: () => void;
+      };
+    };
+    const nodeDb = new nodeSqlite.DatabaseSync(file);
+    const tx = <T extends (...args: any[]) => unknown>(fn: T): T =>
+      (((...args: Parameters<T>) => {
+        nodeDb.exec('BEGIN');
+        try {
+          const result = fn(...args);
+          nodeDb.exec('COMMIT');
+          return result;
+        } catch (error) {
+          try {
+            nodeDb.exec('ROLLBACK');
+          } catch {}
+          throw error;
+        }
+      }) as T);
+    return {
+      exec: (sql: string) => nodeDb.exec(sql),
+      query: (sql: string) => {
+        const stmt = nodeDb.prepare(sql);
+        return {
+          run: (...params: unknown[]) => stmt.run(...params),
+          get: (...params: unknown[]) => stmt.get(...params),
+          all: (...params: unknown[]) => stmt.all(...params),
+        };
+      },
+      transaction: tx,
+      close: () => nodeDb.close(),
+    };
+  } catch {}
+
+  throw new Error('sqlite_runtime_unavailable');
+}
 
 function memoryDir(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'memory');
@@ -12,9 +80,9 @@ function sqlitePath(projectDir: string): string {
   return path.join(memoryDir(projectDir), 'memories.sqlite');
 }
 
-function openDatabase(projectDir: string): Database {
+function openDatabase(projectDir: string): SqlDatabase {
   fs.mkdirSync(memoryDir(projectDir), { recursive: true });
-  const db = new Database(sqlitePath(projectDir));
+  const db = createSqlDatabase(sqlitePath(projectDir));
   db.exec(`
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
@@ -77,7 +145,7 @@ export function syncCompanionMemoriesToSqlite(
   projectDir: string,
   items: CompanionMemoryVector[],
 ): void {
-  let db: Database | null = null;
+  let db: SqlDatabase | null = null;
   try {
     db = openDatabase(projectDir);
     const upsertMemory = db.query(`
@@ -164,7 +232,7 @@ export function getCompanionMemorySqliteStats(projectDir: string): {
   vectorCount: number;
   graphCount: number;
 } {
-  let db: Database | null = null;
+  let db: SqlDatabase | null = null;
   const dbPath = sqlitePath(projectDir);
   try {
     db = openDatabase(projectDir);

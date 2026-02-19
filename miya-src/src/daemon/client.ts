@@ -171,11 +171,15 @@ export class MiyaClient {
       evidenceConfidence?: number;
     };
   }): Promise<PsycheConsultResult> {
+    const timeoutMs = Math.max(
+      1_000,
+      Math.floor(Number(process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS ?? 3_000)),
+    );
     return daemonInvoke(
       this.projectDir,
       'daemon.psyche.consult',
       input as unknown as Record<string, unknown>,
-      15_000,
+      timeoutMs,
     ) as Promise<PsycheConsultResult>;
   }
 
