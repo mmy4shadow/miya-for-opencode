@@ -51,6 +51,52 @@ function ledgerSecretFile(projectDir: string): string {
   );
 }
 
+function parsePositiveIntEnv(
+  name: string,
+  fallback: number,
+  min: number,
+): number {
+  const parsed = Number(process.env[name] ?? '');
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.floor(parsed);
+}
+
+function rotateLedgerIfNeeded(file: string): void {
+  const rotateMaxBytes = parsePositiveIntEnv(
+    'MIYA_ACTION_LEDGER_ROTATE_MAX_BYTES',
+    2 * 1024 * 1024,
+    1024,
+  );
+  const rotateKeep = parsePositiveIntEnv(
+    'MIYA_ACTION_LEDGER_ROTATE_KEEP',
+    3,
+    1,
+  );
+  if (!fs.existsSync(file)) return;
+  let size = 0;
+  try {
+    size = fs.statSync(file).size;
+  } catch {
+    return;
+  }
+  if (size < rotateMaxBytes) return;
+  try {
+    const oldest = `${file}.${rotateKeep}`;
+    if (fs.existsSync(oldest)) fs.rmSync(oldest, { force: true });
+  } catch {}
+  for (let index = rotateKeep - 1; index >= 1; index -= 1) {
+    const src = `${file}.${index}`;
+    if (!fs.existsSync(src)) continue;
+    const dst = `${file}.${index + 1}`;
+    try {
+      fs.renameSync(src, dst);
+    } catch {}
+  }
+  try {
+    fs.renameSync(file, `${file}.1`);
+  } catch {}
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -209,6 +255,7 @@ export function appendToolActionLedgerEvent(
 ): ToolActionLedgerEvent {
   const file = ledgerFile(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  rotateLedgerIfNeeded(file);
   const rows = safeReadRows(file);
   const previousHash = rows[rows.length - 1]?.entryHash ?? 'GENESIS';
   const inputSummary = summarizeParams(input.params);

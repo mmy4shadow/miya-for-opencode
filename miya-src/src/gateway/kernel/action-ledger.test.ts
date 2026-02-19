@@ -58,4 +58,43 @@ describe('tool action ledger', () => {
     expect(rows[0]?.method).toBe('beta');
     expect(rows[1]?.method).toBe('alpha');
   });
+
+  test('rotates ledger file when size exceeds configured threshold', () => {
+    const previousMax = process.env.MIYA_ACTION_LEDGER_ROTATE_MAX_BYTES;
+    const previousKeep = process.env.MIYA_ACTION_LEDGER_ROTATE_KEEP;
+    process.env.MIYA_ACTION_LEDGER_ROTATE_MAX_BYTES = '1024';
+    process.env.MIYA_ACTION_LEDGER_ROTATE_KEEP = '2';
+    const projectDir = tempProjectDir();
+    try {
+      for (let index = 0; index < 40; index += 1) {
+        appendToolActionLedgerEvent(projectDir, {
+          method: 'bulk.write',
+          clientID: `c${index}`,
+          role: 'admin',
+          params: {
+            sessionID: `s-${index}`,
+            text: `payload-${index}-${'x'.repeat(120)}`,
+          },
+          status: 'completed',
+          result: { ok: true, index },
+        });
+      }
+      const file = path.join(
+        projectDir,
+        '.opencode',
+        'miya',
+        'audit',
+        'tool-action-ledger.jsonl',
+      );
+      expect(fs.existsSync(file)).toBe(true);
+      expect(fs.existsSync(`${file}.1`)).toBe(true);
+    } finally {
+      if (previousMax === undefined)
+        delete process.env.MIYA_ACTION_LEDGER_ROTATE_MAX_BYTES;
+      else process.env.MIYA_ACTION_LEDGER_ROTATE_MAX_BYTES = previousMax;
+      if (previousKeep === undefined)
+        delete process.env.MIYA_ACTION_LEDGER_ROTATE_KEEP;
+      else process.env.MIYA_ACTION_LEDGER_ROTATE_KEEP = previousKeep;
+    }
+  });
 });

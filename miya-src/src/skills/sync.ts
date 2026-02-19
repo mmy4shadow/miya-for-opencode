@@ -82,6 +82,7 @@ export interface SourcePackApplyResult {
   appliedRevision: string;
   previousRevision?: string;
   detachedHead: boolean;
+  resolvedConflicts?: string[];
   governance?: SourcePackGovernanceRecord;
 }
 
@@ -451,6 +452,13 @@ export function listEcosystemBridge(
   const sourcePacks = discoverSourcePacks(projectDir, state, options);
   const bySkillName = new Map<string, SourcePack[]>();
   for (const pack of sourcePacks) {
+    const packState = state.sourcePacks[pack.sourcePackID];
+    if (
+      typeof packState?.lastError === 'string' &&
+      packState.lastError.startsWith('skill_conflict_superseded_by:')
+    ) {
+      continue;
+    }
     const key = pack.skillName.toLowerCase();
     const list = bySkillName.get(key) ?? [];
     list.push(pack);
@@ -630,6 +638,29 @@ export function applySourcePack(
     lastError: undefined,
   });
 
+  const discovered = discoverSourcePacks(projectDir, resolved.state, options);
+  const resolvedConflicts = discovered
+    .filter(
+      (pack) =>
+        pack.sourcePackID !== sourcePackID &&
+        pack.skillName.toLowerCase() ===
+          resolved.sourcePack.skillName.toLowerCase(),
+    )
+    .map((pack) => pack.sourcePackID)
+    .sort();
+  for (const conflictID of resolvedConflicts) {
+    delete resolved.state.importPlans[conflictID];
+    delete resolved.state.pinnedReleases[conflictID];
+    const conflictPack = discovered.find(
+      (pack) => pack.sourcePackID === conflictID,
+    );
+    if (conflictPack) {
+      updateSourcePackState(resolved.state, conflictPack, {
+        lastError: `skill_conflict_superseded_by:${sourcePackID}`,
+      });
+    }
+  }
+
   resolved.state.pinnedReleases[sourcePackID] = {
     sourcePackID,
     revision: targetRevision,
@@ -653,6 +684,7 @@ export function applySourcePack(
     previousRevision:
       previousRevision !== targetRevision ? previousRevision : undefined,
     detachedHead: true,
+    resolvedConflicts,
     governance,
   };
 }

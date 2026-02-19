@@ -183,4 +183,26 @@ describe('resource scheduler', () => {
       else process.env.MIYA_RESOURCE_WARMPOOL_MB = prevWarmPool;
     }
   });
+
+  test('enforces VRAM budget before model loading and times out oversized request', async () => {
+    const scheduler = new ResourceScheduler(tempProjectDir(), {
+      totalVramMB: 1024,
+      safetyMarginMB: 256,
+      maxConcurrentTasks: 1,
+    });
+    await expect(
+      scheduler.acquire({
+        kind: 'image.generate',
+        priority: 10,
+        vramMB: 600,
+        modelID: 'oversized-model',
+        modelVramMB: 600,
+        timeoutMs: 50,
+      }),
+    ).rejects.toThrow('resource_acquire_timeout');
+    const snapshot = scheduler.snapshot();
+    expect(
+      snapshot.loadedModels.some((item) => item.modelID === 'oversized-model'),
+    ).toBe(false);
+  });
 });

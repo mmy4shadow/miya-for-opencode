@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { currentPolicyHash } from '../policy';
 import { setContactTier, upsertChannelState } from './pairing-store';
 import { ChannelRuntime, summarizeChannelGovernance } from './service';
 
@@ -194,6 +195,75 @@ describe('channel runtime send policy', () => {
     expect(result.message).toMatch(/target_not_in_allowlist/);
   });
 
+  test('blocks outbound send when provided policy hash mismatches runtime policy', async () => {
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(projectDir, {
+      onInbound: () => {},
+      onPairRequested: () => {},
+    });
+    setContactTier(projectDir, 'qq', 'tester', 'owner');
+    const badHash = `${currentPolicyHash(projectDir).slice(0, -1)}0`;
+    const result = await runtime.sendMessage({
+      channel: 'qq',
+      destination: 'tester',
+      text: 'hello',
+      approvalTickets: validTickets(),
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+        policyHash: badHash,
+      },
+    });
+    expect(result.sent).toBe(false);
+    expect(result.message).toBe('outbound_blocked:policy_hash_mismatch');
+  });
+
+  test('records explicit allowlist bypass tag in outbound audit', async () => {
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(
+      projectDir,
+      {
+        onInbound: () => {},
+        onPairRequested: () => {},
+      },
+      {
+        sendQqDesktopMessage: async () => ({
+          sent: false,
+          message: 'qq_desktop_send_failed:window_not_found',
+          receiptStatus: 'uncertain',
+          visualPrecheck: 'failed',
+          visualPostcheck: 'failed',
+          payloadHash: 'x',
+          recipientTextCheck: 'uncertain',
+        }),
+      },
+    );
+    const result = await runtime.sendMessage({
+      channel: 'qq',
+      destination: 'non-allowlisted',
+      text: 'hello',
+      approvalTickets: validTickets(),
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+        bypassAllowlist: true,
+      },
+    });
+    expect(result.sent).toBe(false);
+    const auditFile = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'channels-outbound.jsonl',
+    );
+    const rows = fs
+      .readFileSync(auditFile, 'utf-8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { semanticTags?: string[] });
+    expect(rows[0]?.semanticTags?.includes('allowlist_bypass')).toBe(true);
+  });
+
   test('throttles rapid outbound sends', async () => {
     const projectDir = tempProjectDir();
     const runtime = new ChannelRuntime(projectDir, {
@@ -355,6 +425,55 @@ describe('channel runtime send policy', () => {
     expect(elapsed).toBeLessThan(1000);
   });
 
+  test('detects mutex-timeout continuation risk when postcheck indicates active window after send', async () => {
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(
+      projectDir,
+      {
+        onInbound: () => {},
+        onPairRequested: () => {},
+      },
+      {
+        sendQqDesktopMessage: async () => ({
+          sent: false,
+          message: 'qq_desktop_send_failed:input_mutex_timeout:user_active',
+          visualPostcheck: 'window_active_after_send',
+          receiptStatus: 'uncertain',
+          visualPrecheck: 'ok',
+          payloadHash: 'hash',
+          recipientTextCheck: 'uncertain',
+        }),
+        analyzeDesktopOutboundEvidence: async () => ({
+          recipientMatch: 'uncertain',
+          sendStatusDetected: 'uncertain',
+          uiStyleMismatch: false,
+          capture: {
+            method: 'unknown',
+            confidence: 0.5,
+            limitations: [],
+          },
+          ocrSource: 'none',
+          ocrPreview: '',
+        }),
+      },
+    );
+    setContactTier(projectDir, 'qq', 'tester', 'owner');
+    const result = await runtime.sendMessage({
+      channel: 'qq',
+      destination: 'tester',
+      text: 'hello',
+      approvalTickets: validTickets(),
+      outboundCheck: {
+        archAdvisorApproved: true,
+        riskLevel: 'LOW',
+      },
+    });
+    expect(result.sent).toBe(false);
+    expect(result.message).toBe(
+      'outbound_blocked:input_mutex_timeout_operation_continued',
+    );
+  });
+
   test('produces inbound-only governance summary', async () => {
     const projectDir = tempProjectDir();
     const runtime = new ChannelRuntime(projectDir, {
@@ -372,5 +491,41 @@ describe('channel runtime send policy', () => {
     expect(summary.windowRows).toBeGreaterThan(0);
     expect(summary.inboundOnlyViolationAttempts).toBeGreaterThan(0);
     expect(summary.inboundOnlyInvariantMaintained).toBe(true);
+  });
+
+  test('rotates channel audit log when size exceeds threshold', async () => {
+    const prevMax = process.env.MIYA_CHANNEL_AUDIT_ROTATE_MAX_BYTES;
+    const prevKeep = process.env.MIYA_CHANNEL_AUDIT_ROTATE_KEEP;
+    process.env.MIYA_CHANNEL_AUDIT_ROTATE_MAX_BYTES = '1024';
+    process.env.MIYA_CHANNEL_AUDIT_ROTATE_KEEP = '2';
+    const projectDir = tempProjectDir();
+    const runtime = new ChannelRuntime(projectDir, {
+      onInbound: () => {},
+      onPairRequested: () => {},
+    });
+    try {
+      for (let index = 0; index < 50; index += 1) {
+        await runtime.sendMessage({
+          channel: 'telegram',
+          destination: `u-${index}`,
+          text: `hello-${index}-${'x'.repeat(80)}`,
+        });
+      }
+      const file = path.join(
+        projectDir,
+        '.opencode',
+        'miya',
+        'channels-outbound.jsonl',
+      );
+      expect(fs.existsSync(file)).toBe(true);
+      expect(fs.existsSync(`${file}.1`)).toBe(true);
+    } finally {
+      if (prevMax === undefined)
+        delete process.env.MIYA_CHANNEL_AUDIT_ROTATE_MAX_BYTES;
+      else process.env.MIYA_CHANNEL_AUDIT_ROTATE_MAX_BYTES = prevMax;
+      if (prevKeep === undefined)
+        delete process.env.MIYA_CHANNEL_AUDIT_ROTATE_KEEP;
+      else process.env.MIYA_CHANNEL_AUDIT_ROTATE_KEEP = prevKeep;
+    }
   });
 });

@@ -195,6 +195,60 @@ describe('ecosystem bridge sync', () => {
     }
   });
 
+  test('auto-resolves skill-name collision on apply by superseding conflicting packs', () => {
+    const fixture = setupSkillRepoFixture();
+    try {
+      const options = {
+        sourceRoots: [path.join(fixture.projectDir, 'skills')],
+      };
+      const secondClone = path.join(
+        fixture.projectDir,
+        'skills',
+        'ecosystem-pack-copy',
+      );
+      git(['clone', fixture.remoteDir, secondClone], fixture.rootDir);
+      const listed = listEcosystemBridge(fixture.projectDir, options);
+      const primary = listed.sourcePacks[0];
+      const secondary = listed.sourcePacks[1];
+      expect(primary?.sourcePackID).toBeDefined();
+      expect(secondary?.sourcePackID).toBeDefined();
+      if (!primary || !secondary) {
+        throw new Error('fixture_source_pack_missing');
+      }
+      applySourcePack(
+        fixture.projectDir,
+        primary.sourcePackID,
+        { revision: primary.headRevision },
+        options,
+      );
+      const applied = applySourcePack(
+        fixture.projectDir,
+        secondary.sourcePackID,
+        { revision: secondary.headRevision },
+        options,
+      );
+      expect(applied.resolvedConflicts).toContain(primary.sourcePackID);
+      const after = listEcosystemBridge(fixture.projectDir, options);
+      expect(after.conflicts.length).toBe(0);
+      expect(
+        after.pinnedReleases.some(
+          (item) => item.sourcePackID === secondary.sourcePackID,
+        ),
+      ).toBe(true);
+      expect(
+        after.pinnedReleases.some(
+          (item) => item.sourcePackID === primary.sourcePackID,
+        ),
+      ).toBe(false);
+      const stillListed = after.sourcePacks.find(
+        (item) => item.sourcePackID === primary.sourcePackID,
+      );
+      expect(stillListed).toBeDefined();
+    } finally {
+      fs.rmSync(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+
   test('strict preflight blocks source pack without permission metadata and regression artifacts', () => {
     const fixture = setupSkillRepoFixture();
     try {

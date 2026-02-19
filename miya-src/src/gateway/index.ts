@@ -699,13 +699,43 @@ function ensureLoopbackNoProxy(): void {
   }
 }
 
+function daemonFreshness(snapshot: ReturnType<typeof getLauncherDaemonSnapshot>): {
+  daemonFresh: boolean;
+  daemonAgeMs?: number;
+  daemonLastSeenAt?: string;
+} {
+  const lastSeenAt =
+    typeof snapshot.lastSeenAt === 'string' && snapshot.lastSeenAt.trim()
+      ? snapshot.lastSeenAt.trim()
+      : undefined;
+  if (!snapshot.connected || !lastSeenAt) {
+    return { daemonFresh: false, daemonLastSeenAt: lastSeenAt };
+  }
+  const ageMs = Math.max(0, Date.now() - Date.parse(lastSeenAt));
+  const freshnessWindowMs = Math.max(
+    5_000,
+    Number(process.env.MIYA_GATEWAY_HEALTH_FRESH_MS ?? 45_000),
+  );
+  return {
+    daemonFresh: Number.isFinite(ageMs) && ageMs <= freshnessWindowMs,
+    daemonAgeMs: Number.isFinite(ageMs) ? ageMs : undefined,
+    daemonLastSeenAt: lastSeenAt,
+  };
+}
+
 function buildGatewayHealthPayload(runtime: GatewayRuntime): Record<string, unknown> {
+  const daemon = getLauncherDaemonSnapshot(runtime.projectDir);
+  const freshness = daemonFreshness(daemon);
   return {
     at: nowIso(),
     pid: process.pid,
     uptimeMs: Math.max(0, Date.now() - Date.parse(runtime.startedAt)),
     wsConnections: runtime.wsConnectionCount,
     memory: process.memoryUsage(),
+    daemonConnected: daemon.connected,
+    daemonLastSeenAt: freshness.daemonLastSeenAt,
+    daemonAgeMs: freshness.daemonAgeMs,
+    daemonFresh: freshness.daemonFresh,
   };
 }
 
@@ -7078,10 +7108,9 @@ function createMethods(
           traceID,
           policyHash: currentPolicyHash(projectDir),
           globalState: 'killed',
-          domains: {
-            outbound_send: 'killed',
-            desktop_control: 'killed',
-          },
+          domains: Object.fromEntries(
+            POLICY_DOMAINS.map((domain) => [domain, 'killed'] as const),
+          ) as Partial<Record<PolicyDomain, 'killed'>>,
         });
       } else if (mode === 'off') {
         releaseKillSwitch(projectDir);
@@ -9769,6 +9798,8 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         }
         const isHealthPath = isPathMatch('/health');
         if (isHealthPath) {
+          const daemon = getLauncherDaemonSnapshot(projectDir);
+          const freshness = daemonFreshness(daemon);
           return Response.json(
             {
               ok: true,
@@ -9776,6 +9807,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
               pid: process.pid,
               startedAt: runtime.startedAt,
               uptimeMs: Date.now() - Date.parse(runtime.startedAt),
+              daemonConnected: daemon.connected,
+              daemonLastSeenAt: freshness.daemonLastSeenAt,
+              daemonAgeMs: freshness.daemonAgeMs,
+              daemonFresh: freshness.daemonFresh,
             },
             {
               status: 200,

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { sendQqDesktopMessage } from '../channel/outbound/qq';
 import { sendWechatDesktopMessage } from '../channel/outbound/wechat';
 import { analyzeDesktopOutboundEvidence } from '../multimodal/vision';
-import { readPolicy } from '../policy';
+import { assertPolicyHash, readPolicy } from '../policy';
 import {
   assertSemanticTags,
   normalizeSemanticTags,
@@ -62,6 +62,40 @@ function appendOutboundAudit(
   row: Record<string, unknown> | ChannelOutboundAudit,
 ): void {
   const file = outboundAuditFile(projectDir);
+  const rotateMaxBytesRaw = Number(
+    process.env.MIYA_CHANNEL_AUDIT_ROTATE_MAX_BYTES ?? 2 * 1024 * 1024,
+  );
+  const rotateMaxBytes =
+    Number.isFinite(rotateMaxBytesRaw) && rotateMaxBytesRaw >= 1024
+      ? Math.floor(rotateMaxBytesRaw)
+      : 2 * 1024 * 1024;
+  const rotateKeepRaw = Number(process.env.MIYA_CHANNEL_AUDIT_ROTATE_KEEP ?? 3);
+  const rotateKeep =
+    Number.isFinite(rotateKeepRaw) && rotateKeepRaw >= 1
+      ? Math.floor(rotateKeepRaw)
+      : 3;
+  if (fs.existsSync(file)) {
+    try {
+      const stat = fs.statSync(file);
+      if (stat.size >= rotateMaxBytes) {
+        try {
+          const oldest = `${file}.${rotateKeep}`;
+          if (fs.existsSync(oldest)) fs.rmSync(oldest, { force: true });
+        } catch {}
+        for (let index = rotateKeep - 1; index >= 1; index -= 1) {
+          const src = `${file}.${index}`;
+          if (!fs.existsSync(src)) continue;
+          const dst = `${file}.${index + 1}`;
+          try {
+            fs.renameSync(src, dst);
+          } catch {}
+        }
+        try {
+          fs.renameSync(file, `${file}.1`);
+        } catch {}
+      }
+    } catch {}
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, `${JSON.stringify(row)}\n`, 'utf-8');
 }
@@ -193,9 +227,14 @@ export interface ChannelOutboundAudit {
     keyAssertion: string;
     recovery: string;
   };
+  allowlistBypassed?: boolean;
 }
 
 function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
+  if (message.includes('policy_hash_mismatch')) return ['policy_hash_mismatch'];
+  if (message.includes('input_mutex_timeout_operation_continued')) {
+    return ['input_mutex_timeout_continuation'];
+  }
   if (message.includes('target_not_in_allowlist'))
     return ['recipient_mismatch'];
   if (message.includes('recipient_text_mismatch'))
@@ -321,6 +360,16 @@ function buildSemanticSummary(
     };
   }
   if (row.message.includes('input_mutex_timeout')) {
+    if (row.message.includes('input_mutex_timeout_operation_continued')) {
+      return {
+        conclusion:
+          'Outbound send blocked because input mutex timed out while UI indicated possible continued execution.',
+        keyAssertion:
+          'input_mutex_timeout combined with postcheck signal window_active_after_send, operation continuation risk detected.',
+        recovery:
+          'Pause outbound domain, verify target chat state manually, then retry with refreshed approval tickets.',
+      };
+    }
     return {
       conclusion: 'Outbound send blocked by input mutex timeout.',
       keyAssertion:
@@ -337,6 +386,16 @@ function buildSemanticSummary(
         'Visual confirmation confidence was too low after retry, so send was treated as failed.',
       recovery:
         'Adjust DPI/theme/window state, then retry with refreshed evidence.',
+    };
+  }
+  if (row.allowlistBypassed) {
+    return {
+      conclusion:
+        'Outbound send used explicit allowlist bypass and was marked for audit follow-up.',
+      keyAssertion:
+        'allowlist bypass flag=true, send path required explicit policy and ticket evidence.',
+      recovery:
+        'Review bypass justification and restore strict allowlist enforcement for subsequent sends.',
     };
   }
   return {
@@ -944,9 +1003,10 @@ export class ChannelRuntime {
   private recordOutboundAttempt(
     row: Omit<ChannelOutboundAudit, 'id' | 'at'> & { id?: string; at?: string },
   ): ChannelOutboundAudit {
-    const semanticTags = normalizeSemanticTags(
-      row.semanticTags ?? semanticTagsForOutboundMessage(row.message),
-    );
+    const semanticTags = normalizeSemanticTags([
+      ...(row.semanticTags ?? semanticTagsForOutboundMessage(row.message)),
+      ...(row.allowlistBypassed ? ['allowlist_bypass'] : []),
+    ]);
     assertSemanticTags(semanticTags);
     const payload: ChannelOutboundAudit = {
       id: row.id ?? `out_${randomUUID()}`,
@@ -1000,6 +1060,7 @@ export class ChannelRuntime {
       evidenceBundle: buildEvidenceBundle(row),
       semanticSummary: buildSemanticSummary(row),
       semanticTags,
+      allowlistBypassed: row.allowlistBypassed === true,
     };
     appendOutboundAudit(this.projectDir, payload);
     return payload;
@@ -1234,6 +1295,7 @@ export class ChannelRuntime {
       expiresAt: string;
     };
     payloadHash: string;
+    allowlistBypassed?: boolean;
     error: unknown;
   }): { sent: false; message: string; auditID: string } {
     const detail = this.normalizeDesktopRuntimeError(input.error);
@@ -1254,6 +1316,7 @@ export class ChannelRuntime {
       sendFingerprint: input.sendFingerprint,
       ticketSummary: input.ticketSummary,
       payloadHash: input.payloadHash,
+      allowlistBypassed: input.allowlistBypassed,
       failureStep: 'desktop.runtime',
     });
     return { sent: false, message: audit.message, auditID: audit.id };
@@ -1324,7 +1387,29 @@ export class ChannelRuntime {
     const intent = input.outboundCheck?.intent ?? 'initiate';
     const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
     const policyHash = input.outboundCheck?.policyHash;
+    const providedPolicyHash = String(policyHash ?? '').trim();
     const sessionID = (input.sessionID ?? 'main').trim() || 'main';
+    if (providedPolicyHash) {
+      const guard = assertPolicyHash(this.projectDir, providedPolicyHash);
+      if (!guard.ok) {
+        const audit = this.recordOutboundAttempt({
+          channel: input.channel,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
+          message: `outbound_blocked:${guard.reason}`,
+          reason: 'approval_ticket_invalid',
+          archAdvisorApproved,
+          riskLevel,
+          intent,
+          containsSensitive,
+          policyHash: guard.hash,
+          payloadHash,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+    }
+    const allowlistBypassed = input.outboundCheck?.bypassAllowlist === true;
     const approvalTicketValidation = this.validateApprovalTickets(
       input.channel,
       input.approvalTickets,
@@ -1365,6 +1450,7 @@ export class ChannelRuntime {
         intent,
         containsSensitive,
         policyHash,
+        allowlistBypassed,
         payloadHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
@@ -1382,15 +1468,15 @@ export class ChannelRuntime {
         intent,
         containsSensitive,
         policyHash,
+        allowlistBypassed,
         payloadHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
     }
 
-    const targetInAllowlist =
-      input.outboundCheck?.bypassAllowlist === true
-        ? true
-        : isSenderAllowed(this.projectDir, input.channel, input.destination);
+    const targetInAllowlist = allowlistBypassed
+      ? true
+      : isSenderAllowed(this.projectDir, input.channel, input.destination);
     if (!targetInAllowlist) {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
@@ -1405,15 +1491,15 @@ export class ChannelRuntime {
         intent,
         containsSensitive,
         policyHash,
+        allowlistBypassed,
         payloadHash,
       });
       return { sent: false, message: audit.message, auditID: audit.id };
     }
 
-    const tier =
-      input.outboundCheck?.bypassAllowlist === true
-        ? 'owner'
-        : getContactTier(this.projectDir, input.channel, input.destination);
+    const tier = allowlistBypassed
+      ? 'owner'
+      : getContactTier(this.projectDir, input.channel, input.destination);
     if (tier === 'friend') {
       if (intent !== 'reply') {
         const audit = this.recordOutboundAttempt({
@@ -1430,6 +1516,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
@@ -1449,6 +1536,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
@@ -1472,6 +1560,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
@@ -1499,6 +1588,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           payloadHash,
         });
         return { sent: false, message: audit.message, auditID: audit.id };
@@ -1522,6 +1612,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           sendFingerprint: input.sendFingerprint,
           ticketSummary,
           payloadHash,
@@ -1547,6 +1638,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           sendFingerprint: input.sendFingerprint,
           ticketSummary,
           payloadHash,
@@ -1571,6 +1663,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           sendFingerprint: input.sendFingerprint,
           ticketSummary,
           payloadHash,
@@ -1610,6 +1703,13 @@ export class ChannelRuntime {
             result.sent = false;
             result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
           }
+          if (
+            !result.sent &&
+            result.message.includes('input_mutex_timeout') &&
+            result.visualPostcheck === 'window_active_after_send'
+          ) {
+            result.message = 'outbound_blocked:input_mutex_timeout_operation_continued';
+          }
           if (result.sent && result.receiptStatus !== 'confirmed') {
             result.sent = false;
             result.message = 'outbound_blocked:receipt_uncertain';
@@ -1629,6 +1729,7 @@ export class ChannelRuntime {
             containsSensitive,
             riskLevel,
             policyHash,
+            allowlistBypassed,
             sendFingerprint: input.sendFingerprint,
             ticketSummary,
             payloadHash: result.payloadHash ?? payloadHash,
@@ -1707,6 +1808,13 @@ export class ChannelRuntime {
           result.sent = false;
           result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
         }
+        if (
+          !result.sent &&
+          result.message.includes('input_mutex_timeout') &&
+          result.visualPostcheck === 'window_active_after_send'
+        ) {
+          result.message = 'outbound_blocked:input_mutex_timeout_operation_continued';
+        }
         if (result.sent && result.receiptStatus !== 'confirmed') {
           result.sent = false;
           result.message = 'outbound_blocked:receipt_uncertain';
@@ -1726,6 +1834,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           sendFingerprint: input.sendFingerprint,
           ticketSummary,
           payloadHash: result.payloadHash ?? payloadHash,
@@ -1786,6 +1895,7 @@ export class ChannelRuntime {
           containsSensitive,
           riskLevel,
           policyHash,
+          allowlistBypassed,
           sendFingerprint: input.sendFingerprint,
           ticketSummary,
           payloadHash,

@@ -97,6 +97,32 @@ describe('companion memory vectors', () => {
     expect(decay.items.length).toBeGreaterThan(0);
   });
 
+  test('reinforces score and confidence on retrieval hits', () => {
+    const projectDir = tempProjectDir();
+    const created = upsertCompanionMemoryVector(projectDir, {
+      text: 'I prefer jasmine tea at night',
+      source: 'test',
+      activate: true,
+      confidence: 0.7,
+    });
+    const before = listCompanionMemoryVectors(projectDir).find(
+      (item) => item.id === created.id,
+    );
+    expect(before).toBeDefined();
+    const beforeScore = before?.score ?? 0;
+    const beforeConfidence = before?.confidence ?? 0;
+    const hits = searchCompanionMemoryVectors(projectDir, 'jasmine tea', 3, {
+      threshold: 0,
+    });
+    expect(hits.length).toBeGreaterThan(0);
+    const after = listCompanionMemoryVectors(projectDir).find(
+      (item) => item.id === created.id,
+    );
+    expect(after).toBeDefined();
+    expect((after?.score ?? 0) > beforeScore).toBe(true);
+    expect((after?.confidence ?? 0) > beforeConfidence).toBe(true);
+  });
+
   test('search supports dynamic pruning threshold', () => {
     const projectDir = tempProjectDir();
     upsertCompanionMemoryVector(projectDir, {

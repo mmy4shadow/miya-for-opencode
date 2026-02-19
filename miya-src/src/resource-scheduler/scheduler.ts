@@ -70,6 +70,7 @@ export class ResourceScheduler {
   >();
   private usedVramMB = 0;
   private draining = false;
+  private timeoutCheckTimer?: ReturnType<typeof setTimeout>;
 
   constructor(projectDir: string, options: ResourceSchedulerOptions = {}) {
     this.projectDir = projectDir;
@@ -151,6 +152,7 @@ export class ResourceScheduler {
         modelID: request.modelID,
       });
       this.recordSnapshot();
+      this.rescheduleTimeoutCheck();
       this.scheduleDrain();
     });
   }
@@ -246,11 +248,20 @@ export class ResourceScheduler {
       progressed = false;
       this.removeExpiredPending();
 
-      if (this.active.size >= this.maxConcurrentTasks) return;
+      if (this.active.size >= this.maxConcurrentTasks) {
+        this.rescheduleTimeoutCheck();
+        return;
+      }
       const pending = this.queue[0];
-      if (!pending) return;
+      if (!pending) {
+        this.rescheduleTimeoutCheck();
+        return;
+      }
 
-      if (!this.canGrant(pending.request)) return;
+      if (!this.canGrant(pending.request)) {
+        this.rescheduleTimeoutCheck();
+        return;
+      }
       this.queue.shift();
       const grantedAt = nowIso();
       const requestVramMB = Math.max(
@@ -315,6 +326,7 @@ export class ResourceScheduler {
       });
       progressed = true;
     }
+    this.rescheduleTimeoutCheck();
   }
 
   private release(leaseID: string): void {
@@ -404,6 +416,25 @@ export class ResourceScheduler {
       this.queue.push(...keep);
       this.recordSnapshot();
     }
+  }
+
+  private rescheduleTimeoutCheck(): void {
+    if (this.timeoutCheckTimer) {
+      clearTimeout(this.timeoutCheckTimer);
+      this.timeoutCheckTimer = undefined;
+    }
+    if (this.queue.length === 0) return;
+    const now = Date.now();
+    const nextTimeoutAtMs = this.queue
+      .map((item) => item.timeoutAtMs)
+      .filter((item): item is number => typeof item === 'number')
+      .sort((a, b) => a - b)[0];
+    if (!nextTimeoutAtMs) return;
+    const delayMs = Math.max(1, nextTimeoutAtMs - now);
+    this.timeoutCheckTimer = setTimeout(() => {
+      this.timeoutCheckTimer = undefined;
+      this.scheduleDrain();
+    }, delayMs);
   }
 
   private ensureModelLoaded(modelID: string, vramMB: number): void {

@@ -206,6 +206,27 @@ describe('gateway milestone acceptance', () => {
     },
   );
 
+  test('health endpoint exposes daemon freshness fields', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    try {
+      const response = await fetch(`${state.url}/health`);
+      expect(response.ok).toBe(true);
+      const payload = (await response.json()) as {
+        daemonConnected?: boolean;
+        daemonFresh?: boolean;
+        daemonAgeMs?: number;
+      };
+      expect(typeof payload.daemonConnected).toBe('boolean');
+      expect(typeof payload.daemonFresh).toBe('boolean');
+      if (typeof payload.daemonAgeMs !== 'undefined') {
+        expect(typeof payload.daemonAgeMs).toBe('number');
+      }
+    } finally {
+      stopGateway(projectDir);
+    }
+  });
+
   test(
     'runs 10-concurrency pressure probe with accounted outcomes',
     { timeout: 30_000 },
@@ -257,6 +278,28 @@ describe('gateway milestone acceptance', () => {
       ).toBe(true);
       expect(
         capabilities.mcps?.every((item) => typeof item.mcpUi === 'boolean'),
+      ).toBe(true);
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
+  test('killswitch all_stop transitions all policy domains to paused state', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url, state.authToken);
+    try {
+      await client.request('killswitch.set_mode', {
+        mode: 'all_stop',
+        reason: 'acceptance_test_all_stop',
+      });
+      const domains = (await client.request('policy.domains.list')) as {
+        domains?: Array<{ domain: string; status: string }>;
+      };
+      expect(Array.isArray(domains.domains)).toBe(true);
+      expect(
+        domains.domains?.every((item) => item.status === 'paused'),
       ).toBe(true);
     } finally {
       client.close();

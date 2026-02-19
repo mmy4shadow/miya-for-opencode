@@ -1188,6 +1188,8 @@ export function searchCompanionMemoryVectors(
     if (!target) continue;
     target.accessCount += 1;
     target.lastAccessedAt = nowIso();
+    target.score = Number(Math.min(1.5, target.score + 0.03).toFixed(4));
+    target.confidence = Number(Math.min(0.99, target.confidence + 0.005).toFixed(4));
   }
   writeStore(projectDir, store);
   return results;

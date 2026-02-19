@@ -3,9 +3,12 @@ export const SEMANTIC_TAGS = [
   'window_occluded',
   'recipient_mismatch',
   'input_mutex_timeout',
+  'input_mutex_timeout_continuation',
   'receipt_uncertain',
   'privilege_barrier',
   'ui_style_mismatch',
+  'allowlist_bypass',
+  'policy_hash_mismatch',
 ] as const;
 
 export type SemanticTag = (typeof SEMANTIC_TAGS)[number];
