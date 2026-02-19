@@ -404,11 +404,15 @@ async function runGatewayStart(
   if (guard?.status === 'starting') {
     const ageMs = now - Date.parse(guard.updatedAt);
     if (ageMs < 30_000) {
-      return true;
+      if (await waitGatewayReady(workspace, 1800)) {
+        return true;
+      }
     }
   }
   if (guard?.cooldownUntil && now < Date.parse(guard.cooldownUntil)) {
-    return true;
+    if (await waitGatewayReady(workspace, 1800)) {
+      return true;
+    }
   }
   writeGatewayStartGuard(workspace, {
     status: 'starting',

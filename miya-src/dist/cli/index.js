@@ -12,21 +12,21 @@ var __export = (target, all) => {
 };
 
 // src/cli/index.ts
-import { spawn as spawn2, spawnSync as spawnSync8 } from "child_process";
-import * as fs20 from "fs";
+import { spawn as spawn3, spawnSync as spawnSync8 } from "child_process";
+import * as fs22 from "fs";
 import * as path21 from "path";
 import { fileURLToPath as fileURLToPath4 } from "url";
 
 // src/nodes/client.ts
 import { randomUUID as randomUUID7 } from "crypto";
-import * as fs18 from "fs";
+import * as fs20 from "fs";
 import * as os2 from "os";
 import * as path19 from "path";
 
 // src/daemon/launcher.ts
-import { spawn } from "child_process";
+import { spawn as spawn2 } from "child_process";
 import { randomUUID as randomUUID6 } from "crypto";
-import * as fs17 from "fs";
+import * as fs19 from "fs";
 import * as path18 from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 
@@ -13204,6 +13204,41 @@ function venvPythonPath(projectDir) {
 import { createHash } from "crypto";
 import * as fs2 from "fs";
 import * as path4 from "path";
+var POLICY_DOMAINS = [
+  "outbound_send",
+  "desktop_control",
+  "shell_exec",
+  "fs_write",
+  "memory_read",
+  "memory_write",
+  "memory_delete",
+  "training",
+  "media_generate",
+  "read_only_research",
+  "local_build"
+];
+function normalizePolicyDomainState(value, fallback) {
+  return value === "running" || value === "paused" ? value : fallback;
+}
+function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean")
+    return value;
+  return fallback;
+}
+function normalizePositiveInt(value, fallback, min) {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  if (!Number.isFinite(parsed))
+    return fallback;
+  return Math.max(min, Math.floor(parsed));
+}
+function normalizeAllowedChannels(value, fallback) {
+  if (!Array.isArray(value))
+    return fallback;
+  const allowed = value.filter((item) => item === "qq" || item === "wechat");
+  if (allowed.length === 0)
+    return fallback;
+  return [...new Set(allowed)];
+}
 function nowIso() {
   return new Date().toISOString();
 }
@@ -13251,16 +13286,23 @@ function readPolicy(projectDir) {
     const parsed = JSON.parse(fs2.readFileSync(file2, "utf-8"));
     const base = defaultPolicy();
     const parsedDomains = parsed.domains && typeof parsed.domains === "object" ? parsed.domains : {};
+    const mergedDomains = Object.fromEntries(POLICY_DOMAINS.map((domain2) => [
+      domain2,
+      normalizePolicyDomainState(parsedDomains[domain2], base.domains[domain2])
+    ]));
+    const parsedOutbound = parsed.outbound && typeof parsed.outbound === "object" ? parsed.outbound : {};
     return {
       ...base,
       ...parsed,
-      domains: {
-        ...base.domains,
-        ...parsedDomains
-      },
+      domains: mergedDomains,
       outbound: {
-        ...base.outbound,
-        ...parsed.outbound ?? {}
+        allowedChannels: normalizeAllowedChannels(parsedOutbound.allowedChannels, base.outbound.allowedChannels),
+        requireArchAdvisorApproval: normalizeBoolean(parsedOutbound.requireArchAdvisorApproval, base.outbound.requireArchAdvisorApproval),
+        requireAllowlist: normalizeBoolean(parsedOutbound.requireAllowlist, base.outbound.requireAllowlist),
+        minIntervalMs: normalizePositiveInt(parsedOutbound.minIntervalMs, base.outbound.minIntervalMs, 500),
+        burstWindowMs: normalizePositiveInt(parsedOutbound.burstWindowMs, base.outbound.burstWindowMs, 1000),
+        burstLimit: normalizePositiveInt(parsedOutbound.burstLimit, base.outbound.burstLimit, 1),
+        duplicateWindowMs: normalizePositiveInt(parsedOutbound.duplicateWindowMs, base.outbound.duplicateWindowMs, 1000)
       }
     };
   } catch {
@@ -29877,6 +29919,8 @@ function semanticTagsForOutboundMessage(message) {
     return ["recipient_mismatch"];
   if (message.includes("arch_advisor_denied"))
     return ["privilege_barrier"];
+  if (message.includes("approval_ticket_"))
+    return ["privilege_barrier"];
   if (message.includes("input_mutex_timeout"))
     return ["input_mutex_timeout"];
   if (message.includes("receipt_uncertain"))
@@ -29900,6 +29944,12 @@ function parsePositiveIntEnv(name, fallback) {
   if (!Number.isFinite(parsed) || parsed <= 0)
     return fallback;
   return Math.floor(parsed);
+}
+function normalizePolicyInt(value, fallback, min) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed))
+    return fallback;
+  return Math.max(min, Math.floor(parsed));
 }
 var INPUT_MUTEX_TIMEOUT_MS = parsePositiveIntEnv("MIYA_INPUT_MUTEX_TIMEOUT_MS", 20000);
 var INPUT_MUTEX_STRIKE_LIMIT = 3;
@@ -30399,9 +30449,9 @@ class ChannelRuntime {
     const now = Date.now();
     const key = `${channel}:${destination}`;
     const policy = readPolicy(this.projectDir);
-    const windowMs = Math.max(1000, Number(policy.outbound.burstWindowMs || 60000));
-    const minIntervalMs = Math.max(500, Number(policy.outbound.minIntervalMs || 4000));
-    const burstLimit = Math.max(1, Number(policy.outbound.burstLimit || 3));
+    const windowMs = normalizePolicyInt(policy.outbound.burstWindowMs, 60000, 1000);
+    const minIntervalMs = normalizePolicyInt(policy.outbound.minIntervalMs, 4000, 500);
+    const burstLimit = normalizePolicyInt(policy.outbound.burstLimit, 3, 1);
     const list = (this.outboundThrottle.get(key) ?? []).filter((ts) => now - ts <= windowMs);
     if (list.length > 0 && now - list[list.length - 1] < minIntervalMs) {
       this.outboundThrottle.set(key, list);
@@ -30418,7 +30468,7 @@ class ChannelRuntime {
   checkDuplicatePayload(channel, destination, text) {
     const now = Date.now();
     const policy = readPolicy(this.projectDir);
-    const duplicateWindowMs = Math.max(1000, Number(policy.outbound.duplicateWindowMs || 60000));
+    const duplicateWindowMs = normalizePolicyInt(policy.outbound.duplicateWindowMs, 60000, 1000);
     const key = `${channel}:${destination}`;
     const payloadHash = createHash5("sha256").update(text).digest("hex").slice(0, 24);
     const recent = (this.outboundPayloadHistory.get(key) ?? []).filter((item) => now - item.at <= duplicateWindowMs);
@@ -30462,6 +30512,41 @@ class ChannelRuntime {
     }
     this.sendFingerprintHistory.set(sendFingerprint, now);
     return null;
+  }
+  validateApprovalTickets(channel, tickets) {
+    if (!this.isDesktopChannel(channel)) {
+      return {
+        summary: {
+          outboundSendTraceId: "",
+          desktopControlTraceId: "",
+          expiresAt: ""
+        }
+      };
+    }
+    if (!tickets) {
+      return { issue: "approval_ticket_missing" };
+    }
+    const outboundTrace = tickets.outboundSend.traceID.trim();
+    const desktopTrace = tickets.desktopControl.traceID.trim();
+    if (!outboundTrace || !desktopTrace) {
+      return { issue: "approval_ticket_trace_missing" };
+    }
+    const outboundExpiry = Date.parse(tickets.outboundSend.expiresAt);
+    const desktopExpiry = Date.parse(tickets.desktopControl.expiresAt);
+    if (!Number.isFinite(outboundExpiry) || !Number.isFinite(desktopExpiry)) {
+      return { issue: "approval_ticket_expiry_invalid" };
+    }
+    const minExpiry = Math.min(outboundExpiry, desktopExpiry);
+    if (minExpiry <= Date.now()) {
+      return { issue: "approval_ticket_expired" };
+    }
+    return {
+      summary: {
+        outboundSendTraceId: outboundTrace,
+        desktopControlTraceId: desktopTrace,
+        expiresAt: new Date(minExpiry).toISOString()
+      }
+    };
   }
   normalizeDesktopRuntimeError(error92) {
     const raw = error92 instanceof Error ? error92.message : typeof error92 === "string" ? error92 : "unknown";
@@ -30521,11 +30606,24 @@ class ChannelRuntime {
     const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
     const policyHash = input.outboundCheck?.policyHash;
     const sessionID = (input.sessionID ?? "main").trim() || "main";
-    const ticketSummary = input.approvalTickets && input.approvalTickets.outboundSend && input.approvalTickets.desktopControl ? {
-      outboundSendTraceId: input.approvalTickets.outboundSend.traceID,
-      desktopControlTraceId: input.approvalTickets.desktopControl.traceID,
-      expiresAt: Date.parse(input.approvalTickets.outboundSend.expiresAt) < Date.parse(input.approvalTickets.desktopControl.expiresAt) ? input.approvalTickets.outboundSend.expiresAt : input.approvalTickets.desktopControl.expiresAt
-    } : undefined;
+    const approvalTicketValidation = this.validateApprovalTickets(input.channel, input.approvalTickets);
+    const ticketSummary = "summary" in approvalTicketValidation ? approvalTicketValidation.summary.outboundSendTraceId ? approvalTicketValidation.summary : undefined : undefined;
+    const allowedOutboundChannels = readPolicy(this.projectDir).outbound.allowedChannels;
+    if (input.channel === "qq" || input.channel === "wechat") {
+      const outboundChannel = input.channel;
+      if (!allowedOutboundChannels.includes(outboundChannel)) {
+        const audit = this.recordOutboundAttempt({
+          channel: outboundChannel,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
+          message: `outbound_blocked:channel_not_allowed_by_policy:${outboundChannel}`,
+          reason: "channel_blocked",
+          payloadHash
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+    }
     if (!archAdvisorApproved) {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
@@ -30534,6 +30632,23 @@ class ChannelRuntime {
         sent: false,
         message: "outbound_blocked:arch_advisor_denied",
         reason: "arch_advisor_denied",
+        archAdvisorApproved,
+        riskLevel,
+        intent,
+        containsSensitive,
+        policyHash,
+        payloadHash
+      });
+      return { sent: false, message: audit.message, auditID: audit.id };
+    }
+    if ("issue" in approvalTicketValidation) {
+      const audit = this.recordOutboundAttempt({
+        channel: input.channel,
+        destination: input.destination,
+        textPreview: text.slice(0, 200),
+        sent: false,
+        message: `outbound_blocked:${approvalTicketValidation.issue}`,
+        reason: "approval_ticket_invalid",
         archAdvisorApproved,
         riskLevel,
         intent,
@@ -31043,8 +31158,8 @@ var ECOSYSTEM_BRIDGE_ENTRIES = [
       platforms: ["windows", "linux", "macos"]
     },
     permissionMetadata: {
-      sideEffects: ["voice_output", "media_generation"],
-      requiredDomains: ["memory_write"]
+      sideEffects: ["voice_output", "media_generate"],
+      requiredDomains: ["media_generate"]
     },
     rollbackPlan: DEFAULT_ROLLBACK,
     auditFields: AUDIT_FIELDS,
@@ -31375,16 +31490,267 @@ function trimOldBuckets(store) {
 }
 // src/daemon/psyche/consult.ts
 import { randomUUID as randomUUID4 } from "crypto";
-import * as fs15 from "fs";
+import * as fs17 from "fs";
 import * as path14 from "path";
 
-// src/daemon/psyche/logger.ts
+// src/daemon/psyche/proactivity/context-vector.ts
+function clamp01(value) {
+  if (!Number.isFinite(value))
+    return 0;
+  return Math.max(0, Math.min(1, Number(value.toFixed(4))));
+}
+function z01(value, min, max) {
+  if (!Number.isFinite(value))
+    return 0;
+  if (max <= min)
+    return 0;
+  return clamp01((value - min) / (max - min));
+}
+function stateOneHot(state) {
+  return {
+    state_focus: state === "FOCUS" ? 1 : 0,
+    state_consume: state === "CONSUME" ? 1 : 0,
+    state_play: state === "PLAY" ? 1 : 0,
+    state_away: state === "AWAY" ? 1 : 0,
+    state_unknown: state === "UNKNOWN" ? 1 : 0
+  };
+}
+function urgencyOneHot(urgency) {
+  return {
+    urgency_low: urgency === "low" ? 1 : 0,
+    urgency_medium: urgency === "medium" ? 1 : 0,
+    urgency_high: urgency === "high" ? 1 : 0,
+    urgency_critical: urgency === "critical" ? 1 : 0
+  };
+}
+function trustTierOneHot(tier) {
+  return {
+    trust_tier_high: tier === "high" ? 1 : 0,
+    trust_tier_medium: tier === "medium" ? 1 : 0,
+    trust_tier_low: tier === "low" ? 1 : 0
+  };
+}
+function cyclicalTimeFeatures(atMs) {
+  const date9 = new Date(atMs);
+  const hour = date9.getUTCHours();
+  const day = date9.getUTCDay();
+  const hourRad = 2 * Math.PI * hour / 24;
+  const dayRad = 2 * Math.PI * day / 7;
+  return {
+    hour_sin: Number(Math.sin(hourRad).toFixed(4)),
+    hour_cos: Number(Math.cos(hourRad).toFixed(4)),
+    day_sin: Number(Math.sin(dayRad).toFixed(4)),
+    day_cos: Number(Math.cos(dayRad).toFixed(4))
+  };
+}
+function buildProactivityContextVector(input) {
+  const signals = input.signals ?? {};
+  const map3 = {
+    ...stateOneHot(input.state),
+    ...urgencyOneHot(input.urgency),
+    ...trustTierOneHot(input.trustTier),
+    ...cyclicalTimeFeatures(input.atMs),
+    user_initiated: input.userInitiated ? 1 : 0,
+    fast_brain_score: clamp01(input.fastBrainScore),
+    resonance_score: clamp01(input.resonanceScore),
+    trust_min_score: clamp01(z01(input.trustMinScore, 0, 100)),
+    risk_false_idle: input.risk.falseIdleUncertain ? 1 : 0,
+    risk_drm_capture: input.risk.drmCaptureBlocked ? 1 : 0,
+    risk_probe_limited: input.risk.probeRateLimited ? 1 : 0,
+    risk_probe_requested: input.risk.probeRequested ? 1 : 0,
+    idle_norm: z01(Number(signals.idleSec ?? 0), 0, 900),
+    apm_norm: z01(Number(signals.apm ?? 0), 0, 240),
+    switch_norm: z01(Number(signals.windowSwitchPerMin ?? 0), 0, 40),
+    audio_active: signals.audioActive || signals.audioSessionActive ? 1 : 0,
+    fullscreen: signals.fullscreen ? 1 : 0,
+    gamepad_active: signals.gamepadActive || signals.xinputActive ? 1 : 0,
+    raw_input_active: signals.rawInputActive ? 1 : 0,
+    reply_rate_24h: clamp01(input.interaction.window24h.replyRate),
+    user_initiated_rate_24h: clamp01(input.interaction.window24h.userInitiatedRate),
+    negative_feedback_rate_24h: clamp01(input.interaction.window24h.negativeFeedbackRate),
+    proactive_allow_1h_norm: z01(input.interaction.window1h.proactiveAllows, 0, 20),
+    proactive_defer_1h_norm: z01(input.interaction.window1h.proactiveDefers, 0, 20),
+    proactive_allow_24h_norm: z01(input.interaction.window24h.proactiveAllows, 0, 120),
+    proactive_defer_24h_norm: z01(input.interaction.window24h.proactiveDefers, 0, 120),
+    delivered_24h_norm: z01(input.interaction.window24h.delivered, 0, 80),
+    outcomes_24h_norm: z01(input.interaction.window24h.outcomes, 0, 120),
+    median_reply_norm: z01(Number(input.interaction.window24h.medianReplySec ?? 0), 0, 1800)
+  };
+  const keys = Object.keys(map3).sort();
+  const vector = keys.map((key) => map3[key] ?? 0);
+  return {
+    vector,
+    featureMap: map3
+  };
+}
+
+// src/daemon/psyche/proactivity/interaction-stats.ts
 import * as fs10 from "fs";
+var MAX_EVENTS = 8000;
+var MAX_RETENTION_MS = 30 * 24 * 3600 * 1000;
+function nowIso5() {
+  return new Date().toISOString();
+}
+function clampRate(value) {
+  if (!Number.isFinite(value))
+    return 0;
+  return Math.max(0, Math.min(1, Number(value.toFixed(4))));
+}
+function toSafeAtMs(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0)
+    return fallback;
+  return Math.floor(parsed);
+}
+function normalizeEvent(raw, fallbackAtMs) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return null;
+  const row = raw;
+  const type = row.type === "consult" || row.type === "outcome" ? row.type : null;
+  if (!type)
+    return null;
+  const atMs = toSafeAtMs(row.atMs, fallbackAtMs);
+  return {
+    atMs,
+    type,
+    channel: typeof row.channel === "string" ? row.channel : undefined,
+    userInitiated: typeof row.userInitiated === "boolean" ? row.userInitiated : undefined,
+    decision: row.decision === "allow" || row.decision === "defer" || row.decision === "deny" ? row.decision : undefined,
+    delivered: typeof row.delivered === "boolean" ? row.delivered : undefined,
+    explicitFeedback: row.explicitFeedback === "positive" || row.explicitFeedback === "negative" || row.explicitFeedback === "none" ? row.explicitFeedback : undefined,
+    userReplyWithinSec: typeof row.userReplyWithinSec === "number" && Number.isFinite(row.userReplyWithinSec) ? row.userReplyWithinSec : undefined
+  };
+}
+function normalizeStore(raw) {
+  const nowMs = Date.now();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      version: 1,
+      updatedAt: nowIso5(),
+      events: []
+    };
+  }
+  const row = raw;
+  const eventsRaw = Array.isArray(row.events) ? row.events : [];
+  const events = eventsRaw.map((event) => normalizeEvent(event, nowMs)).filter((event) => Boolean(event)).sort((a, b) => a.atMs - b.atMs);
+  return {
+    version: 1,
+    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : nowIso5(),
+    events
+  };
+}
+function readStore(filePath2) {
+  if (!fs10.existsSync(filePath2)) {
+    return {
+      version: 1,
+      updatedAt: nowIso5(),
+      events: []
+    };
+  }
+  try {
+    const parsed = JSON.parse(fs10.readFileSync(filePath2, "utf-8"));
+    return normalizeStore(parsed);
+  } catch {
+    return {
+      version: 1,
+      updatedAt: nowIso5(),
+      events: []
+    };
+  }
+}
+function writeStore(filePath2, store) {
+  fs10.writeFileSync(filePath2, `${JSON.stringify(store, null, 2)}
+`, "utf-8");
+}
+function trimEvents(events, nowMs) {
+  const lowerBound = nowMs - MAX_RETENTION_MS;
+  const bounded = events.filter((event) => event.atMs >= lowerBound);
+  if (bounded.length <= MAX_EVENTS)
+    return bounded;
+  return bounded.slice(bounded.length - MAX_EVENTS);
+}
+function median(values) {
+  if (values.length === 0)
+    return;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1)
+    return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+function appendInteractionEvent(filePath2, event, nowMs = Date.now()) {
+  const store = readStore(filePath2);
+  const normalized = normalizeEvent(event, nowMs);
+  if (!normalized)
+    return readInteractionStats(filePath2, nowMs);
+  const trimmed = trimEvents([...store.events, normalized], nowMs);
+  const next = {
+    version: 1,
+    updatedAt: nowIso5(),
+    events: trimmed
+  };
+  writeStore(filePath2, next);
+  return readInteractionStats(filePath2, nowMs);
+}
+function readInteractionStats(filePath2, nowMs = Date.now()) {
+  const store = readStore(filePath2);
+  const events = trimEvents(store.events, nowMs);
+  if (events.length !== store.events.length) {
+    writeStore(filePath2, {
+      version: 1,
+      updatedAt: nowIso5(),
+      events
+    });
+  }
+  const since1h = nowMs - 3600 * 1000;
+  const since24h = nowMs - 24 * 3600 * 1000;
+  const in1h = events.filter((event) => event.atMs >= since1h);
+  const in24h = events.filter((event) => event.atMs >= since24h);
+  const consults1h = in1h.filter((event) => event.type === "consult");
+  const consults24h = in24h.filter((event) => event.type === "consult");
+  const outcomes24h = in24h.filter((event) => event.type === "outcome");
+  const delivered24h = outcomes24h.filter((event) => event.delivered === true);
+  const replies = delivered24h.map((event) => typeof event.userReplyWithinSec === "number" && event.userReplyWithinSec > 0 ? event.userReplyWithinSec : undefined).filter((value) => typeof value === "number");
+  const negativeFeedback = outcomes24h.filter((event) => event.explicitFeedback === "negative").length;
+  const positiveFeedback = outcomes24h.filter((event) => event.explicitFeedback === "positive").length;
+  const proactiveAllows1h = consults1h.filter((event) => event.userInitiated === false && event.decision === "allow").length;
+  const proactiveDefers1h = consults1h.filter((event) => event.userInitiated === false && event.decision === "defer").length;
+  const proactiveAllows24h = consults24h.filter((event) => event.userInitiated === false && event.decision === "allow").length;
+  const proactiveDefers24h = consults24h.filter((event) => event.userInitiated === false && event.decision === "defer").length;
+  const userInitiatedTurns1h = consults1h.filter((event) => event.userInitiated !== false).length;
+  const userInitiatedTurns24h = consults24h.filter((event) => event.userInitiated !== false).length;
+  return {
+    generatedAtMs: nowMs,
+    window1h: {
+      consults: consults1h.length,
+      proactiveAllows: proactiveAllows1h,
+      proactiveDefers: proactiveDefers1h,
+      userInitiatedTurns: userInitiatedTurns1h
+    },
+    window24h: {
+      consults: consults24h.length,
+      proactiveAllows: proactiveAllows24h,
+      proactiveDefers: proactiveDefers24h,
+      userInitiatedTurns: userInitiatedTurns24h,
+      outcomes: outcomes24h.length,
+      delivered: delivered24h.length,
+      negativeFeedback,
+      positiveFeedback,
+      replyRate: delivered24h.length > 0 ? clampRate(replies.length / delivered24h.length) : 0,
+      medianReplySec: median(replies),
+      userInitiatedRate: consults24h.length > 0 ? clampRate(userInitiatedTurns24h / consults24h.length) : 0,
+      negativeFeedbackRate: outcomes24h.length > 0 ? clampRate(negativeFeedback / outcomes24h.length) : 0
+    }
+  };
+}
+
+// src/daemon/psyche/logger.ts
+import * as fs11 from "fs";
 function nowUnixSec() {
   return Math.floor(Date.now() / 1000);
 }
 function appendJsonl(path12, payload) {
-  fs10.appendFileSync(path12, `${JSON.stringify(payload)}
+  fs11.appendFileSync(path12, `${JSON.stringify(payload)}
 `, "utf-8");
 }
 function appendPsycheObservation(trainingDataLogPath, input) {
@@ -31432,14 +31798,187 @@ function appendPsycheOutcome(trainingDataLogPath, input) {
   });
 }
 
+// src/daemon/psyche/proactivity/policy.ts
+import * as fs12 from "fs";
+
+// src/daemon/psyche/proactivity/counterfactual.ts
+function clamp2(value, min, max) {
+  if (!Number.isFinite(value))
+    return min;
+  return Math.max(min, Math.min(max, Number(value.toFixed(4))));
+}
+function get(map3, key, fallback = 0) {
+  const value = map3[key];
+  if (!Number.isFinite(value))
+    return fallback;
+  return value;
+}
+function interruptionCost(input) {
+  const map3 = input.context.featureMap;
+  const focusPressure = get(map3, "state_focus") * 0.34 + get(map3, "state_play") * 0.22 + get(map3, "state_unknown") * 0.26;
+  const riskPenalty = get(map3, "risk_false_idle") * 0.14 + get(map3, "risk_probe_limited") * 0.09 + get(map3, "risk_drm_capture") * 0.06;
+  const feedbackPenalty = get(map3, "negative_feedback_rate_24h") * 0.28;
+  return clamp2(focusPressure + riskPenalty + feedbackPenalty, 0, 1.2);
+}
+function expectedReplyValue(input) {
+  const map3 = input.context.featureMap;
+  const replyRate = get(map3, "reply_rate_24h");
+  const resonance = get(map3, "resonance_score");
+  const trust = get(map3, "trust_min_score");
+  const fastBrain = get(map3, "fast_brain_score");
+  const urgencyBoost = input.urgency === "critical" ? 0.24 : input.urgency === "high" ? 0.12 : 0;
+  return clamp2(replyRate * 0.36 + resonance * 0.28 + trust * 0.2 + fastBrain * 0.16 + urgencyBoost, 0, 1.4);
+}
+function scoreForWait(input, waitSec, nowScore) {
+  const map3 = input.context.featureMap;
+  const focusPressure = get(map3, "state_focus") + get(map3, "state_play") + get(map3, "state_unknown");
+  const waitGain = clamp2(focusPressure * 0.22 + get(map3, "switch_norm") * 0.12 + get(map3, "negative_feedback_rate_24h") * 0.2, 0, 0.45);
+  const timeCost = clamp2(waitSec / 3600, 0, 0.5);
+  const urgencyPenalty = input.urgency === "critical" ? 0.3 : input.urgency === "high" ? 0.17 : input.urgency === "medium" ? 0.07 : 0.02;
+  return clamp2(nowScore + waitGain - timeCost - urgencyPenalty, -1, 1);
+}
+function evaluateProactivityCounterfactual(input) {
+  if (input.userInitiated) {
+    return {
+      action: "send_now",
+      waitSec: 0,
+      scoreNow: 1,
+      scoreWait: 0,
+      scores: {
+        send_now: 1,
+        wait_5m: 0,
+        wait_15m: -0.1,
+        wait_30m: -0.2,
+        skip: -0.4
+      },
+      reasonCodes: ["user_initiated"]
+    };
+  }
+  if (input.baseDecision === "deny") {
+    return {
+      action: "skip",
+      waitSec: 0,
+      scoreNow: -1,
+      scoreWait: -0.6,
+      scores: {
+        send_now: -1,
+        wait_5m: -0.8,
+        wait_15m: -0.7,
+        wait_30m: -0.65,
+        skip: -0.4
+      },
+      reasonCodes: ["base_decision_deny"]
+    };
+  }
+  const replyValue = expectedReplyValue(input);
+  const cost = interruptionCost(input);
+  const scoreNow = clamp2(replyValue - cost, -1, 1);
+  const scores = {
+    send_now: scoreNow,
+    wait_5m: scoreForWait(input, 5 * 60, scoreNow),
+    wait_15m: scoreForWait(input, 15 * 60, scoreNow),
+    wait_30m: scoreForWait(input, 30 * 60, scoreNow),
+    skip: clamp2(-0.25 - get(input.context.featureMap, "reply_rate_24h") * 0.25, -1, 1)
+  };
+  let action = "send_now";
+  for (const candidate of ["wait_5m", "wait_15m", "wait_30m", "skip"]) {
+    if (scores[candidate] > scores[action])
+      action = candidate;
+  }
+  const waitSec = action === "wait_5m" ? 5 * 60 : action === "wait_15m" ? 15 * 60 : action === "wait_30m" ? 30 * 60 : 0;
+  const reasonCodes = [];
+  if (action !== "send_now")
+    reasonCodes.push(`choose_${action}`);
+  if (get(input.context.featureMap, "state_focus") > 0)
+    reasonCodes.push("focus_pressure");
+  if (get(input.context.featureMap, "negative_feedback_rate_24h") >= 0.3) {
+    reasonCodes.push("negative_feedback_guard");
+  }
+  if (get(input.context.featureMap, "risk_false_idle") > 0) {
+    reasonCodes.push("false_idle_uncertain");
+  }
+  return {
+    action,
+    waitSec,
+    scoreNow: scores.send_now,
+    scoreWait: Math.max(scores.wait_5m, scores.wait_15m, scores.wait_30m),
+    scores,
+    reasonCodes
+  };
+}
+
+// src/daemon/psyche/proactivity/policy.ts
+function clamp3(value, min, max) {
+  if (!Number.isFinite(value))
+    return min;
+  return Math.max(min, Math.min(max, Number(value.toFixed(4))));
+}
+function resolveProactivityPolicy(input) {
+  const counterfactual = evaluateProactivityCounterfactual({
+    state: input.state,
+    urgency: input.urgency,
+    baseDecision: input.baseDecision,
+    userInitiated: input.userInitiated,
+    context: input.context
+  });
+  let decision = input.baseDecision;
+  let action = counterfactual.action;
+  let waitSec = counterfactual.waitSec;
+  if (input.baseDecision === "deny") {
+    decision = "deny";
+    action = "skip";
+    waitSec = 0;
+  } else if (input.userInitiated) {
+    decision = "allow";
+    action = "send_now";
+    waitSec = 0;
+  } else if (input.urgency === "critical" && input.baseDecision === "allow") {
+    decision = "allow";
+    action = "send_now";
+    waitSec = 0;
+  } else if (input.baseDecision === "allow") {
+    if (counterfactual.action === "skip") {
+      decision = "defer";
+      action = "wait_30m";
+      waitSec = 30 * 60;
+    } else if (counterfactual.action !== "send_now") {
+      decision = "defer";
+      action = counterfactual.action;
+      waitSec = counterfactual.waitSec;
+    }
+  } else if (input.baseDecision === "defer") {
+    if (counterfactual.action === "wait_30m") {
+      waitSec = Math.max(waitSec, 30 * 60);
+    } else if (counterfactual.action === "wait_15m") {
+      waitSec = Math.max(waitSec, 15 * 60);
+    } else {
+      waitSec = Math.max(waitSec, 5 * 60);
+    }
+    decision = "defer";
+  }
+  return {
+    action,
+    decision,
+    waitSec: Math.max(0, Math.floor(waitSec)),
+    scoreNow: clamp3(counterfactual.scoreNow, -1, 1),
+    scoreWait: clamp3(counterfactual.scoreWait, -1, 1),
+    reasonCodes: counterfactual.reasonCodes.slice(0, 8),
+    scores: counterfactual.scores
+  };
+}
+function appendProactivityDecision(filePath2, row) {
+  fs12.appendFileSync(filePath2, `${JSON.stringify(row)}
+`, "utf-8");
+}
+
 // src/daemon/psyche/probe-budget.ts
-import * as fs11 from "fs";
+import * as fs13 from "fs";
 function readState(filePath2, fallbackCapacity) {
-  if (!fs11.existsSync(filePath2)) {
+  if (!fs13.existsSync(filePath2)) {
     return { tokens: fallbackCapacity, updatedAtMs: Date.now() };
   }
   try {
-    const parsed = JSON.parse(fs11.readFileSync(filePath2, "utf-8"));
+    const parsed = JSON.parse(fs13.readFileSync(filePath2, "utf-8"));
     const tokens = Number(parsed.tokens);
     const updatedAtMs = Number(parsed.updatedAtMs);
     return {
@@ -31451,7 +31990,7 @@ function readState(filePath2, fallbackCapacity) {
   }
 }
 function writeState(filePath2, state) {
-  fs11.writeFileSync(filePath2, `${JSON.stringify(state, null, 2)}
+  fs13.writeFileSync(filePath2, `${JSON.stringify(state, null, 2)}
 `, "utf-8");
 }
 function consumeProbeBudget(filePath2, config3, nowMs = Date.now()) {
@@ -31809,7 +32348,7 @@ function captureFrameForScreenProbe(timeoutMs = 2000) {
 
 // src/daemon/psyche/probe-worker/vlm.ts
 import { spawnSync as spawnSync5 } from "child_process";
-import * as fs12 from "fs";
+import * as fs14 from "fs";
 import * as path12 from "path";
 function parseCommandSpec3(raw) {
   const input = raw.trim();
@@ -31855,7 +32394,7 @@ function parseLocalCommand() {
   }
   const projectDir = process.cwd();
   const scriptPath = path12.join(projectDir, "miya-src", "python", "infer_qwen3_vl.py");
-  if (!fs12.existsSync(scriptPath))
+  if (!fs14.existsSync(scriptPath))
     return null;
   const backendCmd = String(process.env.MIYA_QWEN3VL_CMD ?? "").trim();
   const modelRoot = path12.basename(projectDir).toLowerCase() === ".opencode" ? path12.join(projectDir, "miya", "model") : path12.join(projectDir, ".opencode", "miya", "model");
@@ -32174,8 +32713,18 @@ try {
 }
 
 // src/daemon/psyche/sensors/foreground.ts
+import { spawn } from "child_process";
 var lastWindowKey = "";
 var switchEventsMs = [];
+var HOOK_STALE_AFTER_MS = 20000;
+var HOOK_RETRY_BACKOFF_MS = 8000;
+var hookProcess = null;
+var hookStdoutBuffer = "";
+var hookSample = null;
+var hookSampledAtMs = 0;
+var hookLastError = "";
+var hookNextRetryMs = 0;
+var hookExitCleanupBound = false;
 function normalizeForegroundCategory(processName, title) {
   const processText = processName.toLowerCase();
   const titleText = title.toLowerCase();
@@ -32226,8 +32775,20 @@ function calculateSwitchRate(windowKey, nowMs) {
   }
   return switchEventsMs.length;
 }
-function sampleForegroundSignal(nowMs = Date.now()) {
-  const script = `
+function bindHookExitCleanup() {
+  if (hookExitCleanupBound)
+    return;
+  hookExitCleanupBound = true;
+  process.on("exit", () => {
+    if (!hookProcess)
+      return;
+    try {
+      hookProcess.kill();
+    } catch {}
+  });
+}
+function foregroundPollingScript() {
+  return `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
@@ -32270,17 +32831,224 @@ try {
 } catch {}
 @{ process=$processName; title=$title; fullscreen=$isFullscreen } | ConvertTo-Json -Compress
 `.trim();
-  const shell = runWindowsPowerShellJson(script, 900);
-  if (!shell.ok || !shell.value) {
+}
+function foregroundEventHookScript() {
+  return `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class MiyaForegroundHook {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+  public delegate void WinEventDelegate(
+    IntPtr hWinEventHook,
+    uint eventType,
+    IntPtr hwnd,
+    int idObject,
+    int idChild,
+    uint dwEventThread,
+    uint dwmsEventTime
+  );
+  [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(
+    uint eventMin,
+    uint eventMax,
+    IntPtr hmodWinEventProc,
+    WinEventDelegate lpfnWinEventProc,
+    uint idProcess,
+    uint idThread,
+    uint dwFlags
+  );
+  [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+function Emit-Snapshot {
+  param([IntPtr]$Hwnd)
+  if ($Hwnd -eq [IntPtr]::Zero) {
+    $Hwnd = [MiyaForegroundHook]::GetForegroundWindow()
+  }
+  if ($Hwnd -eq [IntPtr]::Zero) {
+    @{ type='snapshot'; process=''; title=''; fullscreen=$false; sampledAt=(Get-Date).ToString('o') } | ConvertTo-Json -Compress
+    return
+  }
+  $pid = 0
+  [void][MiyaForegroundHook]::GetWindowThreadProcessId($Hwnd, [ref]$pid)
+  $titleBuilder = New-Object System.Text.StringBuilder 4096
+  [void][MiyaForegroundHook]::GetWindowText($Hwnd, $titleBuilder, $titleBuilder.Capacity)
+  $title = $titleBuilder.ToString()
+  $processName = ''
+  try {
+    $processName = (Get-Process -Id $pid -ErrorAction Stop).ProcessName
+  } catch {}
+  $isFullscreen = $false
+  try {
+    $rect = New-Object MiyaForegroundHook+RECT
+    if ([MiyaForegroundHook]::GetWindowRect($Hwnd, [ref]$rect)) {
+      $w = [Math]::Abs($rect.Right - $rect.Left)
+      $h = [Math]::Abs($rect.Bottom - $rect.Top)
+      $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      if ($w -ge ($bounds.Width - 6) -and $h -ge ($bounds.Height - 6)) {
+        $isFullscreen = $true
+      }
+    }
+  } catch {}
+  @{ type='snapshot'; process=$processName; title=$title; fullscreen=$isFullscreen; sampledAt=(Get-Date).ToString('o') } | ConvertTo-Json -Compress
+}
+$callback = [MiyaForegroundHook+WinEventDelegate]{
+  param($hWinEventHook, $eventType, $hwnd, $idObject, $idChild, $dwEventThread, $dwmsEventTime)
+  if ($idObject -ne 0 -or $idChild -ne 0) { return }
+  try { Emit-Snapshot $hwnd } catch {}
+}
+$script:miyaForegroundCallback = $callback
+$hook = [MiyaForegroundHook]::SetWinEventHook(3, 3, [IntPtr]::Zero, $callback, 0, 0, 2)
+if ($hook -eq [IntPtr]::Zero) {
+  @{ type='error'; message='set_win_event_hook_failed' } | ConvertTo-Json -Compress
+  exit 1
+}
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 15000
+$timer.Add_Tick({ try { Emit-Snapshot ([IntPtr]::Zero) } catch {} })
+$timer.Start()
+try {
+  Emit-Snapshot ([IntPtr]::Zero)
+  [System.Windows.Forms.Application]::Run()
+} finally {
+  $timer.Stop()
+  [MiyaForegroundHook]::UnhookWinEvent($hook) | Out-Null
+}
+`.trim();
+}
+function maybeStartForegroundHook(nowMs) {
+  if (process.platform !== "win32")
+    return;
+  if (hookProcess && !hookProcess.killed)
+    return;
+  if (nowMs < hookNextRetryMs)
+    return;
+  bindHookExitCleanup();
+  try {
+    const child = spawn("powershell.exe", [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      foregroundEventHookScript()
+    ], {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    hookStdoutBuffer = "";
+    child.stdout.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      hookStdoutBuffer += chunk;
+      const lines = hookStdoutBuffer.split(/\r?\n/);
+      hookStdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text)
+          continue;
+        try {
+          const frame = JSON.parse(text);
+          if (frame.type === "snapshot") {
+            hookSample = {
+              process: frame.process,
+              title: frame.title,
+              fullscreen: frame.fullscreen,
+              sampledAt: frame.sampledAt
+            };
+            hookSampledAtMs = Date.now();
+            hookLastError = "";
+          } else if (frame.type === "error") {
+            hookLastError = String(frame.message ?? "foreground_hook_error");
+          }
+        } catch {}
+      }
+    });
+    child.stderr.setEncoding("utf-8");
+    child.stderr.on("data", (chunk) => {
+      const text = chunk.trim();
+      if (!text)
+        return;
+      hookLastError = `foreground_hook_stderr:${text}`;
+    });
+    child.on("exit", (code) => {
+      hookProcess = null;
+      hookNextRetryMs = Date.now() + HOOK_RETRY_BACKOFF_MS;
+      if (code !== null && code !== 0 && !hookLastError) {
+        hookLastError = `foreground_hook_exit_${code}`;
+      }
+    });
+    hookProcess = child;
+  } catch (error92) {
+    hookLastError = error92 instanceof Error ? error92.message : String(error92 ?? "hook_start_failed");
+    hookNextRetryMs = nowMs + HOOK_RETRY_BACKOFF_MS;
+  }
+}
+function readForegroundByPolling() {
+  return {
+    shell: runWindowsPowerShellJson(foregroundPollingScript(), 900)
+  };
+}
+function sampleForegroundSignal(nowMs = Date.now()) {
+  const limitations = [];
+  let raw;
+  if (process.platform === "win32") {
+    maybeStartForegroundHook(nowMs);
+    if (hookSample && nowMs - hookSampledAtMs <= HOOK_STALE_AFTER_MS) {
+      raw = hookSample;
+    } else {
+      const { shell } = readForegroundByPolling();
+      if (shell.ok && shell.value) {
+        raw = shell.value;
+        limitations.push("foreground_source=polling_fallback");
+      } else {
+        return {
+          signals: {
+            foreground: "unknown"
+          },
+          limitations: [
+            `foreground_probe_failed:${shell.error ?? hookLastError ?? "unknown"}`
+          ]
+        };
+      }
+    }
+  } else {
+    const { shell } = readForegroundByPolling();
+    if (shell.ok && shell.value) {
+      raw = shell.value;
+    } else {
+      return {
+        signals: {
+          foreground: "unknown"
+        },
+        limitations: [`foreground_probe_failed:${shell.error ?? "unknown"}`]
+      };
+    }
+  }
+  if (!raw) {
     return {
       signals: {
         foreground: "unknown"
       },
-      limitations: [`foreground_probe_failed:${shell.error ?? "unknown"}`]
+      limitations: ["foreground_probe_failed:empty_sample"]
     };
   }
-  const processName = String(shell.value.process ?? "").trim();
-  const title = String(shell.value.title ?? "").trim();
+  if (hookLastError) {
+    limitations.push(`foreground_hook_status:${hookLastError}`);
+  } else if (process.platform === "win32" && hookProcess) {
+    limitations.push("foreground_source=SetWinEventHook");
+  }
+  const processName = String(raw.process ?? "").trim();
+  const title = String(raw.title ?? "").trim();
   const category = normalizeForegroundCategory(processName, title);
   const windowKey = `${processName.toLowerCase()}|${title.toLowerCase()}`;
   const windowSwitchPerMin = calculateSwitchRate(windowKey, nowMs);
@@ -32288,10 +33056,10 @@ try {
     signals: {
       foreground: category,
       foregroundTitle: title,
-      fullscreen: Boolean(shell.value.fullscreen),
+      fullscreen: Boolean(raw.fullscreen),
       windowSwitchPerMin
     },
-    limitations: []
+    limitations
   };
 }
 
@@ -32375,18 +33143,26 @@ for ($i = 0; $i -lt 4; $i++) {
 var inputEventsMs = [];
 var previousIdleSec;
 function updateApm(input, nowMs) {
-  const idle = Number.isFinite(input.idleSec) ? Number(input.idleSec) : undefined;
+  let idle = Number.isFinite(input.idleSec) ? Number(input.idleSec) : undefined;
+  let anomaly = false;
   if (input.rawInputActive) {
     inputEventsMs.push(nowMs);
   }
-  if (idle !== undefined && previousIdleSec !== undefined && idle + 0.2 < previousIdleSec) {
+  if (idle !== undefined && previousIdleSec !== undefined && idle + 5 < previousIdleSec && !input.rawInputActive) {
+    anomaly = true;
+    idle = previousIdleSec;
+  } else if (idle !== undefined && previousIdleSec !== undefined && idle + 0.2 < previousIdleSec) {
     inputEventsMs.push(nowMs);
   }
   previousIdleSec = idle;
   while (inputEventsMs.length > 0 && nowMs - inputEventsMs[0] > 60000) {
     inputEventsMs.shift();
   }
-  return inputEventsMs.length;
+  return {
+    apm: inputEventsMs.length,
+    idleSec: typeof idle === "number" && Number.isFinite(idle) ? Number(idle.toFixed(2)) : undefined,
+    anomaly
+  };
 }
 function sampleInputSignal(nowMs = Date.now()) {
   const script = `
@@ -32400,7 +33176,7 @@ public static class MiyaInputSignal {
     public uint dwTime;
   }
   [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
-  [DllImport("kernel32.dll")] public static extern ulong GetTickCount64();
+  [DllImport("kernel32.dll")] public static extern uint GetTickCount();
   [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
 }
 "@
@@ -32409,8 +33185,8 @@ try {
   $lii = New-Object MiyaInputSignal+LASTINPUTINFO
   $lii.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type]'MiyaInputSignal+LASTINPUTINFO')
   if ([MiyaInputSignal]::GetLastInputInfo([ref]$lii)) {
-    $tick = [double][MiyaInputSignal]::GetTickCount64()
-    $delta = [Math]::Max(0, $tick - [double]$lii.dwTime)
+    [uint32]$tick = [MiyaInputSignal]::GetTickCount()
+    [uint32]$delta = $tick - [uint32]$lii.dwTime
     $idleSec = [Math]::Round($delta / 1000.0, 3)
   }
 } catch {}
@@ -32436,22 +33212,22 @@ foreach ($vk in $keys) {
   }
   const idleSec = Number(shell.value.idleSec ?? Number.NaN);
   const rawInputActive = Boolean(shell.value.rawInputActive);
-  const apm = updateApm({
+  const apmState = updateApm({
     idleSec: Number.isFinite(idleSec) ? idleSec : undefined,
     rawInputActive
   }, nowMs);
   return {
     signals: {
-      idleSec: Number.isFinite(idleSec) ? Number(idleSec.toFixed(2)) : undefined,
+      idleSec: apmState.idleSec,
       rawInputActive,
-      apm
+      apm: apmState.apm
     },
-    limitations: []
+    limitations: apmState.anomaly ? ["input_idle_clock_anomaly"] : []
   };
 }
 
 // src/daemon/psyche/sensors/index.ts
-function nowIso5() {
+function nowIso6() {
   return new Date().toISOString();
 }
 function mergeCaptureLimitations2(parts) {
@@ -32464,7 +33240,7 @@ function collectNativeSentinelSignals() {
   const audio = sampleAudioSignal();
   const gamepad = sampleGamepadSignal();
   return {
-    sampledAt: nowIso5(),
+    sampledAt: nowIso6(),
     signals: {
       ...input.signals,
       ...foreground.signals,
@@ -32481,12 +33257,12 @@ function collectNativeSentinelSignals() {
 }
 
 // src/daemon/psyche/slow-brain.ts
-import * as fs13 from "fs";
+import * as fs15 from "fs";
 import * as path13 from "path";
-function nowIso6() {
+function nowIso7() {
   return new Date().toISOString();
 }
-function clamp2(input, min, max) {
+function clamp4(input, min, max) {
   if (!Number.isFinite(input))
     return min;
   return Math.max(min, Math.min(max, Number(input.toFixed(4))));
@@ -32505,7 +33281,7 @@ function defaultParameters() {
 function defaultPolicy2() {
   return {
     versionID: "sb_default",
-    createdAt: nowIso6(),
+    createdAt: nowIso7(),
     source: {
       windowRows: 0,
       outcomes: 0
@@ -32527,7 +33303,7 @@ function normalizePolicy(raw) {
   const versionID = String(row.versionID ?? "").trim();
   if (!versionID)
     return null;
-  const createdAt = typeof row.createdAt === "string" ? row.createdAt : nowIso6();
+  const createdAt = typeof row.createdAt === "string" ? row.createdAt : nowIso7();
   const sourceRaw = row.source && typeof row.source === "object" && !Array.isArray(row.source) ? row.source : {};
   const metricsRaw = row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics) ? row.metrics : {};
   const paramsRaw = row.parameters && typeof row.parameters === "object" && !Array.isArray(row.parameters) ? row.parameters : {};
@@ -32536,18 +33312,18 @@ function normalizePolicy(raw) {
     outcomes: Math.max(0, Number(sourceRaw.outcomes ?? 0) || 0)
   };
   const metrics = {
-    positiveRate: clamp2(Number(metricsRaw.positiveRate ?? 0), 0, 1),
-    avgScore: clamp2(Number(metricsRaw.avgScore ?? 0), -1, 1),
+    positiveRate: clamp4(Number(metricsRaw.positiveRate ?? 0), 0, 1),
+    avgScore: clamp4(Number(metricsRaw.avgScore ?? 0), -1, 1),
     safeHoldDefers: Math.max(0, Number(metricsRaw.safeHoldDefers ?? 0) || 0),
     falseIdleRiskSignals: Math.max(0, Number(metricsRaw.falseIdleRiskSignals ?? 0) || 0),
     drmCaptureBlockedSignals: Math.max(0, Number(metricsRaw.drmCaptureBlockedSignals ?? 0) || 0)
   };
   const defaults = defaultParameters();
   const parameters = {
-    consumeAllowThreshold: clamp2(Number(paramsRaw.consumeAllowThreshold ?? defaults.consumeAllowThreshold), 0.3, 0.9),
-    awayAllowThreshold: clamp2(Number(paramsRaw.awayAllowThreshold ?? defaults.awayAllowThreshold), 0.15, 0.8),
+    consumeAllowThreshold: clamp4(Number(paramsRaw.consumeAllowThreshold ?? defaults.consumeAllowThreshold), 0.3, 0.9),
+    awayAllowThreshold: clamp4(Number(paramsRaw.awayAllowThreshold ?? defaults.awayAllowThreshold), 0.15, 0.8),
     deferRetryBaseSec: Math.max(15, Math.min(900, Math.floor(Number(paramsRaw.deferRetryBaseSec ?? defaults.deferRetryBaseSec) || 0))),
-    confidenceBoost: clamp2(Number(paramsRaw.confidenceBoost ?? defaults.confidenceBoost), 0.2, 0.95)
+    confidenceBoost: clamp4(Number(paramsRaw.confidenceBoost ?? defaults.confidenceBoost), 0.2, 0.95)
   };
   return {
     versionID,
@@ -32562,7 +33338,7 @@ function normalizeState(raw) {
     return {
       versions: [],
       status: "idle",
-      updatedAt: nowIso6()
+      updatedAt: nowIso7()
     };
   }
   const row = raw;
@@ -32571,7 +33347,7 @@ function normalizeState(raw) {
     activeVersionID: typeof row.activeVersionID === "string" && row.activeVersionID.trim().length > 0 ? row.activeVersionID.trim() : undefined,
     versions: versions3,
     status: row.status === "trained" || row.status === "rolled_back" || row.status === "skipped" || row.status === "idle" ? row.status : "idle",
-    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : nowIso6(),
+    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : nowIso7(),
     lastRetrainAt: typeof row.lastRetrainAt === "string" ? row.lastRetrainAt : undefined,
     lastRollbackAt: typeof row.lastRollbackAt === "string" ? row.lastRollbackAt : undefined,
     lastSkipReason: typeof row.lastSkipReason === "string" ? row.lastSkipReason : undefined
@@ -32579,23 +33355,23 @@ function normalizeState(raw) {
 }
 function writeState2(projectDir, state) {
   const file3 = slowBrainFile(projectDir);
-  fs13.mkdirSync(path13.dirname(file3), { recursive: true });
-  fs13.writeFileSync(file3, `${JSON.stringify(state, null, 2)}
+  fs15.mkdirSync(path13.dirname(file3), { recursive: true });
+  fs15.writeFileSync(file3, `${JSON.stringify(state, null, 2)}
 `, "utf-8");
 }
 function readSlowBrainState(projectDir) {
   const file3 = slowBrainFile(projectDir);
-  if (!fs13.existsSync(file3)) {
+  if (!fs15.existsSync(file3)) {
     const state = {
       versions: [],
       status: "idle",
-      updatedAt: nowIso6()
+      updatedAt: nowIso7()
     };
     writeState2(projectDir, state);
     return state;
   }
   try {
-    const parsed = JSON.parse(fs13.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs15.readFileSync(file3, "utf-8"));
     const state = normalizeState(parsed);
     writeState2(projectDir, state);
     return state;
@@ -32603,7 +33379,7 @@ function readSlowBrainState(projectDir) {
     const state = {
       versions: [],
       status: "idle",
-      updatedAt: nowIso6()
+      updatedAt: nowIso7()
     };
     writeState2(projectDir, state);
     return state;
@@ -32763,12 +33539,12 @@ function inferSentinelState(input) {
 }
 
 // src/daemon/psyche/trust.ts
-import * as fs14 from "fs";
+import * as fs16 from "fs";
 var DEFAULT_SCORE = 50;
 var MIN_SCORE = 0;
 var MAX_SCORE = 100;
 var MAX_WINDOW = 10;
-function nowIso7() {
+function nowIso8() {
   return new Date().toISOString();
 }
 function clampScore(value) {
@@ -32783,11 +33559,11 @@ function shiftWindow(value) {
     return normalized;
   return MAX_WINDOW - 1;
 }
-function readStore(filePath2) {
-  if (!fs14.existsSync(filePath2))
+function readStore2(filePath2) {
+  if (!fs16.existsSync(filePath2))
     return { entities: {} };
   try {
-    const parsed = JSON.parse(fs14.readFileSync(filePath2, "utf-8"));
+    const parsed = JSON.parse(fs16.readFileSync(filePath2, "utf-8"));
     if (!parsed || typeof parsed !== "object" || !parsed.entities)
       return { entities: {} };
     return parsed;
@@ -32795,8 +33571,8 @@ function readStore(filePath2) {
     return { entities: {} };
   }
 }
-function writeStore(filePath2, store) {
-  fs14.writeFileSync(filePath2, `${JSON.stringify(store, null, 2)}
+function writeStore2(filePath2, store) {
+  fs16.writeFileSync(filePath2, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
 }
 function seedScore() {
@@ -32806,7 +33582,7 @@ function seedScore() {
     deniedCount10: 0,
     usefulCount10: 0,
     uselessCount10: 0,
-    lastDecisionAt: nowIso7(),
+    lastDecisionAt: nowIso8(),
     autoBlacklisted: false
   };
 }
@@ -32814,14 +33590,14 @@ function getTrustScore(filePath2, input) {
   const value = String(input.value ?? "").trim();
   if (!value)
     return DEFAULT_SCORE;
-  const store = readStore(filePath2);
+  const store = readStore2(filePath2);
   return store.entities[entityKey(input.kind, value)]?.score ?? DEFAULT_SCORE;
 }
 function updateTrustScore(filePath2, input) {
   const value = String(input.value ?? "").trim();
   if (!value)
     return seedScore();
-  const store = readStore(filePath2);
+  const store = readStore2(filePath2);
   const key = entityKey(input.kind, value);
   const current = store.entities[key] ?? seedScore();
   const confidence = Number.isFinite(input.confidence) ? Number(input.confidence) : 1;
@@ -32846,11 +33622,11 @@ function updateTrustScore(filePath2, input) {
     deniedCount10: Math.min(MAX_WINDOW, nextDenied),
     usefulCount10: Math.min(MAX_WINDOW, useful),
     uselessCount10: Math.min(MAX_WINDOW, useless),
-    lastDecisionAt: nowIso7(),
+    lastDecisionAt: nowIso8(),
     autoBlacklisted
   };
   store.entities[key] = next;
-  writeStore(filePath2, store);
+  writeStore2(filePath2, store);
   return next;
 }
 function trustTierFromScore(score) {
@@ -32872,10 +33648,10 @@ var DEFAULT_BUDGETS = {
 var defaultRandomSource = {
   next: () => Math.random()
 };
-function nowIso8() {
+function nowIso9() {
   return new Date().toISOString();
 }
-function clamp3(value, min, max) {
+function clamp5(value, min, max) {
   if (!Number.isFinite(value))
     return min;
   return Math.max(min, Math.min(max, Number(value.toFixed(4))));
@@ -32891,6 +33667,8 @@ class PsycheConsultService {
   budgetPath;
   probeBudgetPath;
   trainingDataLogPath;
+  interactionStatsPath;
+  proactivityDecisionLogPath;
   trustPath;
   lifecyclePath;
   epsilon;
@@ -32902,12 +33680,16 @@ class PsycheConsultService {
   constructor(projectDir, options) {
     this.projectDir = projectDir;
     const psycheDir = path14.join(getMiyaRuntimeDir(projectDir), "daemon", "psyche");
-    fs15.mkdirSync(psycheDir, { recursive: true });
+    const proactivityDir = path14.join(psycheDir, "proactivity");
+    fs17.mkdirSync(psycheDir, { recursive: true });
+    fs17.mkdirSync(proactivityDir, { recursive: true });
     this.fastBrainPath = path14.join(psycheDir, "fast-brain.json");
     this.consultLogPath = path14.join(psycheDir, "consult.jsonl");
     this.budgetPath = path14.join(psycheDir, "interruption-budget.json");
     this.probeBudgetPath = path14.join(psycheDir, "probe-budget.json");
     this.trainingDataLogPath = path14.join(psycheDir, "training-data.jsonl");
+    this.interactionStatsPath = path14.join(proactivityDir, "interaction-stats.json");
+    this.proactivityDecisionLogPath = path14.join(proactivityDir, "proactivity-decisions.jsonl");
     this.trustPath = path14.join(psycheDir, "trust-score.json");
     this.lifecyclePath = path14.join(psycheDir, "lifecycle.json");
     this.epsilon = Math.max(0, Math.min(0.1, options?.epsilon ?? this.resolveEpsilonFromEnv()));
@@ -32974,8 +33756,9 @@ class PsycheConsultService {
     }
     const state = sentinel.state;
     const auditID = randomUUID4();
-    const at = nowIso8();
+    const at = nowIso9();
     const shadowModeActive = this.isShadowModeActive();
+    const allowPlayCompanion = input.allowPlayCompanion === true;
     const fastBrainScore = readFastBrainScore(this.fastBrainPath, {
       state,
       intent,
@@ -33012,6 +33795,7 @@ class PsycheConsultService {
       urgency,
       intent,
       userInitiated,
+      allowPlayCompanion,
       shouldProbeScreen: sentinel.shouldProbeScreen && !shouldProbeScreen,
       fastBrainScore,
       trustTier,
@@ -33024,20 +33808,13 @@ class PsycheConsultService {
       decision = "defer";
       shadowModeApplied = true;
     }
-    let budgetHint = "";
-    if (!userInitiated) {
-      const budget2 = this.applyInterruptionBudget(state, decision === "allow");
-      if (decision === "allow" && budget2.blocked) {
-        decision = "defer";
-        budgetHint = `budget_exhausted:${state}`;
-      }
-    }
     let explorationApplied = false;
-    if (!userInitiated && decision === "defer" && !shadowModeApplied && this.shouldExplore()) {
+    const explorationRate = this.resolveExplorationRate(input.epsilonOverride);
+    if (!userInitiated && decision === "defer" && !shadowModeApplied && (state !== "PLAY" || allowPlayCompanion) && this.shouldExplore(explorationRate)) {
       decision = "allow";
       explorationApplied = true;
     }
-    const reasonMarkers = [
+    let reasonMarkers = [
       ...sentinel.reasons,
       ...nativeSample.captureLimitations.map((item) => `native_limit:${item}`),
       allowSignalOverride ? "signal_override_enabled" : "",
@@ -33046,10 +33823,12 @@ class PsycheConsultService {
       probeMethod ? `probe_method:${probeMethod}` : "",
       typeof probeConfidence === "number" ? `probe_confidence=${probeConfidence.toFixed(2)}` : "",
       probeSceneTags.length > 0 ? `probe_scene=${probeSceneTags.join("|")}` : "",
+      allowPlayCompanion ? "play_companion_enabled" : "",
+      state === "PLAY" && !allowPlayCompanion ? "play_guard_hold" : "",
       `fast_brain_score=${fastBrainScore.toFixed(2)}`,
       `resonance_score=${resonance.score.toFixed(2)}`,
       `slow_brain=${slowBrain.versionID}`,
-      budgetHint,
+      `epsilon=${explorationRate.toFixed(3)}`,
       explorationApplied ? "epsilon_exploration" : "",
       shadowModeApplied ? "shadow_mode_safe_hold" : ""
     ].filter((item) => item.length > 0);
@@ -33060,13 +33839,71 @@ class PsycheConsultService {
       shouldProbeScreen,
       captureLimitations
     });
+    const interactionSnapshot = readInteractionStats(this.interactionStatsPath);
+    const contextVector = buildProactivityContextVector({
+      atMs: Date.parse(at),
+      state,
+      urgency,
+      userInitiated,
+      fastBrainScore,
+      resonanceScore: resonance.score,
+      trustMinScore: minTrust,
+      trustTier,
+      risk,
+      signals: sampledSignals,
+      interaction: interactionSnapshot
+    });
+    const proactivitySeed = resolveProactivityPolicy({
+      at,
+      intent,
+      channel: input.channel,
+      userInitiated,
+      urgency,
+      state,
+      baseDecision: decision,
+      context: contextVector
+    });
+    const proactivity = explorationApplied ? {
+      ...proactivitySeed,
+      action: "send_now",
+      decision: "allow",
+      waitSec: 0,
+      reasonCodes: [
+        ...proactivitySeed.reasonCodes,
+        "exploration_forced_send"
+      ].slice(0, 8)
+    } : proactivitySeed;
+    let proactivityWaitSec = 0;
+    if (!userInitiated && proactivity.decision === "defer") {
+      decision = "defer";
+      proactivityWaitSec = proactivity.waitSec;
+    }
+    let budgetHint = "";
+    if (!userInitiated) {
+      const budgetState = state === "PLAY" && allowPlayCompanion ? "CONSUME" : state;
+      const budget2 = this.applyInterruptionBudget(budgetState, decision === "allow");
+      if (decision === "allow" && budget2.blocked) {
+        decision = "defer";
+        budgetHint = `budget_exhausted:${budgetState}`;
+      }
+    }
+    if (budgetHint)
+      reasonMarkers = [...reasonMarkers, budgetHint];
+    reasonMarkers = [
+      ...reasonMarkers,
+      `proactivity_action=${proactivity.action}`,
+      `proactivity_score_now=${proactivity.scoreNow.toFixed(2)}`,
+      `proactivity_score_wait=${proactivity.scoreWait.toFixed(2)}`,
+      ...proactivity.reasonCodes.map((item) => `proactivity:${item}`)
+    ];
     const nextCheckSec = this.resolveNextCheckSec({
       decision,
       urgency,
       state,
       shadowModeApplied,
       risk,
-      slowBrain
+      slowBrain,
+      waitOverrideSec: proactivityWaitSec
     });
     const reason = this.buildReason({
       decision,
@@ -33134,6 +33971,13 @@ class PsycheConsultService {
         awayAllowThreshold: slowBrain.parameters.awayAllowThreshold,
         deferRetryBaseSec: slowBrain.parameters.deferRetryBaseSec
       },
+      proactivity: {
+        action: proactivity.action,
+        waitSec: Math.max(0, proactivity.waitSec),
+        scoreNow: proactivity.scoreNow,
+        scoreWait: proactivity.scoreWait,
+        reasonCodes: proactivity.reasonCodes
+      },
       insightText
     };
     if (userInitiated && !input.trust?.action?.startsWith("daemon.")) {
@@ -33153,6 +33997,28 @@ class PsycheConsultService {
       channel: input.channel,
       userInitiated,
       approved: decision === "allow"
+    });
+    appendInteractionEvent(this.interactionStatsPath, {
+      atMs: Date.now(),
+      type: "consult",
+      channel: input.channel,
+      userInitiated,
+      decision
+    });
+    appendProactivityDecision(this.proactivityDecisionLogPath, {
+      at,
+      intent,
+      channel: input.channel,
+      userInitiated,
+      urgency,
+      state,
+      baseDecision: decisionSeed,
+      action: proactivity.action,
+      decision,
+      waitSec: proactivity.waitSec,
+      scoreNow: proactivity.scoreNow,
+      scoreWait: proactivity.scoreWait,
+      reasonCodes: proactivity.reasonCodes
     });
     this.appendConsultLog(result);
     appendPsycheObservation(this.trainingDataLogPath, {
@@ -33178,7 +34044,7 @@ class PsycheConsultService {
     return result;
   }
   registerOutcome(input) {
-    const at = nowIso8();
+    const at = nowIso9();
     const intent = String(input.intent ?? "").trim() || "unknown_intent";
     const urgency = asUrgency(input.urgency);
     const userInitiated = input.userInitiated !== false;
@@ -33214,6 +34080,15 @@ class PsycheConsultService {
       userInitiatedWithinSec: input.userInitiatedWithinSec,
       score,
       reward
+    });
+    appendInteractionEvent(this.interactionStatsPath, {
+      atMs: Date.now(),
+      type: "outcome",
+      channel: input.channel,
+      userInitiated,
+      delivered: input.delivered,
+      explicitFeedback: feedback,
+      userReplyWithinSec: input.userReplyWithinSec
     });
     const approved = input.delivered && feedback !== "negative";
     const confidence = Number.isFinite(input.trust?.evidenceConfidence) ? Number(input.trust?.evidenceConfidence) : typeof input.userReplyWithinSec === "number" && input.userReplyWithinSec > 0 ? 0.9 : 0.7;
@@ -33252,11 +34127,15 @@ class PsycheConsultService {
       bucket: key
     };
   }
+  getProactivityStats() {
+    return readInteractionStats(this.interactionStatsPath);
+  }
   pickDecision(input) {
     const {
       state,
       urgency,
       userInitiated,
+      allowPlayCompanion,
       shouldProbeScreen,
       fastBrainScore,
       trustTier,
@@ -33274,9 +34153,20 @@ class PsycheConsultService {
       return "defer";
     if (trustTier === "low" && urgency !== "critical")
       return "deny";
+    if (state === "PLAY") {
+      if (!allowPlayCompanion)
+        return "defer";
+      if (urgency === "critical")
+        return "allow";
+      const playAllowThreshold = Math.max(0.68, slowBrain.parameters.consumeAllowThreshold + 0.08);
+      if (urgency === "high" && fastBrainScore >= playAllowThreshold) {
+        return "allow";
+      }
+      return "defer";
+    }
     if (urgency === "critical")
       return "allow";
-    if (state === "FOCUS" || state === "PLAY" || state === "UNKNOWN")
+    if (state === "FOCUS" || state === "UNKNOWN")
       return "defer";
     if (state === "CONSUME") {
       const threshold = urgency === "high" ? Math.max(0.3, slowBrain.parameters.consumeAllowThreshold - 0.12) : slowBrain.parameters.consumeAllowThreshold;
@@ -33305,11 +34195,11 @@ class PsycheConsultService {
   }
   computeResonanceProfile(input) {
     const intent = input.intent.toLowerCase();
-    const semanticFocus = clamp3((intent.includes("remind") || intent.includes("checkin") || intent.includes("schedule") ? 0.78 : intent.includes("notify") || intent.includes("reply") ? 0.62 : 0.45) + (input.urgency === "critical" ? 0.25 : input.urgency === "high" ? 0.15 : input.urgency === "medium" ? 0.05 : 0), 0, 1);
-    const momentum = clamp3(input.fastBrainScore * 0.65 + (input.state === "AWAY" ? 0.2 : input.state === "CONSUME" ? 0.08 : -0.08), 0, 1);
+    const semanticFocus = clamp5((intent.includes("remind") || intent.includes("checkin") || intent.includes("schedule") ? 0.78 : intent.includes("notify") || intent.includes("reply") ? 0.62 : 0.45) + (input.urgency === "critical" ? 0.25 : input.urgency === "high" ? 0.15 : input.urgency === "medium" ? 0.05 : 0), 0, 1);
+    const momentum = clamp5(input.fastBrainScore * 0.65 + (input.state === "AWAY" ? 0.2 : input.state === "CONSUME" ? 0.08 : -0.08), 0, 1);
     const riskPenalty = input.riskReasons.some((item) => item.includes("probe") || item.includes("capture")) ? 0.14 : 0;
     const trustBoost = input.trustTier === "high" ? 0.08 : input.trustTier === "low" ? -0.12 : 0;
-    const score = clamp3(semanticFocus * 0.45 + momentum * 0.45 + trustBoost - riskPenalty - (input.shouldProbeScreen ? 0.08 : 0), 0, 1);
+    const score = clamp5(semanticFocus * 0.45 + momentum * 0.45 + trustBoost - riskPenalty - (input.shouldProbeScreen ? 0.08 : 0), 0, 1);
     const styleTags = [];
     if (input.state === "FOCUS")
       styleTags.push("low_interruption");
@@ -33380,20 +34270,20 @@ class PsycheConsultService {
     return `${base}:${markers.join(";")}`;
   }
   appendConsultLog(result) {
-    fs15.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}
+    fs17.appendFileSync(this.consultLogPath, `${JSON.stringify(result)}
 `, "utf-8");
   }
   safeReadNativeSignals() {
     try {
       const sample = this.nativeSignalsProvider();
       return {
-        sampledAt: typeof sample.sampledAt === "string" ? sample.sampledAt : nowIso8(),
+        sampledAt: typeof sample.sampledAt === "string" ? sample.sampledAt : nowIso9(),
         signals: sample.signals ?? {},
         captureLimitations: this.normalizeCaptureLimitations(sample.captureLimitations)
       };
     } catch (error92) {
       return {
-        sampledAt: nowIso8(),
+        sampledAt: nowIso9(),
         signals: {},
         captureLimitations: [
           `native_signal_provider_failed:${error92 instanceof Error ? error92.message : String(error92)}`
@@ -33446,10 +34336,14 @@ class PsycheConsultService {
       return 0.01;
     return raw;
   }
-  shouldExplore() {
-    if (this.epsilon <= 0)
+  resolveExplorationRate(override) {
+    const value = Number.isFinite(override) ? Number(override) : this.epsilon;
+    return Math.max(0, Math.min(0.2, Number(value.toFixed(4))));
+  }
+  shouldExplore(rate) {
+    if (!Number.isFinite(rate) || rate <= 0)
       return false;
-    return this.random.next() < this.epsilon;
+    return this.random.next() < rate;
   }
   resolveShadowModeDays(override) {
     const raw = Number(override ?? process.env.MIYA_PSYCHE_SHADOW_MODE_DAYS ?? process.env.MIYA_PSYCHE_COLDSTART_DAYS ?? 7);
@@ -33458,20 +34352,20 @@ class PsycheConsultService {
     return Math.max(0, Math.min(30, Math.floor(raw)));
   }
   ensureLifecycleState() {
-    if (fs15.existsSync(this.lifecyclePath))
+    if (fs17.existsSync(this.lifecyclePath))
       return;
-    const seed = { firstSeenAt: nowIso8() };
-    fs15.writeFileSync(this.lifecyclePath, `${JSON.stringify(seed, null, 2)}
+    const seed = { firstSeenAt: nowIso9() };
+    fs17.writeFileSync(this.lifecyclePath, `${JSON.stringify(seed, null, 2)}
 `, "utf-8");
   }
   readLifecycleState() {
     try {
-      const parsed = JSON.parse(fs15.readFileSync(this.lifecyclePath, "utf-8"));
-      const firstSeenAt = typeof parsed.firstSeenAt === "string" ? parsed.firstSeenAt : nowIso8();
+      const parsed = JSON.parse(fs17.readFileSync(this.lifecyclePath, "utf-8"));
+      const firstSeenAt = typeof parsed.firstSeenAt === "string" ? parsed.firstSeenAt : nowIso9();
       return { firstSeenAt };
     } catch {
-      const fallback = { firstSeenAt: nowIso8() };
-      fs15.writeFileSync(this.lifecyclePath, `${JSON.stringify(fallback, null, 2)}
+      const fallback = { firstSeenAt: nowIso9() };
+      fs17.writeFileSync(this.lifecyclePath, `${JSON.stringify(fallback, null, 2)}
 `, "utf-8");
       return fallback;
     }
@@ -33505,6 +34399,9 @@ class PsycheConsultService {
   resolveNextCheckSec(input) {
     if (input.decision === "allow")
       return 0;
+    if (typeof input.waitOverrideSec === "number" && Number.isFinite(input.waitOverrideSec) && input.waitOverrideSec > 0) {
+      return Math.max(15, Math.min(3600, Math.floor(input.waitOverrideSec)));
+    }
     if (input.shadowModeApplied)
       return 120;
     if (input.urgency === "critical")
@@ -33557,10 +34454,10 @@ class PsycheConsultService {
     });
   }
   findRecentDeferredConsult(input) {
-    if (!fs15.existsSync(this.consultLogPath))
+    if (!fs17.existsSync(this.consultLogPath))
       return null;
     const nowMs = Date.parse(input.at);
-    const lines = fs15.readFileSync(this.consultLogPath, "utf-8").trim().split(/\r?\n/);
+    const lines = fs17.readFileSync(this.consultLogPath, "utf-8").trim().split(/\r?\n/);
     const recentLines = lines.slice(-120).reverse();
     for (const line of recentLines) {
       try {
@@ -33630,11 +34527,11 @@ class PsycheConsultService {
     const current = store.byState[state];
     let active;
     if (!current) {
-      active = { windowStartedAt: nowIso8(), used: 0 };
+      active = { windowStartedAt: nowIso9(), used: 0 };
     } else {
       const startedAtMs = Date.parse(current.windowStartedAt);
       if (!Number.isFinite(startedAtMs) || now - startedAtMs >= policy.windowSec * 1000) {
-        active = { windowStartedAt: nowIso8(), used: 0 };
+        active = { windowStartedAt: nowIso9(), used: 0 };
       } else {
         active = {
           windowStartedAt: current.windowStartedAt,
@@ -33647,15 +34544,15 @@ class PsycheConsultService {
       active.used += 1;
     }
     store.byState[state] = active;
-    fs15.writeFileSync(this.budgetPath, `${JSON.stringify(store, null, 2)}
+    fs17.writeFileSync(this.budgetPath, `${JSON.stringify(store, null, 2)}
 `, "utf-8");
     return { blocked };
   }
   readBudgetStore() {
-    if (!fs15.existsSync(this.budgetPath))
+    if (!fs17.existsSync(this.budgetPath))
       return { byState: {} };
     try {
-      return JSON.parse(fs15.readFileSync(this.budgetPath, "utf-8"));
+      return JSON.parse(fs17.readFileSync(this.budgetPath, "utf-8"));
     } catch {
       return { byState: {} };
     }
@@ -33705,7 +34602,7 @@ var HEARTBEAT_STALE_MS = 2 * 60 * 1000;
 import { randomUUID as randomUUID5 } from "crypto";
 
 // src/resource-scheduler/store.ts
-import * as fs16 from "fs";
+import * as fs18 from "fs";
 import * as path16 from "path";
 function schedulerDir(projectDir) {
   return path16.join(getMiyaRuntimeDir(projectDir), "resource-scheduler");
@@ -33717,16 +34614,16 @@ function eventsPath(projectDir) {
   return path16.join(schedulerDir(projectDir), "events.jsonl");
 }
 function ensureDir4(projectDir) {
-  fs16.mkdirSync(schedulerDir(projectDir), { recursive: true });
+  fs18.mkdirSync(schedulerDir(projectDir), { recursive: true });
 }
 function writeSchedulerSnapshot(projectDir, snapshot) {
   ensureDir4(projectDir);
-  fs16.writeFileSync(snapshotPath(projectDir), `${JSON.stringify(snapshot, null, 2)}
+  fs18.writeFileSync(snapshotPath(projectDir), `${JSON.stringify(snapshot, null, 2)}
 `, "utf-8");
 }
 function appendSchedulerEvent(projectDir, event) {
   ensureDir4(projectDir);
-  fs16.appendFileSync(eventsPath(projectDir), `${JSON.stringify(event)}
+  fs18.appendFileSync(eventsPath(projectDir), `${JSON.stringify(event)}
 `, "utf-8");
 }
 
@@ -33788,7 +34685,7 @@ function decideModelSwapAction(input) {
 }
 
 // src/resource-scheduler/scheduler.ts
-function nowIso9() {
+function nowIso10() {
   return new Date().toISOString();
 }
 function toNumber(value, fallback) {
@@ -33846,7 +34743,7 @@ class ResourceScheduler {
         return a.createdAtMs - b.createdAtMs;
       });
       appendSchedulerEvent(this.projectDir, {
-        at: nowIso9(),
+        at: nowIso10(),
         type: "queued",
         leaseID: pendingID,
         kind: request.kind,
@@ -33871,7 +34768,7 @@ class ResourceScheduler {
     const hotsetUsedMB = loadedModels.filter((model) => model.residency === "hot").reduce((sum, model) => sum + model.vramMB, 0);
     const warmPoolUsedMB = loadedModels.filter((model) => model.residency === "warm").reduce((sum, model) => sum + model.vramMB, 0);
     return {
-      timestamp: nowIso9(),
+      timestamp: nowIso10(),
       totalVramMB: this.totalVramMB,
       safetyMarginMB: this.safetyMarginMB,
       usedVramMB: this.usedVramMB,
@@ -33937,7 +34834,7 @@ class ResourceScheduler {
       if (!this.canGrant(pending.request))
         return;
       this.queue.shift();
-      const grantedAt = nowIso9();
+      const grantedAt = nowIso10();
       const requestVramMB = Math.max(0, Math.floor(pending.request.vramMB ?? 0));
       const lease = {
         id: pending.id,
@@ -33959,7 +34856,7 @@ class ResourceScheduler {
         this.pinModel(pending.request.modelID);
         this.currentModelByKind.set(pending.request.kind, pending.request.modelID);
         appendSchedulerEvent(this.projectDir, {
-          at: nowIso9(),
+          at: nowIso10(),
           type: "model_swap",
           kind: pending.request.kind,
           action: swapAction,
@@ -34000,7 +34897,7 @@ class ResourceScheduler {
     }
     this.rebalanceHydraulics();
     appendSchedulerEvent(this.projectDir, {
-      at: nowIso9(),
+      at: nowIso10(),
       type: "released",
       leaseID,
       kind: lease.kind,
@@ -34044,7 +34941,7 @@ class ResourceScheduler {
     for (const pending of this.queue) {
       if (pending.timeoutAtMs && pending.timeoutAtMs <= now) {
         appendSchedulerEvent(this.projectDir, {
-          at: nowIso9(),
+          at: nowIso10(),
           type: "timeout",
           leaseID: pending.id,
           kind: pending.request.kind
@@ -34074,7 +34971,7 @@ class ResourceScheduler {
     if (offloaded) {
       this.offloadedModels.delete(modelID);
       appendSchedulerEvent(this.projectDir, {
-        at: nowIso9(),
+        at: nowIso10(),
         type: "model_reloaded",
         modelID,
         vramMB: offloaded.vramMB,
@@ -34090,7 +34987,7 @@ class ResourceScheduler {
       residency: "hot"
     });
     appendSchedulerEvent(this.projectDir, {
-      at: nowIso9(),
+      at: nowIso10(),
       type: "model_loaded",
       modelID,
       vramMB
@@ -34125,7 +35022,7 @@ class ResourceScheduler {
       }
     }
     appendSchedulerEvent(this.projectDir, {
-      at: nowIso9(),
+      at: nowIso10(),
       type: "model_unloaded",
       modelID: model.modelID,
       vramMB: model.vramMB,
@@ -34182,7 +35079,7 @@ class ResourceScheduler {
       if (next !== "offload" && previous !== next) {
         model.residency = next;
         appendSchedulerEvent(this.projectDir, {
-          at: nowIso9(),
+          at: nowIso10(),
           type: "model_residency",
           modelID: model.modelID,
           residency: next
@@ -34237,18 +35134,19 @@ function safeInterval(taskName, intervalMs, run, options) {
     if (Date.now() < cooldownUntilMs)
       return;
     running = true;
-    Promise.resolve(run()).then(() => {
+    Promise.resolve().then(run).then(() => {
       consecutiveErrors = 0;
     }).catch((error92) => {
-      consecutiveErrors += 1;
-      if (consecutiveErrors >= maxConsecutiveErrors) {
+      const nextConsecutiveErrors = consecutiveErrors + 1;
+      consecutiveErrors = nextConsecutiveErrors;
+      if (nextConsecutiveErrors >= maxConsecutiveErrors) {
         cooldownUntilMs = Date.now() + cooldownMs;
         consecutiveErrors = 0;
       }
       options?.onError?.({
         taskName,
         error: error92,
-        consecutiveErrors: Math.max(1, consecutiveErrors),
+        consecutiveErrors: nextConsecutiveErrors,
         cooldownUntilMs: cooldownUntilMs > Date.now() ? cooldownUntilMs : undefined
       });
     }).finally(() => {
@@ -34579,9 +35477,14 @@ var DEFAULT_PSYCHE_MODE = {
   resonanceEnabled: true,
   captureProbeEnabled: true,
   signalOverrideEnabled: false,
+  playCompanionEnabled: false,
+  proactivityExploreRate: 0.05,
   slowBrainEnabled: true,
   slowBrainShadowEnabled: true,
   slowBrainShadowRollout: 15,
+  periodicRetrainEnabled: false,
+  periodicRetrainIntervalHours: 7 * 24,
+  periodicRetrainMinOutcomes: 1e4,
   shadowCohortSalt: "miya-psyche-shadow-v1",
   proactivePingEnabled: true,
   proactivePingMinIntervalMinutes: 90,
@@ -34768,8 +35671,15 @@ function parseDaemonOutgoingFrame(input) {
 
 // src/daemon/launcher.ts
 var runtimes2 = new Map;
+function toFiniteNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function toClampedInteger(value, fallback, minimum) {
+  return Math.max(minimum, Math.floor(toFiniteNumber(value, fallback)));
+}
 function launcherIdlePruneMs() {
-  return Math.max(5000, Number(process.env.MIYA_DAEMON_IDLE_PRUNE_MS ?? 15000));
+  return toClampedInteger(process.env.MIYA_DAEMON_IDLE_PRUNE_MS, 15000, 5000);
 }
 function touchRuntime(runtime) {
   runtime.lastAccessAtMs = Date.now();
@@ -34791,7 +35701,7 @@ function pruneIdleRuntimes(exceptProjectDir) {
       cleanupExistingDaemon(projectDir);
     }
     try {
-      fs17.rmSync(runtime.parentLockFile, { force: true });
+      fs19.rmSync(runtime.parentLockFile, { force: true });
     } catch {}
     runtimes2.delete(projectDir);
   }
@@ -34801,7 +35711,7 @@ function emitLauncherEvent(runtime, type, payload) {
     return;
   const event = {
     type,
-    at: nowIso10(),
+    at: nowIso11(),
     payload,
     snapshot: { ...runtime.snapshot }
   };
@@ -34816,7 +35726,7 @@ function syncBackpressureSnapshot(runtime) {
   runtime.snapshot.rejectedRequests = runtime.rejectedRequests;
   runtime.snapshot.lastRejectReason = runtime.lastRejectReason;
 }
-function nowIso10() {
+function nowIso11() {
   return new Date().toISOString();
 }
 function parsePsycheSignalHubSnapshot(raw) {
@@ -34860,18 +35770,18 @@ function daemonLogFile(projectDir, kind) {
   return path18.join(daemonDir(projectDir), kind === "stdout" ? "host.stdout.log" : "host.stderr.log");
 }
 function ensureDaemonDir(projectDir) {
-  fs17.mkdirSync(daemonDir(projectDir), { recursive: true });
+  fs19.mkdirSync(daemonDir(projectDir), { recursive: true });
 }
 function safeWriteJson(filePath2, payload) {
-  fs17.mkdirSync(path18.dirname(filePath2), { recursive: true });
-  fs17.writeFileSync(filePath2, `${JSON.stringify(payload, null, 2)}
+  fs19.mkdirSync(path18.dirname(filePath2), { recursive: true });
+  fs19.writeFileSync(filePath2, `${JSON.stringify(payload, null, 2)}
 `, "utf-8");
 }
 function safeReadJson2(filePath2) {
-  if (!fs17.existsSync(filePath2))
+  if (!fs19.existsSync(filePath2))
     return null;
   try {
-    const parsed = JSON.parse(fs17.readFileSync(filePath2, "utf-8"));
+    const parsed = JSON.parse(fs19.readFileSync(filePath2, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       return null;
     return parsed;
@@ -34912,14 +35822,14 @@ function writeLauncherPersistedState(runtime) {
     consecutiveLaunchFailures: runtime.consecutiveLaunchFailures,
     lastRejectReason: runtime.lastRejectReason,
     manualStopUntilMs: runtime.manualStopUntilMs,
-    updatedAt: nowIso10()
+    updatedAt: nowIso11()
   });
 }
 function resolveHostScriptPath() {
   const here = path18.dirname(fileURLToPath2(import.meta.url));
   const tsFile = path18.join(here, "host.ts");
   const jsFile = path18.join(here, "host.js");
-  if (fs17.existsSync(tsFile))
+  if (fs19.existsSync(tsFile))
     return tsFile;
   return jsFile;
 }
@@ -34955,8 +35865,8 @@ function resolveBunBinary() {
     const byBun = Bun.which("bun");
     if (byBun) {
       if (byBun.toLowerCase().endsWith(".cmd")) {
-        const exeCandidate = byBun.slice(0, -4) + ".exe";
-        if (fs17.existsSync(exeCandidate))
+        const exeCandidate = `${byBun.slice(0, -4)}.exe`;
+        if (fs19.existsSync(exeCandidate))
           return exeCandidate;
       }
       return byBun;
@@ -35084,9 +35994,9 @@ function spawnDaemon(runtime) {
   let hostStdout;
   let hostStderr;
   try {
-    hostStdout = fs17.openSync(daemonLogFile(runtime.projectDir, "stdout"), "a");
-    hostStderr = fs17.openSync(daemonLogFile(runtime.projectDir, "stderr"), "a");
-    const child = spawn(bunBinary, [
+    hostStdout = fs19.openSync(daemonLogFile(runtime.projectDir, "stdout"), "a");
+    hostStderr = fs19.openSync(daemonLogFile(runtime.projectDir, "stderr"), "a");
+    const child = spawn2(bunBinary, [
       hostScript,
       "--project-dir",
       runtime.projectDir,
@@ -35109,12 +36019,12 @@ function spawnDaemon(runtime) {
   } finally {
     if (typeof hostStdout === "number") {
       try {
-        fs17.closeSync(hostStdout);
+        fs19.closeSync(hostStdout);
       } catch {}
     }
     if (typeof hostStderr === "number") {
       try {
-        fs17.closeSync(hostStderr);
+        fs19.closeSync(hostStderr);
       } catch {}
     }
   }
@@ -35123,9 +36033,9 @@ function spawnDaemon(runtime) {
 }
 function readPidFile(projectDir) {
   const file3 = daemonPidFile(projectDir);
-  if (!fs17.existsSync(file3))
+  if (!fs19.existsSync(file3))
     return null;
-  const raw = fs17.readFileSync(file3, "utf-8").trim();
+  const raw = fs19.readFileSync(file3, "utf-8").trim();
   const pid = Number(raw);
   if (!Number.isFinite(pid) || pid <= 0)
     return null;
@@ -35151,7 +36061,7 @@ function writeParentLock(runtime) {
   safeWriteJson(runtime.parentLockFile, {
     pid: process.pid,
     plugin: "miya",
-    updatedAt: nowIso10()
+    updatedAt: nowIso11()
   });
 }
 function connectWebSocket(runtime, lock, epoch) {
@@ -35278,7 +36188,7 @@ function daemonRequest(runtime, method, params, timeoutMs = 8000) {
       runtime.rejectedRequests += 1;
       syncBackpressureSnapshot(runtime);
       reject(new Error("daemon_request_timeout"));
-    }, Math.max(1000, timeoutMs));
+    }, toClampedInteger(timeoutMs, 60000, 1000));
     runtime.pending.set(id, { resolve: resolve3, reject, timeout });
     syncBackpressureSnapshot(runtime);
     runtime.ws?.send(JSON.stringify(frame));
@@ -35533,10 +36443,10 @@ function ensureMiyaLauncher(projectDir) {
   const config3 = readConfig(projectDir);
   const persisted = readLauncherPersistedState(projectDir);
   const backpressure = config3.runtime?.backpressure;
-  const configuredMaxPending = typeof backpressure?.daemon_max_pending_requests === "number" ? Number(backpressure.daemon_max_pending_requests) : Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64);
-  const configuredMaxFailures = typeof backpressure?.daemon_max_consecutive_failures === "number" ? Number(backpressure.daemon_max_consecutive_failures) : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
-  const configuredManualStopCooldown = typeof backpressure?.daemon_manual_stop_cooldown_ms === "number" ? Number(backpressure.daemon_manual_stop_cooldown_ms) : Number(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS ?? 180000);
-  const configuredRetryHaltCooldown = typeof backpressure?.daemon_retry_halt_cooldown_ms === "number" ? Number(backpressure.daemon_retry_halt_cooldown_ms) : Number(process.env.MIYA_DAEMON_RETRY_HALT_COOLDOWN_MS ?? 300000);
+  const configuredMaxPending = typeof backpressure?.daemon_max_pending_requests === "number" ? Number(backpressure.daemon_max_pending_requests) : toFiniteNumber(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS, 64);
+  const configuredMaxFailures = typeof backpressure?.daemon_max_consecutive_failures === "number" ? Number(backpressure.daemon_max_consecutive_failures) : toFiniteNumber(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES, 5);
+  const configuredManualStopCooldown = typeof backpressure?.daemon_manual_stop_cooldown_ms === "number" ? Number(backpressure.daemon_manual_stop_cooldown_ms) : toFiniteNumber(process.env.MIYA_DAEMON_MANUAL_STOP_COOLDOWN_MS, 180000);
+  const configuredRetryHaltCooldown = typeof backpressure?.daemon_retry_halt_cooldown_ms === "number" ? Number(backpressure.daemon_retry_halt_cooldown_ms) : toFiniteNumber(process.env.MIYA_DAEMON_RETRY_HALT_COOLDOWN_MS, 300000);
   const daemonToken = lifecycleMode === "service_experimental" ? String(process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? "") : randomUUID6();
   const desiredState = persisted.desiredState;
   const initialLifecycleState = desiredState === "stopped" ? "STOPPED" : persisted.retryHalted ? "BACKOFF" : "STARTING";
@@ -35555,19 +36465,19 @@ function ensureMiyaLauncher(projectDir) {
     connected: false,
     reqSeq: 0,
     pending: new Map,
-    maxPendingRequests: Math.max(4, Math.floor(configuredMaxPending)),
+    maxPendingRequests: toClampedInteger(configuredMaxPending, 64, 4),
     rejectedRequests: 0,
     lastRejectReason: undefined,
     listeners: new Set,
     lastSpawnAttemptAtMs: 0,
     launchCooldownUntilMs: 0,
     manualStopUntilMs: persisted.manualStopUntilMs,
-    manualStopCooldownMs: Math.max(1e4, Math.floor(configuredManualStopCooldown)),
+    manualStopCooldownMs: toClampedInteger(configuredManualStopCooldown, 180000, 1e4),
     consecutiveLaunchFailures: persisted.consecutiveLaunchFailures,
     retryHalted: persisted.retryHalted,
     retryHaltedUntilMs: persisted.retryHaltedUntilMs,
-    retryHaltCooldownMs: Math.max(30000, Math.floor(configuredRetryHaltCooldown)),
-    maxConsecutiveLaunchFailures: Math.max(1, Math.floor(configuredMaxFailures)),
+    retryHaltCooldownMs: toClampedInteger(configuredRetryHaltCooldown, 300000, 30000),
+    maxConsecutiveLaunchFailures: toClampedInteger(configuredMaxFailures, 5, 1),
     lastAccessAtMs: Date.now(),
     snapshot: {
       connected: false,
@@ -35581,7 +36491,7 @@ function ensureMiyaLauncher(projectDir) {
       lifecycleMode,
       pendingRequests: 0,
       rejectedRequests: 0,
-      startedAt: nowIso10()
+      startedAt: nowIso11()
     }
   };
   syncLifecycleSnapshot(runtime);
@@ -35615,14 +36525,15 @@ async function daemonInvoke(projectDir, method, params, timeoutMs = 60000) {
   if (!runtime)
     throw new Error("daemon_runtime_missing");
   touchRuntime(runtime);
-  await waitForDaemonConnection(runtime, Math.min(timeoutMs, 15000));
-  return daemonRequest(runtime, method, params, timeoutMs);
+  const normalizedTimeoutMs = toClampedInteger(timeoutMs, 60000, 1000);
+  await waitForDaemonConnection(runtime, Math.min(normalizedTimeoutMs, 15000));
+  return daemonRequest(runtime, method, params, normalizedTimeoutMs);
 }
 process.on("exit", () => {
   for (const runtime of runtimes2.values()) {
     cleanupRuntime(runtime);
     try {
-      fs17.rmSync(runtime.parentLockFile, { force: true });
+      fs19.rmSync(runtime.parentLockFile, { force: true });
     } catch {}
   }
 });
@@ -35679,6 +36590,9 @@ class MiyaClient {
   async psycheSlowBrainGet() {
     return daemonInvoke(this.projectDir, "daemon.psyche.slowbrain.get", {}, 1e4);
   }
+  async psycheProactivityGet() {
+    return daemonInvoke(this.projectDir, "daemon.psyche.proactivity.get", {}, 1e4);
+  }
   async psycheSlowBrainRetrain(input) {
     return daemonInvoke(this.projectDir, "daemon.psyche.slowbrain.retrain", {
       force: input?.force === true,
@@ -35711,12 +36625,12 @@ function historyFile(projectDir) {
   return path19.join(runtimeDir2(projectDir), "invocation-history.jsonl");
 }
 function ensureRuntimeDir(projectDir) {
-  fs18.mkdirSync(runtimeDir2(projectDir), { recursive: true });
+  fs20.mkdirSync(runtimeDir2(projectDir), { recursive: true });
 }
 function loadApprovalConfig(projectDir) {
   ensureRuntimeDir(projectDir);
   const file3 = approvalFile(projectDir);
-  if (!fs18.existsSync(file3)) {
+  if (!fs20.existsSync(file3)) {
     const defaults = {
       allowAllReadOnly: true,
       requireExplicitForRun: true,
@@ -35732,12 +36646,12 @@ function loadApprovalConfig(projectDir) {
         { capability: "system.run", pattern: "(?i)\\bformat\\b" }
       ]
     };
-    fs18.writeFileSync(file3, `${JSON.stringify(defaults, null, 2)}
+    fs20.writeFileSync(file3, `${JSON.stringify(defaults, null, 2)}
 `, "utf-8");
     return defaults;
   }
   try {
-    const parsed = JSON.parse(fs18.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs20.readFileSync(file3, "utf-8"));
     return {
       allowAllReadOnly: parsed.allowAllReadOnly ?? true,
       requireExplicitForRun: parsed.requireExplicitForRun ?? true,
@@ -35783,7 +36697,7 @@ function isAllowedByLocalPolicy(config3, capability, args) {
 }
 function appendHistory(projectDir, row) {
   ensureRuntimeDir(projectDir);
-  fs18.appendFileSync(historyFile(projectDir), `${JSON.stringify(row)}
+  fs20.appendFileSync(historyFile(projectDir), `${JSON.stringify(row)}
 `, "utf-8");
 }
 function runShellCommand(command, timeoutMs) {
@@ -35859,9 +36773,9 @@ async function executeCapability(projectDir, payload) {
     if (!content)
       return { ok: false, error: "missing_canvas_content" };
     const canvasDir = path19.join(runtimeDir2(projectDir), "canvas");
-    fs18.mkdirSync(canvasDir, { recursive: true });
+    fs20.mkdirSync(canvasDir, { recursive: true });
     const file3 = path19.join(canvasDir, `canvas-${Date.now()}.txt`);
-    fs18.writeFileSync(file3, content, "utf-8");
+    fs20.writeFileSync(file3, content, "utf-8");
     return {
       ok: true,
       result: {
@@ -36023,7 +36937,7 @@ async function runNodeHost(options) {
 }
 
 // src/cli/install.ts
-import * as fs19 from "fs";
+import * as fs21 from "fs";
 import * as path20 from "path";
 import * as readline from "readline/promises";
 
@@ -36094,15 +37008,15 @@ function pickSupportChutesModel(models, primaryModel) {
 // src/cli/config-io.ts
 import {
   copyFileSync as copyFileSync2,
-  existsSync as existsSync18,
-  readFileSync as readFileSync15,
+  existsSync as existsSync19,
+  readFileSync as readFileSync16,
   renameSync,
   statSync as statSync2,
-  writeFileSync as writeFileSync14
+  writeFileSync as writeFileSync15
 } from "fs";
 
 // src/cli/paths.ts
-import { existsSync as existsSync16, mkdirSync as mkdirSync13 } from "fs";
+import { existsSync as existsSync17, mkdirSync as mkdirSync13 } from "fs";
 import { homedir } from "os";
 import { join as join20 } from "path";
 function getConfigDir() {
@@ -36125,23 +37039,23 @@ function getLiteConfigCandidates() {
 function getExistingLiteConfigPath() {
   const candidates = getLiteConfigCandidates();
   for (const candidate of candidates) {
-    if (existsSync16(candidate))
+    if (existsSync17(candidate))
       return candidate;
   }
   return getLiteConfig();
 }
 function getExistingConfigPath() {
   const jsonPath = getConfigJson();
-  if (existsSync16(jsonPath))
+  if (existsSync17(jsonPath))
     return jsonPath;
   const jsoncPath = getConfigJsonc();
-  if (existsSync16(jsoncPath))
+  if (existsSync17(jsoncPath))
     return jsoncPath;
   return jsonPath;
 }
 function ensureConfigDir() {
   const configDir = getConfigDir();
-  if (!existsSync16(configDir)) {
+  if (!existsSync17(configDir)) {
     mkdirSync13(configDir, { recursive: true });
   }
 }
@@ -36262,7 +37176,7 @@ import { spawnSync as spawnSync7 } from "child_process";
 // src/cli/custom-skills.ts
 import {
   copyFileSync,
-  existsSync as existsSync17,
+  existsSync as existsSync18,
   mkdirSync as mkdirSync14,
   readdirSync,
   statSync
@@ -36285,7 +37199,7 @@ function getCustomSkillsDir() {
   return join21(getUserConfigDir(), "opencode", "skills");
 }
 function copyDirRecursive(src, dest) {
-  if (!existsSync17(dest)) {
+  if (!existsSync18(dest)) {
     mkdirSync14(dest, { recursive: true });
   }
   const entries = readdirSync(src);
@@ -36297,7 +37211,7 @@ function copyDirRecursive(src, dest) {
       copyDirRecursive(srcPath, destPath);
     } else {
       const destDir = dirname12(destPath);
-      if (!existsSync17(destDir)) {
+      if (!existsSync18(destDir)) {
         mkdirSync14(destDir, { recursive: true });
       }
       copyFileSync(srcPath, destPath);
@@ -36309,7 +37223,7 @@ function installCustomSkill(skill) {
     const packageRoot = fileURLToPath3(new URL("../..", import.meta.url));
     const sourcePath = join21(packageRoot, skill.sourcePath);
     const targetPath = join21(getCustomSkillsDir(), skill.name);
-    if (!existsSync17(sourcePath)) {
+    if (!existsSync18(sourcePath)) {
       console.error(`Custom skill source not found: ${sourcePath}`);
       return false;
     }
@@ -36771,12 +37685,12 @@ function stripJsonComments(json3) {
 }
 function parseConfigFile(path20) {
   try {
-    if (!existsSync18(path20))
+    if (!existsSync19(path20))
       return { config: null };
     const stat = statSync2(path20);
     if (stat.size === 0)
       return { config: null };
-    const content = readFileSync15(path20, "utf-8");
+    const content = readFileSync16(path20, "utf-8");
     if (content.trim().length === 0)
       return { config: null };
     return { config: JSON.parse(stripJsonComments(content)) };
@@ -36802,10 +37716,10 @@ function writeConfig2(configPath, config3) {
   const bakPath = `${configPath}.bak`;
   const content = `${JSON.stringify(config3, null, 2)}
 `;
-  if (existsSync18(configPath)) {
+  if (existsSync19(configPath)) {
     copyFileSync2(configPath, bakPath);
   }
-  writeFileSync14(tmpPath, content);
+  writeFileSync15(tmpPath, content);
   renameSync(tmpPath, configPath);
 }
 async function addPluginToOpenCodeConfig() {
@@ -36852,10 +37766,10 @@ function writeLiteConfig(installConfig) {
     const bakPath = `${configPath}.bak`;
     const content = `${JSON.stringify(config3, null, 2)}
 `;
-    if (existsSync18(configPath)) {
+    if (existsSync19(configPath)) {
       copyFileSync2(configPath, bakPath);
     }
-    writeFileSync14(tmpPath, content);
+    writeFileSync15(tmpPath, content);
     renameSync(tmpPath, configPath);
     return { success: true, configPath };
   } catch (err) {
@@ -37592,7 +38506,7 @@ function applyIsolatedConfigHomeIfNeeded(enable) {
   if (!enable)
     return null;
   const isolatedHome = path20.join(process.cwd(), ".opencode", "miya-isolated-xdg");
-  fs19.mkdirSync(isolatedHome, { recursive: true });
+  fs21.mkdirSync(isolatedHome, { recursive: true });
   process.env.XDG_CONFIG_HOME = isolatedHome;
   return isolatedHome;
 }
@@ -38055,10 +38969,10 @@ function runtimeGatewaySupervisorStopFile(cwd) {
 }
 function readGatewaySupervisorState(cwd) {
   const file3 = runtimeGatewaySupervisorFile(cwd);
-  if (!fs20.existsSync(file3))
+  if (!fs22.existsSync(file3))
     return null;
   try {
-    const parsed = JSON.parse(fs20.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs22.readFileSync(file3, "utf-8"));
     const pid = Number(parsed.pid);
     const status = String(parsed.status ?? "").trim();
     const updatedAt = String(parsed.updatedAt ?? "").trim();
@@ -38080,10 +38994,10 @@ function readGatewaySupervisorState(cwd) {
 }
 function readGatewayStartGuard(cwd) {
   const file3 = runtimeGatewayStartGuardFile(cwd);
-  if (!fs20.existsSync(file3))
+  if (!fs22.existsSync(file3))
     return null;
   try {
-    const parsed = JSON.parse(fs20.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs22.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object")
       return null;
     if (parsed.status !== "idle" && parsed.status !== "starting" && parsed.status !== "failed") {
@@ -38098,8 +39012,8 @@ function readGatewayStartGuard(cwd) {
 }
 function writeGatewayStartGuard(cwd, guard) {
   const file3 = runtimeGatewayStartGuardFile(cwd);
-  fs20.mkdirSync(path21.dirname(file3), { recursive: true });
-  fs20.writeFileSync(file3, `${JSON.stringify(guard, null, 2)}
+  fs22.mkdirSync(path21.dirname(file3), { recursive: true });
+  fs22.writeFileSync(file3, `${JSON.stringify(guard, null, 2)}
 `, "utf-8");
 }
 function resolveWorkspaceDir(cwd) {
@@ -38114,32 +39028,32 @@ function resolveWorkspaceDir(cwd) {
     }
   }
   const embeddedOpencode = path21.join(resolved, ".opencode");
-  if (fs20.existsSync(path21.join(embeddedOpencode, "miya-src", "src", "index.ts"))) {
+  if (fs22.existsSync(path21.join(embeddedOpencode, "miya-src", "src", "index.ts"))) {
     return embeddedOpencode;
   }
   return resolved;
 }
 function clearGatewayStateFile(cwd) {
   try {
-    fs20.unlinkSync(runtimeGatewayFile(cwd));
+    fs22.unlinkSync(runtimeGatewayFile(cwd));
   } catch {}
 }
 function clearGatewaySupervisorStateFile(cwd) {
   try {
-    fs20.unlinkSync(runtimeGatewaySupervisorFile(cwd));
+    fs22.unlinkSync(runtimeGatewaySupervisorFile(cwd));
   } catch {}
 }
 function clearGatewaySupervisorStopSignal(cwd) {
   try {
-    fs20.unlinkSync(runtimeGatewaySupervisorStopFile(cwd));
+    fs22.unlinkSync(runtimeGatewaySupervisorStopFile(cwd));
   } catch {}
 }
 function readGatewayEndpoint(cwd) {
   const file3 = runtimeGatewayFile(cwd);
-  if (!fs20.existsSync(file3))
+  if (!fs22.existsSync(file3))
     return null;
   try {
-    const parsed = JSON.parse(fs20.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs22.readFileSync(file3, "utf-8"));
     const url3 = String(parsed.url ?? "").trim();
     if (!url3)
       return null;
@@ -38180,19 +39094,20 @@ function killPid(pid) {
   } catch {}
 }
 function resolveNodeBin() {
-  const nodeBin = String(process.env.MIYA_GATEWAY_NODE_BIN ?? "node").trim();
+  const rawNodeBin = String(process.env.MIYA_GATEWAY_NODE_BIN ?? "node").trim();
+  const nodeBin = rawNodeBin.replace(/^["']+|["']+$/g, "") || "node";
   const probe = spawnSync8(nodeBin, ["--version"], {
     stdio: "ignore",
     windowsHide: true
   });
   if (probe.error || probe.status !== 0) {
-    throw new Error(`node_runtime_unavailable:${nodeBin} (set MIYA_GATEWAY_NODE_BIN or install Node.js)`);
+    throw new Error(`node_runtime_unavailable:${nodeBin} (raw=${rawNodeBin}; set MIYA_GATEWAY_NODE_BIN or install Node.js)`);
   }
   return nodeBin;
 }
 function resolveGatewaySupervisorScriptPath() {
   const script = fileURLToPath4(new URL("./gateway-supervisor.node.js", import.meta.url));
-  if (!fs20.existsSync(script)) {
+  if (!fs22.existsSync(script)) {
     throw new Error(`gateway_supervisor_script_missing:${script} (run \`bun run build\` in miya-src)`);
   }
   return script;
@@ -38202,8 +39117,8 @@ async function stopGatewaySupervisor(cwd) {
   if (!state)
     return false;
   const runtimeDir3 = getMiyaRuntimeDir(cwd);
-  fs20.mkdirSync(runtimeDir3, { recursive: true });
-  fs20.writeFileSync(runtimeGatewaySupervisorStopFile(cwd), `${new Date().toISOString()}
+  fs22.mkdirSync(runtimeDir3, { recursive: true });
+  fs22.writeFileSync(runtimeGatewaySupervisorStopFile(cwd), `${new Date().toISOString()}
 `, "utf-8");
   killPid(state.pid);
   const deadline = Date.now() + 5000;
@@ -38225,7 +39140,7 @@ function startGatewaySupervisor(cwd, options) {
   const args = [script, "--workspace", workspace];
   if (options.verbose)
     args.push("--verbose");
-  const child = spawn2(nodeBin, args, {
+  const child = spawn3(nodeBin, args, {
     cwd: workspace,
     detached: options.detached,
     stdio: options.detached ? "ignore" : "inherit",
@@ -38238,10 +39153,10 @@ function startGatewaySupervisor(cwd, options) {
 }
 function readGatewayState(cwd) {
   const file3 = runtimeGatewayFile(cwd);
-  if (!fs20.existsSync(file3))
+  if (!fs22.existsSync(file3))
     return null;
   try {
-    const parsed = JSON.parse(fs20.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs22.readFileSync(file3, "utf-8"));
     const url3 = String(parsed.url ?? "").trim();
     const pid = Number(parsed.pid);
     const authToken = typeof parsed.authToken === "string" && parsed.authToken.trim().length > 0 ? parsed.authToken.trim() : undefined;
@@ -38273,11 +39188,15 @@ async function runGatewayStart(cwd, options = {}) {
   if (guard?.status === "starting") {
     const ageMs = now - Date.parse(guard.updatedAt);
     if (ageMs < 30000) {
-      return true;
+      if (await waitGatewayReady(workspace, 1800)) {
+        return true;
+      }
     }
   }
   if (guard?.cooldownUntil && now < Date.parse(guard.cooldownUntil)) {
-    return true;
+    if (await waitGatewayReady(workspace, 1800)) {
+      return true;
+    }
   }
   writeGatewayStartGuard(workspace, {
     status: "starting",
@@ -38392,7 +39311,7 @@ async function runGatewayServe(cwd, args) {
   const nodeBin = resolveNodeBin();
   const script = resolveGatewaySupervisorScriptPath();
   clearGatewaySupervisorStopSignal(workspace);
-  const child = spawn2(nodeBin, [script, "--workspace", workspace, ...verbose ? ["--verbose"] : []], {
+  const child = spawn3(nodeBin, [script, "--workspace", workspace, ...verbose ? ["--verbose"] : []], {
     cwd: workspace,
     stdio: "inherit",
     windowsHide: false
@@ -38745,7 +39664,7 @@ function readFlagValue(args, key) {
   const direct = args.find((item) => item.startsWith(`${key}=`));
   if (direct)
     return direct.slice(key.length + 1);
-  const index = args.findIndex((item) => item === key);
+  const index = args.indexOf(key);
   if (index >= 0 && index < args.length - 1) {
     return args[index + 1];
   }

@@ -40,6 +40,53 @@ function runtimeSupervisorStopFile(workspace) {
 function runtimeSupervisorLogFile(workspace) {
   return path.join(getMiyaRuntimeDir(workspace), "gateway-supervisor.log");
 }
+function runtimeSupervisorLockFile(workspace) {
+  return path.join(getMiyaRuntimeDir(workspace), "gateway-supervisor.lock");
+}
+function readLockedPid(lockFile) {
+  try {
+    const text = fs.readFileSync(lockFile, "utf-8").trim();
+    const pid = Number(text);
+    return Number.isFinite(pid) ? Math.floor(pid) : 0;
+  } catch {
+    return 0;
+  }
+}
+function acquireSupervisorLock(workspace) {
+  const lockFile = runtimeSupervisorLockFile(workspace);
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  for (let attempt = 0;attempt < 2; attempt += 1) {
+    try {
+      const fd = fs.openSync(lockFile, "wx");
+      fs.writeFileSync(fd, `${process.pid}
+`, "utf-8");
+      return { lockFd: fd, lockFile };
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code ?? "") : "";
+      if (code !== "EEXIST")
+        return null;
+      const lockedPid = readLockedPid(lockFile);
+      if (lockedPid > 0 && isPidAlive(lockedPid)) {
+        appendLog(workspace, `duplicate_supervisor_detected current=${process.pid} owner=${lockedPid}`);
+        return null;
+      }
+      try {
+        fs.unlinkSync(lockFile);
+      } catch {}
+    }
+  }
+  return null;
+}
+function releaseSupervisorLock(lockFile, lockFd) {
+  if (typeof lockFd === "number" && Number.isFinite(lockFd)) {
+    try {
+      fs.closeSync(lockFd);
+    } catch {}
+  }
+  try {
+    fs.unlinkSync(lockFile);
+  } catch {}
+}
 function resolveGatewayWorkerScript(workspace) {
   const bundled = fileURLToPath(new URL("./gateway-worker.node.js", import.meta.url));
   if (fs.existsSync(bundled)) {
@@ -257,6 +304,10 @@ async function waitReadyOrExit(workspace, child, timeoutMs) {
 async function main() {
   ensureLoopbackNoProxy();
   const { workspace, verbose } = parseCliArgs(process.argv.slice(2));
+  const lock = acquireSupervisorLock(workspace);
+  if (!lock) {
+    return;
+  }
   const runtimeDir = getMiyaRuntimeDir(workspace);
   const stopFile = runtimeSupervisorStopFile(workspace);
   fs.mkdirSync(runtimeDir, { recursive: true });
@@ -284,6 +335,9 @@ async function main() {
   process.on("SIGTERM", onStopSignal);
   process.on("SIGINT", onStopSignal);
   process.on("SIGHUP", onStopSignal);
+  process.on("exit", () => {
+    releaseSupervisorLock(lock.lockFile, lock.lockFd);
+  });
   appendLog(workspace, `supervisor_started pid=${process.pid} workspace=${workspace}`);
   writeSupervisorState(workspace, { status: "starting" }, baseline);
   while (!stopRequested()) {
@@ -367,6 +421,7 @@ async function main() {
     restartCount
   }, baseline);
   appendLog(workspace, "supervisor_stopped");
+  releaseSupervisorLock(lock.lockFile, lock.lockFd);
 }
 main().catch((error) => {
   const { workspace } = parseCliArgs(process.argv.slice(2));

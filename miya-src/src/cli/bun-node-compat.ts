@@ -386,6 +386,11 @@ export function ensureBunNodeCompat(): void {
   const runtime = globalThis as Record<string, unknown>;
   const existing = runtime.Bun as BunCompatRuntime | undefined;
   if (existing?.__miyaNodeCompat) return;
+  if (existing && typeof existing === 'object') {
+    // Some runtimes expose Bun with readonly descriptors. Mutating it can throw and
+    // crash gateway worker startup, so keep the existing object untouched.
+    return;
+  }
   const compat: BunCompatRuntime = {
     __miyaNodeCompat: true,
     which: createBunWhichCompat,
@@ -393,10 +398,6 @@ export function ensureBunNodeCompat(): void {
     spawnSync: createBunSpawnSyncCompat,
     file: createBunFileCompat,
   };
-  if (existing && typeof existing === 'object') {
-    Object.assign(existing as unknown as object, compat);
-    return;
-  }
   const merged = { ...compat } as BunCompatRuntime;
   try {
     Object.defineProperty(globalThis, 'Bun', {
