@@ -119,3 +119,45 @@
 - 性能与资源: 通过（超时参数归一化，避免异常配置导致资源行为失真）
 - 代码质量: 通过（新增可复现单测与输入归一化逻辑）
 - 用户体验: 改善（错误从“运行时失败”前移到“创建时明确拒绝”）
+
+---
+
+# 五维审计补充报告（2026-02-19）
+
+## 审计范围
+- 集成和生态系统兼容性 (Integration and Ecosystem Compatibility)
+- 灾难恢复和弹性 (Disaster Recovery and Resilience)
+- 合规性和审计追踪 (Compliance and Audit Trail)
+- 性能基准测试 (Performance Benchmarking)
+- 安全渗透测试 (Security Penetration Testing)
+
+## 发现与修复
+
+### P1（高）action-ledger 签名 secret 可预测 + 输入哈希弱碰撞
+- 文件: `miya-src/src/gateway/kernel/action-ledger.ts`
+- 风险说明:
+  - 未设置环境变量时使用固定默认 secret，`replayToken` 可被预测。
+  - `inputHash` 使用摘要文本哈希，不能唯一反映完整参数结构，审计可追溯性不足。
+- 修复措施:
+  - 改为项目级持久化随机 secret（`tool-action-ledger.secret`）。
+  - `inputHash` 改为稳定序列化完整参数后哈希。
+  - 新增 `verifyToolActionLedger` 完整性校验：损坏行、断链、篡改检测。
+
+## 新增测试（全部在 `test`）
+- `miya-src/test/integration/ecosystem-compatibility.test.ts`
+- `miya-src/test/disaster-recovery/action-ledger-resilience.test.ts`
+- `miya-src/test/compliance/action-ledger-audit-trail.test.ts`
+- `miya-src/test/performance/action-ledger-benchmark.test.ts`
+- `miya-src/test/security/action-ledger-security.test.ts`
+
+## 执行结果
+- `bun test test/integration/ecosystem-compatibility.test.ts --timeout 30000`：PASS
+- `bun test test/disaster-recovery/action-ledger-resilience.test.ts --timeout 30000`：PASS
+- `bun test test/compliance/action-ledger-audit-trail.test.ts --timeout 30000`：PASS
+- `bun test test/performance/action-ledger-benchmark.test.ts --timeout 30000`：PASS（约 6.7s / 500 events）
+- `bun test test/security/action-ledger-security.test.ts --timeout 30000`：PASS
+- `bun run typecheck`：PASS
+- `bun run lint`：PASS
+- `opencode debug config`：PASS
+- `opencode debug skill`：PASS
+- `opencode debug paths`：PASS
