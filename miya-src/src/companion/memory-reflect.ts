@@ -399,7 +399,9 @@ export function reflectCompanionMemory(
   const triplets = picked.flatMap((row) => extractTriplets(row));
   const maxWritesCandidate =
     typeof input?.maxWrites === 'number' ? input.maxWrites : triplets.length;
-  const maxWrites = Math.max(1, maxWritesCandidate);
+  const maxWrites = Number.isFinite(maxWritesCandidate)
+    ? Math.max(0, Math.floor(maxWritesCandidate))
+    : triplets.length;
   const writableTriplets = triplets.slice(0, maxWrites);
   const generatedFacts = triplets.filter((item) => item.kind === 'Fact').length;
   const generatedInsights = triplets.filter(
@@ -422,7 +424,7 @@ export function reflectCompanionMemory(
       learningStage: 'candidate',
     }),
   );
-  if (input?.mergeConflicts !== false) {
+  if (input?.mergeConflicts !== false && maxWrites > 0) {
     mergePendingMemoryConflicts(projectDir, {
       maxSupersede: Math.max(1, Math.min(80, Math.floor(maxWrites / 2) || 1)),
     });

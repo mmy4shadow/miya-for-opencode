@@ -977,7 +977,9 @@ function proactivePingStateFile(projectDir: string): string {
   );
 }
 
-function normalizeTrustMode(input?: Partial<TrustModeConfig>): TrustModeConfig {
+export function normalizeTrustMode(
+  input?: Partial<TrustModeConfig>,
+): TrustModeConfig {
   const silentMinRaw = Number(input?.silentMin ?? DEFAULT_TRUST_MODE.silentMin);
   const modalMaxRaw = Number(input?.modalMax ?? DEFAULT_TRUST_MODE.modalMax);
   const silentMin = Math.max(
@@ -996,13 +998,23 @@ function normalizeTrustMode(input?: Partial<TrustModeConfig>): TrustModeConfig {
       Number.isFinite(modalMaxRaw) ? modalMaxRaw : DEFAULT_TRUST_MODE.modalMax,
     ),
   );
-  const correctedSilentMin = Math.max(
-    Math.ceil(modalMax),
-    Math.round(silentMin),
-  );
+  let correctedSilentMin = Math.max(Math.ceil(modalMax), Math.round(silentMin));
+  let correctedModalMax = Math.round(modalMax);
+
+  if (correctedSilentMin <= correctedModalMax) {
+    correctedSilentMin = Math.min(100, correctedModalMax + 1);
+  }
+  if (correctedSilentMin - correctedModalMax < 2) {
+    if (correctedSilentMin < 100) correctedSilentMin += 1;
+    else if (correctedModalMax > 0) correctedModalMax -= 1;
+  }
+  if (correctedSilentMin <= correctedModalMax) {
+    return DEFAULT_TRUST_MODE;
+  }
+
   return {
     silentMin: correctedSilentMin,
-    modalMax: Math.round(modalMax),
+    modalMax: correctedModalMax,
   };
 }
 

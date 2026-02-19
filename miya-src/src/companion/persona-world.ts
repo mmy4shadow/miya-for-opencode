@@ -241,10 +241,17 @@ export function resolveSessionPersonaWorld(
       worldPresetID: 'world_default',
       updatedAt: nowIso(),
     } satisfies SessionPersonaWorldBinding);
-  const persona = store.personas.find(
-    (item) => item.id === binding.personaPresetID,
-  );
-  const world = store.worlds.find((item) => item.id === binding.worldPresetID);
+  const defaultPersona =
+    store.personas.find((item) => item.id === 'persona_default') ??
+    store.personas[0];
+  const defaultWorld =
+    store.worlds.find((item) => item.id === 'world_default') ?? store.worlds[0];
+  const persona =
+    store.personas.find((item) => item.id === binding.personaPresetID) ??
+    defaultPersona;
+  const world =
+    store.worlds.find((item) => item.id === binding.worldPresetID) ??
+    defaultWorld;
   const risk =
     persona?.risk === 'high' || world?.risk === 'high'
       ? 'high'

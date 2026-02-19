@@ -64,16 +64,12 @@ function loadConfigFromPath(configPath: string): PluginConfig | null {
  * @param basePath - Base path without extension (e.g., /path/to/miya)
  * @returns Path to existing config file, or null if neither exists
  */
-function findConfigPath(basePath: string): string | null {
-  const jsoncPath = `${basePath}.jsonc`;
-  const jsonPath = `${basePath}.json`;
-
-  // Prefer .jsonc over .json
-  if (fs.existsSync(jsoncPath)) {
-    return jsoncPath;
-  }
-  if (fs.existsSync(jsonPath)) {
-    return jsonPath;
+function loadConfigWithFallback(basePath: string): PluginConfig | null {
+  const candidates = [`${basePath}.jsonc`, `${basePath}.json`];
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    const loaded = loadConfigFromPath(candidate);
+    if (loaded) return loaded;
   }
   return null;
 }
@@ -141,19 +137,10 @@ export function loadPluginConfig(directory: string): PluginConfig {
   const projectConfigBase = path.join(directory, '.opencode', CONFIG_BASE_NAME);
   const projectRootConfigBase = path.join(directory, CONFIG_BASE_NAME);
 
-  // Find existing config files, preferring .jsonc over .json.
-  const userConfigPath = findConfigPath(userConfigBase);
-  const projectConfigPath = findConfigPath(projectConfigBase);
-  const projectRootConfigPath = findConfigPath(projectRootConfigBase);
-
-  let config: PluginConfig = userConfigPath
-    ? (loadConfigFromPath(userConfigPath) ?? {})
-    : {};
+  let config: PluginConfig = loadConfigWithFallback(userConfigBase) ?? {};
 
   // Merge project root config if exists (intermediate layer)
-  const projectRootConfig = projectRootConfigPath
-    ? loadConfigFromPath(projectRootConfigPath)
-    : null;
+  const projectRootConfig = loadConfigWithFallback(projectRootConfigBase);
 
   if (projectRootConfig) {
     config = {
@@ -169,9 +156,7 @@ export function loadPluginConfig(directory: string): PluginConfig {
     };
   }
 
-  const projectConfig = projectConfigPath
-    ? loadConfigFromPath(projectConfigPath)
-    : null;
+  const projectConfig = loadConfigWithFallback(projectConfigBase);
   if (projectConfig) {
     config = {
       ...config,
@@ -187,7 +172,9 @@ export function loadPluginConfig(directory: string): PluginConfig {
   }
 
   // Override preset from environment variable if set
-  const envPreset = process.env.MIYA_PRESET;
+  const envPresetRaw = process.env.MIYA_PRESET;
+  const envPreset =
+    typeof envPresetRaw === 'string' ? envPresetRaw.trim() : '';
   if (envPreset) {
     config.preset = envPreset;
   }

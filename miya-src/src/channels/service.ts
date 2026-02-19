@@ -228,6 +228,16 @@ function parsePositiveIntEnv(name: string, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function normalizePolicyInt(
+  value: unknown,
+  fallback: number,
+  min: number,
+): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.floor(parsed));
+}
+
 const INPUT_MUTEX_TIMEOUT_MS = parsePositiveIntEnv(
   'MIYA_INPUT_MUTEX_TIMEOUT_MS',
   20_000,
@@ -427,7 +437,24 @@ export function listOutboundAudit(
     .filter(Boolean)
     .map((line) => {
       try {
-        return JSON.parse(line) as ChannelOutboundAudit;
+        const parsed = JSON.parse(line) as ChannelOutboundAudit;
+        const bundle = parsed.evidenceBundle;
+        if (
+          bundle &&
+          bundle.kind === 'desktop_outbound' &&
+          typeof (bundle as { version?: unknown }).version === 'string'
+        ) {
+          const normalizedVersion = (bundle as { version: string }).version
+            .trim()
+            .toLowerCase();
+          if (normalizedVersion === 'v5') {
+            parsed.evidenceBundle = {
+              ...bundle,
+              version: 'v5',
+            };
+          }
+        }
+        return parsed;
       } catch {
         return null;
       }
@@ -985,15 +1012,17 @@ export class ChannelRuntime {
     const now = Date.now();
     const key = `${channel}:${destination}`;
     const policy = readPolicy(this.projectDir);
-    const windowMs = Math.max(
-      1000,
-      Number(policy.outbound.burstWindowMs || 60000),
+    const windowMs = normalizePolicyInt(
+      policy.outbound.burstWindowMs,
+      60_000,
+      1_000,
     );
-    const minIntervalMs = Math.max(
+    const minIntervalMs = normalizePolicyInt(
+      policy.outbound.minIntervalMs,
+      4_000,
       500,
-      Number(policy.outbound.minIntervalMs || 4000),
     );
-    const burstLimit = Math.max(1, Number(policy.outbound.burstLimit || 3));
+    const burstLimit = normalizePolicyInt(policy.outbound.burstLimit, 3, 1);
     const list = (this.outboundThrottle.get(key) ?? []).filter(
       (ts) => now - ts <= windowMs,
     );
@@ -1017,9 +1046,10 @@ export class ChannelRuntime {
   ): string | null {
     const now = Date.now();
     const policy = readPolicy(this.projectDir);
-    const duplicateWindowMs = Math.max(
-      1000,
-      Number(policy.outbound.duplicateWindowMs || 60000),
+    const duplicateWindowMs = normalizePolicyInt(
+      policy.outbound.duplicateWindowMs,
+      60_000,
+      1_000,
     );
     const key = `${channel}:${destination}`;
     const payloadHash = createHash('sha256')
@@ -1039,7 +1069,9 @@ export class ChannelRuntime {
     return `duplicate_payload_within_${duplicateWindowMs}ms`;
   }
 
-  private isDesktopChannel(channel: ChannelName): boolean {
+  private isDesktopChannel(
+    channel: ChannelName,
+  ): channel is 'qq' | 'wechat' {
     return channel === 'qq' || channel === 'wechat';
   }
 
@@ -1115,14 +1147,41 @@ export class ChannelRuntime {
       return { issue: 'approval_ticket_missing' };
     }
 
-    const outboundTrace = tickets.outboundSend.traceID.trim();
-    const desktopTrace = tickets.desktopControl.traceID.trim();
+    const outboundRaw =
+      tickets && typeof tickets === 'object'
+        ? (tickets as { outboundSend?: unknown }).outboundSend
+        : undefined;
+    const desktopRaw =
+      tickets && typeof tickets === 'object'
+        ? (tickets as { desktopControl?: unknown }).desktopControl
+        : undefined;
+    if (
+      !outboundRaw ||
+      typeof outboundRaw !== 'object' ||
+      !desktopRaw ||
+      typeof desktopRaw !== 'object'
+    ) {
+      return { issue: 'approval_ticket_missing' };
+    }
+
+    const outboundTrace =
+      typeof (outboundRaw as { traceID?: unknown }).traceID === 'string'
+        ? (outboundRaw as { traceID: string }).traceID.trim()
+        : '';
+    const desktopTrace =
+      typeof (desktopRaw as { traceID?: unknown }).traceID === 'string'
+        ? (desktopRaw as { traceID: string }).traceID.trim()
+        : '';
     if (!outboundTrace || !desktopTrace) {
       return { issue: 'approval_ticket_trace_missing' };
     }
 
-    const outboundExpiry = Date.parse(tickets.outboundSend.expiresAt);
-    const desktopExpiry = Date.parse(tickets.desktopControl.expiresAt);
+    const outboundExpiry = Date.parse(
+      String((outboundRaw as { expiresAt?: unknown }).expiresAt ?? ''),
+    );
+    const desktopExpiry = Date.parse(
+      String((desktopRaw as { expiresAt?: unknown }).expiresAt ?? ''),
+    );
     if (!Number.isFinite(outboundExpiry) || !Number.isFinite(desktopExpiry)) {
       return { issue: 'approval_ticket_expiry_invalid' };
     }
@@ -1276,6 +1335,23 @@ export class ChannelRuntime {
           ? approvalTicketValidation.summary
           : undefined
         : undefined;
+    const allowedOutboundChannels = readPolicy(this.projectDir).outbound
+      .allowedChannels;
+    if (input.channel === 'qq' || input.channel === 'wechat') {
+      const outboundChannel = input.channel;
+      if (!allowedOutboundChannels.includes(outboundChannel)) {
+        const audit = this.recordOutboundAttempt({
+          channel: outboundChannel,
+          destination: input.destination,
+          textPreview: text.slice(0, 200),
+          sent: false,
+          message: `outbound_blocked:channel_not_allowed_by_policy:${outboundChannel}`,
+          reason: 'channel_blocked',
+          payloadHash,
+        });
+        return { sent: false, message: audit.message, auditID: audit.id };
+      }
+    }
     if (!archAdvisorApproved) {
       const audit = this.recordOutboundAttempt({
         channel: input.channel,
