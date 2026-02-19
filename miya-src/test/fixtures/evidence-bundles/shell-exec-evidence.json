@@ -1,0 +1,22 @@
+{
+  "version": "V5",
+  "auditId": "audit-shell-exec-001",
+  "policyHash": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "capabilityDomain": "shell_exec",
+  "timestamp": 1704153600000,
+  "semanticSummary": {
+    "reason": "user_request",
+    "keyAssertions": [
+      "User requested test execution",
+      "Command executed successfully",
+      "All tests passed"
+    ],
+    "operatorNextSteps": "Review test output for any warnings"
+  },
+  "command": "bun test",
+  "stdout": "✓ test/unit/config.test.ts (5 tests passed)\n✓ test/utils/test-helpers.test.ts (12 tests passed)\n\nTotal: 17 tests passed\nTime: 1.23s",
+  "stderr": "",
+  "exitCode": 0,
+  "workingDirectory": "/workspace",
+  "duration": 1230
+}

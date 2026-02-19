@@ -121,8 +121,7 @@ function normalizeDataset(
 export function loadMemoryRecallDataset(
   datasetPath?: string,
 ): MemoryRecallDataset {
-  const file =
-    datasetPath && datasetPath.trim() ? datasetPath : DEFAULT_DATASET_PATH;
+  const file = datasetPath?.trim() ? datasetPath : DEFAULT_DATASET_PATH;
   if (!fs.existsSync(file)) {
     throw new Error(`dataset_not_found:${file}`);
   }

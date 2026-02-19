@@ -390,7 +390,7 @@ const server = Bun.serve({
             urgency,
             channel:
               typeof params.channel === 'string' ? params.channel : undefined,
-            userInitiated: params.userInitiated === false ? false : true,
+            userInitiated: params.userInitiated !== false,
             allowScreenProbe:
               typeof params.allowScreenProbe === 'boolean'
                 ? Boolean(params.allowScreenProbe)
@@ -604,7 +604,7 @@ const server = Bun.serve({
                     : 'medium',
             channel:
               typeof params.channel === 'string' ? params.channel : undefined,
-            userInitiated: params.userInitiated === false ? false : true,
+            userInitiated: params.userInitiated !== false,
             state:
               params.state === 'FOCUS' ||
               params.state === 'CONSUME' ||

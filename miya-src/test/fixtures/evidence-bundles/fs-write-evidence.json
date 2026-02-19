@@ -1,0 +1,20 @@
+{
+  "version": "V5",
+  "auditId": "audit-fs-write-001",
+  "policyHash": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "capabilityDomain": "fs_write",
+  "timestamp": 1704153600000,
+  "semanticSummary": {
+    "reason": "user_request",
+    "keyAssertions": [
+      "User requested file modification",
+      "File write was approved by user",
+      "Git diff captured successfully"
+    ],
+    "operatorNextSteps": "Review the git diff to verify changes are correct"
+  },
+  "gitDiff": "--- a/src/config.ts\n+++ b/src/config.ts\n@@ -10,7 +10,7 @@\n export const config = {\n-  vramBudget: 2048,\n+  vramBudget: 4096,\n   port: 3000,\n };\n",
+  "filePath": "/workspace/src/config.ts",
+  "fileSize": 1024,
+  "operation": "modify"
+}

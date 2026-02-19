@@ -26,13 +26,14 @@ function ensureReportDir(cwd: string): string {
 async function main(): Promise<void> {
   const startedAt = nowIso();
   const startedMs = Date.now();
-  const command = ['bun', 'test', '--max-concurrency=1', 'src/integration'];
+  const command = ['bun', 'test', '--max-concurrency=1', '--timeout', '30000', 'test/integration'];
   const proc = Bun.spawn({
     cmd: command,
     cwd: process.cwd(),
     env: {
       ...process.env,
       MIYA_RUN_INTEGRATION: '1',
+      MIYA_MULTIMODAL_TEST_MODE: process.env.MIYA_MULTIMODAL_TEST_MODE ?? '1',
     },
     stdout: 'pipe',
     stderr: 'pipe',

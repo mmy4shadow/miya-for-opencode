@@ -4931,7 +4931,7 @@ async function routeSessionMessage(
       contextPipeline: {
         lowConfidenceSafeFallback,
         personaWorldPromptInjected,
-        learningInjected: Boolean(learning.snippet && learning.snippet.trim()),
+        learningInjected: Boolean(learning.snippet?.trim()),
         retryDeltaApplied: payloadPlan.retryDeltaApplied,
         hardCapApplied: payloadPlan.hardCapped,
       },
@@ -5452,7 +5452,7 @@ function renderWebChatHtml(): string {
 </html>`;
 }
 
-function formatGatewayState(state: GatewayState): string {
+function _formatGatewayState(state: GatewayState): string {
   return formatGatewayStateWithRuntime(
     state,
     undefined,
@@ -6601,8 +6601,7 @@ function createMethods(
                 .slice(0, 32)
             : undefined,
         psycheSignals:
-          outboundCheckRaw &&
-          outboundCheckRaw.psycheSignals &&
+          outboundCheckRaw?.psycheSignals &&
           typeof outboundCheckRaw.psycheSignals === 'object' &&
           !Array.isArray(outboundCheckRaw.psycheSignals)
             ? (outboundCheckRaw.psycheSignals as GuardedOutboundCheckInput['psycheSignals'])
@@ -9323,8 +9322,8 @@ function createMethods(
   return methods;
 }
 
-async function handleWebhook(
-  projectDir: string,
+async function _handleWebhook(
+  _projectDir: string,
   runtime: GatewayRuntime,
   pathname: string,
   request: Request,

@@ -1,0 +1,29 @@
+{
+  "version": "V5",
+  "auditId": "audit-desktop-ctrl-001",
+  "policyHash": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "capabilityDomain": "desktop_control",
+  "timestamp": 1704153600000,
+  "semanticSummary": {
+    "reason": "user_request",
+    "keyAssertions": [
+      "User requested QQ message send",
+      "Recipient verified against allowlist",
+      "Message sent successfully with confirmation"
+    ],
+    "operatorNextSteps": "Verify message was received by checking screenshots"
+  },
+  "screenshots": {
+    "before": "/tmp/screenshots/before-1704153600000.png",
+    "after": "/tmp/screenshots/after-1704153605000.png"
+  },
+  "action": "send_message",
+  "target": "QQ",
+  "recipient": "friend@example.com",
+  "recipientTier": "friend",
+  "windowTitle": "QQ - Friend",
+  "uiaMethod": "SendKeys",
+  "fallbackUsed": false,
+  "humanMutexWait": 0,
+  "duration": 5000
+}

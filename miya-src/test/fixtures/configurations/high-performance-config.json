@@ -1,0 +1,77 @@
+{
+  "version": "0.7.0",
+  "gateway": {
+    "port": 3000,
+    "maxInFlight": 20,
+    "maxQueue": 200,
+    "timeout": 60000,
+    "heartbeatInterval": 1000,
+    "auth": {
+      "enabled": true,
+      "tokenExpiry": 7200000
+    }
+  },
+  "daemon": {
+    "autoStart": true,
+    "heartbeatInterval": 5000,
+    "reconnectBackoff": [500, 1000, 2000, 4000, 8000],
+    "suicideTimer": 30000,
+    "logLevel": "debug"
+  },
+  "resources": {
+    "vramBudget": 16384,
+    "tempImageLimit": 51200,
+    "tempVoiceRetention": 14,
+    "modelCache": {
+      "maxSize": 20480,
+      "strategy": "lru",
+      "preload": ["flux-schnell", "whisper-base"]
+    }
+  },
+  "training": {
+    "defaultPreset": 0.8,
+    "checkpointInterval": {
+      "flux": 25,
+      "gptsovits": 50
+    },
+    "minCheckpointInterval": 120000,
+    "oomStrategy": "downgrade",
+    "idleWindowMinutes": 2,
+    "parallelJobs": 2
+  },
+  "desktop": {
+    "humanMutexTimeout": 30000,
+    "cooldownPeriod": 600000,
+    "maxRetries": 5,
+    "coordinateCache": {
+      "enabled": true,
+      "ttl": 7200000,
+      "pixelFingerprint": true
+    }
+  },
+  "memory": {
+    "decayLambda": {
+      "episodic": 0.05,
+      "semantic": 0.005,
+      "work": 0.02,
+      "relationship": 0.01
+    },
+    "reflectionWorker": {
+      "enabled": true,
+      "batchSize": 20,
+      "interval": 1800000
+    },
+    "dualRecall": {
+      "enabled": true,
+      "semanticWeight": 0.7,
+      "lexicalWeight": 0.3
+    }
+  },
+  "persona": {
+    "enabled": true,
+    "mode": "auto",
+    "wakeWords": ["嘿", "在吗", "帮个忙", "小助手"],
+    "toneRewriter": true,
+    "contextWindow": 50
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "policyHash": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "riskTiers": {
+    "LIGHT": {
+      "silentThreshold": 3600000,
+      "evidenceRequired": false,
+      "approvalRequired": false
+    },
+    "STANDARD": {
+      "silentThreshold": 900000,
+      "evidenceRequired": true,
+      "approvalRequired": true
+    },
+    "THOROUGH": {
+      "silentThreshold": 0,
+      "evidenceRequired": true,
+      "approvalRequired": true
+    }
+  },
+  "allowlist": {
+    "recipients": [
+      {
+        "id": "owner@example.com",
+        "tier": "owner",
+        "name": "Owner"
+      },
+      {
+        "id": "friend@example.com",
+        "tier": "friend",
+        "name": "Friend"
+      },
+      {
+        "id": "colleague@example.com",
+        "tier": "colleague",
+        "name": "Colleague"
+      }
+    ]
+  },
+  "capabilities": {
+    "outbound_send": {
+      "enabled": true,
+      "channels": ["qq", "wechat"]
+    },
+    "desktop_control": {
+      "enabled": true,
+      "humanMutexTimeout": 20000
+    },
+    "memory_write": {
+      "enabled": true,
+      "crossDomainApproval": true
+    },
+    "training": {
+      "enabled": true,
+      "vramBudget": 4096
+    }
+  }
+}

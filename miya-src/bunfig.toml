@@ -1,0 +1,27 @@
+# Bun Configuration for Miya Plugin
+# https://bun.sh/docs/runtime/bunfig
+
+[test]
+# Test runner configuration
+preload = ["./test/config/test.config.ts"]
+
+# Coverage configuration (disabled by default, enable with --coverage flag)
+coverage = false
+coverageThreshold = 70.0
+coverageSkipTestFiles = true
+
+# Test execution
+bail = 0  # Don't stop on first failure (set to 1 for fail-fast)
+timeout = 30000  # 30 seconds default timeout
+
+# Test file patterns
+testNamePattern = ""
+testPathPattern = ""
+
+[install]
+# Package installation configuration
+cache = true
+registry = "https://registry.npmjs.org/"
+
+[install.scopes]
+# Scoped package registries (if needed)

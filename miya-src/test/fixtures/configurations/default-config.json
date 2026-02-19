@@ -1,0 +1,68 @@
+{
+  "version": "0.7.0",
+  "gateway": {
+    "port": 3000,
+    "maxInFlight": 10,
+    "maxQueue": 100,
+    "timeout": 30000,
+    "heartbeatInterval": 2500,
+    "auth": {
+      "enabled": true,
+      "tokenExpiry": 3600000
+    }
+  },
+  "daemon": {
+    "autoStart": true,
+    "heartbeatInterval": 10000,
+    "reconnectBackoff": [1000, 2000, 4000, 8000, 16000],
+    "suicideTimer": 60000,
+    "logLevel": "info"
+  },
+  "resources": {
+    "vramBudget": 4096,
+    "tempImageLimit": 20480,
+    "tempVoiceRetention": 7,
+    "modelCache": {
+      "maxSize": 10240,
+      "strategy": "lru"
+    }
+  },
+  "training": {
+    "defaultPreset": 0.5,
+    "checkpointInterval": {
+      "flux": 50,
+      "gptsovits": 100
+    },
+    "minCheckpointInterval": 300000,
+    "oomStrategy": "downgrade",
+    "idleWindowMinutes": 5
+  },
+  "desktop": {
+    "humanMutexTimeout": 20000,
+    "cooldownPeriod": 900000,
+    "maxRetries": 3,
+    "coordinateCache": {
+      "enabled": true,
+      "ttl": 3600000
+    }
+  },
+  "memory": {
+    "decayLambda": {
+      "episodic": 0.1,
+      "semantic": 0.01,
+      "work": 0.05,
+      "relationship": 0.02
+    },
+    "reflectionWorker": {
+      "enabled": true,
+      "batchSize": 10,
+      "interval": 3600000
+    }
+  },
+  "persona": {
+    "enabled": true,
+    "mode": "auto",
+    "wakeWords": ["嘿", "在吗", "帮个忙"],
+    "toneRewriter": true
+  }
+}

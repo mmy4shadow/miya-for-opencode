@@ -69,7 +69,7 @@ export function saveSoulMarkdown(
   markdown: string,
 ): SoulProfile {
   const file = ensureSoulFile(projectDir);
-  fs.writeFileSync(file, markdown.trimEnd() + '\n', 'utf-8');
+  fs.writeFileSync(file, `${markdown.trimEnd()}\n`, 'utf-8');
   return loadSoulProfile(projectDir);
 }
 

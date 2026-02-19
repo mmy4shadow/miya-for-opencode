@@ -1,0 +1,32 @@
+{
+  "version": "V5",
+  "auditId": "audit-outbound-send-001",
+  "policyHash": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "capabilityDomain": "outbound_send",
+  "timestamp": 1704153600000,
+  "semanticSummary": {
+    "reason": "user_request",
+    "keyAssertions": [
+      "Recipient verified against allowlist",
+      "Three-factor decision fusion passed (content: 0.92, recipient: owner, intent: 0.88)",
+      "Message sent successfully"
+    ],
+    "operatorNextSteps": "No action required - send completed successfully"
+  },
+  "recipient": "owner@example.com",
+  "recipientTier": "owner",
+  "message": "Test message for audit verification",
+  "channel": "qq",
+  "sendFingerprint": "abc123def456ghi789jkl012mno345pq",
+  "decisionFactors": {
+    "contentScore": 0.92,
+    "recipientTier": "owner",
+    "intentConfidence": 0.88
+  },
+  "rateLimit": {
+    "currentCount": 1,
+    "windowStart": 1704153600000,
+    "windowEnd": 1704157200000
+  },
+  "sendConfirmation": true
+}

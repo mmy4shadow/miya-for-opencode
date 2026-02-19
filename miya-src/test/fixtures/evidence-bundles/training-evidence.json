@@ -1,0 +1,29 @@
+{
+  "version": "V5",
+  "auditId": "audit-training-001",
+  "policyHash": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "capabilityDomain": "training",
+  "timestamp": 1704153600000,
+  "semanticSummary": {
+    "reason": "scheduled_task",
+    "keyAssertions": [
+      "Training started during idle window",
+      "VRAM budget enforced (4096MB)",
+      "Training completed successfully with checkpoint"
+    ],
+    "operatorNextSteps": "Model checkpoint saved and ready for inference"
+  },
+  "model": "flux-schnell",
+  "preset": 0.5,
+  "vramBudget": 4096,
+  "vramUsed": 3840,
+  "steps": 100,
+  "checkpointPath": "/workspace/.opencode/miya/checkpoints/flux-schnell-20240101.pth",
+  "trainingData": {
+    "imageCount": 50,
+    "totalSize": 102400
+  },
+  "duration": 1800000,
+  "interrupted": false,
+  "oomDetected": false
+}

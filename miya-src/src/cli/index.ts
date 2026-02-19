@@ -965,7 +965,7 @@ async function runSubcommand(
 function readFlagValue(args: string[], key: string): string | undefined {
   const direct = args.find((item) => item.startsWith(`${key}=`));
   if (direct) return direct.slice(key.length + 1);
-  const index = args.findIndex((item) => item === key);
+  const index = args.indexOf(key);
   if (index >= 0 && index < args.length - 1) {
     return args[index + 1];
   }

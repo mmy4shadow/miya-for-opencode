@@ -1,0 +1,33 @@
+{
+  "version": "0.7.0",
+  "gateway": {
+    "port": 3000,
+    "maxInFlight": 5,
+    "maxQueue": 50,
+    "timeout": 30000
+  },
+  "daemon": {
+    "autoStart": true,
+    "heartbeatInterval": 10000,
+    "reconnectBackoff": [1000, 2000, 4000],
+    "suicideTimer": 60000
+  },
+  "resources": {
+    "vramBudget": 2048,
+    "tempImageLimit": 10240,
+    "tempVoiceRetention": 3
+  },
+  "training": {
+    "defaultPreset": 0.3,
+    "checkpointInterval": {
+      "flux": 100,
+      "gptsovits": 200
+    },
+    "minCheckpointInterval": 600000
+  },
+  "desktop": {
+    "humanMutexTimeout": 20000,
+    "cooldownPeriod": 900000,
+    "maxRetries": 3
+  }
+}

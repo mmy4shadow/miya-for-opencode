@@ -1,0 +1,20 @@
+{
+  "id": "mem-epi-001",
+  "content": "Successfully completed image generation task for project presentation on 2024-01-01",
+  "domain": "episodic_memory",
+  "status": "reflected",
+  "createdAt": 1704067200000,
+  "lastAccessed": 1704153600000,
+  "accessCount": 3,
+  "decayWeight": 0.75,
+  "source": {
+    "type": "task_completion",
+    "taskId": "task-img-gen-001"
+  },
+  "tags": ["image-generation", "project", "success"],
+  "metadata": {
+    "taskType": "image_generation",
+    "outcome": "success"
+  },
+  "embedding": null
+}

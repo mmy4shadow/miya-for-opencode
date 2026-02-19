@@ -1,0 +1,7 @@
+# Performance Baselines Directory
+
+This directory contains performance baseline data for the Miya plugin audit and testing system.
+
+## Files
+
+- `benchmarks.json` - Performance benchmark baseline data

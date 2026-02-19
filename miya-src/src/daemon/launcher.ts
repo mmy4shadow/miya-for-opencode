@@ -10,7 +10,6 @@ import {
   DaemonHelloFrameSchema,
   DaemonPingFrameSchema,
   DaemonRequestFrameSchema,
-  DaemonResponseFrameSchema,
   parseDaemonOutgoingFrame,
 } from './ws-protocol';
 
@@ -386,7 +385,7 @@ function resolveBunBinary(): string | null {
     const byBun = Bun.which('bun');
     if (byBun) {
       if (byBun.toLowerCase().endsWith('.cmd')) {
-        const exeCandidate = byBun.slice(0, -4) + '.exe';
+        const exeCandidate = `${byBun.slice(0, -4)}.exe`;
         if (fs.existsSync(exeCandidate)) return exeCandidate;
       }
       return byBun;

@@ -1,5 +1,4 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -1261,10 +1260,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
         existingBinding && existingBinding.sourceTool === sourceTool,
       );
       const bundleId =
-        providedBundleID || (canUseBinding ? existingBinding!.bundleId : '');
+        providedBundleID || (canUseBinding ? existingBinding?.bundleId : '');
       const policyHash =
         providedPolicyHash ||
-        (canUseBinding ? existingBinding!.policyHash : '');
+        (canUseBinding ? existingBinding?.policyHash : '');
       if (!bundleId || !policyHash) {
         throw new Error(
           'miya_plan_bundle_required:autonomous_run_requires_plan_bundle_id_and_policy_hash',
@@ -1272,7 +1271,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
       }
       const riskTier =
         providedRiskTier ||
-        (canUseBinding ? existingBinding!.riskTier : 'THOROUGH');
+        (canUseBinding ? existingBinding?.riskTier : 'THOROUGH');
       const normalizedArgs = {
         ...argObject,
         plan_bundle_id: bundleId,

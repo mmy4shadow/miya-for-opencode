@@ -1,0 +1,16 @@
+{
+  "id": "mem-work-001",
+  "content": "User prefers TypeScript for all new projects and follows strict type safety guidelines",
+  "domain": "work_memory",
+  "status": "active",
+  "createdAt": 1704067200000,
+  "lastAccessed": 1704153600000,
+  "accessCount": 15,
+  "decayWeight": 0.95,
+  "source": {
+    "type": "user_input",
+    "messageId": "msg-abc123def456"
+  },
+  "tags": ["preferences", "coding-style", "typescript"],
+  "embedding": null
+}

@@ -90,7 +90,7 @@ function isLegacyAutostartCommand(command: string): boolean {
     return true;
   }
   if (
-    /--workspace\s+['"][^'"]*[\\\/]\.opencode[\\\/]miya-src['"]/i.test(command)
+    /--workspace\s+['"][^'"]*[\\/]\.opencode[\\/]miya-src['"]/i.test(command)
   ) {
     return true;
   }

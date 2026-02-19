@@ -19,9 +19,36 @@ interface SqliteBackend {
 
 let cachedBackend: SqliteBackend | null | undefined;
 
+interface BunSqliteStatementLike {
+  run: (...args: unknown[]) => unknown;
+  get: (...args: unknown[]) => unknown;
+  all: (...args: unknown[]) => unknown[];
+}
+
+interface BunSqliteDatabaseLike {
+  exec: (sql: string) => void;
+  query: (sql: string) => BunSqliteStatementLike;
+  transaction: (callback: () => void) => () => void;
+  close: () => void;
+}
+
+interface NodeSqlitePreparedLike {
+  run: (...args: unknown[]) => unknown;
+  get: (...args: unknown[]) => unknown;
+  all: (...args: unknown[]) => unknown[];
+}
+
+interface NodeSqliteDatabaseLike {
+  exec: (sql: string) => void;
+  prepare: (sql: string) => NodeSqlitePreparedLike;
+  close: () => void;
+}
+
 function resolveBunBackend(require: NodeRequire): SqliteBackend | null {
   try {
-    const mod = require('bun:sqlite') as { Database?: new (file: string) => any };
+    const mod = require('bun:sqlite') as {
+      Database?: new (file: string) => BunSqliteDatabaseLike;
+    };
     const BunDatabase = mod?.Database;
     if (typeof BunDatabase !== 'function') return null;
     return {
@@ -56,7 +83,7 @@ function resolveBunBackend(require: NodeRequire): SqliteBackend | null {
 function resolveNodeBackend(require: NodeRequire): SqliteBackend | null {
   try {
     const mod = require('node:sqlite') as {
-      DatabaseSync?: new (file: string) => any;
+      DatabaseSync?: new (file: string) => NodeSqliteDatabaseLike;
     };
     const DatabaseSync = mod?.DatabaseSync;
     if (typeof DatabaseSync !== 'function') return null;

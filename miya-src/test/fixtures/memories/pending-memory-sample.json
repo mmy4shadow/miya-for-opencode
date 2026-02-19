@@ -1,0 +1,17 @@
+{
+  "id": "mem-pend-001",
+  "content": "User mentioned interest in learning about GPT-SoVITS voice cloning capabilities",
+  "domain": "work_memory",
+  "status": "pending",
+  "createdAt": 1704153600000,
+  "lastAccessed": 1704153600000,
+  "accessCount": 1,
+  "decayWeight": 1.0,
+  "source": {
+    "type": "user_input",
+    "messageId": "msg-recent-001"
+  },
+  "tags": ["learning", "voice-cloning", "gptsovits"],
+  "approvalRequired": true,
+  "embedding": null
+}

@@ -1,0 +1,26 @@
+{
+  "version": "V5",
+  "auditId": "audit-memory-write-001",
+  "policyHash": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+  "capabilityDomain": "memory_write",
+  "timestamp": 1704153600000,
+  "semanticSummary": {
+    "reason": "user_request",
+    "keyAssertions": [
+      "User approved memory write",
+      "Cross-domain write approved (work_memory → relationship_memory)",
+      "Memory stored successfully"
+    ],
+    "operatorNextSteps": "Memory is now active and will be used in future retrievals"
+  },
+  "memoryId": "mem-cross-domain-001",
+  "domain": "relationship_memory",
+  "content": "User prefers formal communication with colleagues but casual with friends",
+  "sourceDomain": "work_memory",
+  "crossDomainApproval": true,
+  "conflictDetected": false,
+  "embedding": {
+    "model": "text-embedding-ada-002",
+    "dimensions": 384
+  }
+}

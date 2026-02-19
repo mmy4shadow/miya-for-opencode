@@ -1,0 +1,10 @@
+# Test Fixtures Directory
+
+This directory contains test fixtures and data for the Miya plugin audit and testing system.
+
+## Structure
+
+- `policies/` - Sample policy files for testing
+- `memories/` - Sample memory data for testing
+- `evidence-bundles/` - Sample evidence bundles for testing
+- `configurations/` - Sample configuration files for testing

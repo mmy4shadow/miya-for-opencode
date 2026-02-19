@@ -1,0 +1,20 @@
+{
+  "id": "mem-rel-001",
+  "content": "Friend Alice prefers casual communication style and enjoys discussing AI topics",
+  "domain": "relationship_memory",
+  "status": "active",
+  "createdAt": 1703980800000,
+  "lastAccessed": 1704153600000,
+  "accessCount": 8,
+  "decayWeight": 0.88,
+  "source": {
+    "type": "conversation",
+    "messageId": "msg-xyz789ghi012"
+  },
+  "tags": ["alice", "communication-style", "interests"],
+  "metadata": {
+    "recipientId": "friend@example.com",
+    "recipientTier": "friend"
+  },
+  "embedding": null
+}

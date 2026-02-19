@@ -58,7 +58,7 @@ function readStore(projectDir: string): RouteHistoryStore {
 function writeStore(projectDir: string, store: RouteHistoryStore): void {
   const file = filePath(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(store, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -115,7 +115,7 @@ export function writeRouteLearningWeights(
   const next = sanitizeWeights({ ...current, ...patch });
   const file = weightFilePath(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(next, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
   return next;
 }
 

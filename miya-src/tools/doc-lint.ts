@@ -230,12 +230,17 @@ if (existsSync(manifestPath)) {
     string,
     unknown
   >;
-  for (const key of ['name', 'version', 'description']) {
-    if (!manifest[key]) {
-      violations.push({
-        code: 'manifest.field',
-        message: `opencode.json missing field: ${key}`,
-      });
+  const schema =
+    typeof manifest.$schema === 'string' ? manifest.$schema : undefined;
+  const isConfigSchema = schema?.includes('config.json') ?? false;
+  if (!isConfigSchema) {
+    for (const key of ['name', 'version', 'description']) {
+      if (!manifest[key]) {
+        violations.push({
+          code: 'manifest.field',
+          message: `opencode.json missing field: ${key}`,
+        });
+      }
     }
   }
 }
