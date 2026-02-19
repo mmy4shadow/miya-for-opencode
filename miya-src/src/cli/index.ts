@@ -272,14 +272,15 @@ function killPid(pid: number): void {
 }
 
 function resolveNodeBin(): string {
-  const nodeBin = String(process.env.MIYA_GATEWAY_NODE_BIN ?? 'node').trim();
+  const rawNodeBin = String(process.env.MIYA_GATEWAY_NODE_BIN ?? 'node').trim();
+  const nodeBin = rawNodeBin.replace(/^["']+|["']+$/g, '') || 'node';
   const probe = spawnSync(nodeBin, ['--version'], {
     stdio: 'ignore',
     windowsHide: true,
   });
   if (probe.error || probe.status !== 0) {
     throw new Error(
-      `node_runtime_unavailable:${nodeBin} (set MIYA_GATEWAY_NODE_BIN or install Node.js)`,
+      `node_runtime_unavailable:${nodeBin} (raw=${rawNodeBin}; set MIYA_GATEWAY_NODE_BIN or install Node.js)`,
     );
   }
   return nodeBin;

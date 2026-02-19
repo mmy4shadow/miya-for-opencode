@@ -218,7 +218,7 @@ if ($gateway -and $gateway.url) {
   } catch {
     $gatewayPid = 0
   }
-  $pidAlive = Test-PidAlive -Pid $gatewayPid
+  $pidAlive = Test-PidAlive -ProcessId $gatewayPid
   if (-not $pidAlive) {
     Write-Host "[miya-dock] stale gateway.json detected (pid=$($gateway.pid) not alive), removing stale state."
     Remove-Item -LiteralPath $GatewayFile -Force -ErrorAction SilentlyContinue

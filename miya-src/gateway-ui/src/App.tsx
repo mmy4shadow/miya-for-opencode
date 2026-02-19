@@ -18,9 +18,15 @@ interface PsycheModeConfig {
   resonanceEnabled: boolean;
   captureProbeEnabled: boolean;
   signalOverrideEnabled?: boolean;
+  playCompanionEnabled?: boolean;
+  proactivityExploreRate?: number;
   slowBrainEnabled?: boolean;
   slowBrainShadowEnabled?: boolean;
   slowBrainShadowRollout?: number;
+  periodicRetrainEnabled?: boolean;
+  periodicRetrainIntervalHours?: number;
+  periodicRetrainMinOutcomes?: number;
+  shadowCohortSalt?: string;
   proactivePingEnabled?: boolean;
   proactivePingMinIntervalMinutes?: number;
   proactivePingMaxPerDay?: number;
@@ -591,12 +597,23 @@ export default function App() {
   const [psycheModeForm, setPsycheModeForm] = useState<PsycheModeConfig>({
     resonanceEnabled: true,
     captureProbeEnabled: true,
+    signalOverrideEnabled: false,
+    playCompanionEnabled: false,
+    proactivityExploreRate: 0.05,
+    slowBrainEnabled: true,
+    slowBrainShadowEnabled: true,
+    slowBrainShadowRollout: 15,
+    periodicRetrainEnabled: false,
+    periodicRetrainIntervalHours: 168,
+    periodicRetrainMinOutcomes: 10000,
+    shadowCohortSalt: 'miya-psyche-shadow-v1',
     proactivePingEnabled: true,
     proactivePingMinIntervalMinutes: 90,
     proactivePingMaxPerDay: 12,
     quietHoursEnabled: true,
     quietHoursStart: '23:00',
     quietHoursEnd: '08:00',
+    quietHoursTimezoneOffsetMinutes: -new Date().getTimezoneOffset(),
   });
 
   useEffect(() => {
@@ -2011,6 +2028,71 @@ export default function App() {
                     />
                   </label>
                   <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>信号覆盖调试（signal_override）</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(psycheModeForm.signalOverrideEnabled)}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          signalOverrideEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>游戏陪伴（play_companion）</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(psycheModeForm.playCompanionEnabled)}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          playCompanionEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>慢脑决策（slow_brain）</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(psycheModeForm.slowBrainEnabled)}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          slowBrainEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>Shadow 对照（slow_brain_shadow）</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(psycheModeForm.slowBrainShadowEnabled)}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          slowBrainShadowEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <span>周期重训（periodic_retrain）</span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(psycheModeForm.periodicRetrainEnabled)}
+                      onChange={(event) =>
+                        setPsycheModeForm((prev) => ({
+                          ...prev,
+                          periodicRetrainEnabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
                     <span>主动问候（proactive_ping）</span>
                     <input
                       type="checkbox"
@@ -2037,6 +2119,89 @@ export default function App() {
                     />
                   </label>
                   <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>探索率 ε（0-1）</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={psycheModeForm.proactivityExploreRate ?? 0.05}
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            proactivityExploreRate: Number(event.target.value),
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>Shadow rollout（%）</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={psycheModeForm.slowBrainShadowRollout ?? 15}
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            slowBrainShadowRollout: Number(event.target.value),
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>重训间隔（小时）</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={24 * 90}
+                        value={psycheModeForm.periodicRetrainIntervalHours ?? 168}
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            periodicRetrainIntervalHours: Number(
+                              event.target.value,
+                            ),
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>重训最小样本</span>
+                      <input
+                        type="number"
+                        min={100}
+                        max={1000000}
+                        value={psycheModeForm.periodicRetrainMinOutcomes ?? 10000}
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            periodicRetrainMinOutcomes: Number(
+                              event.target.value,
+                            ),
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="col-span-2 flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>Shadow 分桶盐值</span>
+                      <input
+                        type="text"
+                        value={psycheModeForm.shadowCohortSalt ?? ''}
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            shadowCohortSalt: event.target.value,
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
                     <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                       <span>最小间隔（分钟）</span>
                       <input
@@ -2096,6 +2261,27 @@ export default function App() {
                           setPsycheModeForm((prev) => ({
                             ...prev,
                             quietHoursEnd: event.target.value,
+                          }))
+                        }
+                        className="rounded border border-slate-300 bg-white px-2 py-1"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span>时区偏移（分钟）</span>
+                      <input
+                        type="number"
+                        min={-12 * 60}
+                        max={14 * 60}
+                        value={
+                          psycheModeForm.quietHoursTimezoneOffsetMinutes ??
+                          -new Date().getTimezoneOffset()
+                        }
+                        onChange={(event) =>
+                          setPsycheModeForm((prev) => ({
+                            ...prev,
+                            quietHoursTimezoneOffsetMinutes: Number(
+                              event.target.value,
+                            ),
                           }))
                         }
                         className="rounded border border-slate-300 bg-white px-2 py-1"
