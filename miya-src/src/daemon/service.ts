@@ -962,33 +962,6 @@ export class MiyaDaemonService {
     return 'reference';
   }
 
-  private parseCommandSpec(raw: string): { command: string; args: string[] } | null {
-    const input = raw.trim();
-    if (!input) return null;
-    const tokens: string[] = [];
-    let current = '';
-    let quote: '"' | "'" | null = null;
-    for (let i = 0; i < input.length; i += 1) {
-      const ch = input[i] ?? '';
-      if ((ch === '"' || ch === "'") && (!quote || quote === ch)) {
-        quote = quote ? null : (ch as '"' | "'");
-        continue;
-      }
-      if (!quote && /\s/.test(ch)) {
-        if (current) tokens.push(current);
-        current = '';
-        continue;
-      }
-      current += ch;
-    }
-    if (current) tokens.push(current);
-    if (tokens.length === 0) return null;
-    return {
-      command: tokens[0] as string,
-      args: tokens.slice(1),
-    };
-  }
-
   private async runModelCommand(input: {
     kind: ResourceTaskKind;
     envKey: string;

@@ -10,7 +10,6 @@ import {
   DaemonHelloFrameSchema,
   DaemonPingFrameSchema,
   DaemonRequestFrameSchema,
-  DaemonResponseFrameSchema,
 } from './ws-protocol';
 
 interface DaemonLockState {

@@ -8,7 +8,6 @@ import {
 } from './state';
 import type {
   AutoflowCommandResult,
-  AutoflowPhase,
   AutoflowRunInput,
   AutoflowRunResult,
   AutoflowSessionState,
@@ -52,7 +51,7 @@ function runShellCommand(
 function normalizeTasks(input: AutoflowRunInput['tasks']): AutoflowSessionState['planTasks'] {
   if (!Array.isArray(input)) return [];
   return input
-    .filter((task) => task && task.agent?.trim() && task.prompt?.trim())
+    .filter((task) => task?.agent?.trim() && task.prompt?.trim())
     .map((task, index) => ({
       id: task.id?.trim() || `task_${index + 1}`,
       agent: task.agent.trim(),

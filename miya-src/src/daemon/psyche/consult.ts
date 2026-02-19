@@ -166,8 +166,7 @@ export class PsycheConsultService {
   private readonly random: RandomSource;
   private readonly delayedPenaltyApplied = new Set<string>();
 
-  constructor(
-    private readonly projectDir: string,
+  constructor(readonly projectDir: string,
     options?: {
       epsilon?: number;
       shadowModeDays?: number;
@@ -779,7 +778,6 @@ export class PsycheConsultService {
           state: row.state,
         };
       } catch {
-        continue;
       }
     }
     return null;

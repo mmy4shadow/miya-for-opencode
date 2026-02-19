@@ -144,7 +144,7 @@ daemonService.start();
 
 let wsConnected = false;
 let wsClientID = '';
-let startedAtMs = Date.now();
+const startedAtMs = Date.now();
 let lastSeenMs = Date.now();
 let cpuPercent = 0;
 let cpuPrev = collectCpuSample();
@@ -292,7 +292,7 @@ const server = Bun.serve({
             intent: String(params.intent ?? 'unknown_intent'),
             urgency,
             channel: typeof params.channel === 'string' ? params.channel : undefined,
-            userInitiated: params.userInitiated === false ? false : true,
+            userInitiated: params.userInitiated !==false,
             allowScreenProbe:
               typeof params.allowScreenProbe === 'boolean'
                 ? Boolean(params.allowScreenProbe)
@@ -373,7 +373,7 @@ const server = Bun.serve({
                     ? 'critical'
                     : 'medium',
             channel: typeof params.channel === 'string' ? params.channel : undefined,
-            userInitiated: params.userInitiated === false ? false : true,
+            userInitiated: params.userInitiated !==false,
             state:
               params.state === 'FOCUS' ||
               params.state === 'CONSUME' ||

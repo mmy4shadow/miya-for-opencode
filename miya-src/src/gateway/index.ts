@@ -45,7 +45,6 @@ import {
   POLICY_DOMAINS,
   type PolicyDomain,
   readPolicy,
-  writePolicy,
 } from '../policy';
 import { evaluateOutboundDecisionFusion } from '../policy/decision-fusion';
 import { appendPolicyIncident, listPolicyIncidents } from '../policy/incident';
@@ -130,7 +129,6 @@ import {
 import { getCompanionMemorySqliteStats } from '../companion/memory-sqlite';
 import {
   appendShortTermMemoryLog,
-  getMemoryReflectStatus,
   maybeAutoReflectCompanionMemory,
   maybeReflectOnSessionEnd,
   reflectCompanionMemory,
@@ -2188,13 +2186,13 @@ async function sendChannelMessageGuarded(
         userInitiated: psycheConsult.userInitiated,
         state: psycheConsult.state,
         delivered: Boolean((result as { sent?: boolean }).sent),
-        blockedReason: Boolean((result as { sent?: boolean }).sent) ? undefined : String(result.message ?? ''),
+        blockedReason: (result as { sent?: boolean }).sent ? undefined : String(result.message ?? ''),
         trust: {
           target: `${input.channel}:${input.destination}`,
           source: `session:${input.sessionID}`,
           action: `outbound.send.${input.channel}`,
           evidenceConfidence,
-          highRiskRollback: riskLevel === 'HIGH' && !Boolean((result as { sent?: boolean }).sent),
+          highRiskRollback: riskLevel === 'HIGH' && !(result as { sent?: boolean }).sent,
         },
       });
     } catch {}
@@ -3244,7 +3242,7 @@ function renderWebChatHtml(): string {
 </html>`;
 }
 
-function formatGatewayState(state: GatewayState): string {
+function _formatGatewayState(state: GatewayState): string {
   return formatGatewayStateWithRuntime(state, undefined, undefined, undefined, undefined);
 }
 
@@ -3963,8 +3961,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
               .slice(0, 32)
           : undefined,
       psycheSignals:
-        outboundCheckRaw &&
-        outboundCheckRaw.psycheSignals &&
+        outboundCheckRaw?.psycheSignals &&
         typeof outboundCheckRaw.psycheSignals === 'object' &&
         !Array.isArray(outboundCheckRaw.psycheSignals)
           ? (outboundCheckRaw.psycheSignals as GuardedOutboundCheckInput['psycheSignals'])
@@ -5790,8 +5787,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   return methods;
 }
 
-async function handleWebhook(
-  projectDir: string,
+async function _handleWebhook(
+  _projectDir: string,
   runtime: GatewayRuntime,
   pathname: string,
   request: Request,

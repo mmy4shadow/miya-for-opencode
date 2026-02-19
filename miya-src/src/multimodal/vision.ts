@@ -548,7 +548,7 @@ export async function analyzeVision(
           text: line.slice(0, 240),
         }));
   const finalSummary =
-    input.question && input.question.trim()
+    input.question?.trim()
       ? `${summary} | question: ${input.question.trim()}`
       : summary;
   writeOcrCoordinateCache(projectDir, {

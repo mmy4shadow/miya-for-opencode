@@ -958,8 +958,7 @@ export class ChannelRuntime {
     const policyHash = input.outboundCheck?.policyHash;
     const sessionID = (input.sessionID ?? 'main').trim() || 'main';
     const ticketSummary =
-      input.approvalTickets &&
-      input.approvalTickets.outboundSend &&
+      input.approvalTickets?.outboundSend &&
       input.approvalTickets.desktopControl
         ? {
             outboundSendTraceId: input.approvalTickets.outboundSend.traceID,

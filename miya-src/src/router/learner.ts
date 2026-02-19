@@ -33,7 +33,7 @@ function readStore(projectDir: string): RouteHistoryStore {
 function writeStore(projectDir: string, store: RouteHistoryStore): void {
   const file = filePath(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(store, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
 }
 
 export function addRouteFeedback(

@@ -597,7 +597,6 @@ function parseAgentPatchSet(
         draft.baseURL = normalizeStringValue(value);
       }
       providerDrafts.set(providerID, draft);
-      continue;
     }
   }
 

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { type SafetyTier } from './tier';
+import type { SafetyTier } from './tier';
 
 const MAX_OUTPUT = 8_000;
 const LARGE_FILE_LIMIT = 2 * 1024 * 1024;

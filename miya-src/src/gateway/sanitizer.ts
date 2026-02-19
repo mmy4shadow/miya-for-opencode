@@ -30,7 +30,7 @@ const CODE_CONTEXT_LINE = new RegExp(
     '^\\s*(src|apps?|packages?)[/\\\\]',
     '^\\s*[A-Za-z]:[/\\\\]',
     '^\\s*at\\s+\\S+\\s*\\(',
-    '^\\s*File\\s+\".*\",\\s+line\\s+\\d+',
+    '^\\s*File\\s+".*",\\s+line\\s+\\d+',
     '\\.(ts|tsx|js|jsx|py|java|go|rs|cpp|c|h|json|yaml|yml|toml|md)\\b',
     '\\b(package\\.json|tsconfig|requirements\\.txt|pnpm-lock|bun\\.lock)\\b',
   ].join('|'),

@@ -90,7 +90,7 @@ describe('companion memory vectors', () => {
 
   test('direct correction force-overwrites conflicting memory', () => {
     const projectDir = tempProjectDir();
-    const oldMem = upsertCompanionMemoryVector(projectDir, {
+    const _oldMem = upsertCompanionMemoryVector(projectDir, {
       text: '我喜欢抹茶拿铁',
       source: 'test',
       activate: true,

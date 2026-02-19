@@ -258,7 +258,7 @@ function providerHasModel(
   if (!isPlainObject(provider)) return null;
   const models = provider.models;
   if (!isPlainObject(models)) return null;
-  return Object.prototype.hasOwnProperty.call(models, parsed.modelID);
+  return  Object.hasOwn(models, parsed.modelID);
 }
 
 function sanitizeConfiguredAgentModels(

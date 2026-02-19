@@ -290,7 +290,7 @@ function findSessionByJobId(projectDir: string, jobID: string): string | null {
 }
 
 function resolveSessionForWrite(projectDir: string, requestedSessionId?: string): string {
-  if (requestedSessionId && requestedSessionId.trim()) {
+  if (requestedSessionId?.trim()) {
     return normalizeSessionId(requestedSessionId);
   }
   const sessions = listCompanionWizardSessions(projectDir);
