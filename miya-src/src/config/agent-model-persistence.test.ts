@@ -9,6 +9,7 @@ import {
   extractAgentModelSelectionsFromEvent,
   normalizeAgentName,
   normalizeModelRef,
+  removePersistedAgentRuntimeSelection,
   persistAgentModelSelection,
   persistAgentRuntimeFromConfigSnapshot,
   persistAgentRuntimeSelection,
@@ -301,5 +302,22 @@ describe('agent-model-persistence', () => {
       expect(runtime.agents[agentName]?.model).toBe(model);
       expect(runtime.agents[agentName]?.providerID).toBe(model.split('/')[0]);
     }
+  });
+
+  test('removes persisted runtime selection and clears active agent when requested', () => {
+    persistAgentRuntimeSelection(tempDir, {
+      agentName: '6-ui-designer',
+      model: 'google/gemini-2.5-pro',
+      activeAgentId: '6-ui-designer',
+    });
+
+    const changed = removePersistedAgentRuntimeSelection(tempDir, '6-ui-designer', {
+      clearActive: true,
+    });
+    expect(changed).toBe(true);
+
+    const runtime = readPersistedAgentRuntime(tempDir);
+    expect(runtime.agents['6-ui-designer']).toBeUndefined();
+    expect(runtime.activeAgentId).toBeUndefined();
   });
 });

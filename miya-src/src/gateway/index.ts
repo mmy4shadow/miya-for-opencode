@@ -100,6 +100,7 @@ import {
 } from '../voice/state';
 import { readPersistedAgentRuntime } from '../config/agent-model-persistence';
 import { listProviderOverrideAudits } from '../config/provider-override-audit';
+import { AgentModelRuntimeApi } from './agent-model-api';
 import {
   closeCanvasDoc,
   getCanvasDoc,
@@ -3378,6 +3379,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     maxQueued,
     queueTimeoutMs,
   });
+  const agentRuntimeApi = new AgentModelRuntimeApi(projectDir);
 
   methods.register('gateway.status.get', async () => buildSnapshot(projectDir, runtime));
   methods.register('autoflow.status.get', async (params) => {
@@ -3540,6 +3542,45 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 50;
     const limit = Math.max(1, Math.min(500, Math.floor(limitRaw)));
     return listProviderOverrideAudits(projectDir, limit);
+  });
+  methods.register('agent.runtime.list', async () => agentRuntimeApi.list());
+  methods.register('agent.runtime.set', async (params) => {
+    const agentName = parseText(params.agentName || params.agent);
+    const model = params.model;
+    const activate = typeof params.activate === 'boolean' ? params.activate : true;
+    if (!agentName) throw new Error('invalid_agent_name');
+    if (typeof model !== 'string' || model.trim().length === 0) {
+      throw new Error('invalid_model_ref');
+    }
+    const result = agentRuntimeApi.set({
+      agentName,
+      model,
+      variant: params.variant,
+      providerID: params.providerID,
+      options: params.options,
+      apiKey: params.apiKey,
+      baseURL: params.baseURL,
+      activate,
+    });
+    return {
+      ...result,
+      state: agentRuntimeApi.list(),
+    };
+  });
+  methods.register('agent.runtime.reset', async (params) => {
+    const agentName = parseText(params.agentName || params.agent);
+    if (!agentName) throw new Error('invalid_agent_name');
+    const clearActive = typeof params.clearActive === 'boolean' ? params.clearActive : true;
+    const activeAgentId = parseText(params.activeAgentId) || undefined;
+    const result = agentRuntimeApi.reset({
+      agentName,
+      clearActive,
+      activeAgentId,
+    });
+    return {
+      ...result,
+      state: agentRuntimeApi.list(),
+    };
   });
   methods.register('config.center.patch', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;

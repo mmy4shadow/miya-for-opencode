@@ -403,6 +403,55 @@ export function persistAgentModelSelection(
   });
 }
 
+export function removePersistedAgentRuntimeSelection(
+  projectDir: string,
+  agentName: string,
+  options?: {
+    clearActive?: boolean;
+    activeAgentId?: string;
+  },
+): boolean {
+  const canonicalAgentName = normalizeAgentName(agentName);
+  if (!canonicalAgentName) return false;
+
+  const requestedActiveAgentId =
+    normalizeAgentName(String(options?.activeAgentId ?? '')) ?? undefined;
+
+  for (let attempt = 0; attempt < MAX_WRITE_RETRIES; attempt += 1) {
+    const base = readRuntimeState(projectDir);
+    const hadEntry = Boolean(base.agents[canonicalAgentName]);
+    const nextActiveAgentId =
+      requestedActiveAgentId ??
+      (options?.clearActive && base.activeAgentId === canonicalAgentName
+        ? undefined
+        : base.activeAgentId);
+
+    if (!hadEntry && nextActiveAgentId === base.activeAgentId) {
+      return false;
+    }
+
+    const latest = readRuntimeState(projectDir);
+    if (latest.revision !== base.revision) {
+      continue;
+    }
+
+    const nextAgents = { ...latest.agents };
+    delete nextAgents[canonicalAgentName];
+
+    const nextState: NormalizedAgentRuntime = {
+      ...latest,
+      revision: latest.revision + 1,
+      updatedAt: new Date().toISOString(),
+      activeAgentId: nextActiveAgentId,
+      agents: nextAgents,
+    };
+    writeRuntimeStateAtomic(projectDir, nextState);
+    return true;
+  }
+
+  return false;
+}
+
 export function applyPersistedAgentModelOverrides(
   config: PluginConfig,
   projectDir: string,

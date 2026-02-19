@@ -166,6 +166,53 @@ describe('gateway milestone acceptance', () => {
     }
   });
 
+  test('supports agent runtime model list/set/reset lifecycle', async () => {
+    const projectDir = await createGatewayAcceptanceProjectDir();
+    const state = ensureGatewayRunning(projectDir);
+    const client = await connectGateway(state.url);
+    try {
+      const before = (await client.request('agent.runtime.list')) as {
+        agents?: Array<{ agentName?: string; model?: string }>;
+      };
+      expect(Array.isArray(before.agents)).toBe(true);
+      expect((before.agents ?? []).length).toBeGreaterThanOrEqual(7);
+
+      const setResult = (await client.request('agent.runtime.set', {
+        agentName: '6-ui-designer',
+        model: 'google/gemini-2.5-pro',
+      })) as {
+        changed?: boolean;
+        state?: {
+          activeAgentId?: string;
+          agents?: Array<{ agentName?: string; source?: string; model?: string }>;
+        };
+      };
+      expect(typeof setResult.changed).toBe('boolean');
+      expect(setResult.state?.activeAgentId).toBe('6-ui-designer');
+      const uiState = (setResult.state?.agents ?? []).find((item) => item.agentName === '6-ui-designer');
+      expect(uiState?.model).toBe('google/gemini-2.5-pro');
+      expect(uiState?.source).toBe('runtime');
+
+      const resetResult = (await client.request('agent.runtime.reset', {
+        agentName: '6-ui-designer',
+      })) as {
+        changed?: boolean;
+        state?: {
+          agents?: Array<{ agentName?: string; source?: string; model?: string }>;
+        };
+      };
+      expect(typeof resetResult.changed).toBe('boolean');
+      const resetUiState = (resetResult.state?.agents ?? []).find(
+        (item) => item.agentName === '6-ui-designer',
+      );
+      expect(resetUiState?.source).toBe('default');
+      expect(typeof resetUiState?.model).toBe('string');
+    } finally {
+      client.close();
+      stopGateway(projectDir);
+    }
+  });
+
   test('exposes nexus runtime fields for control ui telemetry', async () => {
     const projectDir = await createGatewayAcceptanceProjectDir();
     const state = ensureGatewayRunning(projectDir);
