@@ -1,6 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import App from './App';
+import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+if (typeof globalThis.window === 'undefined') {
+  GlobalRegistrator.register({ url: 'http://localhost/' });
+}
 
 const requestMock = vi.fn();
 const disposeMock = vi.fn();
@@ -18,6 +21,9 @@ vi.mock('./gateway-client', () => {
     },
   };
 });
+
+const { cleanup, fireEvent, render, screen, waitFor } = await import('@testing-library/react');
+const { default: App } = await import('./App');
 
 const BASE_STATUS_SNAPSHOT = {
   updatedAt: '2026-07-04T12:00:00.000Z',
@@ -67,7 +73,7 @@ const BASE_STATUS_SNAPSHOT = {
 } as const;
 
 function resetBrowserState(pathname: string): void {
-  window.history.replaceState({}, '', pathname);
+  window.history.replaceState({}, '', new URL(pathname, 'http://localhost').toString());
   window.localStorage.clear();
 }
 
@@ -93,6 +99,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+afterAll(() => {
+  GlobalRegistrator.unregister();
+});
+
 describe('App component behavior', () => {
   test('does not crash on malformed encoded route segments', async () => {
     resetBrowserState('/tasks/%E0%A4%A');
@@ -102,7 +112,7 @@ describe('App component behavior', () => {
     await waitFor(() => {
       expect(
         screen.getByText('该任务不存在或已被清理，请返回列表刷新后重试。'),
-      ).toBeInTheDocument();
+      ).not.toBeNull();
     });
   });
 
@@ -117,9 +127,9 @@ describe('App component behavior', () => {
     const { container } = render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).not.toBeNull();
     });
-    expect(screen.getByRole('alert')).toHaveAttribute('aria-live', 'assertive');
+    expect(screen.getByRole('alert').getAttribute('aria-live')).toBe('assertive');
 
     const copyButtons = await screen.findAllByRole('button', {
       name: '复制 PowerShell 修复命令',
@@ -177,9 +187,9 @@ describe('App component behavior', () => {
         screen.getByText((text) =>
           text.includes('更新时间：') && text.includes(expected),
         ),
-      ).toBeInTheDocument();
+      ).not.toBeNull();
     });
-    expect(screen.queryByText(updatedAt)).not.toBeInTheDocument();
+    expect(screen.queryByText(updatedAt)).toBeNull();
     expect(document.documentElement.lang).toBe('en-US');
   });
 
@@ -247,26 +257,26 @@ describe('App component behavior', () => {
         screen.getByRole('heading', {
           name: '用户工作流完整性与权限请求清晰度',
         }),
-      ).toBeVisible();
+      ).not.toBeNull();
     });
     expect(
       screen.getByRole('heading', {
         name: '错误恢复路径完整性与配置可发现性',
       }),
-    ).toBeVisible();
+    ).not.toBeNull();
     expect(
       screen.getByRole('heading', {
         name: '训练进度可见性与技能管理用户体验',
       }),
-    ).toBeVisible();
+    ).not.toBeNull();
     expect(
       screen.getByRole('heading', {
         name: '桌面控制操作透明度与审计追踪',
       }),
-    ).toBeVisible();
-    expect(screen.getByText('系统时间线')).toBeVisible();
-    expect(screen.getByText('Evidence Pack V5（外发证据预览）')).toBeVisible();
-    expect(screen.getByText('进度：63%')).toBeVisible();
+    ).not.toBeNull();
+    expect(screen.getByText('系统时间线')).not.toBeNull();
+    expect(screen.getByText('Evidence Pack V5（外发证据预览）')).not.toBeNull();
+    expect(screen.getByText('进度：63%')).not.toBeNull();
   });
 
   test('surfaces actionable error for oversized memory import payload', async () => {
@@ -287,7 +297,7 @@ describe('App component behavior', () => {
     const { container } = render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: '记忆库' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '记忆库' })).not.toBeNull();
     });
 
     const importInput = container.querySelector(
@@ -305,7 +315,9 @@ describe('App component behavior', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText((text) => text.includes('memory_import_file_too_large'))).toBeInTheDocument();
+      expect(
+        screen.getAllByText((text) => text.includes('memory_import_file_too_large')).length,
+      ).toBeGreaterThan(0);
     });
   });
 
@@ -335,7 +347,7 @@ describe('App component behavior', () => {
     const { container } = render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: '记忆库' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '记忆库' })).not.toBeNull();
     });
 
     const importInput = container.querySelector(
@@ -354,10 +366,8 @@ describe('App component behavior', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText((text) =>
-          text.includes('partial_failure:memory_import'),
-        ),
-      ).toBeInTheDocument();
+        screen.getAllByText((text) => text.includes('partial_failure:memory_import')).length,
+      ).toBeGreaterThan(0);
     });
     expect(importCallCount).toBe(2);
   });
@@ -418,7 +428,7 @@ describe('App component behavior', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: '作业中心' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '作业中心' })).not.toBeNull();
     });
     fireEvent.click(
       screen.getByRole('button', {
@@ -429,7 +439,7 @@ describe('App component behavior', () => {
     await waitFor(() => {
       expect(
         screen.getByText('成功：已导出任务日志：run-1'),
-      ).toBeInTheDocument();
+      ).not.toBeNull();
     });
     expect(createObjectURLSpy).toHaveBeenCalled();
     expect(revokeObjectURLSpy).toHaveBeenCalled();

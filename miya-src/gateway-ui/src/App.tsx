@@ -1352,7 +1352,7 @@ export default function App() {
     }, `已删除任务记录：${task.id}`);
   };
 
-  const exportTaskLogs = (task: TaskRecord) => {
+  const exportTaskLogs = useCallback((task: TaskRecord) => {
     const payload = {
       id: task.id,
       jobId: task.jobId,
@@ -1375,7 +1375,7 @@ export default function App() {
     anchor.click();
     URL.revokeObjectURL(url);
     setSuccessText(`已导出任务日志：${task.id}`);
-  };
+  }, []);
 
   const exportLatestTaskLogs = useCallback(() => {
     const latestTask = filteredTaskRecords[0];
@@ -1384,7 +1384,7 @@ export default function App() {
       return;
     }
     exportTaskLogs(latestTask);
-  }, [filteredTaskRecords]);
+  }, [filteredTaskRecords, exportTaskLogs]);
 
   const saveMemoryEdit = async () => {
     if (!selectedMemory) return;
