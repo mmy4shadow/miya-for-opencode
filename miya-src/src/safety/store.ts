@@ -63,6 +63,40 @@ interface KillSwitchState {
   activated_at?: string;
 }
 
+function normalizeBooleanLike(input: unknown): boolean {
+  if (typeof input === 'boolean') return input;
+  if (typeof input === 'number') return input !== 0;
+  if (typeof input === 'string') {
+    const normalized = input.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === '')
+      return false;
+  }
+  return false;
+}
+
+function normalizeKillSwitchState(input: unknown): KillSwitchState {
+  const row = input && typeof input === 'object' ? input : {};
+  const data = row as Record<string, unknown>;
+  const active = normalizeBooleanLike(data.active);
+  return {
+    active,
+    reason:
+      typeof data.reason === 'string' && data.reason.trim().length > 0
+        ? data.reason.trim()
+        : undefined,
+    trace_id:
+      typeof data.trace_id === 'string' && data.trace_id.trim().length > 0
+        ? data.trace_id.trim()
+        : undefined,
+    activated_at:
+      typeof data.activated_at === 'string' &&
+      Number.isFinite(Date.parse(data.activated_at))
+        ? data.activated_at
+        : undefined,
+  };
+}
+
 interface GatewayStatusFile {
   status?: 'running' | 'killswitch';
 }
@@ -218,12 +252,13 @@ export function findApprovalToken(
 }
 
 export function readKillSwitch(projectDir: string): KillSwitchState {
-  return readJson<KillSwitchState>(
+  const raw = readJson<KillSwitchState>(
     runtimeFile(projectDir, 'kill-switch.json'),
     {
       active: false,
     },
   );
+  return normalizeKillSwitchState(raw);
 }
 
 export function activateKillSwitch(

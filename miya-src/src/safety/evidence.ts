@@ -62,6 +62,13 @@ async function runCommand(
   };
 }
 
+function splitChangedFiles(output: string): string[] {
+  return output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 function scanSecrets(content: string): string[] {
   const hits: string[] = [];
   for (const rule of SECRET_RULES) {
@@ -95,10 +102,40 @@ export async function collectSafetyEvidence(
     issues.push(`git diff --stat failed: ${diffStat.stderr || diffStat.code}`);
 
   const changed = await runCommand(projectDir, ['git', 'diff', '--name-only']);
-  const changedFiles = changed.stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+  const changedCached = await runCommand(projectDir, [
+    'git',
+    'diff',
+    '--cached',
+    '--name-only',
+  ]);
+  const changedUntracked = await runCommand(projectDir, [
+    'git',
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+  ]);
+  checks.push('git diff --name-only');
+  checks.push('git diff --cached --name-only');
+  checks.push('git ls-files --others --exclude-standard');
+  if (!changed.ok) {
+    issues.push(`git diff --name-only failed: ${changed.stderr || changed.code}`);
+  }
+  if (!changedCached.ok) {
+    issues.push(
+      `git diff --cached --name-only failed: ${changedCached.stderr || changedCached.code}`,
+    );
+  }
+  if (!changedUntracked.ok) {
+    issues.push(
+      `git ls-files --others --exclude-standard failed: ${changedUntracked.stderr || changedUntracked.code}`,
+    );
+  }
+
+  const changedFiles = [
+    ...splitChangedFiles(changed.stdout),
+    ...splitChangedFiles(changedCached.stdout),
+    ...splitChangedFiles(changedUntracked.stdout),
+  ].filter((file, index, list) => list.indexOf(file) === index);
 
   if (changedFiles.some((file) => file.startsWith('miya-src/'))) {
     const test = await runCommand(
@@ -115,13 +152,23 @@ export async function collectSafetyEvidence(
 
   if (tier === 'THOROUGH') {
     const diff = await runCommand(projectDir, ['git', 'diff']);
+    const diffCached = await runCommand(projectDir, ['git', 'diff', '--cached']);
     checks.push('git diff');
+    checks.push('git diff --cached');
     evidence.push(`git_diff_exit=${diff.code}`);
+    evidence.push(`git_diff_cached_exit=${diffCached.code}`);
     const diffText = [diff.stdout, diff.stderr].filter(Boolean).join('\n');
+    const diffCachedText = [diffCached.stdout, diffCached.stderr]
+      .filter(Boolean)
+      .join('\n');
     if (diffText) evidence.push(`git_diff:\n${diffText}`);
+    if (diffCachedText) evidence.push(`git_diff_cached:\n${diffCachedText}`);
     if (!diff.ok) issues.push(`git diff failed: ${diff.stderr || diff.code}`);
+    if (!diffCached.ok) {
+      issues.push(`git diff --cached failed: ${diffCached.stderr || diffCached.code}`);
+    }
 
-    const secretHits = scanSecrets(diffText);
+    const secretHits = scanSecrets([diffText, diffCachedText].join('\n'));
     if (secretHits.length > 0) {
       issues.push(`secret scan matched: ${secretHits.join(', ')}`);
     }

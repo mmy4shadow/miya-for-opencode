@@ -4,6 +4,42 @@
 - 执行目录: `miya-src`
 - 执行目标: 基于 `.kiro/specs/miya-plugin-audit/requirements.md`（160条需求）执行全范围冒烟并修复阻断项。
 
+---
+
+# 六方向安全专项审计补充（2026-02-19）
+
+## 审计范围
+- 桌面控制安全协议 (Desktop Control Safety Protocol)
+- 出站通道安全 (Outbound Channel Security)
+- 策略引擎决策 (Policy Engine Decision Making)
+- 证据包标准 (Evidence Bundle Standards)
+- 紧急停止机制 (Kill-Switch Mechanism)
+- 审批疲劳缓解 (Approval Fatigue Mitigation)
+
+## 发现与修复
+
+### P1（高）审批票据未门禁校验，过期票据可进入桌面出站
+- 文件: `miya-src/src/channels/service.ts`
+- 修复:
+  - 新增桌面出站审批票据校验（缺失/过期/非法时间戳/空 trace 直接阻断）。
+  - 新增审计原因 `approval_ticket_invalid`，统一阻断码 `approval_ticket_*`。
+
+### P1（高）证据采集漏扫 staged/untracked 与 staged secret
+- 文件: `miya-src/src/safety/evidence.ts`
+- 修复:
+  - 变更文件集合扩展为 `git diff --name-only` + `git diff --cached --name-only` + `git ls-files --others --exclude-standard`。
+  - THOROUGH secret scan 同时扫描 `git diff` 与 `git diff --cached`。
+
+### P2（中）Kill-Switch 读取无类型归一化，非布尔值可导致误判
+- 文件: `miya-src/src/safety/store.ts`
+- 修复:
+  - 新增状态归一化逻辑，规范 `active/reason/trace_id/activated_at`。
+
+## 新增测试（全部放 `test`）
+- `miya-src/test/unit/outbound-approval-ticket-security.test.ts`
+- `miya-src/test/unit/evidence-bundle-standards.test.ts`
+- `miya-src/test/unit/kill-switch-mechanism.test.ts`
+
 ## 执行结果
 
 ### 1) 诊断与质量门

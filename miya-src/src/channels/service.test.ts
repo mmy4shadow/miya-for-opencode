@@ -9,6 +9,20 @@ function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-channels-service-'));
 }
 
+function validTickets() {
+  const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+  return {
+    outboundSend: {
+      traceID: 'trace-outbound',
+      expiresAt,
+    },
+    desktopControl: {
+      traceID: 'trace-desktop',
+      expiresAt,
+    },
+  };
+}
+
 describe('channel runtime send policy', () => {
   test('blocks outbound send for inbound-only channels', async () => {
     const runtime = new ChannelRuntime(tempProjectDir(), {
@@ -39,6 +53,7 @@ describe('channel runtime send policy', () => {
       channel: 'qq',
       destination: 'tester',
       text: 'hello',
+      approvalTickets: validTickets(),
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
@@ -168,6 +183,7 @@ describe('channel runtime send policy', () => {
       channel: 'qq',
       destination: 'tester',
       text: 'hello',
+      approvalTickets: validTickets(),
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
@@ -190,6 +206,7 @@ describe('channel runtime send policy', () => {
       channel: 'qq',
       destination: 'tester',
       text: 'hello 1',
+      approvalTickets: validTickets(),
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
@@ -199,6 +216,7 @@ describe('channel runtime send policy', () => {
       channel: 'qq',
       destination: 'tester',
       text: 'hello 2',
+      approvalTickets: validTickets(),
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
@@ -222,6 +240,7 @@ describe('channel runtime send policy', () => {
       channel: 'qq',
       destination: 'friend-1',
       text: 'hello',
+      approvalTickets: validTickets(),
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
@@ -245,6 +264,7 @@ describe('channel runtime send policy', () => {
       channel: 'qq',
       destination: 'friend-2',
       text: 'sensitive',
+      approvalTickets: validTickets(),
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
@@ -301,6 +321,7 @@ describe('channel runtime send policy', () => {
       destination: 'tester',
       text: 'hello',
       sessionID: 'sess-runtime-error',
+      approvalTickets: validTickets(),
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',
@@ -317,6 +338,7 @@ describe('channel runtime send policy', () => {
       destination: 'tester',
       text: 'hello again',
       sessionID: 'sess-runtime-error',
+      approvalTickets: validTickets(),
       outboundCheck: {
         archAdvisorApproved: true,
         riskLevel: 'LOW',

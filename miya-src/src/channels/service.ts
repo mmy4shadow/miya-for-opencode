@@ -79,6 +79,7 @@ export interface ChannelOutboundAudit {
     | 'sent'
     | 'channel_blocked'
     | 'arch_advisor_denied'
+    | 'approval_ticket_invalid'
     | 'allowlist_denied'
     | 'throttled'
     | 'duplicate_payload'
@@ -200,6 +201,7 @@ function semanticTagsForOutboundMessage(message: string): SemanticTag[] {
   if (message.includes('recipient_text_mismatch'))
     return ['recipient_mismatch'];
   if (message.includes('arch_advisor_denied')) return ['privilege_barrier'];
+  if (message.includes('approval_ticket_')) return ['privilege_barrier'];
   if (message.includes('input_mutex_timeout')) return ['input_mutex_timeout'];
   if (message.includes('receipt_uncertain')) return ['receipt_uncertain'];
   if (
@@ -1077,6 +1079,68 @@ export class ChannelRuntime {
     return null;
   }
 
+  private validateApprovalTickets(
+    channel: ChannelName,
+    tickets:
+      | {
+          outboundSend: {
+            traceID: string;
+            expiresAt: string;
+          };
+          desktopControl: {
+            traceID: string;
+            expiresAt: string;
+          };
+        }
+      | undefined,
+  ):
+    | {
+        summary: {
+          outboundSendTraceId: string;
+          desktopControlTraceId: string;
+          expiresAt: string;
+        };
+      }
+    | { issue: string } {
+    if (!this.isDesktopChannel(channel)) {
+      return {
+        summary: {
+          outboundSendTraceId: '',
+          desktopControlTraceId: '',
+          expiresAt: '',
+        },
+      };
+    }
+    if (!tickets) {
+      return { issue: 'approval_ticket_missing' };
+    }
+
+    const outboundTrace = tickets.outboundSend.traceID.trim();
+    const desktopTrace = tickets.desktopControl.traceID.trim();
+    if (!outboundTrace || !desktopTrace) {
+      return { issue: 'approval_ticket_trace_missing' };
+    }
+
+    const outboundExpiry = Date.parse(tickets.outboundSend.expiresAt);
+    const desktopExpiry = Date.parse(tickets.desktopControl.expiresAt);
+    if (!Number.isFinite(outboundExpiry) || !Number.isFinite(desktopExpiry)) {
+      return { issue: 'approval_ticket_expiry_invalid' };
+    }
+
+    const minExpiry = Math.min(outboundExpiry, desktopExpiry);
+    if (minExpiry <= Date.now()) {
+      return { issue: 'approval_ticket_expired' };
+    }
+
+    return {
+      summary: {
+        outboundSendTraceId: outboundTrace,
+        desktopControlTraceId: desktopTrace,
+        expiresAt: new Date(minExpiry).toISOString(),
+      },
+    };
+  }
+
   private normalizeDesktopRuntimeError(error: unknown): string {
     const raw =
       error instanceof Error
@@ -1202,18 +1266,15 @@ export class ChannelRuntime {
     const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
     const policyHash = input.outboundCheck?.policyHash;
     const sessionID = (input.sessionID ?? 'main').trim() || 'main';
+    const approvalTicketValidation = this.validateApprovalTickets(
+      input.channel,
+      input.approvalTickets,
+    );
     const ticketSummary =
-      input.approvalTickets?.outboundSend &&
-      input.approvalTickets.desktopControl
-        ? {
-            outboundSendTraceId: input.approvalTickets.outboundSend.traceID,
-            desktopControlTraceId: input.approvalTickets.desktopControl.traceID,
-            expiresAt:
-              Date.parse(input.approvalTickets.outboundSend.expiresAt) <
-              Date.parse(input.approvalTickets.desktopControl.expiresAt)
-                ? input.approvalTickets.outboundSend.expiresAt
-                : input.approvalTickets.desktopControl.expiresAt,
-          }
+      'summary' in approvalTicketValidation
+        ? approvalTicketValidation.summary.outboundSendTraceId
+          ? approvalTicketValidation.summary
+          : undefined
         : undefined;
     if (!archAdvisorApproved) {
       const audit = this.recordOutboundAttempt({
@@ -1223,6 +1284,23 @@ export class ChannelRuntime {
         sent: false,
         message: 'outbound_blocked:arch_advisor_denied',
         reason: 'arch_advisor_denied',
+        archAdvisorApproved,
+        riskLevel,
+        intent,
+        containsSensitive,
+        policyHash,
+        payloadHash,
+      });
+      return { sent: false, message: audit.message, auditID: audit.id };
+    }
+    if ('issue' in approvalTicketValidation) {
+      const audit = this.recordOutboundAttempt({
+        channel: input.channel,
+        destination: input.destination,
+        textPreview: text.slice(0, 200),
+        sent: false,
+        message: `outbound_blocked:${approvalTicketValidation.issue}`,
+        reason: 'approval_ticket_invalid',
         archAdvisorApproved,
         riskLevel,
         intent,
