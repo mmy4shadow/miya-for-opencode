@@ -340,8 +340,30 @@ const SessionPermissionCard = React.memo<SessionPermissionCardProps>(function Se
  * Requirements: 4.1, 4.2, 4.5, 4.7
  */
 export const SecurityPage = React.memo(function SecurityPage() {
-  const { snapshot, setKillSwitch, loading } = useGateway();
+  const {
+    snapshot,
+    setKillSwitch,
+    loading,
+    updateTrustMode,
+    togglePolicyDomain,
+  } = useGateway();
   const memoizedSnapshot = useMemoizedSnapshot(snapshot);
+
+  const policyDomains = React.useMemo<PolicyDomainRow[]>(() => {
+    const candidate = (memoizedSnapshot?.configCenter as Record<string, unknown> | undefined)?.policyDomains;
+    if (!Array.isArray(candidate)) {
+      return [];
+    }
+    return candidate.filter((item): item is PolicyDomainRow => {
+      return (
+        typeof item === 'object' &&
+        item !== null &&
+        typeof (item as { domain?: unknown }).domain === 'string' &&
+        typeof (item as { label?: unknown }).label === 'string' &&
+        typeof (item as { paused?: unknown }).paused === 'boolean'
+      );
+    });
+  }, [memoizedSnapshot]);
 
   // Stable callback for kill switch mode change
   const handleKillSwitchChange = useStableCallback(async (mode: KillSwitchMode) => {
@@ -350,14 +372,14 @@ export const SecurityPage = React.memo(function SecurityPage() {
 
   // Stable callback for policy domain toggle
   const handlePolicyDomainToggle = useStableCallback(async (domain: string) => {
-    // TODO: Implement policy domain toggle RPC call
-    console.log('Toggle policy domain:', domain);
+    const existing = policyDomains.find((item) => item.domain === domain);
+    const nextPaused = existing ? !existing.paused : true;
+    await togglePolicyDomain(domain, nextPaused);
   });
 
   // Stable callback for trust mode save
   const handleTrustModeSave = useStableCallback(async (config: TrustModeConfig) => {
-    // TODO: Implement trust mode save RPC call
-    console.log('Save trust mode config:', config);
+    await updateTrustMode(config);
   });
 
   // Show loading state on initial load
@@ -372,9 +394,6 @@ export const SecurityPage = React.memo(function SecurityPage() {
       </div>
     );
   }
-
-  // Extract policy domains from snapshot (placeholder - actual structure may vary)
-  const policyDomains: PolicyDomainRow[] = [];
 
   return (
     <div className="p-6 space-y-6">

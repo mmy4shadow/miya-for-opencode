@@ -78,28 +78,7 @@ describe('Tasks Module Regression Tests', () => {
     });
     
     // Mock window.location
-    delete (window as any).location;
-    window.location = {
-      pathname: '/tasks',
-      search: '',
-      hash: '',
-      href: 'http://localhost/tasks',
-      origin: 'http://localhost',
-      protocol: 'http:',
-      host: 'localhost',
-      hostname: 'localhost',
-      port: '',
-    } as any;
-    
-    // Mock history
-    Object.defineProperty(window, 'history', {
-      value: {
-        replaceState: vi.fn(),
-        pushState: vi.fn(),
-      },
-      writable: true,
-      configurable: true,
-    });
+    window.history.replaceState({}, '', '/tasks');
   });
 
   describe('Requirement 5.1: Task List Display', () => {
@@ -220,7 +199,7 @@ describe('Tasks Module Regression Tests', () => {
        * The route structure supports /tasks/:taskId pattern.
        */
       // Update location to task detail route
-      window.location.pathname = '/tasks/run-123';
+      window.history.replaceState({}, '', '/tasks/run-123');
       
       render(<App />);
 
@@ -240,7 +219,7 @@ describe('Tasks Module Regression Tests', () => {
        * The Tasks module SHALL maintain task re-execution functionality.
        * The rerunTask function should be available in the component.
        */
-      window.location.pathname = '/tasks/run-123';
+      window.history.replaceState({}, '', '/tasks/run-123');
       
       render(<App />);
 
@@ -260,7 +239,7 @@ describe('Tasks Module Regression Tests', () => {
        * The Tasks module SHALL maintain task log export functionality.
        * The exportTaskLogs function should be available.
        */
-      window.location.pathname = '/tasks/run-123';
+      window.history.replaceState({}, '', '/tasks/run-123');
       
       render(<App />);
 
@@ -279,7 +258,7 @@ describe('Tasks Module Regression Tests', () => {
        * The Tasks module SHALL maintain task history deletion functionality.
        * The deleteTaskHistory function should be available.
        */
-      window.location.pathname = '/tasks/run-123';
+      window.history.replaceState({}, '', '/tasks/run-123');
       
       render(<App />);
 
@@ -301,7 +280,7 @@ describe('Tasks Module Regression Tests', () => {
        * 3. View task details
        * 4. Perform actions (re-execute, export, delete)
        */
-      window.location.pathname = '/tasks';
+      window.history.replaceState({}, '', '/tasks');
       
       render(<App />);
 

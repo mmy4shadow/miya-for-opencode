@@ -76,28 +76,7 @@ describe('Memory Module Regression Tests', () => {
     });
     
     // Mock window.location
-    delete (window as any).location;
-    window.location = {
-      pathname: '/memory',
-      search: '',
-      hash: '',
-      href: 'http://localhost/memory',
-      origin: 'http://localhost',
-      protocol: 'http:',
-      host: 'localhost',
-      hostname: 'localhost',
-      port: '',
-    } as any;
-    
-    // Mock history
-    Object.defineProperty(window, 'history', {
-      value: {
-        replaceState: vi.fn(),
-        pushState: vi.fn(),
-      },
-      writable: true,
-      configurable: true,
-    });
+    window.history.replaceState({}, '', '/memory');
   });
 
   describe('Requirement 6.1: Memory List Display', () => {
@@ -191,7 +170,7 @@ describe('Memory Module Regression Tests', () => {
        * The Memory module SHALL maintain memory editing functionality.
        * The route structure supports /memory/:memoryId pattern.
        */
-      window.location.pathname = '/memory/mem-123';
+      window.history.replaceState({}, '', '/memory/mem-123');
       
       render(<App />);
 
@@ -209,7 +188,7 @@ describe('Memory Module Regression Tests', () => {
        * 
        * The Memory module SHALL maintain memory archiving functionality.
        */
-      window.location.pathname = '/memory/mem-123';
+      window.history.replaceState({}, '', '/memory/mem-123');
       
       render(<App />);
 
@@ -227,7 +206,7 @@ describe('Memory Module Regression Tests', () => {
        * 
        * The Memory module SHALL maintain memory confirmation functionality.
        */
-      window.location.pathname = '/memory/mem-123';
+      window.history.replaceState({}, '', '/memory/mem-123');
       
       render(<App />);
 
@@ -333,7 +312,7 @@ describe('Memory Module Regression Tests', () => {
        * 
        * This integration test verifies that all memory features work together.
        */
-      window.location.pathname = '/memory';
+      window.history.replaceState({}, '', '/memory');
       
       render(<App />);
 

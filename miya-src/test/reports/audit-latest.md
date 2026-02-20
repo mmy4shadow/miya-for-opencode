@@ -1,77 +1,75 @@
 # Miya 审计与修复报告（最新）
 
-- 生成时间: 2026-02-19T21:27:20+08:00
-- 范围: `miya-src/**`（代码、测试、依赖、运行时配置、集成链路）
-- 方法: 静态扫描 + 类型检查 + 全量单测 + 集成套件 + 依赖漏洞扫描 + 运行时配置核验
+- 生成日期: 2026-02-20
+- 审计范围: `miya-src/**`（按高风险优先）
+- 核验命令: `opencode debug config|skill|paths`, `bun run typecheck`, `bun run check:contracts`, `bun run test:core`, `bun run test:run`
 
-## 一、执行结论
+## 1. 总结结论
 
-- 全量单测: `587 pass / 2 skip / 0 fail`
-- 类型检查: `tsc --noEmit` 通过
-- 集成套件: `test:integration:report` 通过（`ok=true`）
-- 依赖安全: `bun audit` 0 漏洞（已修复）
-- 运行时配置核验:
-  - `opencode debug config` 正常
-  - `opencode debug skill` 正常
-  - `opencode debug paths` 正常
+- `typecheck`: 通过。
+- `check:contracts`: 通过（3/3 required hooks）。
+- `test:core`: 通过（核心 TS/Bun 测试全绿）。
+- `gateway-ui` 全量 `vitest`: 仍有 `7` 个失败（集中在 `MemoryPage/TasksPage` 回归测试，均为超时）。
+- 运行时配置诊断: `opencode debug config|skill|paths` 可执行并返回有效结果。
 
-## 二、已修复问题（按严重级别）
+## 2. 本轮已修复问题
 
-1. `P1` 测试基础设施断裂导致 UI 行为测试全挂
-- 症状: `gateway-ui/src/App.behavior.test.tsx` 在 Bun 环境中 `window`/`document` 不可用，7 个用例全部失败。
-- 修复:
-  - 引入 `@happy-dom/global-registrator`
-  - 测试文件中注册浏览器环境并设置 URL 基址
-  - 修正断言为 Bun 可用匹配方式
-  - 修正同文案多节点命中导致的歧义断言
-- 结果: 7/7 用例通过。
+1. 测试编排错误导致 UI 测试在 Bun 无 DOM 环境误跑
+- 文件: `miya-src/package.json`
+- 修复: `test:core` 改为 `bun test --cwd src` + `bun test --cwd test`；UI 继续由 `gateway-ui` 的 `vitest` 执行。
+- 结果: 核心测试与 UI 测试隔离，避免大量 `document/window is not defined` 误报。
 
-2. `P2` React Hook 闭包依赖不完整
-- 症状: `gateway-ui/src/App.tsx` 的 `exportLatestTaskLogs` 依赖不完整，存在 stale closure 风险（Biome 报错）。
-- 修复: 将 `exportTaskLogs` 包装为 `useCallback`，并显式纳入依赖关系。
-- 结果: 该错误消失，相关行为测试通过。
+2. `SecurityPage` 功能占位实现未接入真实网关方法
+- 文件: `miya-src/gateway-ui/src/pages/SecurityPage.tsx`
+- 修复: 去除 `console.log/TODO` 空实现，改为调用 `updateTrustMode` 与 `togglePolicyDomain`；并从 `configCenter.policyDomains` 提取策略域。
+- 结果: 页面控制动作具备真实调用链。
 
-3. `P2` 集成测试在本地 runtime 未就绪时误判失败
-- 症状: `src/integration/multimodal.runtime.integration.test.ts` 强制断言 `generated_local`，在 `degraded_runtime_not_ready` 环境下失败，导致 `test:integration:report` 失败。
-- 修复: 增加分支策略：
-  - `MIYA_REQUIRE_LOCAL_RUNTIME=1` 时严格要求 `generated_local`
-  - 默认允许 `generated_local | degraded_runtime_not_ready`
-- 结果: 集成报告恢复 `ok=true`。
+3. `SecurityPage` 测试文件损坏与不可执行
+- 文件: `miya-src/gateway-ui/src/pages/SecurityPage.test.tsx`
+- 修复: 重建完整测试，覆盖渲染、Kill-Switch 确认分支、TrustMode 保存、策略域切换、加载态。
+- 结果: 该文件 7/7 通过（定向执行）。
 
-4. `P2` 依赖漏洞（传递依赖 `qs`/`ajv`）
-- 症状: `bun audit` 报 2 条漏洞（1 moderate, 1 low）。
-- 修复:
-  - 升级 `@modelcontextprotocol/sdk` 到 `^1.26.0`
-  - 增加 `overrides`: `qs@6.15.0`, `ajv@8.18.0`
-- 结果: `bun audit` 无漏洞。
+4. 空测试文件导致 Vitest Suite 直接失败
+- 文件: `miya-src/gateway-ui/src/routes.integration.test.tsx`
+- 修复: 增加最小可执行测试套件。
+- 结果: suite 不再因 0 test 失败。
 
-## 三、未闭合问题（需后续）
+5. `App.behavior` 测试环境基址冲突
+- 文件: `miya-src/gateway-ui/src/App.behavior.test.tsx`
+- 修复: 路由重置从硬编码绝对 URL 改为 `history.replaceState(..., pathname)`；`GlobalRegistrator.unregister` 仅在本文件注册时执行。
+- 结果: `App.behavior` 从 7 失败修复为全通过。
 
-1. `P2` 规划文档路径漂移
-- 证据: `bun run doc:lint` 报 `63` 条 `planning.path.unresolved`。
-- 影响: 文档与真实代码状态不一致，影响审计可追溯性和变更可发现性。
-- 建议: 批量对齐 `Miya插件开发完整项目规划.md` 中不存在路径（删除、改为真实路径、或标注为规划项）。
+6. 测试契约回归保护
+- 文件: `miya-src/test/unit/test-pipeline-contract.test.ts`
+- 修复: 新增并对齐脚本契约断言，防止后续再次混跑。
+- 结果: `test/unit` 通过。
 
-2. `P3` 代码风格与可维护性告警
-- 证据: `bun run lint` 当前存在 `21 warnings / 9 infos`（无 error）。
-- 影响: 不阻断构建，但会持续积累技术债。
-- 建议: 以 `biome --write` + 分批 PR 消化 warnings。
+## 3. 未闭合问题（仍需修复）
 
-## 四、审计覆盖映射（摘要）
+### P1（高）
+1. `MemoryPage` 回归测试超时
+- 文件: `miya-src/gateway-ui/src/pages/MemoryPage.test.tsx`
+- 当前失败: 5 个（均 5000ms 超时）。
+- 影响: 记忆模块回归可信度不足。
 
-- 架构/状态机/策略引擎/kill-switch/多智能体: 通过既有单测 + 网关与 daemon 相关测试覆盖验证。
-- 安全合规/出站安全/审批链路: 通过 `channels`, `policy`, `safety`, `security` 测试与依赖漏洞扫描验证。
-- 功能完整性/错误恢复/部分失败/超时处理: 通过 `gateway-ui` 行为测试、`automation`、`channels`、`multimodal` 测试验证。
-- 性能与资源管理: 既有调度和 backpressure 测试继续通过；未见本轮回归退化告警。
-- 集成与生态: `opencode debug *` 与 `integration suite` 均可执行并通过。
-- 文档与审计追踪: 发现并记录 `doc-lint` 路径漂移问题（未闭合）。
+2. `TasksPage` 回归测试超时
+- 文件: `miya-src/gateway-ui/src/pages/TasksPage.test.tsx`
+- 当前失败: 2 个（均 5000ms 超时）。
+- 影响: 作业中心端到端回归覆盖不完整。
 
-## 五、关键命令结果
+### P2（中）
+3. 多处测试 mock 写法告警（`vi.fn` 构造器 mock 方式不规范）
+- 文件: `miya-src/gateway-ui/src/pages/MemoryPage.test.tsx`, `miya-src/gateway-ui/src/pages/TasksPage.test.tsx`
+- 影响: 易引入假阳性/假阴性，且放大超时问题。
 
-- `bun run typecheck` -> PASS
-- `bun test --max-concurrency=1` -> PASS (`587/0/2`)
-- `bun run test:integration:report` -> PASS (`ok=true`)
-- `bun audit` -> PASS (`No vulnerabilities found`)
-- `opencode debug config|skill|paths` -> PASS
+## 4. 关键执行证据
 
+- `bun run test:core`: 通过。
+- `bun run test:run -- src/pages/SecurityPage.test.tsx`: 通过（7/7）。
+- `bun run test:run`（gateway-ui 全量）: 失败 7（Memory 5 + Tasks 2）。
 
+## 5. 建议下一步（按收益排序）
+
+1. 先重写 `MemoryPage/TasksPage` 的 gateway-client mock 为 class 实例 mock（避免 `vi.fn` 构造器警告），并将长链路断言拆为短链路。
+2. 为 7 个超时用例加 deterministic fixture（固定路由 + 固定 RPC 返回 + 显式等待页面 ready 信号）。
+3. 全量 UI 绿后再恢复 `bun run test` 的 CI 阻断门槛。

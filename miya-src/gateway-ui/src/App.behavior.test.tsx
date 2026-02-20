@@ -73,7 +73,7 @@ const BASE_STATUS_SNAPSHOT = {
 } as const;
 
 function resetBrowserState(pathname: string): void {
-  window.history.replaceState({}, '', new URL(pathname, 'http://localhost').toString());
+  window.history.replaceState({}, '', pathname);
   window.localStorage.clear();
 }
 
@@ -100,7 +100,9 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  GlobalRegistrator.unregister();
+  if (typeof globalThis.window === 'undefined') {
+    GlobalRegistrator.unregister();
+  }
 });
 
 describe('App component behavior', () => {
