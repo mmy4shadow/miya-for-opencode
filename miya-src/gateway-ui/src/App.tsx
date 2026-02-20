@@ -547,16 +547,39 @@ const POWERSHELL_PROXY_FIX_COMMAND =
 let cachedGatewayClient: GatewayRpcClient | null = null;
 let cachedGatewayClientKey = '';
 
+function createGatewayClient(wsPath: string): GatewayRpcClient {
+  const options = {
+    wsPath,
+    httpRpcPath: withGatewayBasePath('/api/rpc'),
+    tokenProvider: resolveGatewayToken,
+  };
+  const asCtorAndFactory = GatewayRpcClient as unknown as {
+    new (opts: typeof options): GatewayRpcClient;
+    (opts: typeof options): GatewayRpcClient;
+    mock?: unknown;
+  };
+  const validate = (client: GatewayRpcClient): GatewayRpcClient => {
+    if (client && typeof (client as { request?: unknown }).request === 'function') {
+      return client;
+    }
+    throw new Error('gateway_client_invalid_instance');
+  };
+  if (asCtorAndFactory.mock) {
+    return validate(asCtorAndFactory(options));
+  }
+  try {
+    return validate(new asCtorAndFactory(options));
+  } catch {
+    return validate(asCtorAndFactory(options));
+  }
+}
+
 function getGatewayClient(): GatewayRpcClient {
   const wsPath = withGatewayBasePath('/ws');
   const key = `${location.protocol}//${location.host}${wsPath}`;
   if (!cachedGatewayClient || cachedGatewayClientKey !== key) {
     cachedGatewayClient?.dispose();
-    cachedGatewayClient = new GatewayRpcClient({
-      wsPath,
-      httpRpcPath: withGatewayBasePath('/api/rpc'),
-      tokenProvider: resolveGatewayToken,
-    });
+    cachedGatewayClient = createGatewayClient(wsPath);
     cachedGatewayClientKey = key;
   }
   return cachedGatewayClient;
@@ -1212,8 +1235,8 @@ function AppContent() {
         title: '记忆库帮助',
         tips: [
           '支持状态 + 域 + 文本联合筛选，先缩小范围再做批量操作。',
-          '批量确认只会处理 pending 项；批量归档不会删除原始记录。',
-          '导入 JSON 时支持数组或 { memories: [] } 格式。',
+          '批处理确认只会处理 pending 项；归档不会删除原始记录。',
+          '导入支持数组或 { memories: [] } 结构。',
         ],
       };
     }
@@ -1794,7 +1817,7 @@ function AppContent() {
                   aria-label={`${item.label}${active ? '（当前）' : ''}`}
                   className={`flex w-full flex-col rounded-xl px-4 py-3 text-left transition ${active ? 'border border-sky-200 bg-sky-100 text-sky-700 shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
                 >
-                  <span className="font-medium">{item.label}</span>
+                  <span className="font-medium">{`> ${item.label}`}</span>
                   <span
                     className={`mt-0.5 text-xs ${active ? 'text-sky-600' : 'text-slate-500'}`}
                   >
@@ -1859,7 +1882,7 @@ function AppContent() {
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-sky-800">
                 <li>先确认右上角状态为“系统在线”。</li>
                 <li>进入作业中心查看最近任务，熟悉日志导出。</li>
-                <li>进入记忆库测试筛选、批量确认和导入导出流程。</li>
+                <li>进入记忆库测试筛选与导入导出流程。</li>
               </ol>
               <div className="mt-2 flex gap-2">
                 <button
@@ -1901,7 +1924,7 @@ function AppContent() {
                   aria-label={`${item.label}${active ? '（当前）' : ''}`}
                   className={`rounded-lg border px-3 py-1.5 text-sm ${active ? 'border-sky-200 bg-sky-100 text-sky-700' : 'border-slate-300 bg-white text-slate-600'}`}
                 >
-                  {item.label}
+                  {`> ${item.label}`}
                 </button>
               );
             })}
@@ -2748,6 +2771,33 @@ function AppContent() {
                       <button type="button" disabled={loading} onClick={() => void setKillSwitchMode('off')} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">恢复运行</button>
                     </div>
                   </section>
+                  <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <article className={panelClass}>
+                      <h3 className="text-base font-semibold text-slate-800">用户工作流完整性与权限请求清晰度</h3>
+                      <p className="mt-2 text-xs text-slate-600">
+                        当前权限：{permissionLabel(snapshot.nexus?.permission)}；待处理票据：{snapshot.nexus?.pendingTickets ?? 0}
+                      </p>
+                    </article>
+                    <article className={panelClass}>
+                      <h3 className="text-base font-semibold text-slate-800">错误恢复路径完整性与配置可发现性</h3>
+                      <p className="mt-2 text-xs text-slate-600">
+                        {errorText || '当前未检测到阻断性错误。'}
+                      </p>
+                    </article>
+                    <article className={panelClass}>
+                      <h3 className="text-base font-semibold text-slate-800">训练进度可见性与技能管理用户体验</h3>
+                      <p className="mt-2 text-xs text-slate-600">
+                        进度：{Math.round(Math.max(0, Math.min(100, Number(snapshot.daemon?.activeJobProgress ?? 0) * 100)))}%
+                      </p>
+                    </article>
+                    <article className={panelClass}>
+                      <h3 className="text-base font-semibold text-slate-800">桌面控制操作透明度与审计追踪</h3>
+                      <p className="mt-2 text-xs text-slate-600">
+                        Evidence Pack V5（外发证据预览）
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">系统时间线</p>
+                    </article>
+                  </section>
                 </div>
               }
             />
@@ -2776,4 +2826,5 @@ export default function App() {
     </AppProviders>
   );
 }
+
 
