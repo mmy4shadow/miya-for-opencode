@@ -1,11 +1,9 @@
+import { runCommand } from './process';
+
 export async function isOpenCodeInstalled(): Promise<boolean> {
   try {
-    const proc = Bun.spawn(['opencode', '--version'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    await proc.exited;
-    return proc.exitCode === 0;
+    const result = await runCommand('opencode', ['--version'], 8_000);
+    return result.exitCode === 0;
   } catch {
     return false;
   }
@@ -13,12 +11,8 @@ export async function isOpenCodeInstalled(): Promise<boolean> {
 
 export async function isTmuxInstalled(): Promise<boolean> {
   try {
-    const proc = Bun.spawn(['tmux', '-V'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    await proc.exited;
-    return proc.exitCode === 0;
+    const result = await runCommand('tmux', ['-V'], 8_000);
+    return result.exitCode === 0;
   } catch {
     return false;
   }
@@ -26,13 +20,8 @@ export async function isTmuxInstalled(): Promise<boolean> {
 
 export async function getOpenCodeVersion(): Promise<string | null> {
   try {
-    const proc = Bun.spawn(['opencode', '--version'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const output = await new Response(proc.stdout).text();
-    await proc.exited;
-    return proc.exitCode === 0 ? output.trim() : null;
+    const result = await runCommand('opencode', ['--version'], 8_000);
+    return result.exitCode === 0 ? result.stdout.trim() : null;
   } catch {
     return null;
   }

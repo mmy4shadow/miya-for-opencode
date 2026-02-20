@@ -3,6 +3,7 @@ export declare class MiyaAutomationService {
     private readonly projectDir;
     private timer;
     private running;
+    private readonly activeJobIDs;
     constructor(projectDir: string);
     getProjectDir(): string;
     start(): void;
@@ -11,6 +12,7 @@ export declare class MiyaAutomationService {
     listJobs(): MiyaJob[];
     listApprovals(): MiyaApprovalRequest[];
     listHistory(limit?: number): MiyaJobHistoryRecord[];
+    deleteHistoryRecord(runId: string): boolean;
     scheduleDailyCommand(input: {
         name: string;
         time: string;
@@ -28,4 +30,6 @@ export declare class MiyaAutomationService {
     } | null>;
     rejectApproval(approvalId: string): MiyaApprovalRequest | null;
     private executeJobInState;
+    private applyResultToJob;
+    private recordExecutionFailure;
 }

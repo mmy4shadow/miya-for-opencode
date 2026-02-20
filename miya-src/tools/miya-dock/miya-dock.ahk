@@ -901,7 +901,7 @@ ShowGatewayHint() {
     return
   }
   DockState.lastGatewayWarnAt := now
-  ToolTip "Gateway not running. Try /miya-gateway-start"
+  ToolTip "Gateway not running. Try node miya-src/dist/cli/index.js gateway start --force"
   SetTimer () => ToolTip(), -1800
 }
 
@@ -912,7 +912,20 @@ TryStartGatewayCommand() {
   }
   DockState.lastGatewayStartAttempt := now
   try {
-    Run A_ComSpec ' /c opencode run --command "miya-gateway-start"', A_ScriptDir, "Hide"
+    projectRoot := A_ScriptDir "\..\.."
+    workspace := projectRoot "\miya-src"
+    distCli := workspace "\dist\cli\index.js"
+    srcCli := workspace "\src\cli\index.ts"
+    if FileExist(distCli) {
+      commandLine := ' /c set "MIYA_AUTO_UI_OPEN=0" && set "MIYA_DOCK_AUTO_LAUNCH=0" && node "' . distCli . '" gateway start --force'
+      Run A_ComSpec commandLine, workspace, "Hide"
+      return
+    }
+    if FileExist(srcCli) {
+      commandLine := ' /c set "MIYA_AUTO_UI_OPEN=0" && set "MIYA_DOCK_AUTO_LAUNCH=0" && node --import tsx "' . srcCli . '" gateway start --force'
+      Run A_ComSpec commandLine, workspace, "Hide"
+      return
+    }
   } catch {
     ; Fallback is tooltip instruction.
   }

@@ -9,7 +9,7 @@
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@opencode-ai/plugin": "^1.1.56",
         "@opencode-ai/sdk": "^1.1.56",
-        "tsx": "^4.20.6",
+        "tsx": "^4.21.0",
         "vscode-jsonrpc": "^8.2.0",
         "vscode-languageserver-protocol": "^3.17.5",
         "ws": "^8.18.0",

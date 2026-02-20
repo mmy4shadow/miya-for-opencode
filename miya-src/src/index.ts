@@ -158,7 +158,7 @@ function isPidAlive(pid: number): boolean {
 
 function openUrlSilently(url: string): void {
   if (process.platform === 'win32') {
-    const child = spawn('cmd', ['/c', 'start', '', url], {
+    const child = spawn('explorer.exe', [url], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
@@ -196,8 +196,9 @@ function launchDockSilently(projectDir: string): void {
       if (isPidAlive(pid)) return;
     } catch {}
   }
+  const dockScript = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-dock.ps1');
   const bat = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-launch.bat');
-  if (!fs.existsSync(bat)) return;
+  if (!fs.existsSync(dockScript) && !fs.existsSync(bat)) return;
   const now = Date.now();
   const memLast = dockLaunchAtByDir.get(projectDir) ?? 0;
   const persistedLast = readLastDockLaunchAt(projectDir);
@@ -207,12 +208,35 @@ function launchDockSilently(projectDir: string): void {
   }
   dockLaunchAtByDir.set(projectDir, now);
   writeLastDockLaunchAt(projectDir, now);
-  const child = spawn('cmd', ['/c', bat], {
-    cwd: projectDir,
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  });
+  const child = fs.existsSync(dockScript)
+    ? spawn(
+        'powershell.exe',
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-WindowStyle',
+          'Hidden',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          dockScript,
+          '-ProjectRoot',
+          projectDir,
+          '-TryStartGateway',
+        ],
+        {
+          cwd: projectDir,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+        },
+      )
+    : spawn('cmd', ['/c', bat], {
+        cwd: projectDir,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
   child.unref();
 }
 
@@ -333,7 +357,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
     process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
     dashboardConfig.dockAutoLaunch === true;
   const interactiveSession = isInteractiveSession();
-  const allowAutoOpenWithoutTty = process.platform === 'win32';
+  const allowAutoOpenWithoutTty = process.env.MIYA_AUTO_UI_OPEN_NO_TTY === '1';
   const canAutoOpenInSession = interactiveSession || allowAutoOpenWithoutTty;
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);

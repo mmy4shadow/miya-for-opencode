@@ -1,6 +1,16 @@
 export { ast_grep_replace, ast_grep_search } from './ast-grep';
 export { createBackgroundTools } from './background';
+export { createNodeTools } from './nodes';
+export { createRalphTools } from './ralph';
+export { createAutopilotTools } from './autopilot';
+export { createAutoflowTools } from './autoflow';
+export { createMultimodalTools } from './multimodal';
+export { createSoulTools } from './soul';
+export { createUltraworkTools } from './ultrawork';
+export { createRouterTools } from './router';
+export { createMcpTools } from './mcp';
 export { grep } from './grep';
 export { lsp_diagnostics, lsp_find_references, lsp_goto_definition, lsp_rename, lspManager, } from './lsp';
 export { createAutomationTools } from './automation';
 export { createWorkflowTools } from './workflow';
+export { createLearningTools } from './learning';

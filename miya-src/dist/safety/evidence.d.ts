@@ -1,4 +1,4 @@
-import { type SafetyTier } from './tier';
+import type { SafetyTier } from './tier';
 export interface SafetyEvidenceResult {
     pass: boolean;
     checks: string[];

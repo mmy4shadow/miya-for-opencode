@@ -1,7 +1,8 @@
 export declare const AGENT_ALIASES: Record<string, string>;
 export declare const SUBAGENT_NAMES: readonly ["2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer"];
 export declare const ORCHESTRATOR_NAME: "1-task-manager";
-export declare const ALL_AGENT_NAMES: readonly ["1-task-manager", "2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer"];
+export declare const CODE_SIMPLICITY_REVIEWER_NAME: "7-code-simplicity-reviewer";
+export declare const ALL_AGENT_NAMES: readonly ["1-task-manager", "2-code-search", "3-docs-helper", "4-architecture-advisor", "5-code-fixer", "6-ui-designer", "7-code-simplicity-reviewer"];
 export type AgentName = (typeof ALL_AGENT_NAMES)[number];
 export declare const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]>;
 export declare const DEFAULT_MODELS: Record<AgentName, string>;
@@ -12,3 +13,9 @@ export declare const DEFAULT_TIMEOUT_MS: number;
 export declare const MAX_POLL_TIME_MS: number;
 export declare const FALLBACK_FAILOVER_TIMEOUT_MS = 15000;
 export declare const STABLE_POLLS_THRESHOLD = 3;
+export declare const MIYA_SECURITY_CONSTANTS: {
+    readonly INPUT_MUTEX_TIMEOUT_MS: 20000;
+    readonly DECAY_STRATEGY: "EXPONENTIAL";
+    readonly DEFAULT_LAMBDA: 0.05;
+    readonly WHITESPACE_PROTECTION: true;
+};

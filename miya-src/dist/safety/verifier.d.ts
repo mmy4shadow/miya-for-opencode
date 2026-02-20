@@ -1,5 +1,5 @@
 import type { PluginInput } from '@opencode-ai/plugin';
-import { type SafetyTier } from './tier';
+import type { SafetyTier } from './tier';
 export interface VerifierInput {
     sessionID: string;
     traceID: string;

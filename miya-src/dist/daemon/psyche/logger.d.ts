@@ -1,0 +1,41 @@
+import type { PsycheApprovalMode, PsycheDecision, PsycheFixability, PsycheUrgency } from './consult';
+import type { SentinelSignals, SentinelState } from './state-machine';
+import type { TrustTier } from './trust';
+export declare function appendPsycheObservation(trainingDataLogPath: string, input: {
+    at: string;
+    state: SentinelState;
+    intent: string;
+    urgency: PsycheUrgency;
+    channel?: string;
+    userInitiated: boolean;
+    confidence: number;
+    decision: PsycheDecision;
+    shouldProbeScreen: boolean;
+    reasons: string[];
+    signals?: SentinelSignals;
+    approvalMode: PsycheApprovalMode;
+    fixability: PsycheFixability;
+    trust: {
+        target: number;
+        source: number;
+        action: number;
+        minScore: number;
+        tier: TrustTier;
+    };
+}): void;
+export declare function appendPsycheOutcome(trainingDataLogPath: string, input: {
+    at: string;
+    consultAuditID: string;
+    state: SentinelState;
+    intent: string;
+    urgency: PsycheUrgency;
+    channel?: string;
+    userInitiated: boolean;
+    delivered: boolean;
+    blockedReason?: string;
+    explicitFeedback: 'positive' | 'negative' | 'none';
+    userReplyWithinSec?: number;
+    userInitiatedWithinSec?: number;
+    score: number;
+    reward: 'positive' | 'negative';
+}): void;

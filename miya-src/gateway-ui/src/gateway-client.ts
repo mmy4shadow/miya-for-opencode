@@ -175,21 +175,23 @@ export class GatewayRpcClient {
     if (!frame || frame.type !== 'response') {
       return;
     }
-    const id = typeof frame.id === 'string' ? frame.id : '';
+    // Type guard: we know it's a response frame now
+    const responseFrame = frame as GatewayResponseFrame;
+    const id = typeof responseFrame.id === 'string' ? responseFrame.id : '';
     if (!id) return;
     const pending = this.pending.get(id);
     if (!pending) return;
     this.pending.delete(id);
     clearTimeout(pending.timeout);
-    if (frame.ok) {
-      pending.resolve(frame.result);
+    if (responseFrame.ok) {
+      pending.resolve(responseFrame.result);
       return;
     }
     const message =
-      frame.error?.message ??
-      frame.errorMessage ??
-      frame.error?.code ??
-      frame.errorCode ??
+      responseFrame.error?.message ??
+      responseFrame.errorMessage ??
+      responseFrame.error?.code ??
+      responseFrame.errorCode ??
       'gateway_request_failed';
     pending.reject(new Error(message));
   }

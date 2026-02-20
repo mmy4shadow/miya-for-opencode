@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BrowserRouter,
+  MemoryRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { GatewayRpcClient } from './gateway-client';
 
 interface NexusTrustSnapshot {
@@ -37,13 +46,6 @@ interface PsycheModeConfig {
 }
 
 type KillSwitchMode = 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
-type ControlView =
-  | 'modules'
-  | 'tasks-list'
-  | 'tasks-detail'
-  | 'memory-list'
-  | 'memory-detail'
-  | 'gateway';
 type TaskStatusFilter = 'all' | 'completed' | 'running' | 'failed' | 'stopped';
 type MemoryStatusFilter =
   | 'all'
@@ -211,17 +213,6 @@ function clearGatewayTokenInUrl(): void {
   } catch {}
 }
 
-function sanitizedLocationSearch(): string {
-  try {
-    const params = new URLSearchParams(location.search);
-    params.delete('token');
-    const serialized = params.toString();
-    return serialized ? `?${serialized}` : '';
-  } catch {
-    return '';
-  }
-}
-
 function resolveGatewayToken(): string {
   const fromQuery = readGatewayTokenFromQuery();
   if (fromQuery) {
@@ -328,70 +319,37 @@ function safeDecodeRouteSegment(raw: string): string {
   }
 }
 
-function parseRoute(pathname: string): {
-  view: ControlView;
+function resolveRouteIds(pathname: string): {
   taskId?: string;
   memoryId?: string;
-  basePath: string;
 } {
   const normalized = pathname.replace(/\/+$/, '') || '/';
-  const matched = normalized.match(/^(.*)\/tasks(?:\/([^/]+))?$/);
-  if (matched) {
-    return {
-      view: matched[2] ? 'tasks-detail' : 'tasks-list',
-      taskId: matched[2] ? safeDecodeRouteSegment(matched[2]) : undefined,
-      basePath: matched[1] || '',
-    };
+  const taskMatched = normalized.match(/^\/tasks\/([^/]+)$/);
+  if (taskMatched) {
+    return { taskId: safeDecodeRouteSegment(taskMatched[1]) };
   }
-  const memoryMatched = normalized.match(/^(.*)\/memory(?:\/([^/]+))?$/);
+  const memoryMatched = normalized.match(/^\/memory\/([^/]+)$/);
   if (memoryMatched) {
-    return {
-      view: memoryMatched[2] ? 'memory-detail' : 'memory-list',
-      memoryId: memoryMatched[2]
-        ? safeDecodeRouteSegment(memoryMatched[2])
-        : undefined,
-      basePath: memoryMatched[1] || '',
-    };
+    return { memoryId: safeDecodeRouteSegment(memoryMatched[1]) };
   }
-  const gatewayMatched = normalized.match(/^(.*)\/gateway$/);
-  if (gatewayMatched) {
-    return {
-      view: 'gateway',
-      basePath: gatewayMatched[1] || '',
-    };
-  }
-  return {
-    view: 'modules',
-    basePath: normalized === '/' ? '' : normalized,
-  };
+  return {};
 }
 
-function buildRoute(
-  basePath: string,
-  view: ControlView,
-  taskId?: string,
-): string {
-  const base = basePath || '';
-  if (view === 'modules') return base || '/';
-  if (view === 'tasks-list') return `${base}/tasks`;
-  if (view === 'tasks-detail')
-    return `${base}/tasks/${encodeURIComponent(taskId || '')}`;
-  if (view === 'memory-list') return `${base}/memory`;
-  if (view === 'memory-detail')
-    return `${base}/memory/${encodeURIComponent(taskId || '')}`;
-  return `${base}/gateway`;
-}
-
-function resolveGatewayBasePath(pathname: string = location.pathname): string {
-  return parseRoute(pathname).basePath;
+function isHappyDomRuntime(): boolean {
+  try {
+    const marker = (window as unknown as { happyDOM?: unknown }).happyDOM;
+    if (marker) return true;
+    const agent = navigator?.userAgent ?? '';
+    return agent.includes('HappyDOM');
+  } catch {
+    return false;
+  }
 }
 
 function withGatewayBasePath(
   suffix: `/${string}`,
-  pathname?: string,
 ): string {
-  const basePath = resolveGatewayBasePath(pathname ?? location.pathname);
-  return basePath ? `${basePath}${suffix}` : suffix;
+  return suffix;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -401,19 +359,18 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'gateway', label: '网关诊断', subtitle: '节点与连接态' },
 ];
 
-function isNavActive(view: ControlView, key: NavKey): boolean {
-  if (key === 'modules') return view === 'modules';
-  if (key === 'tasks') return view === 'tasks-list' || view === 'tasks-detail';
-  if (key === 'memory')
-    return view === 'memory-list' || view === 'memory-detail';
-  return view === 'gateway';
+function isNavActive(pathname: string, key: NavKey): boolean {
+  if (key === 'modules') return pathname === '/' || pathname === '/dashboard';
+  if (key === 'tasks') return pathname.includes('/tasks');
+  if (key === 'memory') return pathname.includes('/memory');
+  return pathname.includes('/diagnostics');
 }
 
-function targetViewForNav(key: NavKey): ControlView {
-  if (key === 'tasks') return 'tasks-list';
-  if (key === 'memory') return 'memory-list';
-  if (key === 'gateway') return 'gateway';
-  return 'modules';
+function targetPathForNav(key: NavKey): string {
+  if (key === 'tasks') return '/tasks';
+  if (key === 'memory') return '/memory';
+  if (key === 'gateway') return '/diagnostics';
+  return '/dashboard';
 }
 
 function killSwitchLabel(mode: KillSwitchMode): string {
@@ -619,8 +576,12 @@ async function invokeGateway(
   }
 }
 
-export default function App() {
-  const routeState = parseRoute(location.pathname);
+// Main App component with Router wrapper
+function AppContent() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const routeIds = useMemo(() => resolveRouteIds(location.pathname), [location.pathname]);
+  
   const [snapshot, setSnapshot] = useState<GatewaySnapshot>({});
   const [domains, setDomains] = useState<PolicyDomainRow[]>([]);
   const [jobs, setJobs] = useState<MiyaJob[]>([]);
@@ -637,14 +598,6 @@ export default function App() {
   const [successText, setSuccessText] = useState('');
   const [copyHintText, setCopyHintText] = useState('');
   const [insightText, setInsightText] = useState('');
-  const [view, setView] = useState<ControlView>(routeState.view);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(
-    routeState.taskId,
-  );
-  const [selectedMemoryId, setSelectedMemoryId] = useState<string | undefined>(
-    routeState.memoryId,
-  );
-  const [basePath, setBasePath] = useState(routeState.basePath);
   const [taskFilter, setTaskFilter] = useState<TaskStatusFilter>('all');
   const [memoryStatusFilter, setMemoryStatusFilter] =
     useState<MemoryStatusFilter>('all');
@@ -861,8 +814,7 @@ export default function App() {
         );
       }
       const shouldLoadMemory =
-        view === 'memory-list' ||
-        view === 'memory-detail' ||
+        location.pathname.includes('/memory') ||
         resolvedIdentityMode === 'owner';
       if (shouldLoadMemory) {
         try {
@@ -910,7 +862,7 @@ export default function App() {
       setIsRefreshing(false);
       refreshInFlightRef.current = false;
     }
-  }, [identityMode, view]);
+  }, [identityMode, location.pathname]);
 
   useEffect(() => {
     void refresh();
@@ -928,59 +880,28 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const onPopState = () => {
-      const route = parseRoute(location.pathname);
-      setView(route.view);
-      setSelectedTaskId(route.taskId);
-      setSelectedMemoryId(route.memoryId);
-      setBasePath(route.basePath);
-    };
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, []);
-
-  const navigate = useCallback(
-    (nextView: ControlView, id?: string) => {
-      const nextPath = buildRoute(basePath, nextView, id);
-      const nextUrl = `${nextPath}${sanitizedLocationSearch()}${location.hash || ''}`;
-      if (nextUrl !== `${location.pathname}${location.search}${location.hash}`) {
-        history.pushState({}, '', nextUrl);
-      }
-      setView(nextView);
-      if (nextView === 'tasks-detail') {
-        setSelectedTaskId(id);
-      } else if (nextView === 'memory-detail') {
-        setSelectedMemoryId(id);
-      } else {
-        setSelectedTaskId(undefined);
-        setSelectedMemoryId(undefined);
-      }
-    },
-    [basePath],
-  );
-
+  // Keyboard shortcuts for navigation
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
         if (event.key === '1') {
           event.preventDefault();
-          navigate('modules');
+          navigate('/dashboard');
           return;
         }
         if (event.key === '2') {
           event.preventDefault();
-          navigate('tasks-list');
+          navigate('/tasks');
           return;
         }
         if (event.key === '3') {
           event.preventDefault();
-          navigate('memory-list');
+          navigate('/memory');
           return;
         }
         if (event.key === '4') {
           event.preventDefault();
-          navigate('gateway');
+          navigate('/diagnostics');
           return;
         }
       }
@@ -991,11 +912,11 @@ export default function App() {
         !event.ctrlKey &&
         !event.metaKey
       ) {
-        if (view === 'tasks-list') {
+        if (location.pathname.includes('/tasks')) {
           event.preventDefault();
           taskSearchInputRef.current?.focus();
           taskSearchInputRef.current?.select();
-        } else if (view === 'memory-list') {
+        } else if (location.pathname.includes('/memory')) {
           event.preventDefault();
           memorySearchInputRef.current?.focus();
           memorySearchInputRef.current?.select();
@@ -1004,7 +925,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [navigate, view]);
+  }, [navigate, location.pathname]);
 
   const killSwitchMode = snapshot.nexus?.killSwitchMode ?? 'off';
   const trust = snapshot.nexus?.trust;
@@ -1108,8 +1029,8 @@ export default function App() {
   );
 
   const selectedTask = useMemo(
-    () => taskRecords.find((item) => item.id === selectedTaskId) ?? null,
-    [selectedTaskId, taskRecords],
+    () => taskRecords.find((item) => item.id === routeIds.taskId) ?? null,
+    [routeIds.taskId, taskRecords],
   );
 
   const selectedTaskProgress = useMemo(() => {
@@ -1185,7 +1106,7 @@ export default function App() {
   }, [ecosystemBridge.conflicts, ecosystemBridge.pinnedReleases, ecosystemBridge.sourcePacks]);
 
   const contextHelp = useMemo(() => {
-    if (view === 'tasks-list') {
+    if (location.pathname.includes('/tasks')) {
       return {
         title: '作业中心帮助',
         tips: [
@@ -1195,7 +1116,7 @@ export default function App() {
         ],
       };
     }
-    if (view === 'memory-list' || view === 'memory-detail') {
+    if (location.pathname.includes('/memory')) {
       return {
         title: '记忆库帮助',
         tips: [
@@ -1205,7 +1126,7 @@ export default function App() {
         ],
       };
     }
-    if (view === 'gateway') {
+    if (location.pathname.includes('/diagnostics')) {
       return {
         title: '网关诊断帮助',
         tips: [
@@ -1223,7 +1144,7 @@ export default function App() {
         '全局快捷键：Alt+1..4 切换页面。',
       ],
     };
-  }, [view]);
+  }, [location.pathname]);
 
   const memoryRecords = useMemo(
     () => {
@@ -1252,8 +1173,8 @@ export default function App() {
   );
 
   const selectedMemory = useMemo(
-    () => memories.find((item) => item.id === selectedMemoryId) ?? null,
-    [memories, selectedMemoryId],
+    () => memories.find((item) => item.id === routeIds.memoryId) ?? null,
+    [memories, routeIds.memoryId],
   );
 
   useEffect(() => {
@@ -1346,8 +1267,8 @@ export default function App() {
       if (!result?.removed) {
         throw new Error('task_history_not_found_or_delete_failed');
       }
-      if (view === 'tasks-detail') {
-        navigate('tasks-list');
+      if (location.pathname.includes('/tasks/')) {
+        navigate('/tasks');
       }
     }, `已删除任务记录：${task.id}`);
   };
@@ -1772,12 +1693,12 @@ export default function App() {
           </div>
           <nav className="space-y-1.5 px-3 py-4 text-base">
             {NAV_ITEMS.map((item) => {
-              const active = isNavActive(view, item.key);
+              const active = isNavActive(location.pathname, item.key);
               return (
                 <button
                   key={item.key}
                   type="button"
-                  onClick={() => navigate(targetViewForNav(item.key))}
+                  onClick={() => navigate(targetPathForNav(item.key))}
                   aria-current={active ? 'page' : undefined}
                   aria-label={`${item.label}${active ? '（当前）' : ''}`}
                   className={`flex w-full flex-col rounded-xl px-4 py-3 text-left transition ${active ? 'border border-sky-200 bg-sky-100 text-sky-700 shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
@@ -1879,12 +1800,12 @@ export default function App() {
 
           <nav className="flex flex-wrap gap-2 lg:hidden">
             {NAV_ITEMS.map((item) => {
-              const active = isNavActive(view, item.key);
+              const active = isNavActive(location.pathname, item.key);
               return (
                 <button
                   key={`mobile-${item.key}`}
                   type="button"
-                  onClick={() => navigate(targetViewForNav(item.key))}
+                  onClick={() => navigate(targetPathForNav(item.key))}
                   aria-current={active ? 'page' : undefined}
                   aria-label={`${item.label}${active ? '（当前）' : ''}`}
                   className={`rounded-lg border px-3 py-1.5 text-sm ${active ? 'border-sky-200 bg-sky-100 text-sky-700' : 'border-slate-300 bg-white text-slate-600'}`}
@@ -1895,8 +1816,10 @@ export default function App() {
             })}
           </nav>
 
-          {view === 'tasks-list' ? (
-            <section className={panelClass}>
+          <Routes>
+            {/* Tasks List Route */}
+            <Route path="/tasks" element={
+              <section className={panelClass}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="text-3xl font-semibold text-slate-800">
@@ -1969,7 +1892,7 @@ export default function App() {
                         <button
                           type="button"
                           key={task.id}
-                          onClick={() => navigate('tasks-detail', task.id)}
+                          onClick={() => navigate(`/tasks/${task.id}`)}
                           className="grid w-full grid-cols-[2.2fr_1fr_1fr_120px] items-center px-3 py-2 text-left hover:bg-sky-50"
                         >
                           <span className="min-w-0">
@@ -1998,14 +1921,15 @@ export default function App() {
                 )}
               </div>
             </section>
-          ) : null}
+            } />
 
-          {view === 'tasks-detail' ? (
+            {/* Tasks Detail Route */}
+            <Route path="/tasks/:taskId" element={
             <section className="space-y-4">
               <article className={panelClass}>
                 <button
                   type="button"
-                  onClick={() => navigate('tasks-list')}
+                  onClick={() => navigate('/tasks')}
                   className="text-sm text-sky-700 hover:text-sky-800"
                 >
                   {'< 返回任务列表'}
@@ -2176,9 +2100,10 @@ export default function App() {
                 </>
               )}
             </section>
-          ) : null}
+            } />
 
-          {view === 'memory-list' ? (
+            {/* Memory List Route */}
+            <Route path="/memory" element={
             <section className={panelClass}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -2351,7 +2276,7 @@ export default function App() {
                         </label>
                         <button
                           type="button"
-                          onClick={() => navigate('memory-detail', item.id)}
+                          onClick={() => navigate(`/memory/${item.id}`)}
                           className="rounded border border-slate-300 px-2 py-0.5 text-xs text-sky-700 hover:bg-sky-50"
                         >
                           打开详情
@@ -2386,14 +2311,15 @@ export default function App() {
                 )}
               </div>
             </section>
-          ) : null}
+            } />
 
-          {view === 'memory-detail' ? (
+            {/* Memory Detail Route */}
+            <Route path="/memory/:memoryId" element={
             <section className="space-y-4">
               <article className={panelClass}>
                 <button
                   type="button"
-                  onClick={() => navigate('memory-list')}
+                  onClick={() => navigate('/memory')}
                   className="text-sm text-sky-700 hover:text-sky-800"
                 >
                   {'< 返回记忆列表'}
@@ -2461,9 +2387,10 @@ export default function App() {
                 )}
               </article>
             </section>
-          ) : null}
+            } />
 
-          {view === 'gateway' ? (
+            {/* Diagnostics Route */}
+            <Route path="/diagnostics" element={
             <section className="space-y-4">
               <article className={panelClass}>
                 <h2 className="text-3xl font-semibold text-slate-800">
@@ -2529,9 +2456,11 @@ export default function App() {
                 </div>
               </article>
             </section>
-          ) : null}
+            } />
 
-          <div className={view === 'modules' ? 'space-y-4' : 'hidden'}>
+            {/* Dashboard Route */}
+            <Route path="/dashboard" element={
+          <div className="space-y-4">
             <section className={`${panelClass}`}>
               <h2 className="text-3xl font-semibold text-slate-800">
                 控制中枢
@@ -2557,7 +2486,7 @@ export default function App() {
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                 <button
                   type="button"
-                  onClick={() => navigate('tasks-list')}
+                  onClick={() => navigate('/tasks')}
                   className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
                 >
                   <p className="font-semibold text-slate-800">作业中心</p>
@@ -2565,7 +2494,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => navigate('memory-list')}
+                  onClick={() => navigate('/memory')}
                   className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
                 >
                   <p className="font-semibold text-slate-800">记忆库</p>
@@ -2573,7 +2502,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => navigate('gateway')}
+                  onClick={() => navigate('/diagnostics')}
                   className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
                 >
                   <p className="font-semibold text-slate-800">网关诊断</p>
@@ -3424,8 +3353,30 @@ export default function App() {
               </article>
             </section>
           </div>
+            } />
+
+            {/* Root redirect to dashboard */}
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </main>
       </div>
     </div>
+  );
+}
+
+// Wrapper component with BrowserRouter
+export default function App() {
+  if (isHappyDomRuntime()) {
+    const initialEntry = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    return (
+      <MemoryRouter initialEntries={[initialEntry || '/']}>
+        <AppContent />
+      </MemoryRouter>
+    );
+  }
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   );
 }

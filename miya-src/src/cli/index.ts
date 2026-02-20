@@ -1,7 +1,8 @@
-#!/usr/bin/env bun
-import { spawn } from 'node:child_process';
+#!/usr/bin/env node
+import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { install } from './install';
 import { runNodeHost } from '../nodes/client';
 import { currentPolicyHash } from '../policy';
@@ -50,26 +51,26 @@ function printHelp(): void {
 miya cli
 
 Usage:
-  bunx miya install [OPTIONS]
-  bunx miya gateway <start|status|doctor|shutdown>
-  bunx miya sessions <list|get|send|policy>
-  bunx miya channels <list|status|pairs|approve|reject|send>
-  bunx miya nodes <list|status|describe|pairs|approve|reject|invoke>
-  bunx miya skills <status|enable|disable|install|update>
-  bunx miya sync <list|pull|diff|apply|rollback>
-  bunx miya cron <list|runs|add|run|remove|approvals|approve|reject>
-  bunx miya voice <status|wake-on|wake-off|talk-start|talk-stop|ingest|history|clear>
-  bunx miya canvas <status|list|get|open|render|close>
-  bunx miya companion <status|wizard|profile|memory-add|memory-list|asset-add|asset-list|reset>
+  miya install [OPTIONS]
+  miya gateway <start|status|doctor|shutdown>
+  miya sessions <list|get|send|policy>
+  miya channels <list|status|pairs|approve|reject|send>
+  miya nodes <list|status|describe|pairs|approve|reject|invoke>
+  miya skills <status|enable|disable|install|update>
+  miya sync <list|pull|diff|apply|rollback>
+  miya cron <list|runs|add|run|remove|approvals|approve|reject>
+  miya voice <status|wake-on|wake-off|talk-start|talk-stop|ingest|history|clear>
+  miya canvas <status|list|get|open|render|close>
+  miya companion <status|wizard|profile|memory-add|memory-list|asset-add|asset-list|reset>
 
 Examples:
-  bunx miya gateway status
-  bunx miya sessions send webchat:main "hello"
-  bunx miya channels send telegram 123456 "hi"
-  bunx miya nodes invoke node-1 system.run '{"command":"pwd"}'
-  bunx miya sync list
-  bunx miya node-host --gateway http://127.0.0.1:17321
-  bunx miya install --no-tui --kimi=yes --openai=no --anthropic=no --copilot=no --zai-plan=no --antigravity=no --chutes=no --tmux=no --skills=yes --isolated=yes
+  miya gateway status
+  miya sessions send webchat:main "hello"
+  miya channels send telegram 123456 "hi"
+  miya nodes invoke node-1 system.run '{"command":"pwd"}'
+  miya sync list
+  miya node-host --gateway http://127.0.0.1:17321
+  miya install --no-tui --kimi=yes --openai=no --anthropic=no --copilot=no --zai-plan=no --antigravity=no --chutes=no --tmux=no --skills=yes --isolated=yes
 `);
 }
 
@@ -81,6 +82,20 @@ interface GatewayStartGuard {
   status: 'idle' | 'starting' | 'failed';
   updatedAt: string;
   cooldownUntil?: string;
+}
+
+interface GatewayStartResult {
+  ok: boolean;
+  workspace: string;
+  url?: string;
+  reason:
+    | 'started'
+    | 'guard_starting'
+    | 'guard_cooldown'
+    | 'node_not_found'
+    | 'spawn_failed'
+    | 'start_timeout';
+  detail?: string;
 }
 
 function runtimeGatewayStartGuardFile(cwd: string): string {
@@ -117,6 +132,47 @@ function resolveWorkspaceDir(cwd: string): string {
   return cwd;
 }
 
+function resolveNodeBinary(): string | null {
+  const configured = process.env.MIYA_NODE_BIN?.trim();
+  const windowsNodeCandidates =
+    process.platform === 'win32'
+      ? [
+          path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'nodejs', 'node.exe'),
+          path.join(
+            process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)',
+            'nodejs',
+            'node.exe',
+          ),
+          path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'nodejs', 'node.exe'),
+        ]
+      : [];
+  const candidates = [
+    configured || null,
+    (() => {
+      const execBase = path.basename(process.execPath).toLowerCase();
+      return execBase === 'node' || execBase === 'node.exe' ? process.execPath : null;
+    })(),
+    ...windowsNodeCandidates,
+    process.platform === 'win32' ? 'node.exe' : 'node',
+  ].filter((item): item is string => Boolean(item));
+
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync(candidate, ['--version'], {
+        stdio: ['ignore', 'ignore', 'ignore'],
+        timeout: 2_000,
+        windowsHide: true,
+      });
+      if (probe.status === 0) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
+function resolveCliScriptPath(): string {
+  return fileURLToPath(import.meta.url);
+}
+
 function clearGatewayStateFile(cwd: string): void {
   try {
     fs.unlinkSync(runtimeGatewayFile(cwd));
@@ -133,6 +189,12 @@ function readGatewayUrl(cwd: string): string | null {
   } catch {
     return null;
   }
+}
+
+function candidateGatewayRuntimeDirs(cwd: string): string[] {
+  const workspace = resolveWorkspaceDir(cwd);
+  if (workspace === cwd) return [cwd];
+  return [workspace, cwd];
 }
 
 function isPidAlive(pid: number): boolean {
@@ -177,52 +239,96 @@ async function waitGatewayReady(cwd: string, timeoutMs = 15000): Promise<boolean
   return false;
 }
 
-async function runGatewayStart(cwd: string): Promise<boolean> {
+async function runGatewayStart(cwd: string): Promise<GatewayStartResult> {
   const workspace = resolveWorkspaceDir(cwd);
   const guard = readGatewayStartGuard(workspace);
   const now = Date.now();
   if (guard?.status === 'starting') {
     const ageMs = now - Date.parse(guard.updatedAt);
     if (ageMs < 30_000) {
-      return false;
+      return {
+        ok: false,
+        workspace,
+        reason: 'guard_starting',
+        detail: `gateway_start_guard_active ageMs=${ageMs}`,
+      };
     }
   }
   if (guard?.cooldownUntil && now < Date.parse(guard.cooldownUntil)) {
-    return false;
+    return {
+      ok: false,
+      workspace,
+      reason: 'guard_cooldown',
+      detail: `cooldown_until=${guard.cooldownUntil}`,
+    };
   }
   writeGatewayStartGuard(workspace, {
     status: 'starting',
     updatedAt: new Date(now).toISOString(),
   });
-
-  const attempts: string[][] = [
-    [
-      'run',
-      '--model',
-      'openrouter/moonshotai/kimi-k2.5',
-      '--command',
-      'miya-gateway-start',
-      '--dir',
+  const nodeBinary = resolveNodeBinary();
+  if (!nodeBinary) {
+    writeGatewayStartGuard(workspace, {
+      status: 'failed',
+      updatedAt: new Date().toISOString(),
+      cooldownUntil: new Date(Date.now() + 60_000).toISOString(),
+    });
+    return {
+      ok: false,
       workspace,
-    ],
-    ['run', '--model', 'opencode/big-pickle', '--command', 'miya-gateway-start', '--dir', workspace],
-    ['run', '--command', 'miya-gateway-start', '--dir', workspace],
+      reason: 'node_not_found',
+      detail: 'Cannot resolve a runnable Node.js binary.',
+    };
+  }
+  const sourceCliScript = path.join(workspace, 'src', 'cli', 'index.ts');
+  const cliScript = fs.existsSync(sourceCliScript) ? sourceCliScript : resolveCliScriptPath();
+  const nodeArgs = [
+    ...(cliScript.endsWith('.ts') ? ['--import', 'tsx'] : []),
+    cliScript,
+    'gateway',
+    'serve',
+    '--workspace',
+    workspace,
   ];
 
-  for (const args of attempts) {
-    const proc = spawn('opencode', args, {
-      cwd: workspace,
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    proc.unref();
-    if (await waitGatewayReady(workspace, 12000)) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const proc = spawn(nodeBinary, nodeArgs, {
+        cwd: workspace,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: {
+          ...process.env,
+          MIYA_AUTO_UI_OPEN: '0',
+          MIYA_DOCK_AUTO_LAUNCH: '0',
+        },
+      });
+      proc.unref();
+    } catch (error) {
+      writeGatewayStartGuard(workspace, {
+        status: 'failed',
+        updatedAt: new Date().toISOString(),
+        cooldownUntil: new Date(Date.now() + 60_000).toISOString(),
+      });
+      return {
+        ok: false,
+        workspace,
+        reason: 'spawn_failed',
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (await waitGatewayReady(workspace, 15_000)) {
       writeGatewayStartGuard(workspace, {
         status: 'idle',
         updatedAt: new Date().toISOString(),
       });
-      return true;
+      return {
+        ok: true,
+        workspace,
+        url: readGatewayUrl(workspace) ?? undefined,
+        reason: 'started',
+      };
     }
     clearGatewayStateFile(workspace);
   }
@@ -232,7 +338,12 @@ async function runGatewayStart(cwd: string): Promise<boolean> {
     updatedAt: new Date().toISOString(),
     cooldownUntil: new Date(Date.now() + 60_000).toISOString(),
   });
-  return false;
+  return {
+    ok: false,
+    workspace,
+    reason: 'start_timeout',
+    detail: 'Gateway did not become ready within timeout window.',
+  };
 }
 
 async function callGatewayMethod(
@@ -304,31 +415,62 @@ async function callGatewayMethod(
 }
 
 async function ensureGatewayUrl(cwd: string, autoStart = true): Promise<string> {
-  const workspace = resolveWorkspaceDir(cwd);
-  let url = readGatewayUrl(workspace);
-  if (url) {
+  const candidateDirs = candidateGatewayRuntimeDirs(cwd);
+  for (const dir of candidateDirs) {
+    const url = readGatewayUrl(dir);
+    if (!url) continue;
     try {
       await callGatewayMethod(url, 'gateway.status.get', {});
       return url;
     } catch {
-      clearGatewayStateFile(workspace);
-      url = null;
+      clearGatewayStateFile(dir);
     }
   }
 
-  if (autoStart && (await runGatewayStart(workspace))) {
-    url = readGatewayUrl(workspace);
-    if (url) {
+  if (autoStart && (await runGatewayStart(cwd)).ok) {
+    for (const dir of candidateDirs) {
+      const url = readGatewayUrl(dir);
+      if (!url) continue;
       try {
         await callGatewayMethod(url, 'gateway.status.get', {});
         return url;
       } catch {
-        clearGatewayStateFile(workspace);
+        clearGatewayStateFile(dir);
       }
     }
   }
 
   throw new Error('gateway_unavailable');
+}
+
+async function runGatewayServe(cwd: string, args: string[]): Promise<number> {
+  const workspace = readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const { ensureGatewayRunning, stopGateway } = await import('../gateway');
+
+  try {
+    const state = ensureGatewayRunning(workspace);
+    console.log(JSON.stringify(state, null, 2));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === 'gateway_owned_by_other_process') {
+      return 0;
+    }
+    throw error;
+  }
+
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      try {
+        stopGateway(workspace);
+      } finally {
+        resolve();
+      }
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+
+  return 0;
 }
 
 async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
@@ -343,8 +485,19 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
       );
       return 2;
     }
-    const ok = await runGatewayStart(cwd);
-    return ok ? 0 : 1;
+    const result = await runGatewayStart(cwd);
+    const output = {
+      ok: result.ok,
+      reason: result.reason,
+      workspace: result.workspace,
+      url: result.url ?? null,
+      detail: result.detail ?? null,
+    };
+    console.log(JSON.stringify(output, null, 2));
+    return result.ok ? 0 : 1;
+  }
+  if (action === 'serve') {
+    return await runGatewayServe(cwd, args.slice(1));
   }
 
   let url = '';

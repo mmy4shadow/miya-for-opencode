@@ -91,6 +91,7 @@ export interface DaemonBackpressureStats {
 }
 
 const runtimes = new Map<string, LauncherRuntime>();
+let resolvedNodeBinaryCache: string | undefined;
 
 function emitLauncherEvent(
   runtime: LauncherRuntime,
@@ -159,12 +160,20 @@ function toDaemonLock(raw: Record<string, unknown> | null): DaemonLockState | nu
   return { pid, wsPort, token, updatedAt };
 }
 
-function resolveHostScriptPath(): string {
+function resolveHostScriptPath(projectDir: string): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const tsFile = path.join(here, 'host.ts');
-  const jsFile = path.join(here, 'host.js');
-  if (fs.existsSync(tsFile)) return tsFile;
-  return jsFile;
+  const candidates = [
+    path.join(here, 'host.ts'),
+    path.join(here, 'host.js'),
+    path.join(projectDir, 'src', 'daemon', 'host.ts'),
+    path.join(projectDir, 'dist', 'daemon', 'host.js'),
+    path.join(projectDir, 'miya-src', 'src', 'daemon', 'host.ts'),
+    path.join(projectDir, 'miya-src', 'dist', 'daemon', 'host.js'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return path.join(here, 'host.js');
 }
 
 function noteLaunchFailure(runtime: LauncherRuntime, reason: string): void {
@@ -187,13 +196,27 @@ function resetLaunchFailureState(runtime: LauncherRuntime): void {
 }
 
 function resolveNodeBinary(): string | null {
+  if (resolvedNodeBinaryCache !== undefined) return resolvedNodeBinaryCache;
   const configured = process.env.MIYA_NODE_BIN?.trim();
+  const windowsNodeCandidates =
+    process.platform === 'win32'
+      ? [
+          path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'nodejs', 'node.exe'),
+          path.join(
+            process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)',
+            'nodejs',
+            'node.exe',
+          ),
+          path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'nodejs', 'node.exe'),
+        ]
+      : [];
   const candidates = [
     configured || null,
     (() => {
       const execBase = path.basename(process.execPath).toLowerCase();
       return execBase === 'node' || execBase === 'node.exe' ? process.execPath : null;
     })(),
+    ...windowsNodeCandidates,
     process.platform === 'win32' ? 'node.exe' : 'node',
   ].filter((item): item is string => Boolean(item));
   for (const candidate of candidates) {
@@ -201,8 +224,12 @@ function resolveNodeBinary(): string | null {
       const probe = spawnSync(candidate, ['--version'], {
         stdio: ['ignore', 'ignore', 'ignore'],
         timeout: 2_000,
+        windowsHide: true,
       });
-      if (probe.status === 0) return candidate;
+      if (probe.status === 0) {
+        resolvedNodeBinaryCache = candidate;
+        return candidate;
+      }
     } catch {}
   }
   return null;
@@ -245,7 +272,7 @@ function spawnDaemon(runtime: LauncherRuntime): boolean {
     noteLaunchFailure(runtime, 'invalid_runtime_binary');
     return false;
   }
-  const hostScript = resolveHostScriptPath();
+  const hostScript = resolveHostScriptPath(runtime.projectDir);
   const nodeArgs = [
     ...(hostScript.endsWith('.ts') ? ['--import', 'tsx'] : []),
     hostScript,

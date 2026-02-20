@@ -42,6 +42,11 @@ export declare class TmuxSessionManager {
      * When a session becomes idle (completed), close its pane.
      */
     onSessionStatus(event: SessionEvent): Promise<void>;
+    /**
+     * Handle session.deleted events.
+     * When a session is deleted, close its tmux pane immediately.
+     */
+    onSessionDeleted(event: SessionEvent): Promise<void>;
     private startPolling;
     private stopPolling;
     /**

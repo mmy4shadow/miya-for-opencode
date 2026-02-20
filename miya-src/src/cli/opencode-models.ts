@@ -1,4 +1,5 @@
 import type { DiscoveredModel, OpenCodeFreeModel } from './types';
+import { runCommand } from './process';
 
 interface OpenCodeModelVerboseRecord {
   id: string;
@@ -163,25 +164,22 @@ async function discoverFreeModelsByProvider(providerID?: string): Promise<{
   error?: string;
 }> {
   try {
-    const proc = Bun.spawn(['opencode', 'models', '--refresh', '--verbose'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+    const result = await runCommand(
+      'opencode',
+      ['models', '--refresh', '--verbose'],
+      45_000,
+    );
 
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-
-    if (proc.exitCode !== 0) {
+    if (result.exitCode !== 0) {
       return {
         models: [],
-        error: stderr.trim() || 'Failed to fetch OpenCode models.',
+        error: result.stderr.trim() || 'Failed to fetch OpenCode models.',
       };
     }
 
     return {
       models: parseOpenCodeModelsVerboseOutput(
-        stdout,
+        result.stdout,
         providerID,
         true,
       ) as OpenCodeFreeModel[],
@@ -199,24 +197,21 @@ export async function discoverModelCatalog(): Promise<{
   error?: string;
 }> {
   try {
-    const proc = Bun.spawn(['opencode', 'models', '--refresh', '--verbose'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+    const result = await runCommand(
+      'opencode',
+      ['models', '--refresh', '--verbose'],
+      45_000,
+    );
 
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-
-    if (proc.exitCode !== 0) {
+    if (result.exitCode !== 0) {
       return {
         models: [],
-        error: stderr.trim() || 'Failed to fetch OpenCode models.',
+        error: result.stderr.trim() || 'Failed to fetch OpenCode models.',
       };
     }
 
     return {
-      models: parseOpenCodeModelsVerboseOutput(stdout, undefined, false),
+      models: parseOpenCodeModelsVerboseOutput(result.stdout, undefined, false),
     };
   } catch {
     return {

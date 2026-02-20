@@ -1,0 +1,27 @@
+export declare const MIYA_MODEL_BRANCH: {
+    readonly vision: "shi jue";
+    readonly image: "tu pian";
+    readonly voiceprint: "shi bie";
+    readonly voice: "sheng yin";
+};
+export declare const MIYA_MODEL_NAME: {
+    readonly fluxSchnell: "FLUX.1 schnell";
+    readonly fluxKlein: "FLUX.2 [klein] 4B（Apache-2.0）";
+    readonly eres2net: "eres2net";
+    readonly sovits: "GPT-SoVITS-v2pro-20250604";
+};
+export declare function getMiyaDataRootDir(projectDir: string): string;
+export declare function getMiyaAutomationDir(projectDir: string): string;
+export declare function getMiyaModelRootDir(projectDir: string): string;
+export declare function getMiyaModelPath(projectDir: string, ...segments: string[]): string;
+export declare function getMiyaVisionTempDir(projectDir: string, ...segments: string[]): string;
+export declare function getMiyaVisionLongTermDir(projectDir: string): string;
+export declare function getMiyaImageTempDir(projectDir: string): string;
+export declare function getMiyaImageLongTermDir(projectDir: string): string;
+export declare function getMiyaVoiceTempDir(projectDir: string): string;
+export declare function getMiyaVoiceLongTermDir(projectDir: string): string;
+export declare function getMiyaFluxModelDir(projectDir: string): string;
+export declare function getMiyaFluxKleinModelDir(projectDir: string): string;
+export declare function getMiyaSovitsModelDir(projectDir: string): string;
+export declare function getMiyaVoiceprintModelDir(projectDir: string): string;
+export declare function getMiyaVoiceprintSampleDir(projectDir: string): string;

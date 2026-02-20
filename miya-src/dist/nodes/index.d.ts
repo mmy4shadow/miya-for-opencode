@@ -1,11 +1,26 @@
+export type NodeType = 'cli' | 'desktop' | 'mobile' | 'browser';
+export type NodeStatus = 'online' | 'offline' | 'error';
+export interface NodePermissions {
+    screenRecording: boolean;
+    accessibility: boolean;
+    filesystem: 'none' | 'read' | 'full';
+    network: boolean;
+}
 export interface NodeRecord {
     nodeID: string;
     deviceID: string;
+    type: NodeType;
     role: 'node';
     platform: string;
+    permissions: NodePermissions;
     capabilities: string[];
     connected: boolean;
     paired: boolean;
+    status: NodeStatus;
+    tokenHash?: string;
+    tokenIssuedAt?: string;
+    tokenLastUsedAt?: string;
+    lastHeartbeatAt: string;
     lastSeenAt: string;
     createdAt: string;
     updatedAt: string;
@@ -39,13 +54,22 @@ export interface NodeInvokeRequest {
 export declare function registerNode(projectDir: string, input: {
     nodeID: string;
     deviceID: string;
+    type?: NodeType;
     platform: string;
     capabilities: string[];
+    permissions?: Partial<NodePermissions>;
+    token?: string;
 }): NodeRecord;
+export declare function touchNodeHeartbeat(projectDir: string, nodeID: string): NodeRecord | null;
 export declare function markNodeDisconnected(projectDir: string, nodeID: string): void;
 export declare function listNodes(projectDir: string): NodeRecord[];
 export declare function listDevices(projectDir: string): DeviceRecord[];
 export declare function describeNode(projectDir: string, nodeID: string): NodeRecord | null;
+export declare function issueNodeToken(projectDir: string, nodeID: string): {
+    nodeID: string;
+    token: string;
+    issuedAt: string;
+} | null;
 export declare function createNodePairRequest(projectDir: string, input: {
     nodeID: string;
     deviceID: string;

@@ -61,19 +61,37 @@ function Test-PidAlive {
   }
 }
 
-function Try-StartGatewayViaOpenCode {
+function Try-StartGatewayViaNode {
   param([string]$WorkingDirectory)
-  $opencode = Get-Command opencode -ErrorAction SilentlyContinue
-  if (-not $opencode) {
+  $node = Get-Command node -ErrorAction SilentlyContinue
+  if (-not $node) {
     return $false
   }
 
-  $escapedExe = '"' + $opencode.Source.Replace('"', '""') + '"'
-  $commandLine = 'set "MIYA_AUTO_UI_OPEN=0" && set "MIYA_DOCK_AUTO_LAUNCH=0" && ' + $escapedExe + ' run --command "miya-gateway-start"'
+  $workspaceDir = Join-Path $WorkingDirectory "miya-src"
+  $distCli = Join-Path $workspaceDir "dist\cli\index.js"
+  $srcCli = Join-Path $workspaceDir "src\cli\index.ts"
+
+  $escapedNode = '"' + $node.Source.Replace('"', '""') + '"'
+  $cliCommand = $null
+  $commandWorkingDirectory = $workspaceDir
+  if (Test-Path -LiteralPath $distCli) {
+    $escapedDistCli = '"' + $distCli.Replace('"', '""') + '"'
+    $cliCommand = "$escapedDistCli gateway start --force"
+  } elseif (Test-Path -LiteralPath $srcCli) {
+    $escapedSrcCli = '"' + $srcCli.Replace('"', '""') + '"'
+    $cliCommand = "--import tsx $escapedSrcCli gateway start --force"
+  }
+
+  if (-not $cliCommand) {
+    return $false
+  }
+
+  $commandLine = 'set "MIYA_AUTO_UI_OPEN=0" && set "MIYA_DOCK_AUTO_LAUNCH=0" && ' + $escapedNode + ' ' + $cliCommand
   $proc = Start-Process `
     -FilePath $Env:ComSpec `
     -ArgumentList @("/d", "/c", $commandLine) `
-    -WorkingDirectory $WorkingDirectory `
+    -WorkingDirectory $commandWorkingDirectory `
     -PassThru `
     -WindowStyle Hidden
   $completed = Wait-Process -Id $proc.Id -Timeout 20 -ErrorAction SilentlyContinue
@@ -137,8 +155,8 @@ if ($gateway -and $gateway.url) {
 }
 
 if (-not $ready -and $TryStartGateway) {
-  Write-Host "[miya-dock] Gateway not ready, trying: opencode run --command miya-gateway-start"
-  $null = Try-StartGatewayViaOpenCode -WorkingDirectory $ProjectRoot
+  Write-Host "[miya-dock] Gateway not ready, trying: node miya-src/dist/cli/index.js gateway start --force"
+  $null = Try-StartGatewayViaNode -WorkingDirectory $ProjectRoot
   Start-Sleep -Milliseconds 800
   $GatewayFile = Resolve-GatewayFile -Primary $GatewayPrimary -Alternate $GatewayAlternate
   $gateway = Read-GatewayState -Path $GatewayFile
@@ -153,7 +171,7 @@ Gateway is not ready.
 Expected file: $GatewayFile
 Recovery:
 1) Start OpenCode in this project (with Miya plugin loaded)
-2) Run command: /miya-gateway-start
+2) Run command: node miya-src/dist/cli/index.js gateway start --force
 3) Re-run tools/miya-dock/miya-launch.bat
 "@
 }

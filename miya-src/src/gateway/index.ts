@@ -311,6 +311,10 @@ interface DoctorIssue {
 
 interface GatewaySnapshot {
   updatedAt: string;
+  lifecycle: {
+    gateway: 'standalone_background';
+    ui: 'opencode_bound';
+  };
   gateway: GatewayState;
   runtime: {
     isOwner: boolean;
@@ -1008,6 +1012,7 @@ const WIZARD_PROMPT_VOICE = '我应该用什么声音？录音或发送文件。
 const WIZARD_PROMPT_PERSONALITY = '我是谁？告诉我我的性格、习惯和我们的关系。';
 const WIZARD_PROMPT_DONE = '设置完成。你好，亲爱的！';
 const WIZARD_CANCELLED_MESSAGE = '训练已取消/可重试';
+const WIZARD_REQUEUE_MESSAGE = '训练中断，已从checkpoint自动重排队恢复';
 
 function wizardPromptByState(state: string): string {
   if (state === 'awaiting_photos') return WIZARD_PROMPT_PHOTOS;
@@ -2455,6 +2460,10 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
 
   const base: Omit<GatewaySnapshot, 'doctor'> = {
     updatedAt: nowIso(),
+    lifecycle: {
+      gateway: 'standalone_background',
+      ui: 'opencode_bound',
+    },
     gateway: syncGatewayState(projectDir, runtime),
     runtime: {
       isOwner: owner.isOwner,
@@ -3284,6 +3293,9 @@ function formatGatewayStateWithRuntime(
 }
 
 function maybeBroadcast(projectDir: string, runtime: GatewayRuntime): void {
+  if (!hasEventSubscribers(runtime, 'gateway.snapshot')) {
+    return;
+  }
   runtime.stateVersion += 1;
   const frame = toEventFrame({
     event: 'gateway.snapshot',
@@ -3314,16 +3326,80 @@ function isEventSubscribed(wsData: GatewayWsData, event: string): boolean {
   return wsData.subscriptions.has('*') || wsData.subscriptions.has(event);
 }
 
+function hasEventSubscribers(runtime: GatewayRuntime, event: string): boolean {
+  for (const ws of runtime.wsClients) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    const wsData = ensureWsData(runtime, ws);
+    if (!wsData.authenticated || !isEventSubscribed(wsData, event)) continue;
+    return true;
+  }
+  return false;
+}
+
 function publishFrame(runtime: GatewayRuntime, event: string, frame: unknown): void {
-  const encoded = JSON.stringify(frame);
+  let encoded: string | null = null;
   for (const ws of runtime.wsClients) {
     if (ws.readyState !== WebSocket.OPEN) continue;
     const wsData = ensureWsData(runtime, ws);
     if (!wsData.authenticated || !isEventSubscribed(wsData, event)) continue;
     try {
+      if (encoded === null) {
+        encoded = JSON.stringify(frame);
+      }
       ws.send(encoded);
     } catch {}
   }
+}
+
+function emitWizardProgress(runtime: GatewayRuntime, payload: Record<string, unknown>): void {
+  publishGatewayEvent(runtime, 'companion.wizard.progress', payload);
+}
+
+function emitWizardRequeueProgress(
+  runtime: GatewayRuntime,
+  input: {
+    sessionId: string;
+    jobID: string;
+    type: string;
+    progress: number;
+    step: string;
+  },
+): void {
+  emitWizardProgress(runtime, {
+    sessionId: input.sessionId,
+    jobID: input.jobID,
+    type: input.type,
+    status: 'pending',
+    progress: Math.max(10, input.progress),
+    message: WIZARD_REQUEUE_MESSAGE,
+    step: input.step,
+  });
+}
+
+function emitWizardDoneProgress(
+  runtime: GatewayRuntime,
+  input: {
+    sessionId: string;
+    jobID: string;
+    type: string;
+    status: string;
+    tier?: string;
+    message?: string;
+    step: string;
+  },
+): void {
+  const finalStatus = input.status === 'failed' ? 'failed' : input.status;
+  emitWizardProgress(runtime, {
+    sessionId: input.sessionId,
+    jobID: input.jobID,
+    type: input.type,
+    status: finalStatus,
+    progress: finalStatus === 'failed' || finalStatus === 'canceled' ? 50 : 100,
+    currentTier: input.tier,
+    message: input.message,
+    step: input.step,
+    nextPrompt: wizardPromptByState(input.step),
+  });
 }
 
 async function runWizardTrainingWorker(
@@ -3336,7 +3412,7 @@ async function runWizardTrainingWorker(
   runtime.wizardRunnerBusy = true;
   try {
     const runningState = markTrainingJobRunning(projectDir, queued.job.id, queued.sessionId);
-    publishGatewayEvent(runtime, 'companion.wizard.progress', {
+    emitWizardProgress(runtime, {
       sessionId: queued.sessionId,
       jobID: queued.job.id,
       type: queued.job.type,
@@ -3359,15 +3435,13 @@ async function runWizardTrainingWorker(
           sessionId: queued.sessionId,
           jobID: queued.job.id,
           checkpointPath: result.checkpointPath,
-          message: '训练中断，已从checkpoint自动重排队恢复',
+          message: WIZARD_REQUEUE_MESSAGE,
         });
-        publishGatewayEvent(runtime, 'companion.wizard.progress', {
+        emitWizardRequeueProgress(runtime, {
           sessionId: queued.sessionId,
           jobID: queued.job.id,
           type: queued.job.type,
-          status: 'pending',
-          progress: Math.max(10, queued.job.progress),
-          message: '训练中断，已从checkpoint自动重排队恢复',
+          progress: queued.job.progress,
           step: requeued.state,
         });
         return;
@@ -3380,16 +3454,14 @@ async function runWizardTrainingWorker(
         tier: result.tier,
         checkpointPath: result.checkpointPath,
       });
-      publishGatewayEvent(runtime, 'companion.wizard.progress', {
+      emitWizardDoneProgress(runtime, {
         sessionId: queued.sessionId,
         jobID: queued.job.id,
         type: queued.job.type,
-        status: result.status === 'failed' ? 'failed' : result.status,
-        progress: result.status === 'failed' || result.status === 'canceled' ? 50 : 100,
-        currentTier: result.tier,
+        status: result.status,
+        tier: result.tier,
         message: result.message,
         step: done.state,
-        nextPrompt: wizardPromptByState(done.state),
       });
       return;
     }
@@ -3406,15 +3478,13 @@ async function runWizardTrainingWorker(
         sessionId: queued.sessionId,
         jobID: queued.job.id,
         checkpointPath: result.checkpointPath,
-        message: '训练中断，已从checkpoint自动重排队恢复',
+        message: WIZARD_REQUEUE_MESSAGE,
       });
-      publishGatewayEvent(runtime, 'companion.wizard.progress', {
+      emitWizardRequeueProgress(runtime, {
         sessionId: queued.sessionId,
         jobID: queued.job.id,
         type: queued.job.type,
-        status: 'pending',
-        progress: Math.max(10, queued.job.progress),
-        message: '训练中断，已从checkpoint自动重排队恢复',
+        progress: queued.job.progress,
         step: requeued.state,
       });
       return;
@@ -3427,16 +3497,14 @@ async function runWizardTrainingWorker(
       tier: result.tier,
       checkpointPath: result.checkpointPath,
     });
-    publishGatewayEvent(runtime, 'companion.wizard.progress', {
+    emitWizardDoneProgress(runtime, {
       sessionId: queued.sessionId,
       jobID: queued.job.id,
       type: queued.job.type,
-      status: result.status === 'failed' ? 'failed' : result.status,
-      progress: result.status === 'failed' || result.status === 'canceled' ? 50 : 100,
-      currentTier: result.tier,
+      status: result.status,
+      tier: result.tier,
       message: result.message,
       step: done.state,
-      nextPrompt: wizardPromptByState(done.state),
     });
   } finally {
     runtime.wizardRunnerBusy = false;
@@ -6073,6 +6141,7 @@ function reserveGatewayPort(hostname: string, configuredPort: number): number {
   const probe = spawnSync('node', ['-e', script, hostname], {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
   if (probe.status !== 0) {
     throw new Error(`gateway_port_reservation_failed:${String(probe.stderr || '').trim()}`);

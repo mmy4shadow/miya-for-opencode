@@ -137,7 +137,7 @@ Standardized result type for configuration operations.
 ### Installation Flow
 
 ```
-User runs: bunx miya install
+User runs: miya install
          │
          ▼
 ┌─────────────────────────────────────────┐
@@ -302,7 +302,7 @@ config-manager.ts (barrel)
 
 ### Consumers
 
-1. **End Users**: Via `bunx miya install`
+1. **End Users**: Via `miya install`
 2. **OpenCode**: Reads generated configs to load plugin and agents
 3. **CI/CD**: Via `--no-tui` flag for automated installations
 

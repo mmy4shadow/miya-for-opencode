@@ -1,4 +1,4 @@
-export declare const CHANNEL_NAMES: readonly ["telegram", "slack", "discord", "whatsapp", "google_chat", "signal", "imessage", "teams", "webchat"];
+export declare const CHANNEL_NAMES: readonly ["qq", "wechat", "telegram", "slack", "discord", "whatsapp", "google_chat", "signal", "imessage", "teams", "webchat"];
 export type ChannelName = (typeof CHANNEL_NAMES)[number];
 export declare function isChannelName(value: unknown): value is ChannelName;
 export interface ChannelPairRequest {
@@ -18,6 +18,7 @@ export interface ChannelState {
     lastError?: string;
     updatedAt: string;
     allowlist: string[];
+    contactTiers?: Record<string, 'owner' | 'friend'>;
 }
 export interface ChannelStore {
     channels: Record<ChannelName, ChannelState>;

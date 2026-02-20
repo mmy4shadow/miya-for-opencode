@@ -149,6 +149,7 @@ function reservePort(hostname: string, configuredPort: number): number {
   const probe = spawnSync('node', ['-e', script, hostname], {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
   if (probe.status !== 0) {
     throw new Error(`daemon_port_reservation_failed:${String(probe.stderr || '').trim()}`);

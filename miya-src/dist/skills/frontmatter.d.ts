@@ -5,5 +5,6 @@ export interface SkillFrontmatter {
     bins?: string[];
     env?: string[];
     platforms?: string[];
+    permissions?: string[];
 }
 export declare function parseSkillFrontmatter(markdown: string): SkillFrontmatter;
