@@ -1271,6 +1271,7 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'companion.memory.vector.list',
   'miya.memory.sqlite.stats',
   'miya.memory.pack.compile',
+  'miya.memory.perception.pack',
   'miya.memory.events.list',
   'miya.memory.evidence.get',
   'miya.contextfs.get',
@@ -4779,12 +4780,51 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       typeof params.l1Limit === 'number' && params.l1Limit > 0
         ? Math.min(30, Number(params.l1Limit))
         : undefined;
+    const modeRaw = parseText(params.mode);
+    const mode =
+      modeRaw === 'response' || modeRaw === 'audit'
+        ? (modeRaw as 'response' | 'audit')
+        : 'execution';
     return buildMemoryPack(projectDir, {
       query,
       domain,
+      mode,
       l0Limit,
       l1Limit,
     });
+  });
+  methods.register('miya.memory.perception.pack', async (params) => {
+    requireOwnerMode(projectDir);
+    const query = parseText(params.query) || '';
+    const domain =
+      parseText(params.domain) === 'relationship' ||
+      parseText(params.domain) === 'personal' ||
+      parseText(params.domain) === 'system'
+        ? (parseText(params.domain) as 'relationship' | 'personal' | 'system')
+        : 'work';
+    const modeRaw = parseText(params.mode);
+    const mode =
+      modeRaw === 'response' || modeRaw === 'audit'
+        ? (modeRaw as 'response' | 'audit')
+        : 'execution';
+    const pack = buildMemoryPack(projectDir, {
+      query,
+      domain,
+      mode,
+      l0Limit:
+        typeof params.l0Limit === 'number' && params.l0Limit > 0
+          ? Math.min(20, Number(params.l0Limit))
+          : undefined,
+      l1Limit:
+        typeof params.l1Limit === 'number' && params.l1Limit > 0
+          ? Math.min(30, Number(params.l1Limit))
+          : undefined,
+    });
+    return {
+      mode,
+      domain,
+      pack,
+    };
   });
   methods.register('miya.memory.events.list', async (params) => {
     requireOwnerMode(projectDir);

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import {
+  archiveCompanionMemoryVector,
   listCompanionMemoryVectors,
   upsertCompanionMemoryVector,
 } from './memory-vector';
@@ -53,20 +54,36 @@ function defaultProfile(): CompanionProfile {
   };
 }
 
+function deriveActiveMemoryFacts(projectDir: string): string[] {
+  return listCompanionMemoryVectors(projectDir)
+    .filter((item) => item.status === 'active' && !item.isArchived)
+    .map((item) => item.text)
+    .slice(0, 300);
+}
+
 export function readCompanionProfile(projectDir: string): CompanionProfile {
   const file = filePath(projectDir);
-  if (!fs.existsSync(file)) return defaultProfile();
+  if (!fs.existsSync(file)) {
+    return {
+      ...defaultProfile(),
+      memoryFacts: deriveActiveMemoryFacts(projectDir),
+    };
+  }
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<CompanionProfile>;
     return {
       ...defaultProfile(),
       ...parsed,
-      memoryFacts: Array.isArray(parsed.memoryFacts) ? parsed.memoryFacts : [],
+      // Runtime memory truth source is SQLite (mem_cells), not JSON profile blobs.
+      memoryFacts: deriveActiveMemoryFacts(projectDir),
       assets: Array.isArray(parsed.assets) ? parsed.assets : [],
       updatedAt: parsed.updatedAt ?? nowIso(),
     };
   } catch {
-    return defaultProfile();
+    return {
+      ...defaultProfile(),
+      memoryFacts: deriveActiveMemoryFacts(projectDir),
+    };
   }
 }
 
@@ -78,6 +95,7 @@ export function writeCompanionProfile(
   ensureDir(file);
   const next: CompanionProfile = {
     ...profile,
+    memoryFacts: deriveActiveMemoryFacts(projectDir),
     updatedAt: nowIso(),
   };
   fs.writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
@@ -112,13 +130,9 @@ export function addCompanionMemoryFact(
     source: 'profile_fact',
     activate: false,
   });
-  const memoryFacts = listCompanionMemoryVectors(projectDir)
-    .filter((item) => item.status === 'active')
-    .map((item) => item.text)
-    .slice(0, 300);
   return writeCompanionProfile(projectDir, {
     ...current,
-    memoryFacts,
+    memoryFacts: deriveActiveMemoryFacts(projectDir),
   });
 }
 
@@ -145,17 +159,21 @@ export function addCompanionAsset(
 }
 
 export function resetCompanionProfile(projectDir: string): CompanionProfile {
+  const allMemories = listCompanionMemoryVectors(projectDir);
+  for (const item of allMemories) {
+    if (item.isArchived) continue;
+    archiveCompanionMemoryVector(projectDir, {
+      memoryID: item.id,
+      archived: true,
+    });
+  }
   return writeCompanionProfile(projectDir, defaultProfile());
 }
 
 export function syncCompanionProfileMemoryFacts(projectDir: string): CompanionProfile {
   const current = readCompanionProfile(projectDir);
-  const memoryFacts = listCompanionMemoryVectors(projectDir)
-    .filter((item) => item.status === 'active')
-    .map((item) => item.text)
-    .slice(0, 300);
   return writeCompanionProfile(projectDir, {
     ...current,
-    memoryFacts,
+    memoryFacts: deriveActiveMemoryFacts(projectDir),
   });
 }

@@ -33,25 +33,25 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 ### 2026-02-18 控制台与网关启动链路修复（本轮）
 
 - `Gateway UI` 鉴权闭环已修复：WebSocket `hello` 透传 token，首次加载后将 token 写入 `localStorage` 并自动清理地址栏 `?token=`，避免 `invalid_gateway_token` 与 URL 明文泄露并存问题。
-- 控制台导航已收敛：移除无效 `chat/im/skills/status` 导航项，当前保留并接通后端的主栏目为 `控制中枢`、`作业中心`、`记忆库`、`网关诊断`。
+- 控制台导航已收敛：移除无效 `chat/im/skills/status` 导航项，当前主栏目为 `控制中枢`、`交互感知`、`安全与权限`、`作业中心`、`记忆库`、`网关诊断`（`miya-src/gateway-ui/src/App.tsx`）。
 - 启动行为默认值已对齐：`ui.dashboard.dockAutoLaunch` 默认启用；Windows 启动 OpenCode 时，控制面板可按配置自动跟随打开。
 - 网关拉起链路已减闪烁：`miya-dock.ps1` 改为直接调用 `opencode` 可执行文件启动网关，不再走 `cmd /c` 拼接命令；超时不再强杀子进程，避免终端反复弹窗与误杀启动。
 - 生命周期状态口径已统一：`lifecycle.status.get` 中 `dockAutoLaunch` 的判定逻辑与主启动逻辑保持一致，避免“实际已启用但面板显示未启用”的错位。
 - 控制台“伪在线”缺陷已修复：当 WS RPC 鉴权失败（如 token 失效）时，UI 不再静默吞错；将明确显示错误并将连接状态降级，避免“页面看似在线但任务/模块全空白”的误判。
 - Windows Dock 静默拉起命令已收敛为 `powershell.exe`，减少 shell 解析差异导致的偶发拉起失败。
 - Dock 启动链路新增 30 秒防抖：同一工作区短时间内不重复拉起 Dock 脚本，降低“终端/窗口持续闪烁”概率并抑制重复触发。
-- 控制台信息架构新增：在 `控制中心/任务` 之外新增 `记忆`、`网关` 导航页，降低单页拥挤。
+- 控制台信息架构新增：按“监控（看）/操作（动）”拆域，`Psyche` 与 `Security` 从控制中枢独立为单页，`Tasks/Memory` 保持原有主流程。
 - 记忆中心已落地可编辑能力：支持按域/状态筛选、详情编辑、待确认转生效、归档/取消归档；后端新增 `companion.memory.update`、`companion.memory.archive` 接口。
 - Owner 校验新增逃生阀：支持 `security.ownerCheck=false`（默认）或环境变量 `MIYA_DISABLE_OWNER_CHECK=1`，用于避免本机控制台在 `owner_mode_required` 下反复抖动。
 - 网关状态接口容错已补齐：`/api/status` 增加快照异常兜底，异常时返回降级 JSON（含 `statusError`）而非直接断链，降低前端 `Failed to fetch` 概率（`miya-src/src/gateway/index.ts`）。
-- 控制台栏目重构已落地：侧栏改为 `控制中枢/作业中心/记忆库/网关诊断`，并将任务/时间线等重复信息从控制中枢分流，减少主页面拥挤（`miya-src/gateway-ui/src/App.tsx`）。
+- 控制台栏目重构已落地：侧栏改为 `控制中枢/交互感知/安全与权限/作业中心/记忆库/网关诊断`，控制中枢仅保留在线状态、激活代理、CPU/内存摘要与全局急停（`miya-src/gateway-ui/src/App.tsx`）。
 - 代理兼容提示已内置：控制中枢新增 `NO_PROXY` / loopback 直连提示与能力域联动入口，支持“常开代理 + 本地直连”并行使用（`miya-src/gateway-ui/src/App.tsx`）。
 - 同源反向代理路径已兼容（首版）：Gateway UI 传输层改为“路径前缀感知”，在 `/miya/*` 等同源挂载场景下自动使用 `/<base>/api/*` 与 `/<base>/ws`；Gateway 服务端新增前缀别名路由（`/miya/ws`、`/miya/api/status`、`/miya/api/evidence/image` 等）且保留旧根路径兼容（`miya-src/gateway-ui/src/App.tsx`、`miya-src/src/gateway/index.ts`）。
 - 控制台告警交互已收口：原页内重复黄条改为全局 toast，避免切页时正文跳动；新增“复制 PowerShell 修复命令”按钮，支持一键拷贝 `NO_PROXY` 修复命令（`miya-src/gateway-ui/src/App.tsx`）。
 - 控制台空状态与文案已优化：作业中心改为“表头常驻 + 空状态组件”，守门员信号中心补全空状态占位；`proactive_ping/quiet_hours` 调整为中文优先标签（`miya-src/gateway-ui/src/App.tsx`）。
 - Daemon 闪退可观测性已增强：launcher 将 host stdout/stderr 落盘到 `daemon/host.stdout.log` 与 `daemon/host.stderr.log`，host 进程新增 `host.crash.log`（未捕获异常/拒绝）以支撑闪退定位（`miya-src/src/daemon/launcher.ts`、`miya-src/src/daemon/host.ts`）。
 - Daemon 子进程环境已补 loopback 豁免：统一注入 `NO_PROXY/no_proxy=localhost,127.0.0.1,::1`，降低“开代理时本地链路被误代理”导致的终端/网关断联风险（`miya-src/src/daemon/service.ts`）。
-- 控制台 WS 链路已改为长连接复用：`gateway-ui` 新增持久化 RPC 客户端，握手成功后复用单一 WebSocket 并支持 loopback 地址回退（`127.0.0.1/localhost/::1`），减少高频重连导致的闪断（`miya-src/gateway-ui/src/gateway-client.ts`、`miya-src/gateway-ui/src/App.tsx`）。
+- 控制台 WS 链路已改为“事件推送优先”：`gateway-ui` 通过 `gateway.subscribe` 订阅 `gateway.snapshot`，仅在变更时更新 UI；保留 15s 低频刷新兜底，替代 2.5s 高频全量刷新（`miya-src/gateway-ui/src/gateway-client.ts`、`miya-src/gateway-ui/src/App.tsx`）。
 - 控制台状态读取已切到 WS RPC：`gateway.status.get` 替代 `/api/status` 轮询入口，避免代理/同源限制下的 HTTP 断链放大（`miya-src/gateway-ui/src/App.tsx`）。
 - Gateway 新增 health 广播：订阅连接建立后立即推送一次 `gateway.health`，并以 2.5s 心跳周期广播 `uptime/memory/wsConnections`，为前端实时状态订阅提供统一事件层（`miya-src/src/gateway/index.ts`）。
 - Gateway/worker/supervisor 启动前统一补齐 loopback 直连环境：`NO_PROXY/no_proxy` 自动合并 `localhost,127.0.0.1,::1`，降低“系统代理误劫持本地控制链路”的概率（`miya-src/src/gateway/index.ts`、`未落地:src/cli/gateway-worker.ts`、`未落地:src/cli/gateway-supervisor.ts`）。
@@ -95,6 +95,30 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 状态结论：
 - “Miya 交互感知系统”已从“规则 + bandit”升级为“规则/风控 + 行为统计 + 反事实时机策略”的可观测版本。
 - “重模型（MLP/GRU）替换当前策略”保持进行中：待 shadow 指标达到瓶颈后再评估，不在本轮强推。
+
+### 2026-02-20 控制平面解耦与可观测/恢复基线（本轮）
+
+- `P0` 控制平面拆域：已从“壳层注册”推进到“实注册下沉（第一批）”。`sessions/channels/security/nodes/voice/memory` 的方法注册已迁入 `miya-src/src/gateway/methods/*.ts`，`gateway/index.ts` 保留编排与协议层；RPC method 名与参数口径保持兼容。
+- `P0` 启动自检与健康面板：已接入 `opencode debug config|skill|paths` 自检能力（按需触发：`gateway.startup.probe.run` + `refreshDebug=true`），快照新增 `health` 与 `observability` 统一视图（包含 gateway/daemon/memory/router）。
+- `P0` 关键链路审计字段：已新增网关方法审计落盘 `audit/gateway-methods.jsonl`，统一记录 `method/requestID/clientID/role/sessionID/jobID/ok/durationMs/error`，并提供 `gateway.audit.tail` 查询尾部证据。
+- `P0` 会话与任务恢复语义统一：已落地“可恢复原因码”基础链路。`sessions` 增加 `recovery` 状态；`autoflow persistent` 在停止/恢复路径写入 `RECOVERY_*` 原因码；daemon checkpoint 写入 `daemon/checkpoints.jsonl` 并回填 session 恢复状态。
+- `P1` 记忆系统“可控化”增量：在既有向量+关键词融合上补充图关系分数（triplet relation），新增检索质量分与自动清理策略（低质量衰减归档、过期 pending 清退、容量裁剪），并保留现有接口兼容。
+- 进行中：
+  - 实时多模态“增量流式输入/可打断输出”尚未完整下沉到 daemon/voice 执行链（当前为网关层能力增强与安全门联动）。
+  - 高风险任务可选容器后端仅完成规划与接口预留，尚未完成生产链路灰度。
+
+### 2026-02-20 记忆双真相源收敛（SQLite-WAL + Evidence/Event Stream）
+
+- 已完成：运行时真相源收敛到 SQLite-WAL。
+  - `CompanionProfile.memoryFacts` 改为运行时从 `mem_cells(status=active)` 派生，不再以 `companion.json` 作为记忆事实主源（`miya-src/src/companion/store.ts`）。
+- 已完成：在线 Perception 分层注入硬约束。
+  - `buildMemoryPack` 新增 `mode=execution|response|audit`；`execution` 强制仅输出 `L0`，默认不注入 `L1/L2`（`miya-src/src/companion/memory-sqlite.ts`）。
+  - 网关新增 `miya.memory.perception.pack`；`miya.memory.pack.compile` 默认 `execution` 模式（`miya-src/src/gateway/index.ts`）。
+- 已完成：ContextFS URI 扩展到记忆画像与场景。
+  - 新增 `miya://mem/profile?...`、`miya://mem/scenes/<sceneId>` 解析（`miya-src/src/companion/memory-sqlite.ts`）。
+- 已完成：回归测试补齐。
+  - 新增执行模式 L0-only 与 ContextFS profile/scene 解析测试（`miya-src/src/companion/memory-sqlite.test.ts`）。
+- 进行中：离线 Construction 全链路“单事务 2PC（Candidate -> Confirm/Reject）”进一步收敛（当前已具备 Candidate + 审计事件，但仍有增量整理空间）。
 
 ### 2026-02-18 代码实读复核（逻辑闭环/触发链路）
 
@@ -642,7 +666,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 | 外发主链路（QQ/微信）+证据链 | 已完成 | **仅 QQ/微信允许外发**；其余通道禁止外发 | `miya-src/src/channels/service.ts`, `miya-src/src/channel/outbound/shared.ts` |
 | Kill-Switch（按能力域停机）与风控联锁 | 已完成 | `outbound_send/desktop_control` 可独立停机 | `miya-src/src/safety/*`, `miya-src/src/policy/*` |
 | 多模态主链路（图像/语音/视觉） | 已完成 | 主链路可用，允许 fallback；遵守本地推理边界 | `miya-src/src/multimodal/*` |
-| 记忆主链路（pending/reflect/衰减） | 已完成 | 写入仍属副作用动作，需审批与审计 | `miya-src/src/companion/*`, `miya-src/src/gateway/index.ts` |
+| 记忆主链路（SQLite-WAL 真相源 + append-only raw log + Candidate→2PC→Active） | 已完成（2026-02-20） | 运行时真相源统一为 SQLite-WAL；反思链路改为 raw log append-only → quote 校验 → Candidate → Confirm/Reject（2PC）；每次写入绑定 Evidence Pack V5 与事件流审计 | `miya-src/src/companion/memory-sqlite.ts`, `miya-src/src/companion/memory-reflect.ts`, `miya-src/src/companion/memory-vector.ts`, `miya-src/src/gateway/index.ts` |
 | 统一模式核（Mode Kernel：work/chat/mixed） | 已完成（2026-02-15） | 统一判定口径；融合 sanitizer/复杂度/psyche/会话态；低置信按保守策略 | `未落地:src/gateway/mode-kernel.ts`, `miya-src/src/gateway/index.ts` |
 | Cortex Arbiter（双脑并行评估，单轨执行） | 已完成（2026-02-15） | 固定优先级合并：Safety > User explicit > Work objective > Emotional optimization | `未落地:src/gateway/cortex-arbiter.ts`, `miya-src/src/gateway/index.ts` |
 | mixed 同轮并行 + turn 证据包 | 已完成（2026-02-15） | 同轮允许“执行工作+情感回应”，共享单一 `turn_id` 防上下文分裂 | `未落地:src/gateway/turn-evidence.ts`, `miya-src/src/gateway/index.ts` |
@@ -1619,14 +1643,60 @@ S_old = C_old * exp(-lambda * (t_now - t_old))
 - ✅ **已完成（2026-02-14）**：`miya.memory.reflect` 已支持 `idempotencyKey` 与冷却窗口，避免重复反思污染记忆。
 - ✅ **已完成（2026-02-14）**：记忆检索已升级为动态评分裁剪（相似度+时效+重要度）并支持 `threshold` 过滤。
 - ✅ **已完成（2026-02-14）**：冲突更新策略已升级为“时间衰减+置信度加权”决策，并支持 `sourceType=direct_correction` 强制覆盖旧值。
-- ✅ **已完成（2026-02-14）**：Context Hydraulic Press 已注入 Agent Persona 路由策略（双流上下文 + 动态配额 + Priority-0 中断协议）。
-- ✅ **已完成（2026-02-14）**：存储层 `SQLite First` 已落地（`memory/memories.sqlite` + `memories` + `memories_vss`），并与现有 JSON 记忆写入路径自动同步（Cold/Hot 双层共存）。
 - ✅ **已完成（2026-02-15）**：记忆向量层新增 `work_memory/relationship_memory` 分域检索与写入，Gateway 已按模式做分域读取注入（`miya-src/src/companion/memory-vector.ts`, `miya-src/src/gateway/index.ts`）。
 - ✅ **已完成（2026-02-15）**：跨域写入新增审批与证据约束（`crossDomainWrite.requiresApproval + evidence`），并复用 pending->active 激活链路（`miya-src/src/companion/memory-vector.ts`, `miya-src/src/gateway/index.ts`）。
+- 🟡 **进行中（2026-02-20 状态核对）**：当前仍为 **JSON 主链路 + SQLite 同步副本**，并非“SQLite 事务内单真相源”。证据：`memory-reflect.ts` 仍走 `short-term-history.jsonl -> extractTriplets -> upsertCompanionMemoryVector`；`memory-sqlite.ts` 为 `syncCompanionMemoriesToSqlite` 同步投影。
+- 🟡 **进行中（2026-02-20 状态核对）**：当前候选流仍是 `pending -> active`，尚未升级为 `candidate -> 2PC(confirm/reject) -> active` 的全事务链路。
 - ✅ **测试通过（2026-02-14）**：`bun test miya-src/src/agents/index.test.ts miya-src/src/companion/memory-sqlite.test.ts miya-src/src/companion/memory-vector.test.ts miya-src/src/companion/memory-reflect.test.ts`（32/32 通过）。
 
-#### **1）存储层：SQLite First（避免引入重图数据库）**
-- V1 不引入 Nebula/Neo4j，使用 SQLite 模拟图结构 + 向量表。
+#### **1）终局架构（Miya-MemOS v2，进行中）**
+- **双真相源（职责分离）**：
+  - 运行时真相源：`SQLite-WAL`（在线检索/注入的唯一读写面）。
+  - 审计真相源：`Evidence Pack V5 + append-only 事件流`（可追责、可回放）。
+- **两条轨道**：
+  - `Memory Perception（在线）`：Gateway -> ContextFS -> Hybrid Retrieval（FTS5+Vec）-> RRF -> Context Compiler（L0/L1/L2）。
+  - `Memory Construction（离线）`：raw log append-only -> LLM 抽取 JSON -> quote/span 校验 -> candidate -> 2PC -> active。
+- **注入硬规则**：
+  - 执行型 Agent 仅允许 L0（约束包）。
+  - 对外回复允许 L1；L2 仅保留证据指针（按需展开）。
+
+#### **2）存储层：SQLite-WAL + ContextFS（进行中）**
+- 目标：把当前 `JSON 主链路 + SQLite 同步副本` 迁移为 `SQLite 主链路`，所有状态迁移在事务内完成。
+- 保留原则：raw logs 与 audit events 必须 append-only；任何派生记忆必须可反查证据。
+- ContextFS 统一 URI 命名空间（规划冻结）：
+  - `miya://mem/cell/<id>`
+  - `miya://mem/scenes/<sceneId>`
+  - `miya://mem/query?...`
+  - `miya://audit/evidence/<auditId>`
+  - `miya://audit/events?since=...`
+- 现状差距（进行中）：
+  - WAL/扩展加载策略尚未统一固化到运行时初始化路径。
+  - ContextFS 路由层尚未成为唯一上下文入口。
+
+#### **3）数据模型：MemCell / MemScene / Evidence（进行中）**
+- **MemCell（原子单元）**：`id/domain/kind/SPO/polarity/confidence/tier/status/conflict_key/evidence_ref`。
+- **MemScene（主题聚合）**：`memscenes + memscene_cells`，用于去碎片化和注入预算控制。
+- **Evidence Pack V5 绑定**：每条 candidate/active 记忆必须绑定 `auditId + sourceLogId + quoteSpans + policy_hash`。
+- 现状差距（进行中）：
+  - 当前尚未落地 MemScene 表与 scene-guided recollection。
+  - 当前证据字段以“来源指针”为主，尚未强制 quote/span 逐字校验。
+
+#### **4）检索与融合：FTS5 + Vec + RRF（进行中）**
+- 检索终局：关键词（FTS5/BM25）与语义向量并行召回，Gateway 层 RRF 融合，再叠加 recency/importance。
+- 向量后端策略：`vss0 -> vec0` 可插拔，保留无扩展 fallback（FTS-only）。
+- 现状差距（进行中）：
+  - 当前仍以现有 embedding 与打分链路为主，RRF 与可插拔向量后端尚未完全收口到统一接口。
+
+#### **5）离线构建与 2PC（进行中）**
+- 目标流水线（冻结口径）：
+  1. raw log append-only
+  2. LLM 抽取（严格 JSON Schema）
+  3. quote/span 逐字校验 + 规则校验 + 冲突检测
+  4. 写入 candidate
+  5. Learning Gate / UI 2PC：`confirm -> active`，`reject/archive` 保留证据
+- 现状差距（进行中）：
+  - 当前流水线仍为 `jsonl -> reflect -> extractTriplets -> upsert -> sync sqlite`。
+  - “高置信自动升级 active（可审计）”与“冲突极性翻转强制向导”尚未全量落地。
 
 ```sql
 -- 事实图（Triplets）
@@ -1650,7 +1720,7 @@ CREATE VIRTUAL TABLE memories_vss USING vss0(
 );
 ```
 
-#### **2）上下文液压机：Dynamic Budget Allocator（动态配额）**
+#### **6）上下文液压机：Dynamic Budget Allocator（动态配额）**
 - **预算计算**：`Total_Context_Window - System_Prompt - Task_Instruction = Retrieval_Budget`。
 - **分配策略**：
   - `Work_Mode`：Stream A（代码/日志）80%，Stream B（聊天）20%，B 仅保留最近 5 轮 + 强情绪摘要。
@@ -1658,7 +1728,7 @@ CREATE VIRTUAL TABLE memories_vss USING vss0(
 - **中断协议（Priority 0）**：
   - 若 Stream B 命中强中断词（如“停”“别”“等一下”），无视当前模式，直接注入窗口头部并抢占执行链路。
 
-#### **3）异步整理 Worker（The Janitor）**
+#### **7）异步整理 Worker（The Janitor）**
 - **触发条件（双触发）**：
   - `Session_End` 或 `User_Idle > 10min`
   - 且 `Unprocessed_Logs > 50`
