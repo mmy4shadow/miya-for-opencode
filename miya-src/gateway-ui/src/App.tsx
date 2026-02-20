@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BrowserRouter,
-  MemoryRouter,
   Navigate,
   Route,
   Routes,
   useLocation,
   useNavigate,
 } from 'react-router-dom';
+import { AppProviders } from './app/AppProviders';
+import { AppRoutes } from './app/AppRoutes';
+import { AppShell } from './app/AppShell';
+import { NAV_ITEMS, isNavActive, targetPathForNav, type NavKey } from './app/navigation';
 import { GatewayRpcClient } from './gateway-client';
 
 interface NexusTrustSnapshot {
@@ -64,6 +66,7 @@ interface GatewaySnapshot {
   daemon?: {
     connected?: boolean;
     cpuPercent?: number;
+    vramUsedMB?: number;
     activeJobID?: string;
     activeJobProgress?: number;
     psycheSignalHub?: {
@@ -78,6 +81,9 @@ interface GatewaySnapshot {
       burstIntervalMs?: number;
       staleAfterMs?: number;
     };
+  };
+  runtime?: {
+    activeAgentId?: string;
   };
   policyHash?: string;
   sessions?: {
@@ -223,6 +229,30 @@ function resolveGatewayToken(): string {
   return readGatewayTokenFromStorage();
 }
 
+const KNOWN_ROUTE_PREFIXES = [
+  '/dashboard',
+  '/psyche',
+  '/security',
+  '/tasks',
+  '/memory',
+  '/diagnostics',
+  '/',
+];
+
+function inferRouterBasename(pathname: string): string {
+  const normalizedPath = pathname || '/';
+  if (KNOWN_ROUTE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`))) {
+    return '';
+  }
+  const segments = normalizedPath.split('/').filter(Boolean);
+  if (segments.length === 0) return '';
+  const first = `/${segments[0]}`;
+  if (segments.length === 1) return first;
+  const second = `/${segments[1]}`;
+  if (KNOWN_ROUTE_PREFIXES.includes(second)) return first;
+  return '';
+}
+
 interface MiyaJob {
   id: string;
   name: string;
@@ -243,14 +273,6 @@ interface MiyaJobRun {
 }
 
 type UiTaskStatus = 'completed' | 'running' | 'failed' | 'stopped';
-
-type NavKey = 'modules' | 'tasks' | 'memory' | 'gateway';
-
-interface NavItem {
-  key: NavKey;
-  label: string;
-  subtitle: string;
-}
 
 interface TaskRecord {
   id: string;
@@ -350,27 +372,6 @@ function withGatewayBasePath(
   suffix: `/${string}`,
 ): string {
   return suffix;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { key: 'modules', label: '控制中枢', subtitle: '总览与安全联锁' },
-  { key: 'tasks', label: '作业中心', subtitle: '任务执行与回放' },
-  { key: 'memory', label: '记忆库', subtitle: '记忆筛选与修订' },
-  { key: 'gateway', label: '网关诊断', subtitle: '节点与连接态' },
-];
-
-function isNavActive(pathname: string, key: NavKey): boolean {
-  if (key === 'modules') return pathname === '/' || pathname === '/dashboard';
-  if (key === 'tasks') return pathname.includes('/tasks');
-  if (key === 'memory') return pathname.includes('/memory');
-  return pathname.includes('/diagnostics');
-}
-
-function targetPathForNav(key: NavKey): string {
-  if (key === 'tasks') return '/tasks';
-  if (key === 'memory') return '/memory';
-  if (key === 'gateway') return '/diagnostics';
-  return '/dashboard';
 }
 
 function killSwitchLabel(mode: KillSwitchMode): string {
@@ -645,6 +646,8 @@ function AppContent() {
     quietHoursTimezoneOffsetMinutes: -new Date().getTimezoneOffset(),
   });
   const refreshInFlightRef = useRef(false);
+  const refreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSnapshotUpdatedAtRef = useRef<string | undefined>(undefined);
   const actionInFlightRef = useRef(false);
   const taskSearchInputRef = useRef<HTMLInputElement | null>(null);
   const memorySearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -719,14 +722,47 @@ function AppContent() {
     pushNotification('info', copyHintText);
   }, [copyHintText, pushNotification]);
 
+  const applyIncomingSnapshot = useCallback(
+    (status: GatewaySnapshot) => {
+      const updatedAt = status.updatedAt;
+      if (
+        updatedAt &&
+        latestSnapshotUpdatedAtRef.current &&
+        updatedAt === latestSnapshotUpdatedAtRef.current
+      ) {
+        return;
+      }
+      latestSnapshotUpdatedAtRef.current = updatedAt;
+      setRpcConnected(true);
+      setSnapshot(status);
+      setConnected(Boolean(status.daemon?.connected));
+      setLastRefreshAt(new Date().toISOString());
+      setHasRefreshedOnce(true);
+      const incomingMode = status.nexus?.trustMode;
+      if (incomingMode) setTrustModeForm(incomingMode);
+      const incomingPsycheMode = status.nexus?.psycheMode;
+      if (incomingPsycheMode) {
+        setPsycheModeForm((prev) => ({ ...prev, ...incomingPsycheMode }));
+      }
+      if (status.statusError?.message) {
+        const hint = status.statusError.hint ? `；${status.statusError.hint}` : '';
+        setErrorText(
+          `status_snapshot_degraded:${
+            status.statusError.code || 'unknown'
+          }: ${status.statusError.message}${hint}`,
+        );
+      }
+    },
+    [],
+  );
+
   const refresh = useCallback(async () => {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
     setIsRefreshing(true);
     try {
       const status = (await invokeGateway('gateway.status.get')) as GatewaySnapshot;
-      setRpcConnected(true);
-      setSnapshot(status);
+      applyIncomingSnapshot(status);
       const rpcErrors: string[] = [];
       if (status.statusError?.message) {
         const hint = status.statusError.hint ? `；${status.statusError.hint}` : '';
@@ -862,15 +898,60 @@ function AppContent() {
       setIsRefreshing(false);
       refreshInFlightRef.current = false;
     }
-  }, [identityMode, location.pathname]);
+  }, [applyIncomingSnapshot, identityMode, location.pathname]);
+
+  const scheduleRefresh = useCallback(
+    (delayMs = 180) => {
+      if (refreshDebounceRef.current) return;
+      refreshDebounceRef.current = setTimeout(() => {
+        refreshDebounceRef.current = null;
+        void refresh();
+      }, delayMs);
+    },
+    [refresh],
+  );
 
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => {
+    const client = getGatewayClient();
+    const unsubscribeEvent =
+      typeof (client as { onEvent?: unknown }).onEvent === 'function'
+        ? (client as {
+            onEvent: (
+              listener: (frame: { event?: string; payload?: unknown }) => void,
+            ) => () => void;
+          }).onEvent((frame) => {
+            if (frame.event === 'gateway.snapshot') {
+              const payload =
+                frame.payload && typeof frame.payload === 'object'
+                  ? (frame.payload as GatewaySnapshot)
+                  : undefined;
+              if (!payload) return;
+              applyIncomingSnapshot(payload);
+              return;
+            }
+            // Partial events (job progress/insight changes) trigger a debounced full refresh.
+            scheduleRefresh(220);
+          })
+        : () => {};
+    void invokeGateway('gateway.subscribe', {
+      events: ['gateway.snapshot', 'daemon.job_progress', 'insight.append'],
+    }).catch(() => {
+      // Keep running with periodic refresh fallback when subscribe fails.
+    });
+
+    const fallbackTimer = setInterval(() => {
       void refresh();
-    }, 2500);
-    return () => clearInterval(timer);
-  }, [refresh]);
+    }, 15_000);
+    return () => {
+      unsubscribeEvent();
+      clearInterval(fallbackTimer);
+      if (refreshDebounceRef.current) {
+        clearTimeout(refreshDebounceRef.current);
+        refreshDebounceRef.current = null;
+      }
+    };
+  }, [applyIncomingSnapshot, refresh, scheduleRefresh]);
 
   useEffect(() => {
     return () => {
@@ -891,15 +972,25 @@ function AppContent() {
         }
         if (event.key === '2') {
           event.preventDefault();
-          navigate('/tasks');
+          navigate('/psyche');
           return;
         }
         if (event.key === '3') {
           event.preventDefault();
-          navigate('/memory');
+          navigate('/security');
           return;
         }
         if (event.key === '4') {
+          event.preventDefault();
+          navigate('/tasks');
+          return;
+        }
+        if (event.key === '5') {
+          event.preventDefault();
+          navigate('/memory');
+          return;
+        }
+        if (event.key === '6') {
           event.preventDefault();
           navigate('/diagnostics');
           return;
@@ -1141,7 +1232,7 @@ function AppContent() {
       tips: [
         '首次使用建议先完成引导，再确认守门员和能力域状态。',
         '关键反馈会进入右上角通知中心，可用于追踪操作历史。',
-        '全局快捷键：Alt+1..4 切换页面。',
+        '全局快捷键：Alt+1..6 切换页面。',
       ],
     };
   }, [location.pathname]);
@@ -1756,9 +1847,9 @@ function AppContent() {
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
-              <p>自动刷新: 2.5s</p>
+              <p>状态通道: WS 推送 + 15s 兜底刷新</p>
               <p>最近更新: {formatRelativeSeconds(lastRefreshAt)}</p>
-              <p>快捷键: Alt+1/2/3/4 切换页面，/ 聚焦搜索</p>
+              <p>快捷键: Alt+1..6 切换页面，/ 聚焦搜索</p>
             </div>
           </header>
 
@@ -2458,902 +2549,208 @@ function AppContent() {
             </section>
             } />
 
-            {/* Dashboard Route */}
-            <Route path="/dashboard" element={
-          <div className="space-y-4">
-            <section className={`${panelClass}`}>
-              <h2 className="text-3xl font-semibold text-slate-800">
-                控制中枢
-              </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                仅保留全局控制项。任务、记忆、网关详情已分流到独立页面。
-              </p>
-              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
-                {quickStats.map((item) => (
-                  <article
-                    key={item.title}
-                    className="rounded-xl border border-sky-200 bg-sky-50 p-3"
-                  >
-                    <p className="text-xs text-slate-500">{item.title}</p>
-                    <p className={`mt-1 flex items-center gap-2 text-lg font-semibold ${item.toneClass}`}>
-                      <span className={`h-2 w-2 rounded-full ${item.dotClass}`} />
-                      <span>{item.value}</span>
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600">{item.desc}</p>
-                  </article>
-                ))}
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-                <button
-                  type="button"
-                  onClick={() => navigate('/tasks')}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
-                >
-                  <p className="font-semibold text-slate-800">作业中心</p>
-                  <p className="mt-1 text-slate-500">任务列表、日志导出与重放</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/memory')}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
-                >
-                  <p className="font-semibold text-slate-800">记忆库</p>
-                  <p className="mt-1 text-slate-500">筛选、修订、归档、确认</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/diagnostics')}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-left text-xs transition hover:border-sky-300 hover:bg-sky-50"
-                >
-                  <p className="font-semibold text-slate-800">网关诊断</p>
-                  <p className="mt-1 text-slate-500">节点、连接态、策略哈希</p>
-                </button>
-              </div>
-            </section>
-
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  用户工作流完整性与权限请求清晰度
-                </h2>
-                <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-slate-500">待处理权限票据</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-800">
-                      {snapshot.nexus?.pendingTickets ?? 0}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-slate-500">当前请求能力域</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-800">
-                      {permissionLabel(snapshot.nexus?.permission)}
-                    </p>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  建议处理顺序：先在「能力域状态」确认暂停/恢复，再处理外发与桌控审批，最后写入系统时间线备注。
-                </p>
-              </article>
-
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  错误恢复路径完整性与配置可发现性
-                </h2>
-                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                  <p>
-                    恢复路径：1) 点击「刷新」复检状态 2) 复制并执行代理修复命令 3) 检查网关/daemon
-                    进程 4) 运行诊断命令。
-                  </p>
-                  <div className="mt-2 space-y-1 rounded bg-white p-2 font-mono text-[11px] text-slate-600">
-                    <p>opencode debug config</p>
-                    <p>opencode debug skill</p>
-                    <p>opencode debug paths</p>
-                  </div>
-                  {snapshot.statusError?.message ? (
-                    <p className="mt-2 text-rose-700">
-                      最近错误：{snapshot.statusError.message}
-                    </p>
-                  ) : null}
-                </div>
-              </article>
-
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  训练进度可见性与技能管理用户体验
-                </h2>
-                <div className="mt-3 space-y-2 text-xs">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-slate-500">训练/任务状态</p>
-                    <p className="mt-1 font-medium text-slate-800">
-                      {activeTrainingSummary.title}
-                    </p>
-                    <p
-                      className={`mt-1 ${activeTrainingSummary.running ? 'text-sky-700' : 'text-slate-500'}`}
-                    >
-                      进度：{activeTrainingSummary.progressText}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-slate-500">已启用技能</p>
-                    <p className="mt-1 text-slate-800">
-                      {skillSummary.enabled.length} / 已发现{' '}
-                      {skillSummary.discoveredCount}
-                    </p>
-                    <p className="mt-1 text-slate-600">
-                      {skillSummary.topEnabled.length > 0
-                        ? skillSummary.topEnabled.join(', ')
-                        : '暂无启用技能'}
-                    </p>
-                  </div>
-                </div>
-              </article>
-
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  生态兼容（OpenClaw/OpenCode 互通）
-                </h2>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-slate-500">桥接源包</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-800">
-                      {ecosystemSummary.packs}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-slate-500">冲突项</p>
-                    <p
-                      className={`mt-1 text-lg font-semibold ${ecosystemSummary.conflicts > 0 ? 'text-rose-700' : 'text-emerald-700'}`}
-                    >
-                      {ecosystemSummary.conflicts}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-slate-500">Allowlisted</p>
-                    <p className="mt-1 text-slate-800">
-                      {ecosystemSummary.allowlisted}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-slate-500">Pinned 版本</p>
-                    <p className="mt-1 text-slate-800">
-                      {ecosystemSummary.pinned}
-                    </p>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  建议保持 untrusted 源包为 0；若出现冲突，请先在网关执行 diff/rollback 再继续同步。
-                </p>
-              </article>
-
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  桌面控制操作透明度与审计追踪
-                </h2>
-                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-                  {latestOutbound ? (
-                    <>
-                      <p className="font-medium text-slate-800">
-                        最近外发：{latestOutbound.channel ?? '-'} {'->'}{' '}
-                        {latestOutbound.destination ?? '-'}
-                      </p>
-                      <p className="mt-1 text-slate-600">
-                        结果：{latestOutbound.message ?? '-'}
-                      </p>
-                      <p className="mt-1 text-slate-500">
-                        recipient={latestOutbound.recipientTextCheck ?? '-'} |
-                        send={latestOutbound.sendStatusCheck ?? '-'} |
-                        receipt={latestOutbound.receiptStatus ?? '-'}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-slate-500">
-                      暂无最近外发记录，执行一次桌控/外发后可在此查看透明审计摘要。
-                    </p>
-                  )}
-                </div>
-              </article>
-            </section>
-
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <article className={panelClass}>
-                <h2 className="text-base font-semibold text-slate-800">
-                  守门员信号中心（Psyche Signal Hub）
-                </h2>
-                {signalHub ? (
-                  <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                      <p>运行状态：{signalHub.running ? '运行中' : '已停止'}</p>
-                      <p>序号：{signalHub.sequence ?? '-'}</p>
-                      <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
-                      <p>过期：{signalHub.stale ? '是' : '否'}</p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                      <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
-                      <p>采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms</p>
-                      <p>突发间隔：{signalHub.burstIntervalMs ?? '-'}ms</p>
-                      <p>过期阈值：{signalHub.staleAfterMs ?? '-'}ms</p>
-                    </div>
-                    {signalHub.lastError ? (
-                      <p className="text-rose-700 md:col-span-2">
-                        lastError: {signalHub.lastError}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="mt-2">
-                    <EmptyState
-                      title="等待守门员信号接入"
-                      description="尚未收到 daemon signal hub 指标，通常发生在 daemon 未连接或刚启动阶段。"
-                    />
-                  </div>
-                )}
-              </article>
-            </section>
-
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">安全总开关（紧急）</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  当前模式：{killSwitchLabel(killSwitchMode)}
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {(
-                    [
-                      {
-                        mode: 'off',
-                        text: '正常运行',
-                        hint: '外发和桌控都可用',
-                      },
-                      {
-                        mode: 'outbound_only',
-                        text: '暂停外发',
-                        hint: '停止发送消息，但保留桌控',
-                      },
-                      {
-                        mode: 'desktop_only',
-                        text: '暂停桌控',
-                        hint: '禁止鼠标键盘自动操作',
-                      },
-                      {
-                        mode: 'all_stop',
-                        text: '全部停止',
-                        hint: '紧急止损，全部停机',
-                      },
-                    ] as Array<{
-                      mode: KillSwitchMode;
-                      text: string;
-                      hint: string;
-                    }>
-                  ).map((item) => (
-                    <button
-                      key={item.mode}
-                      type="button"
-                      disabled={loading}
-                      onClick={() => void setKillSwitchMode(item.mode)}
-                    className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}
-                  >
-                      <p className="font-medium">{item.text}</p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        {item.hint}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              </article>
-
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">信任阈值</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  分数高于静默阈值可自动放行，低于阻断阈值必须人工确认。
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 p-2">
-                    <span>静默阈值（推荐 90）</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={trustModeForm.silentMin}
-                      onChange={(event) =>
-                        setTrustModeForm((prev) => ({
-                          ...prev,
-                          silentMin: Number(event.target.value),
-                        }))
-                      }
-                      className="rounded border border-slate-300 bg-white px-2 py-1"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 p-2">
-                    <span>阻断阈值（推荐 50）</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={trustModeForm.modalMax}
-                      onChange={(event) =>
-                        setTrustModeForm((prev) => ({
-                          ...prev,
-                          modalMax: Number(event.target.value),
-                        }))
-                      }
-                      className="rounded border border-slate-300 bg-white px-2 py-1"
-                    />
-                  </label>
-                </div>
-                <div className="mt-3 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() =>
-                      void runAction(async () => {
-                        await invokeGateway(
-                          'trust.set_mode',
-                          trustModeForm as unknown as Record<string, unknown>,
-                        );
-                      }, '信任阈值已保存')
-                    }
-                    className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
-                  >
-                    保存
-                  </button>
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => {
-                      setTrustModeForm({ silentMin: 90, modalMax: 50 });
-                    }}
-                    className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
-                  >
-                    恢复推荐值
-                  </button>
-                </div>
-                {trust ? (
-                  <p className="mt-2 text-xs text-slate-500">
-                    当前信任：{trust.minScore}（{trustTierLabel(trust.tier)}）/
-                    目标 {trust.target}，来源 {trust.source}，动作{' '}
-                    {trust.action}
-                  </p>
-                ) : null}
-              </article>
-
-              <article className={`${panelClass} xl:col-span-2`}>
-                <h2 className="text-sm font-semibold">守门员策略</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  关闭共鸣层后，自动触达将进入静默等待；关闭截图核验后，系统不再做截图/VLM探测。
-                </p>
-                <div className="mt-3 space-y-2 text-xs">
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>共鸣层（主动陪伴）</span>
-                    <input
-                      type="checkbox"
-                      checked={psycheModeForm.resonanceEnabled}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          resonanceEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>截图/VLM 核验</span>
-                    <input
-                      type="checkbox"
-                      checked={psycheModeForm.captureProbeEnabled}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          captureProbeEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>信号覆盖调试（signal_override）</span>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(psycheModeForm.signalOverrideEnabled)}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          signalOverrideEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>游戏陪伴（play_companion）</span>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(psycheModeForm.playCompanionEnabled)}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          playCompanionEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>慢脑决策（slow_brain）</span>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(psycheModeForm.slowBrainEnabled)}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          slowBrainEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>Shadow 对照（slow_brain_shadow）</span>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(psycheModeForm.slowBrainShadowEnabled)}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          slowBrainShadowEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>周期重训（periodic_retrain）</span>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(psycheModeForm.periodicRetrainEnabled)}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          periodicRetrainEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>主动问候（proactive_ping）</span>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(psycheModeForm.proactivePingEnabled)}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          proactivePingEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                    <span>静默时段（quiet_hours）</span>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(psycheModeForm.quietHoursEnabled)}
-                      onChange={(event) =>
-                        setPsycheModeForm((prev) => ({
-                          ...prev,
-                          quietHoursEnabled: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>探索率 ε（0-1）</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={psycheModeForm.proactivityExploreRate ?? 0.05}
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            proactivityExploreRate: Number(event.target.value),
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>Shadow rollout（%）</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={psycheModeForm.slowBrainShadowRollout ?? 15}
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            slowBrainShadowRollout: Number(event.target.value),
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>重训间隔（小时）</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={24 * 90}
-                        value={psycheModeForm.periodicRetrainIntervalHours ?? 168}
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            periodicRetrainIntervalHours: Number(
-                              event.target.value,
-                            ),
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>重训最小样本</span>
-                      <input
-                        type="number"
-                        min={100}
-                        max={1000000}
-                        value={psycheModeForm.periodicRetrainMinOutcomes ?? 10000}
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            periodicRetrainMinOutcomes: Number(
-                              event.target.value,
-                            ),
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="col-span-2 flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>Shadow 分桶盐值</span>
-                      <input
-                        type="text"
-                        value={psycheModeForm.shadowCohortSalt ?? ''}
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            shadowCohortSalt: event.target.value,
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>最小间隔（分钟）</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={1440}
-                        value={
-                          psycheModeForm.proactivePingMinIntervalMinutes ?? 90
-                        }
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            proactivePingMinIntervalMinutes: Number(
-                              event.target.value,
-                            ),
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>每日上限</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={200}
-                        value={psycheModeForm.proactivePingMaxPerDay ?? 12}
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            proactivePingMaxPerDay: Number(event.target.value),
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>静默开始</span>
-                      <input
-                        type="time"
-                        value={psycheModeForm.quietHoursStart ?? '23:00'}
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            quietHoursStart: event.target.value,
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>静默结束</span>
-                      <input
-                        type="time"
-                        value={psycheModeForm.quietHoursEnd ?? '08:00'}
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            quietHoursEnd: event.target.value,
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span>时区偏移（分钟）</span>
-                      <input
-                        type="number"
-                        min={-12 * 60}
-                        max={14 * 60}
-                        value={
-                          psycheModeForm.quietHoursTimezoneOffsetMinutes ??
-                          -new Date().getTimezoneOffset()
-                        }
-                        onChange={(event) =>
-                          setPsycheModeForm((prev) => ({
-                            ...prev,
-                            quietHoursTimezoneOffsetMinutes: Number(
-                              event.target.value,
-                            ),
-                          }))
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1"
-                      />
-                    </label>
-                  </div>
-                </div>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  当前降级原因：
-                  {guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}
-                </p>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() =>
-                      void runAction(async () => {
-                        await invokeGateway(
-                          'psyche.mode.set',
-                          psycheModeForm as unknown as Record<string, unknown>,
-                        );
-                      }, '守门员开关已保存')
-                    }
-                    className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
-                  >
-                    保存守门员设置
-                  </button>
-                </div>
-              </article>
-            </section>
-
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">代理兼容设置</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  直连网关模式下，请让本地回环直连；同源反代模式下可优先使用 `/miya/*`。
-                </p>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-600">
-                  <li>`NO_PROXY=localhost,127.0.0.1,::1`</li>
-                  <li>系统代理绕过：`localhost;127.0.0.1;::1`</li>
-                  <li>Clash/TUN 请放行 loopback 后再刷新控制台</li>
-                </ul>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => void copyProxyFixCommand()}
-                    className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
-                  >
-                    复制 PowerShell 修复命令
-                  </button>
-                  <code className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600">
-                    {`$env:NO_PROXY='${LOOPBACK_NO_PROXY}'`}
-                  </code>
-                </div>
-              </article>
-
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">能力域状态</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  可直接暂停/恢复单个能力域。
-                </p>
-                <div className="mt-3 space-y-2">
-                  {domains.map((domain) => (
-                    <div
-                      key={domain.domain}
-                      className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs"
-                    >
-                      <div>
-                        <p className="font-medium">
-                          {domainLabel(domain.domain)}
-                        </p>
-                        <p className={statusTone(domain.status)}>
-                          {domain.status === 'running' ? '运行中' : '已暂停'}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() =>
-                          void runAction(
-                            async () => {
-                              await invokeGateway(
-                                domain.status === 'running'
-                                  ? 'policy.domain.pause'
-                                  : 'policy.domain.resume',
-                                { domain: domain.domain },
-                              );
-                            },
-                            `${domainLabel(domain.domain)} 已${domain.status === 'running' ? '暂停' : '恢复'}`,
-                          )
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
-                      >
-                        {domain.status === 'running' ? '暂停' : '恢复'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  策略哈希：{snapshot.policyHash ?? '暂无'}
-                </p>
-              </article>
-            </section>
-
-            <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">最近任务执行</h2>
-                <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
-                  {(snapshot.jobs?.recentRuns ?? []).map((run, index) => (
-                    <div
-                      key={`${run.id ?? 'run'}-${index}`}
-                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
-                    >
-                      <p className="font-medium">{run.id ?? '任务'}</p>
-                      <p className={statusTone(run.status)}>
-                        {run.status ?? '未知状态'}
-                      </p>
-                      <p className="text-slate-500">
-                        触发方式：{run.trigger ?? '手动'} / 更新时间：
-                        {run.updatedAt ?? '暂无'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </article>
-
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">系统时间线</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  人工干预后建议写一条备注，后续排障更快。
-                </p>
-                <div className="mt-2 flex gap-2">
-                  <input
-                    value={insightText}
-                    onChange={(event) => setInsightText(event.target.value)}
-                    className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
-                    placeholder="例如：已手工暂停外发，等本人确认。"
-                  />
-                  <button
-                    type="button"
-                    disabled={loading || !insightText.trim()}
-                    onClick={() =>
-                      void runAction(async () => {
-                        await invokeGateway('insight.append', {
-                          text: insightText.trim(),
-                        });
-                        setInsightText('');
-                      }, '备注已写入时间线')
-                    }
-                    className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
-                  >
-                    记录
-                  </button>
-                </div>
-                <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
-                  {(snapshot.nexus?.insights ?? []).map((item, index) => (
-                    <div
-                      key={`${item.at ?? 'ins'}-${index}`}
-                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
-                    >
-                      <p className="text-slate-700">{item.text ?? '无内容'}</p>
-                      <p className="text-slate-500">
-                        {item.at ?? '暂无'}{' '}
-                        {item.auditID ? `| ${item.auditID}` : ''}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            </section>
-
-            <section className="grid grid-cols-1 gap-4">
-              <article className={panelClass}>
-                <h2 className="text-sm font-semibold">
-                  Evidence Pack V5（外发证据预览）
-                </h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  用于审批前快速核验：目标、发送状态、截图、限制项。
-                </p>
-                <div className="mt-3 max-h-[28rem] space-y-3 overflow-auto pr-1">
-                  {(snapshot.channels?.recentOutbound ?? [])
-                    .slice(0, 10)
-                    .map((row, index) => (
-                      <div
-                        key={`${row.id ?? 'audit'}-${index}`}
-                        className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="font-medium">
-                            {row.channel ?? 'channel'}
-                            {' -> '}
-                            {row.destination ?? 'unknown'}
-                          </p>
-                          <span
-                            className={
-                              row.sent ? 'text-emerald-700' : 'text-rose-700'
-                            }
-                          >
-                            {row.sent ? '已发送' : '已阻断'}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-slate-600">
-                          {row.message ?? '-'}
-                        </p>
-                        <p className="mt-1 text-slate-500">
-                          审计ID: {row.id ?? '-'} | 时间: {row.at ?? '-'} |
-                          置信度:{' '}
-                          {typeof row.evidenceConfidence === 'number'
-                            ? row.evidenceConfidence.toFixed(2)
-                            : '-'}
-                        </p>
-                        <p className="mt-1 text-slate-500">
-                          recipient={row.recipientTextCheck ?? '-'} | send=
-                          {row.sendStatusCheck ?? '-'} | receipt=
-                          {row.receiptStatus ?? '-'} | simulation=
-                          {row.simulationStatus ?? '-'}
-                        </p>
-                        {Array.isArray(row.evidenceLimitations) &&
-                        row.evidenceLimitations.length > 0 ? (
-                          <p className="mt-1 text-amber-700">
-                            limitations: {row.evidenceLimitations.join(', ')}
-                          </p>
-                        ) : null}
-                        {row.semanticSummary?.conclusion ? (
-                          <p className="mt-1 text-slate-600">
-                            结论: {row.semanticSummary.conclusion}
-                          </p>
-                        ) : null}
-                        {row.id ? (
-                          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                            <img
-                              src={evidenceImageUrl(row.id, 'pre')}
-                              alt="pre-send evidence"
-                              loading="lazy"
-                              className="max-h-44 w-full rounded border border-slate-200 object-cover"
-                            />
-                            <img
-                              src={evidenceImageUrl(row.id, 'post')}
-                              alt="post-send evidence"
-                              loading="lazy"
-                              className="max-h-44 w-full rounded border border-slate-200 object-cover"
-                            />
+            {/* Psyche Route */}
+            <Route
+              path="/psyche"
+              element={
+                <div className="space-y-4">
+                  <section className={panelClass}>
+                    <h2 className="text-3xl font-semibold text-slate-800">交互感知</h2>
+                    <p className="mt-2 text-sm text-slate-500">守门员状态、唤醒与主动触达参数独立管理。</p>
+                  </section>
+                  <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <article className={panelClass}>
+                      <h3 className="text-base font-semibold text-slate-800">守门员信号中心（Psyche Signal Hub）</h3>
+                      {signalHub ? (
+                        <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                            <p>运行状态：{signalHub.running ? '运行中' : '已停止'}</p>
+                            <p>序号：{signalHub.sequence ?? '-'}</p>
+                            <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
+                            <p>过期：{signalHub.stale ? '是' : '否'}</p>
                           </div>
-                        ) : null}
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                            <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
+                            <p>采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms</p>
+                            <p>突发间隔：{signalHub.burstIntervalMs ?? '-'}ms</p>
+                            <p>过期阈值：{signalHub.staleAfterMs ?? '-'}ms</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-2">
+                          <EmptyState title="等待守门员信号接入" description="尚未收到 daemon signal hub 指标。" />
+                        </div>
+                      )}
+                    </article>
+                    <article className={panelClass}>
+                      <h3 className="text-sm font-semibold">Psyche 参数</h3>
+                      <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
+                        <label className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                          <input type="checkbox" checked={Boolean(psycheModeForm.resonanceEnabled)} onChange={(event) =>
+                            setPsycheModeForm((prev) => ({ ...prev, resonanceEnabled: event.target.checked }))} />
+                          <span>唤醒共鸣层</span>
+                        </label>
+                        <label className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                          <input type="checkbox" checked={Boolean(psycheModeForm.periodicRetrainEnabled)} onChange={(event) =>
+                            setPsycheModeForm((prev) => ({ ...prev, periodicRetrainEnabled: event.target.checked }))} />
+                          <span>周期重训启用</span>
+                        </label>
+                        <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                          <span>Shadow rollout (%)</span>
+                          <input type="number" min={0} max={100} value={psycheModeForm.slowBrainShadowRollout ?? 15} onChange={(event) =>
+                            setPsycheModeForm((prev) => ({ ...prev, slowBrainShadowRollout: Number(event.target.value) }))}
+                            className="rounded border border-slate-300 bg-white px-2 py-1" />
+                        </label>
+                        <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                          <span>主动触达最小间隔（分钟）</span>
+                          <input type="number" min={1} max={1440} value={psycheModeForm.proactivePingMinIntervalMinutes ?? 90} onChange={(event) =>
+                            setPsycheModeForm((prev) => ({ ...prev, proactivePingMinIntervalMinutes: Number(event.target.value) }))}
+                            className="rounded border border-slate-300 bg-white px-2 py-1" />
+                        </label>
                       </div>
-                    ))}
+                      <p className="mt-2 text-[11px] text-slate-500">当前降级原因：{guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}</p>
+                      <div className="mt-3">
+                        <button type="button" disabled={loading} onClick={() =>
+                          void runAction(async () => {
+                            await invokeGateway('psyche.mode.set', psycheModeForm as unknown as Record<string, unknown>);
+                          }, '交互感知参数已保存')}
+                          className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100">
+                          保存设置
+                        </button>
+                      </div>
+                    </article>
+                  </section>
                 </div>
-              </article>
-            </section>
-          </div>
-            } />
+              }
+            />
+
+            {/* Security Route */}
+            <Route
+              path="/security"
+              element={
+                <div className="space-y-4">
+                  <section className={panelClass}>
+                    <h2 className="text-3xl font-semibold text-slate-800">安全与权限</h2>
+                    <p className="mt-2 text-sm text-slate-500">安全开关、能力域暂停/恢复与 Evidence 审计预览。</p>
+                  </section>
+                  <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <article className={panelClass}>
+                      <h3 className="text-sm font-semibold">全局 Kill-Switch</h3>
+                      <p className="mt-1 text-xs text-slate-500">当前模式：{killSwitchLabel(killSwitchMode)}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {([
+                          { mode: 'off', text: '正常运行' },
+                          { mode: 'outbound_only', text: '暂停外发' },
+                          { mode: 'desktop_only', text: '暂停桌控' },
+                          { mode: 'all_stop', text: '全部停止' },
+                        ] as Array<{ mode: KillSwitchMode; text: string }>).map((item) => (
+                          <button key={item.mode} type="button" disabled={loading} onClick={() => void setKillSwitchMode(item.mode)}
+                            className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}>
+                            <p className="font-medium">{item.text}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </article>
+                    <article className={panelClass}>
+                      <h3 className="text-sm font-semibold">能力域状态</h3>
+                      <div className="mt-3 space-y-2">
+                        {domains.map((domain) => (
+                          <div key={domain.domain} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                            <div>
+                              <p className="font-medium">{domainLabel(domain.domain)}</p>
+                              <p className={statusTone(domain.status)}>{domain.status === 'running' ? '运行中' : '已暂停'}</p>
+                            </div>
+                            <button type="button" disabled={loading} onClick={() =>
+                              void runAction(async () => {
+                                await invokeGateway(domain.status === 'running' ? 'policy.domain.pause' : 'policy.domain.resume', { domain: domain.domain });
+                              }, `${domainLabel(domain.domain)} 已更新`)}
+                              className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100">
+                              {domain.status === 'running' ? '暂停' : '恢复'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  </section>
+                  <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <article className={panelClass}>
+                      <h3 className="text-sm font-semibold">最近执行序列（Evidence Pack V5）</h3>
+                      <div className="mt-3 max-h-[28rem] space-y-3 overflow-auto pr-1">
+                        {(snapshot.channels?.recentOutbound ?? []).slice(0, 10).map((row, index) => (
+                          <div key={`${row.id ?? 'audit'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+                            <p className="font-medium">{row.channel ?? 'channel'} {'->'} {row.destination ?? 'unknown'}</p>
+                            <p className="mt-1 text-slate-500">审计ID: {row.id ?? '-'} | 时间: {row.at ?? '-'}</p>
+                            {row.id ? (
+                              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                <img src={evidenceImageUrl(row.id, 'pre')} alt="pre-send evidence" loading="lazy" className="max-h-44 w-full rounded border border-slate-200 object-cover" />
+                                <img src={evidenceImageUrl(row.id, 'post')} alt="post-send evidence" loading="lazy" className="max-h-44 w-full rounded border border-slate-200 object-cover" />
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                    <article className={panelClass}>
+                      <h3 className="text-sm font-semibold">系统时间线</h3>
+                      <div className="mt-2 flex gap-2">
+                        <input value={insightText} onChange={(event) => setInsightText(event.target.value)} className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs" placeholder="例如：已手工暂停外发，等本人确认。" />
+                        <button type="button" disabled={loading || !insightText.trim()} onClick={() =>
+                          void runAction(async () => {
+                            await invokeGateway('insight.append', { text: insightText.trim() });
+                            setInsightText('');
+                          }, '备注已写入时间线')}
+                          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100">
+                          记录
+                        </button>
+                      </div>
+                      <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
+                        {(snapshot.nexus?.insights ?? []).map((item, index) => (
+                          <div key={`${item.at ?? 'ins'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                            <p className="text-slate-700">{item.text ?? '无内容'}</p>
+                            <p className="text-slate-500">{item.at ?? '暂无'} {item.auditID ? `| ${item.auditID}` : ''}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  </section>
+                </div>
+              }
+            />
+
+            {/* Dashboard Route */}
+            <Route
+              path="/dashboard"
+              element={
+                <div className="space-y-4">
+                  <section className={panelClass}>
+                    <h2 className="text-3xl font-semibold text-slate-800">控制中枢</h2>
+                    <p className="mt-2 text-sm text-slate-500">仅保留核心状态与全局急停。</p>
+                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                      <article className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                        <p className="text-slate-500">系统在线状态</p>
+                        <p className={`mt-1 text-lg font-semibold ${connected ? 'text-emerald-700' : 'text-rose-700'}`}>{connected ? '在线' : '离线'}</p>
+                      </article>
+                      <article className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                        <p className="text-slate-500">当前激活代理</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-800">{snapshot.runtime?.activeAgentId ?? 'default'}</p>
+                      </article>
+                      <article className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                        <p className="text-slate-500">CPU / 内存摘要</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-800">{(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}% / {snapshot.daemon?.vramUsedMB ?? 0}MB</p>
+                      </article>
+                    </div>
+                  </section>
+                  <section className={panelClass}>
+                    <h3 className="text-sm font-semibold text-rose-700">全局 Kill-Switch（一键急停）</h3>
+                    <p className="mt-1 text-xs text-slate-500">当前模式：{killSwitchLabel(killSwitchMode)}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" disabled={loading} onClick={() => void setKillSwitchMode('all_stop')} className="rounded-lg border border-rose-400 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100">立即急停</button>
+                      <button type="button" disabled={loading} onClick={() => void setKillSwitchMode('off')} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">恢复运行</button>
+                    </div>
+                  </section>
+                </div>
+              }
+            />
 
             {/* Root redirect to dashboard */}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -3366,17 +2763,17 @@ function AppContent() {
 
 // Wrapper component with BrowserRouter
 export default function App() {
-  if (isHappyDomRuntime()) {
-    const initialEntry = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    return (
-      <MemoryRouter initialEntries={[initialEntry || '/']}>
-        <AppContent />
-      </MemoryRouter>
-    );
-  }
   return (
-    <BrowserRouter>
-      <AppContent />
-    </BrowserRouter>
+    <AppProviders
+      isHappyDomRuntime={isHappyDomRuntime}
+      inferRouterBasename={inferRouterBasename}
+    >
+      <AppShell>
+        <AppRoutes>
+          <AppContent />
+        </AppRoutes>
+      </AppShell>
+    </AppProviders>
   );
 }
+

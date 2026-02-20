@@ -2,10 +2,10 @@ import { type PluginInput, type ToolDefinition, tool } from '@opencode-ai/plugin
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import WebSocket, { WebSocketServer, type RawData as WsRawData } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import type { MiyaAutomationService } from '../automation';
 import type { BackgroundTaskManager } from '../background';
 import { readChannelStore } from '../channel';
@@ -129,7 +129,13 @@ import {
   updateCompanionMemoryVector,
   upsertCompanionMemoryVector,
 } from '../companion/memory-vector';
-import { getCompanionMemorySqliteStats } from '../companion/memory-sqlite';
+import {
+  buildMemoryPack,
+  getCompanionMemorySqliteStats,
+  getEvidencePack,
+  listMemoryEvents,
+  resolveContextFsUri,
+} from '../companion/memory-sqlite';
 import {
   appendShortTermMemoryLog,
   maybeAutoReflectCompanionMemory,
@@ -195,13 +201,37 @@ import {
   listAutoflowSessions,
 } from '../autoflow';
 import { createControlUiRequestOptions, handleControlUiHttpRequest } from './control-ui';
+import { normalizeControlUiBasePath } from './control-ui-shared';
+import { formatGatewayStateWithRuntime } from './bootstrap';
+import {
+  reserveGatewayPort,
+  sendNodeResponse,
+  toNodeRequest,
+} from './http-router';
 import {
   applyNegotiationBudget,
   type NegotiationBudget,
   type NegotiationBudgetState,
   type NegotiationFixability,
 } from './negotiation-budget';
+import { registerChannelMethods } from './methods/channels';
+import { registerMemoryMethods } from './methods/memory';
+import { registerNodeMethods } from './methods/nodes';
+import { registerCoreSessionMethods } from './methods/registry';
+import { registerSecurityMethods } from './methods/security';
+import { registerVoiceMethods } from './methods/voice';
+import { isProcessAlive } from './ownership-lock';
+import { renderConsoleHtml } from './render/console';
+import { renderWebChatHtml } from './render/webchat';
 import { sanitizeGatewayContext } from './sanitizer';
+import {
+  gatewayFile,
+  learningGateFile,
+  psycheModeFile,
+  safeReadJsonObject,
+  trustModeFile,
+  writeJsonAtomic,
+} from './state-files';
 import {
   GatewayMethodRegistry,
   parseIncomingFrame,
@@ -211,6 +241,7 @@ import {
   type GatewayClientRole,
   type GatewayMethodContext,
 } from './protocol';
+import { normalizeWsInput } from './ws-runtime';
 
 const z = tool.schema;
 
@@ -278,10 +309,12 @@ interface GatewayRuntime {
   wizardRunnerBusy?: boolean;
   dependencyAssistHashes: Set<string>;
   daemonLauncherUnsubscribe?: () => void;
+  startupSelfCheck?: StartupSelfCheckResult;
   negotiationBudgets: Map<string, NegotiationBudgetState>;
   nexus: {
     sessionId: string;
     activeTool?: string;
+    jobId?: string;
     permission?: string;
     pendingTickets: number;
     killSwitchMode: 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
@@ -309,6 +342,20 @@ interface DoctorIssue {
   fix: string;
 }
 
+interface StartupSelfCheckItem {
+  name: 'opencode.debug.config' | 'opencode.debug.skill' | 'opencode.debug.paths';
+  ok: boolean;
+  exitCode: number;
+  durationMs: number;
+  output: string;
+}
+
+interface StartupSelfCheckResult {
+  ranAt: string;
+  overall: 'ok' | 'degraded';
+  checks: StartupSelfCheckItem[];
+}
+
 interface GatewaySnapshot {
   updatedAt: string;
   lifecycle: {
@@ -330,6 +377,7 @@ interface GatewaySnapshot {
   nexus: {
     sessionId: string;
     activeTool?: string;
+    jobId?: string;
     permission?: string;
     pendingTickets: number;
     killSwitchMode: 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
@@ -453,6 +501,25 @@ interface GatewaySnapshot {
   security: {
     ownerIdentity: ReturnType<typeof readOwnerIdentityState>;
   };
+  observability: {
+    trace: {
+      sessionID: string;
+      method?: string;
+      jobID?: string;
+    };
+    gateway: ReturnType<GatewayMethodRegistry['stats']>;
+    daemon: ReturnType<typeof getLauncherBackpressureStats>;
+    memory: {
+      sqlite: ReturnType<typeof getCompanionMemorySqliteStats>;
+      pendingVectors: number;
+    };
+    router: ReturnType<typeof getRouteCostSummary>;
+  };
+  health: {
+    overall: 'ok' | 'degraded';
+    startupSelfCheck?: StartupSelfCheckResult;
+    doctorIssueCount: number;
+  };
   doctor: {
     issues: DoctorIssue[];
   };
@@ -534,10 +601,6 @@ export function registerGatewayDependencies(
   dependencies.set(projectDir, { ...current, ...deps });
 }
 
-function gatewayFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'gateway.json');
-}
-
 const DEFAULT_TRUST_MODE: TrustModeConfig = {
   silentMin: 90,
   modalMax: 50,
@@ -552,18 +615,6 @@ const DEFAULT_LEARNING_GATE: LearningGateConfig = {
   candidateMode: 'toast_gate',
   persistentRequiresApproval: true,
 };
-
-function trustModeFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-trust-mode.json');
-}
-
-function psycheModeFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-psyche-mode.json');
-}
-
-function learningGateFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'gateway-learning-gate.json');
-}
 
 function normalizeTrustMode(input?: Partial<TrustModeConfig>): TrustModeConfig {
   const silentMinRaw = Number(input?.silentMin ?? DEFAULT_TRUST_MODE.silentMin);
@@ -679,28 +730,6 @@ function gatewayOwnerLockFile(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'gateway-owner.json');
 }
 
-function ensureDir(file: string): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-}
-
-function writeJsonAtomic(file: string, payload: unknown): void {
-  ensureDir(file);
-  const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
-  fs.renameSync(tmp, file);
-}
-
-function safeReadJsonObject(file: string): Record<string, unknown> | null {
-  if (!fs.existsSync(file)) return null;
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function readGatewayOwnerLock(projectDir: string): GatewayOwnerLock | null {
   const raw = safeReadJsonObject(gatewayOwnerLockFile(projectDir));
   if (!raw) return null;
@@ -722,16 +751,6 @@ function describeOwnerLock(lock: GatewayOwnerLock | null): Record<string, unknow
     fresh: isOwnerLockFresh(lock),
     alive: isProcessAlive(lock.pid),
   };
-}
-
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isFinite(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isOwnerLockFresh(lock: GatewayOwnerLock): boolean {
@@ -1007,6 +1026,37 @@ function parseChannel(value: unknown): ChannelName | null {
   return isChannelName(value) ? value : null;
 }
 
+function runStartupSelfCheck(projectDir: string): StartupSelfCheckResult {
+  const checks: StartupSelfCheckItem[] = [];
+  const commands: Array<StartupSelfCheckItem['name']> = [
+    'opencode.debug.config',
+    'opencode.debug.skill',
+    'opencode.debug.paths',
+  ];
+  for (const name of commands) {
+    const startedMs = Date.now();
+    const subcommand = name.replace('opencode.debug.', '');
+    const result = spawnSync('opencode', ['debug', subcommand], {
+      cwd: projectDir,
+      encoding: 'utf-8',
+      timeout: 8_000,
+    });
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim().slice(0, 2_000);
+    checks.push({
+      name,
+      ok: result.status === 0 && !result.error,
+      exitCode: typeof result.status === 'number' ? result.status : -1,
+      durationMs: Date.now() - startedMs,
+      output: output || (result.error ? String(result.error.message) : ''),
+    });
+  }
+  return {
+    ranAt: nowIso(),
+    overall: checks.every((item) => item.ok) ? 'ok' : 'degraded',
+    checks,
+  };
+}
+
 const WIZARD_PROMPT_PHOTOS = '给我展示我应该是什么样子。发送1到5张照片。';
 const WIZARD_PROMPT_VOICE = '我应该用什么声音？录音或发送文件。';
 const WIZARD_PROMPT_PERSONALITY = '我是谁？告诉我我的性格、习惯和我们的关系。';
@@ -1220,6 +1270,10 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'companion.memory.search',
   'companion.memory.vector.list',
   'miya.memory.sqlite.stats',
+  'miya.memory.pack.compile',
+  'miya.memory.events.list',
+  'miya.memory.evidence.get',
+  'miya.contextfs.get',
   'daemon.vram.budget',
   'autoflow.status.get',
   'routing.stats.get',
@@ -2445,6 +2499,8 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const routingMode = readRouterModeConfig(projectDir);
   const routingCost = getRouteCostSummary(projectDir, 500);
   const routingRecent = listRouteCostRecords(projectDir, 20);
+  const memorySqlite = getCompanionMemorySqliteStats(projectDir);
+  const memoryPendingVectors = listPendingCompanionMemoryVectors(projectDir).length;
   const learningStats = getLearningStats(projectDir);
   const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
     id: item.id,
@@ -2479,6 +2535,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
     nexus: {
       sessionId: runtime.nexus.sessionId,
       activeTool: runtime.nexus.activeTool,
+      jobId: runtime.nexus.jobId,
       permission: runtime.nexus.permission,
       pendingTickets: runtime.nexus.pendingTickets,
       killSwitchMode: resolveKillSwitchMode(projectDir, kill),
@@ -2609,12 +2666,42 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
         passphraseHash: ownerIdentity.passphraseHash ? '***' : undefined,
       },
     },
+    observability: {
+      trace: {
+        sessionID: runtime.nexus.sessionId,
+        method: runtime.nexus.activeTool,
+        jobID: runtime.nexus.jobId,
+      },
+      gateway: runtime.methods.stats(),
+      daemon: getLauncherBackpressureStats(projectDir),
+      memory: {
+        sqlite: memorySqlite,
+        pendingVectors: memoryPendingVectors,
+      },
+      router: routingCost,
+    },
+    health: {
+      overall: 'ok',
+      startupSelfCheck: runtime.startupSelfCheck,
+      doctorIssueCount: 0,
+    },
+  };
+
+  const doctorIssues = collectDoctorIssues(projectDir, runtime, base);
+  const hasErrors = doctorIssues.some((item) => item.severity === 'error');
+  base.health = {
+    overall:
+      hasErrors || (runtime.startupSelfCheck && runtime.startupSelfCheck.overall === 'degraded')
+        ? 'degraded'
+        : 'ok',
+    startupSelfCheck: runtime.startupSelfCheck,
+    doctorIssueCount: doctorIssues.length,
   };
 
   return {
     ...base,
     doctor: {
-      issues: collectDoctorIssues(projectDir, runtime, base),
+      issues: doctorIssues,
     },
   };
 }
@@ -2637,6 +2724,37 @@ function appendDaemonProgressAudit(
   fs.appendFileSync(
     file,
     `${JSON.stringify({ id: `dprogress_${randomUUID()}`, ...input })}\n`,
+    'utf-8',
+  );
+}
+
+function gatewayMethodAuditFile(projectDir: string): string {
+  return path.join(getMiyaRuntimeDir(projectDir), 'audit', 'gateway-methods.jsonl');
+}
+
+function appendGatewayMethodAudit(
+  projectDir: string,
+  input: {
+    method: string;
+    requestID: string;
+    clientID: string;
+    role: GatewayClientRole;
+    sessionID?: string;
+    jobID?: string;
+    ok: boolean;
+    durationMs: number;
+    error?: string;
+  },
+): void {
+  const file = gatewayMethodAuditFile(projectDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(
+    file,
+    `${JSON.stringify({
+      id: `gmethod_${randomUUID()}`,
+      at: nowIso(),
+      ...input,
+    })}\n`,
     'utf-8',
   );
 }
@@ -2963,333 +3081,6 @@ function enforceToken(input: {
 }): { ok: true } | { ok: false; reason: string } {
   const resolved = resolveApprovalTicket(input);
   return resolved.ok ? { ok: true } : resolved;
-}
-
-function renderConsoleHtml(snapshot: GatewaySnapshot): string {
-  const payload = JSON.stringify(snapshot).replace(/</g, '\\u003c');
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Miya Gateway React</title>
-  <style>
-    body { margin: 0; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #0f172a; color: #e2e8f0; }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
-    .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); margin-bottom: 12px; }
-    .card { background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; }
-    .title { color: #93c5fd; font-size: 12px; text-transform: uppercase; }
-    .value { font-size: 20px; font-weight: 700; margin-top: 6px; }
-    .ok { color: #4ade80; }
-    .bad { color: #f87171; }
-    textarea { width: 100%; min-height: 220px; resize: vertical; background: #020617; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 8px; font-family: Consolas, monospace; }
-    button { background: #2563eb; color: #fff; border: none; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .line { margin: 6px 0; color: #cbd5e1; font-size: 13px; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h2>Miya Gateway</h2>
-    <div id="daemonStatus" class="line">loading...</div>
-    <div class="row">
-      <div class="card">
-        <div class="title">Daemon CPU/VRAM/Uptime</div>
-        <div id="daemonStats" class="value">--</div>
-        <div id="daemonJob" class="line">Active Job: --</div>
-      </div>
-      <div class="card">
-        <div class="title">Sessions</div>
-        <div id="sessionsValue" class="value">0/0</div>
-      </div>
-      <div class="card">
-        <div class="title">Jobs</div>
-        <div id="jobsValue" class="value">0/0</div>
-      </div>
-      <div class="card">
-        <div class="title">Autoflow</div>
-        <div id="autoflowValue" class="value">0 active</div>
-        <div id="autoflowPhase" class="line">phase: --</div>
-      </div>
-      <div class="card">
-        <div class="title">Routing Cost</div>
-        <div id="routingValue" class="value">--</div>
-        <div id="routingStage" class="line">stage: --</div>
-      </div>
-      <div class="card">
-        <div class="title">Learning HitRate</div>
-        <div id="learningValue" class="value">--</div>
-        <div id="learningDrafts" class="line">drafts: --</div>
-      </div>
-      <div class="card">
-        <div class="title">Policy Hash</div>
-        <div id="policyHash" class="line">--</div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="title">Configuration Center (read/write .opencode/miya/config.json)</div>
-      <div class="line">Patch JSON format: { set: {"ui.language":"zh-CN"}, unset: [] }</div>
-      <textarea id="patchText">{"set":{},"unset":[]}</textarea>
-      <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-        <button id="saveButton">保存配置</button>
-        <span id="saveState" class="line">idle</span>
-      </div>
-      <pre id="configJson" class="line" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre>
-    </div>
-  </div>
-  <script>window.__MIYA_SNAPSHOT__ = ${payload};</script>
-  <script>
-    (function () {
-      let state = window.__MIYA_SNAPSHOT__ || {};
-      const patchInput = document.getElementById('patchText');
-      const saveButton = document.getElementById('saveButton');
-      const saveState = document.getElementById('saveState');
-      const daemonStatus = document.getElementById('daemonStatus');
-      const daemonStats = document.getElementById('daemonStats');
-      const daemonJob = document.getElementById('daemonJob');
-      const sessionsValue = document.getElementById('sessionsValue');
-      const jobsValue = document.getElementById('jobsValue');
-      const autoflowValue = document.getElementById('autoflowValue');
-      const autoflowPhase = document.getElementById('autoflowPhase');
-      const routingValue = document.getElementById('routingValue');
-      const routingStage = document.getElementById('routingStage');
-      const learningValue = document.getElementById('learningValue');
-      const learningDrafts = document.getElementById('learningDrafts');
-      const policyHash = document.getElementById('policyHash');
-      const configJson = document.getElementById('configJson');
-
-      let ws = null;
-      let reqID = 1;
-      const pending = new Map();
-
-      function updateSave(value) {
-        saveState.textContent = value;
-        saveButton.disabled = value === 'saving';
-      }
-
-      function render(next) {
-        state = next || {};
-        const daemonOk = Boolean(state.daemon && state.daemon.connected);
-        const label = daemonOk
-          ? 'Miya Daemon Connected'
-          : ((state.daemon && state.daemon.statusText) || 'Miya Daemon Disconnected');
-        daemonStatus.textContent = label;
-        daemonStatus.className = 'line ' + (daemonOk ? 'ok' : 'bad');
-
-        const cpu =
-          state.daemon && typeof state.daemon.cpuPercent === 'number'
-            ? state.daemon.cpuPercent.toFixed(1) + '%'
-            : '--';
-        const vramUsed =
-          state.daemon && typeof state.daemon.vramUsedMB === 'number' ? state.daemon.vramUsedMB : '--';
-        const vramTotal =
-          state.daemon && typeof state.daemon.vramTotalMB === 'number' ? state.daemon.vramTotalMB : '--';
-        const uptime =
-          state.daemon && typeof state.daemon.uptimeSec === 'number' ? state.daemon.uptimeSec + 's' : '--';
-        daemonStats.textContent = cpu + ' | ' + vramUsed + '/' + vramTotal + ' MB | ' + uptime;
-
-        const jobID = state.daemon && state.daemon.activeJobID ? state.daemon.activeJobID : '--';
-        const jobProgress =
-          state.daemon && typeof state.daemon.activeJobProgress === 'number'
-            ? state.daemon.activeJobProgress + '%'
-            : '--';
-        daemonJob.textContent = 'Active Job: ' + jobID + ' | ' + jobProgress;
-
-        sessionsValue.textContent =
-          String((state.sessions && state.sessions.active) || 0) +
-          '/' +
-          String((state.sessions && state.sessions.total) || 0);
-        jobsValue.textContent =
-          String((state.jobs && state.jobs.enabled) || 0) +
-          '/' +
-          String((state.jobs && state.jobs.total) || 0);
-        const activeAutoflow = (state.autoflow && state.autoflow.active) || 0;
-        autoflowValue.textContent = String(activeAutoflow) + ' active';
-        const firstAutoflow = state.autoflow && state.autoflow.sessions && state.autoflow.sessions[0];
-        autoflowPhase.textContent =
-          'phase: ' + (firstAutoflow && firstAutoflow.phase ? firstAutoflow.phase : '--');
-        const routingCost =
-          state.routing && state.routing.cost ? state.routing.cost : null;
-        if (routingCost) {
-          routingValue.textContent =
-            String(routingCost.totalTokensEstimate || 0) +
-            ' tk | save ' +
-            String(routingCost.savingsPercentEstimate || 0) +
-            '%';
-        } else {
-          routingValue.textContent = '--';
-        }
-        routingStage.textContent =
-          'stage: ' + ((state.routing && state.routing.forcedStage) || (state.routing && state.routing.ecoMode ? 'eco' : 'auto') || '--');
-        const learningStats =
-          state.learning && state.learning.stats ? state.learning.stats : null;
-        if (learningStats) {
-          learningValue.textContent =
-            (Number(learningStats.hitRate || 0) * 100).toFixed(1) + '%';
-          learningDrafts.textContent =
-            'drafts: ' + String(learningStats.total || 0) + ' | uses: ' + String(learningStats.totalUses || 0);
-        } else {
-          learningValue.textContent = '--';
-          learningDrafts.textContent = 'drafts: --';
-        }
-        policyHash.textContent = state.policyHash || '--';
-        configJson.textContent = JSON.stringify(state.configCenter || {}, null, 2);
-      }
-
-      function sendReq(method, params) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          return Promise.reject(new Error('ws_not_open'));
-        }
-        const id = 'r-' + reqID++;
-        ws.send(JSON.stringify({ type: 'request', id, method, params }));
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => {
-            pending.delete(id);
-            reject(new Error('request_timeout'));
-          }, 8000);
-          pending.set(id, { resolve, reject, timer });
-        });
-      }
-
-      async function loadStatus() {
-        try {
-          const res = await fetch('/api/status', { cache: 'no-store' });
-          const data = await res.json();
-          render(data);
-        } catch {}
-      }
-
-      function openWs() {
-        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-        const token =
-          new URLSearchParams(location.search).get('token') ||
-          localStorage.getItem('miya_gateway_token') ||
-          '';
-        if (token) localStorage.setItem('miya_gateway_token', token);
-
-        ws = new WebSocket(proto + '://' + location.host + '/ws');
-        ws.onopen = function () {
-          ws.send(
-            JSON.stringify({
-              type: 'hello',
-              role: 'ui',
-              protocolVersion: '1.0',
-              auth: token ? { token } : undefined,
-            }),
-          );
-          ws.send(
-            JSON.stringify({
-              type: 'request',
-              id: 'sub',
-              method: 'gateway.subscribe',
-              params: { events: ['*'] },
-            }),
-          );
-        };
-        ws.onmessage = function (evt) {
-          try {
-            const frame = JSON.parse(evt.data);
-            if (frame.type === 'event' && frame.event === 'gateway.snapshot') {
-              render(frame.payload);
-              return;
-            }
-            if (frame.type === 'response') {
-              const entry = pending.get(frame.id);
-              if (!entry) return;
-              pending.delete(frame.id);
-              clearTimeout(entry.timer);
-              if (frame.ok) entry.resolve(frame.result);
-              else entry.reject(new Error((frame.error && frame.error.message) || 'request_failed'));
-            }
-          } catch {}
-        };
-        ws.onclose = function () {
-          for (const entry of pending.values()) {
-            clearTimeout(entry.timer);
-            entry.reject(new Error('ws_closed'));
-          }
-          pending.clear();
-        };
-      }
-
-      saveButton.addEventListener('click', async function () {
-        updateSave('saving');
-        try {
-          const patch = JSON.parse(patchInput.value || '{}');
-          await sendReq('config.center.patch', { patch, policyHash: state ? state.policyHash : undefined });
-          updateSave('ok');
-        } catch (err) {
-          updateSave('error:' + String((err && err.message) || err));
-        }
-      });
-
-      render(state);
-      loadStatus();
-      setInterval(loadStatus, 3000);
-      openWs();
-    })();
-  </script>
-</body>
-</html>`;
-}
-
-function renderWebChatHtml(): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Miya WebChat</title>
-  <style>
-    body{margin:0;font-family:Segoe UI,sans-serif;background:#0b1117;color:#e6edf7}
-    main{max-width:900px;margin:0 auto;padding:14px;display:grid;gap:10px}
-    #log{min-height:360px;border:1px solid #253047;border-radius:8px;background:#111827;padding:10px;white-space:pre-wrap}
-    .row{display:grid;grid-template-columns:1fr auto;gap:8px}
-    input{border:1px solid #253047;border-radius:8px;background:#111827;color:#e6edf7;padding:8px}
-    button{border:1px solid #253047;border-radius:8px;background:#1f6feb;color:#fff;padding:8px 12px;cursor:pointer}
-  </style>
-</head>
-<body>
-<main>
-  <h2 style="margin:0">Miya WebChat</h2>
-  <div id="log"></div>
-  <div class="row"><input id="msg" placeholder="Type message"><button id="send">Send</button></div>
-</main>
-<script>
-  const logEl=document.getElementById('log'); const msgEl=document.getElementById('msg'); const sendBtn=document.getElementById('send');
-  const p=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(p+'://'+location.host+'/ws');
-  const log=(t)=>{logEl.textContent+=t+'\\n'; logEl.scrollTop=logEl.scrollHeight;};
-  const send=()=>{const text=msgEl.value.trim(); if(!text)return; ws.send(JSON.stringify({type:'request',id:'send-'+Date.now(),method:'sessions.send',params:{sessionID:'webchat:main',text,source:'webchat'}})); log('[you] '+text); msgEl.value='';};
-  sendBtn.onclick=send; msgEl.addEventListener('keydown',(e)=>{if(e.key==='Enter')send();});
-  ws.onopen=()=>{const qs=new URLSearchParams(location.search);const token=qs.get('token')||localStorage.getItem('miya_gateway_token')||'';if(token)localStorage.setItem('miya_gateway_token',token);ws.send(JSON.stringify({type:'hello',role:'ui',auth:token?{token}:undefined})); ws.send(JSON.stringify({type:'request',id:'sub',method:'gateway.subscribe',params:{events:['*']}})); log('[system] connected');};
-  ws.onmessage=(event)=>{try{const frame=JSON.parse(event.data); if(frame.type==='response'&&!frame.ok)log('[error] '+(frame.error?.message||'request_failed'));}catch{}};
-</script>
-</body>
-</html>`;
-}
-
-function _formatGatewayState(state: GatewayState): string {
-  return formatGatewayStateWithRuntime(state, undefined, undefined, undefined, undefined);
-}
-
-function formatGatewayStateWithRuntime(
-  state: GatewayState,
-  ownerPID?: number,
-  isOwner?: boolean,
-  activeAgentId?: string,
-  storageRevision?: number,
-): string {
-  return [
-    `url=${state.url}`,
-    `port=${state.port}`,
-    `pid=${state.pid}`,
-    `owner_pid=${ownerPID ?? 0}`,
-    `is_owner=${Boolean(isOwner)}`,
-    `started_at=${state.startedAt}`,
-    `status=${state.status}`,
-    `active_agent=${activeAgentId ?? ''}`,
-    `storage_revision=${storageRevision ?? 0}`,
-  ].join('\n');
 }
 
 function maybeBroadcast(projectDir: string, runtime: GatewayRuntime): void {
@@ -3667,6 +3458,23 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     ...getLauncherBackpressureStats(projectDir),
     updatedAt: nowIso(),
   }));
+  methods.register('gateway.audit.tail', async (params) => {
+    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 100;
+    const limit = Math.max(1, Math.min(1000, Math.floor(limitRaw)));
+    const file = gatewayMethodAuditFile(projectDir);
+    if (!fs.existsSync(file)) return [];
+    const lines = fs.readFileSync(file, 'utf-8').trim().split(/\r?\n/).filter(Boolean);
+    return lines
+      .slice(Math.max(0, lines.length - limit))
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is Record<string, unknown> => Boolean(item));
+  });
   methods.register('gateway.pressure.run', async (params) => {
     const concurrencyRaw =
       typeof params.concurrency === 'number' ? Number(params.concurrency) : 10;
@@ -3674,7 +3482,6 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const timeoutMs = typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : 20_000;
     const concurrency = Math.max(1, Math.min(100, Math.floor(concurrencyRaw)));
     const rounds = Math.max(1, Math.min(20, Math.floor(roundsRaw)));
-    const daemon = getMiyaClient(projectDir);
     const startedAtMs = Date.now();
     let success = 0;
     let failed = 0;
@@ -3682,15 +3489,26 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     for (let round = 0; round < rounds; round += 1) {
       const tasks = Array.from({ length: concurrency }, async (_, index) => {
         try {
-          await daemon.runIsolatedProcess({
-            kind: 'generic',
-            command: process.platform === 'win32' ? 'cmd' : 'sh',
-            args:
-              process.platform === 'win32'
-                ? ['/c', 'echo', `miya-pressure-${round}-${index}`]
-                : ['-lc', `echo miya-pressure-${round}-${index}`],
-            timeoutMs: Math.max(1_000, timeoutMs),
-          });
+          const probe = spawnSync(
+            process.platform === 'win32' ? 'cmd' : 'sh',
+            process.platform === 'win32'
+              ? ['/c', 'echo', `miya-pressure-${round}-${index}`]
+              : ['-lc', `echo miya-pressure-${round}-${index}`],
+            {
+              cwd: projectDir,
+              encoding: 'utf-8',
+              timeout: Math.max(1_000, timeoutMs),
+              windowsHide: true,
+            },
+          );
+          if (probe.status !== 0) {
+            throw new Error(
+              `pressure_probe_failed:${probe.status ?? -1}:${
+                String(probe.stderr ?? '').trim() || 'no_stderr'
+              }`,
+            );
+          }
+          await Promise.resolve();
           success += 1;
         } catch (error) {
           failed += 1;
@@ -3713,6 +3531,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const rounds = Math.max(1, Math.min(100, Math.floor(roundsRaw)));
     const waitMsRaw = typeof params.waitMs === 'number' ? Number(params.waitMs) : 250;
     const waitMs = Math.max(50, Math.min(5_000, Math.floor(waitMsRaw)));
+    if (params.refreshDebug === true) {
+      runtime.startupSelfCheck = runStartupSelfCheck(projectDir);
+    }
     const state = ensureGatewayRunning(projectDir);
     let healthy = 0;
     let daemonReady = 0;
@@ -3744,6 +3565,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       daemonConnected: daemonReady,
       gatewaySuccessRate: Number(((healthy / rounds) * 100).toFixed(2)),
       daemonSuccessRate: Number(((daemonReady / rounds) * 100).toFixed(2)),
+      startupSelfCheck: runtime.startupSelfCheck,
       samples,
     };
   });
@@ -3807,71 +3629,15 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     };
   });
 
-  methods.register('sessions.list', async () => listSessions(projectDir));
-  methods.register('sessions.get', async (params) => {
-    const sessionID = parseText(params.sessionID);
-    if (!sessionID) throw new Error('invalid_session_id');
-    return getSession(projectDir, sessionID);
-  });
-  methods.register('sessions.policy.set', async (params) => {
-    const sessionID = parseText(params.sessionID);
-    const policyHash = parseText(params.policyHash) || undefined;
-    if (!sessionID) throw new Error('invalid_session_id');
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    const patch: Parameters<typeof setSessionPolicy>[2] = {};
-    if (params.activation === 'active' || params.activation === 'queued' || params.activation === 'muted') {
-      patch.activation = params.activation;
-    }
-    if (params.reply === 'auto' || params.reply === 'manual' || params.reply === 'summary_only') {
-      patch.reply = params.reply;
-    }
-    if (params.queueStrategy === 'fifo' || params.queueStrategy === 'priority' || params.queueStrategy === 'cooldown') {
-      patch.queueStrategy = params.queueStrategy;
-    }
-    const updated = setSessionPolicy(projectDir, sessionID, patch);
-    if (!updated) throw new Error('session_not_found');
-    return updated;
-  });
-  methods.register('sessions.send', async (params) => {
-    const sessionID = parseText(params.sessionID);
-    const text = parseText(params.text);
-    if (!sessionID || !text) throw new Error('invalid_sessions_send_args');
-    if (text.trim() === '/start') {
-      const wizard = isCompanionWizardEmpty(projectDir, sessionID)
-        ? startCompanionWizard(projectDir, { sessionId: sessionID })
-        : readCompanionWizardState(projectDir, sessionID);
-      return {
-        sessionID: wizard.sessionId,
-        wizard,
-        checklist: wizardChecklist(wizard),
-        message:
-          wizard.state === 'awaiting_photos'
-            ? WIZARD_PROMPT_PHOTOS
-            : `检测到已有向导进度，已恢复继续。${wizardPromptByState(wizard.state)}`,
-        instruction: '将照片拖拽到聊天中',
-      };
-    }
-    if (text.trim() === '/reset_personality') {
-      const wizard = resetCompanionWizard(projectDir, sessionID);
-      return {
-        sessionID: wizard.sessionId,
-        wizard,
-        message: '已重置人格资产，请重新开始 /start',
-      };
-    }
-    upsertSession(projectDir, {
-      id: sessionID,
-      kind: sessionID.startsWith('opencode:') ? 'opencode' : 'channel',
-      groupId: sessionID,
-      routingSessionID: parseText(params.routingSessionID) || 'main',
-      agent: parseText(params.agent) || '1-task-manager',
-    });
-    return routeSessionMessage(projectDir, {
-      sessionID,
-      text,
-      source: parseText(params.source) || 'gateway',
-    });
+  registerCoreSessionMethods({
+    projectDir,
+    methods,
+    parseText,
+    requirePolicyHash,
+    requireDomainRunning: (dir, domain) => requireDomainRunning(dir, domain),
+    routeSessionMessage,
+    wizardPromptPhotos: WIZARD_PROMPT_PHOTOS,
+    wizardPromptByState,
   });
 
   methods.register('cron.list', async () => depsOf(projectDir).automationService?.listJobs() ?? []);
@@ -3954,263 +3720,19 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return service.rejectApproval(approvalID);
   });
 
-  methods.register('channels.list', async () => runtime.channelRuntime.listChannels());
-  methods.register('channels.status', async () => ({
-    channels: runtime.channelRuntime.listChannels(),
-    pendingPairs: runtime.channelRuntime.listPairs('pending'),
-  }));
-  methods.register('channels.pair.list', async (params) => {
-    if (params.status === 'pending' || params.status === 'approved' || params.status === 'rejected') {
-      return runtime.channelRuntime.listPairs(params.status);
-    }
-    return runtime.channelRuntime.listPairs();
-  });
-  methods.register('channels.pair.approve', async (params) => {
-    const pairID = parseText(params.pairID);
-    if (!pairID) throw new Error('invalid_pair_id');
-    return runtime.channelRuntime.approvePair(pairID);
-  });
-  methods.register('channels.pair.reject', async (params) => {
-    const pairID = parseText(params.pairID);
-    if (!pairID) throw new Error('invalid_pair_id');
-    return runtime.channelRuntime.rejectPair(pairID);
-  });
-  methods.register('channels.contact.tier.set', async (params) => {
-    const channel = parseChannel(params.channel);
-    const senderID = parseText(params.senderID);
-    const tier = parseText(params.tier);
-    if (!channel || !senderID) throw new Error('invalid_channels_contact_tier_args');
-    if (tier !== 'owner' && tier !== 'friend') {
-      throw new Error('invalid_channels_contact_tier');
-    }
-    return setContactTier(projectDir, channel, senderID, tier);
-  });
-  methods.register('channels.contact.tier.get', async (params) => {
-    const channel = parseChannel(params.channel);
-    const senderID = parseText(params.senderID);
-    if (!channel || !senderID) throw new Error('invalid_channels_contact_tier_args');
-    return {
-      channel,
-      senderID,
-      tier: getContactTier(projectDir, channel, senderID),
-    };
-  });
-  methods.register('channels.contact.tier.list', async (params) => {
-    const channel = parseChannel(params.channel);
-    return {
-      contacts: listContactTiers(projectDir, channel ?? undefined),
-    };
-  });
-  methods.register('channels.message.send', async (params) => {
-    const channel = parseChannel(params.channel);
-    const destination = parseText(params.destination);
-    const text = parseText(params.text);
-    const mediaID = parseText(params.mediaID);
-    const mediaPathInput = parseText(params.mediaPath);
-    const idempotencyKey = parseText(params.idempotencyKey);
-    const sessionID = parseText(params.sessionID) || 'main';
-    const policyHash = parseText(params.policyHash) || undefined;
-    const mediaFromStore = mediaID ? getMediaItem(projectDir, mediaID) : null;
-    const mediaPath = mediaPathInput || mediaFromStore?.localPath || '';
-    if (!channel || !destination || (!text && !mediaPath)) {
-      throw new Error('invalid_channels_send_args');
-    }
-    const outboundCheckRaw =
-      params.outboundCheck && typeof params.outboundCheck === 'object'
-        ? (params.outboundCheck as Record<string, unknown>)
-        : null;
-    const outboundCheck: GuardedOutboundCheckInput = {
-      archAdvisorApproved:
-        outboundCheckRaw && typeof outboundCheckRaw.archAdvisorApproved === 'boolean'
-          ? Boolean(outboundCheckRaw.archAdvisorApproved)
-          : undefined,
-      intent:
-        outboundCheckRaw && typeof outboundCheckRaw.intent === 'string'
-          ? String(outboundCheckRaw.intent)
-          : undefined,
-      factorRecipientIsMe:
-        outboundCheckRaw && typeof outboundCheckRaw.factorRecipientIsMe === 'boolean'
-          ? Boolean(outboundCheckRaw.factorRecipientIsMe)
-          : undefined,
-      userInitiated:
-        outboundCheckRaw && typeof outboundCheckRaw.userInitiated === 'boolean'
-          ? Boolean(outboundCheckRaw.userInitiated)
-          : undefined,
-      negotiationID:
-        outboundCheckRaw && typeof outboundCheckRaw.negotiationID === 'string'
-          ? String(outboundCheckRaw.negotiationID)
-          : undefined,
-      retryAttemptType:
-        outboundCheckRaw &&
-        (outboundCheckRaw.retryAttemptType === 'auto' ||
-          outboundCheckRaw.retryAttemptType === 'human')
-          ? (outboundCheckRaw.retryAttemptType as 'auto' | 'human')
-          : undefined,
-      evidenceConfidence:
-        outboundCheckRaw &&
-        typeof outboundCheckRaw.evidenceConfidence === 'number' &&
-        Number.isFinite(outboundCheckRaw.evidenceConfidence)
-          ? Number(outboundCheckRaw.evidenceConfidence)
-          : undefined,
-      captureLimitations:
-        outboundCheckRaw && Array.isArray(outboundCheckRaw.captureLimitations)
-          ? outboundCheckRaw.captureLimitations
-              .filter((item): item is string => typeof item === 'string')
-              .map((item) => item.trim())
-              .filter((item) => item.length > 0)
-              .slice(0, 32)
-          : undefined,
-      psycheSignals:
-        outboundCheckRaw?.psycheSignals &&
-        typeof outboundCheckRaw.psycheSignals === 'object' &&
-        !Array.isArray(outboundCheckRaw.psycheSignals)
-          ? (outboundCheckRaw.psycheSignals as GuardedOutboundCheckInput['psycheSignals'])
-          : undefined,
-    };
-    const confirmationRaw =
-      params.confirmation && typeof params.confirmation === 'object'
-        ? (params.confirmation as Record<string, unknown>)
-        : null;
-    return sendChannelMessageGuarded(projectDir, runtime, {
-      channel,
-      destination,
-      text,
-      mediaPath,
-      idempotencyKey,
-      sessionID,
-      policyHash,
-      outboundCheck,
-      confirmation: {
-        physicalConfirmed:
-          confirmationRaw && typeof confirmationRaw.physicalConfirmed === 'boolean'
-            ? Boolean(confirmationRaw.physicalConfirmed)
-            : undefined,
-        password:
-          confirmationRaw && typeof confirmationRaw.password === 'string'
-            ? String(confirmationRaw.password)
-            : undefined,
-        passphrase:
-          confirmationRaw && typeof confirmationRaw.passphrase === 'string'
-            ? String(confirmationRaw.passphrase)
-            : undefined,
-        ownerSyncToken:
-          confirmationRaw && typeof confirmationRaw.ownerSyncToken === 'string'
-            ? String(confirmationRaw.ownerSyncToken)
-            : undefined,
-      },
-    });
+  registerChannelMethods({
+    projectDir,
+    methods,
+    runtime,
+    parseText,
+    parseChannel,
+    sendChannelMessageGuarded: (input) => sendChannelMessageGuarded(projectDir, runtime, input),
   });
 
-  methods.register('security.identity.status', async () => {
-    const state = readOwnerIdentityState(projectDir);
-    return {
-      ...state,
-      passwordHash: state.passwordHash ? '***' : undefined,
-      passphraseHash: state.passphraseHash ? '***' : undefined,
-    };
-  });
-
-  methods.register('security.identity.init', async (params) => {
-    const password = parseText(params.password);
-    const passphrase = parseText(params.passphrase);
-    if (!password || !passphrase) throw new Error('invalid_owner_secret_input');
-    const next = initOwnerIdentity(projectDir, {
-      password,
-      passphrase,
-      voiceprintEmbeddingID: parseText(params.voiceprintEmbeddingID) || undefined,
-      voiceprintModelPath: parseText(params.voiceprintModelPath) || undefined,
-      voiceprintSampleDir: parseText(params.voiceprintSampleDir) || undefined,
-      voiceprintThresholds: {
-        ownerMinScore:
-          typeof params.ownerMinScore === 'number' ? Number(params.ownerMinScore) : undefined,
-        guestMaxScore:
-          typeof params.guestMaxScore === 'number' ? Number(params.guestMaxScore) : undefined,
-        ownerMinLiveness:
-          typeof params.ownerMinLiveness === 'number'
-            ? Number(params.ownerMinLiveness)
-            : undefined,
-        guestMaxLiveness:
-          typeof params.guestMaxLiveness === 'number'
-            ? Number(params.guestMaxLiveness)
-            : undefined,
-        ownerMinDiarizationRatio:
-          typeof params.ownerMinDiarizationRatio === 'number'
-            ? Number(params.ownerMinDiarizationRatio)
-            : undefined,
-        minSampleDurationSec:
-          typeof params.minSampleDurationSec === 'number'
-            ? Number(params.minSampleDurationSec)
-            : undefined,
-        farTarget: typeof params.farTarget === 'number' ? Number(params.farTarget) : undefined,
-        frrTarget: typeof params.frrTarget === 'number' ? Number(params.frrTarget) : undefined,
-      },
-    });
-    return {
-      ...next,
-      passwordHash: '***',
-      passphraseHash: '***',
-    };
-  });
-
-  methods.register('security.identity.rotate', async (params) => {
-    const newPassword = parseText(params.newPassword);
-    const newPassphrase = parseText(params.newPassphrase);
-    if (!newPassword || !newPassphrase) throw new Error('invalid_new_owner_secret');
-    const next = rotateOwnerSecrets(projectDir, {
-      currentPassword: parseText(params.currentPassword) || undefined,
-      currentPassphrase: parseText(params.currentPassphrase) || undefined,
-      newPassword,
-      newPassphrase,
-    });
-    return {
-      ...next,
-      passwordHash: '***',
-      passphraseHash: '***',
-    };
-  });
-
-  methods.register('security.voiceprint.threshold.get', async () => {
-    const state = readOwnerIdentityState(projectDir);
-    return {
-      ...state.voiceprintThresholds,
-    };
-  });
-
-  methods.register('security.voiceprint.threshold.set', async (params) => {
-    const next = updateVoiceprintThresholds(projectDir, {
-      ownerMinScore:
-        typeof params.ownerMinScore === 'number' ? Number(params.ownerMinScore) : undefined,
-      guestMaxScore:
-        typeof params.guestMaxScore === 'number' ? Number(params.guestMaxScore) : undefined,
-      ownerMinLiveness:
-        typeof params.ownerMinLiveness === 'number' ? Number(params.ownerMinLiveness) : undefined,
-      guestMaxLiveness:
-        typeof params.guestMaxLiveness === 'number' ? Number(params.guestMaxLiveness) : undefined,
-      ownerMinDiarizationRatio:
-        typeof params.ownerMinDiarizationRatio === 'number'
-          ? Number(params.ownerMinDiarizationRatio)
-          : undefined,
-      minSampleDurationSec:
-        typeof params.minSampleDurationSec === 'number'
-          ? Number(params.minSampleDurationSec)
-          : undefined,
-      farTarget: typeof params.farTarget === 'number' ? Number(params.farTarget) : undefined,
-      frrTarget: typeof params.frrTarget === 'number' ? Number(params.frrTarget) : undefined,
-    });
-    return {
-      ...next.voiceprintThresholds,
-    };
-  });
-
-  methods.register('security.owner_sync.issue', async (params) => {
-    const action = parseText(params.action) || 'outbound.high_risk.send';
-    const payloadHash = parseText(params.payloadHash);
-    if (!payloadHash) throw new Error('invalid_payload_hash');
-    return issueOwnerSyncToken(projectDir, {
-      action,
-      payloadHash,
-      ttlMs: typeof params.ttlMs === 'number' ? Number(params.ttlMs) : undefined,
-    });
+  registerSecurityMethods({
+    projectDir,
+    methods,
+    parseText,
   });
 
   methods.register('policy.get', async () => {
@@ -4696,166 +4218,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     };
   });
 
-  methods.register('nodes.register', async (params, context) => {
-    const nodeID = parseText(params.nodeID);
-    const deviceID = parseText(params.deviceID);
-    if (!nodeID || !deviceID) throw new Error('invalid_nodes_register_args');
-    const node = registerNode(projectDir, {
-      nodeID,
-      deviceID,
-      type:
-        params.type === 'cli' ||
-        params.type === 'desktop' ||
-        params.type === 'mobile' ||
-        params.type === 'browser'
-          ? params.type
-          : undefined,
-      platform: parseText(params.platform) || process.platform,
-      capabilities: Array.isArray(params.capabilities)
-        ? params.capabilities.map(String)
-        : [],
-      token: parseText(params.token) || undefined,
-      permissions:
-        params.permissions && typeof params.permissions === 'object'
-          ? {
-              screenRecording:
-                typeof (params.permissions as Record<string, unknown>).screenRecording ===
-                'boolean'
-                  ? Boolean(
-                      (params.permissions as Record<string, unknown>).screenRecording,
-                    )
-                  : undefined,
-              accessibility:
-                typeof (params.permissions as Record<string, unknown>).accessibility ===
-                'boolean'
-                  ? Boolean(
-                      (params.permissions as Record<string, unknown>).accessibility,
-                    )
-                  : undefined,
-              filesystem:
-                (params.permissions as Record<string, unknown>).filesystem === 'none' ||
-                (params.permissions as Record<string, unknown>).filesystem === 'read' ||
-                (params.permissions as Record<string, unknown>).filesystem === 'full'
-                  ? ((params.permissions as Record<string, unknown>)
-                      .filesystem as 'none' | 'read' | 'full')
-                  : undefined,
-              network:
-                typeof (params.permissions as Record<string, unknown>).network ===
-                'boolean'
-                  ? Boolean((params.permissions as Record<string, unknown>).network)
-                  : undefined,
-            }
-          : undefined,
-    });
-    const pair = createNodePairRequest(projectDir, { nodeID, deviceID });
-    const ws = (
-      context as GatewayMethodContext & {
-        ws?: WebSocket;
-      }
-    ).ws;
-    if (ws) runtime.nodeSockets.set(nodeID, ws);
-    return { node, pair };
+  registerNodeMethods({
+    projectDir,
+    methods,
+    runtime,
+    parseText,
+    requirePolicyHash,
+    requireDomainRunning: (dir, domain) => requireDomainRunning(dir, domain),
+    enforceToken,
+    hashText,
   });
-  methods.register('nodes.list', async () => listNodes(projectDir));
-  methods.register('nodes.heartbeat', async (params) => {
-    const nodeID = parseText(params.nodeID);
-    if (!nodeID) throw new Error('invalid_node_id');
-    const node = touchNodeHeartbeat(projectDir, nodeID);
-    if (!node) throw new Error('node_not_found');
-    return node;
-  });
-  methods.register('nodes.token.issue', async (params) => {
-    const nodeID = parseText(params.nodeID);
-    if (!nodeID) throw new Error('invalid_node_id');
-    const issued = issueNodeToken(projectDir, nodeID);
-    if (!issued) throw new Error('node_not_found');
-    return issued;
-  });
-  methods.register('nodes.status', async () => ({
-    nodes: listNodes(projectDir),
-    pendingPairs: listNodePairs(projectDir, 'pending'),
-  }));
-  methods.register('nodes.describe', async (params) => {
-    const nodeID = parseText(params.nodeID);
-    if (!nodeID) throw new Error('invalid_node_id');
-    return describeNode(projectDir, nodeID);
-  });
-  methods.register('nodes.pair.list', async (params) => {
-    if (
-      params.status === 'pending' ||
-      params.status === 'approved' ||
-      params.status === 'rejected'
-    ) {
-      return listNodePairs(projectDir, params.status);
-    }
-    return listNodePairs(projectDir);
-  });
-  methods.register('nodes.pair.approve', async (params) => {
-    const pairID = parseText(params.pairID);
-    if (!pairID) throw new Error('invalid_pair_id');
-    return resolveNodePair(projectDir, pairID, 'approved');
-  });
-  methods.register('nodes.pair.reject', async (params) => {
-    const pairID = parseText(params.pairID);
-    if (!pairID) throw new Error('invalid_pair_id');
-    return resolveNodePair(projectDir, pairID, 'rejected');
-  });
-  methods.register('nodes.invoke', async (params) => {
-    const nodeID = parseText(params.nodeID);
-    const capability = parseText(params.capability);
-    const sessionID = parseText(params.sessionID) || 'main';
-    const policyHash = parseText(params.policyHash) || undefined;
-    const args =
-      params.args && typeof params.args === 'object'
-        ? (params.args as Record<string, unknown>)
-        : {};
-    if (!nodeID || !capability) throw new Error('invalid_nodes_invoke_args');
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'desktop_control');
-
-    const token = enforceToken({
-      projectDir,
-      sessionID,
-      permission: 'node_invoke',
-      patterns: [
-        `nodeId=${nodeID}`,
-        `cap=${capability}`,
-        `args_sha256=${hashText(JSON.stringify(args))}`,
-      ],
-    });
-    if (!token.ok) throw new Error(`approval_required:${token.reason}`);
-
-    const invoke = createInvokeRequest(projectDir, { nodeID, capability, args });
-    markInvokeSent(projectDir, invoke.id);
-
-    const nodeSocket = runtime.nodeSockets.get(nodeID);
-    if (nodeSocket) {
-      nodeSocket.send(
-        JSON.stringify(
-          toEventFrame({
-            event: 'node.invoke.request',
-            payload: invoke,
-            stateVersion: { gateway: runtime.stateVersion },
-          }),
-        ),
-      );
-    }
-
-    return invoke;
-  });
-  methods.register('nodes.invoke.result', async (params) => {
-    const invokeID = parseText(params.invokeID);
-    if (!invokeID) throw new Error('invalid_invoke_id');
-    return resolveInvokeResult(projectDir, invokeID, {
-      ok: Boolean(params.ok),
-      result:
-        params.result && typeof params.result === 'object'
-          ? (params.result as Record<string, unknown>)
-          : undefined,
-      error: parseText(params.error) || undefined,
-    });
-  });
-  methods.register('devices.list', async () => listDevices(projectDir));
 
   methods.register('skills.status', async () => ({
     enabled: listEnabledSkills(projectDir),
@@ -5113,144 +4485,14 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return listMediaItems(projectDir, limit);
   });
 
-  methods.register('voice.status', async () => readVoiceState(projectDir));
-  methods.register('voice.wake.enable', async (params) => {
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    return patchVoiceState(projectDir, {
-      enabled: true,
-      wakeWordEnabled: true,
-    });
-  });
-  methods.register('voice.wake.disable', async (params) => {
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    return patchVoiceState(projectDir, {
-      wakeWordEnabled: false,
-    });
-  });
-  methods.register('voice.talk.start', async (params) => {
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    return patchVoiceState(projectDir, {
-      enabled: true,
-      talkMode: true,
-      routeSessionID: parseText(params.sessionID) || readVoiceState(projectDir).routeSessionID,
-    });
-  });
-  methods.register('voice.talk.stop', async (params) => {
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    return patchVoiceState(projectDir, {
-      talkMode: false,
-    });
-  });
-  methods.register('voice.input.ingest', async (params) => {
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    const mediaID = parseText(params.mediaID) || undefined;
-    const source =
-      parseText(params.source) === 'wake' ||
-      parseText(params.source) === 'talk' ||
-      parseText(params.source) === 'media'
-        ? (parseText(params.source) as 'wake' | 'talk' | 'media')
-        : 'manual';
-    const language = parseText(params.language) || undefined;
-    const speakerHint = parseText(params.speakerHint) || undefined;
-    const speakerScore =
-      typeof params.speakerScore === 'number' ? Number(params.speakerScore) : undefined;
-    const mediaPath = mediaID ? getMediaItem(projectDir, mediaID)?.localPath : undefined;
-    const voiceprint = await verifyVoiceprintWithLocalModel(projectDir, {
-      mediaPath,
-      speakerHint,
-      speakerScore,
-    });
-    const mode = voiceprint.mode;
-    setInteractionMode(projectDir, mode);
-    if (mode !== 'owner') {
-      transitionSafetyState(projectDir, {
-        source: 'speaker_gate',
-        reason: `speaker_mode_${mode}`,
-        domains: {
-          outbound_send: 'paused',
-          desktop_control: 'paused',
-          memory_read: 'paused',
-        },
-      });
-    }
-    let text = parseText(params.text);
-    if (!text && mediaID) {
-      const media = getMediaItem(projectDir, mediaID);
-      const transcript = media?.metadata?.transcript;
-      text =
-        typeof transcript === 'string' && transcript.trim()
-          ? transcript.trim()
-          : `[media:${mediaID}]`;
-    }
-    if (!text) throw new Error('invalid_voice_input');
-    if (mode === 'guest') {
-      const guestReply = '不好意思，我现在只能听主人的指令哦，但我可以陪你聊天。';
-      appendGuestConversation(projectDir, {
-        text,
-        source,
-        sessionID: parseText(params.sessionID) || 'main',
-      });
-      return {
-        item: appendVoiceHistory(projectDir, {
-          text,
-          source,
-          language,
-          mediaID,
-        }),
-        routed: {
-          delivered: false,
-          queued: false,
-          reason: 'guest_mode_restricted',
-        },
-        mode,
-        voiceprint,
-        reply: guestReply,
-        voice: readVoiceState(projectDir),
-      };
-    }
-    const item = appendVoiceHistory(projectDir, {
-      text,
-      source,
-      language,
-      mediaID,
-    });
-    const voice = readVoiceState(projectDir);
-    const targetSessionID = parseText(params.sessionID) || voice.routeSessionID || 'main';
-    const routed = await routeSessionMessage(projectDir, {
-      sessionID: targetSessionID,
-      text,
-      source: `voice:${source}`,
-    });
-    return {
-      item,
-      routed,
-      mode,
-      voiceprint,
-      voice: readVoiceState(projectDir),
-    };
-  });
-  methods.register('voice.history.list', async (params) => {
-    const limit =
-      typeof params.limit === 'number' && params.limit > 0
-        ? Math.min(500, Number(params.limit))
-        : 100;
-    return readVoiceState(projectDir).history.slice(0, limit);
-  });
-  methods.register('voice.history.clear', async (params) => {
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_delete');
-    return clearVoiceHistory(projectDir);
+  registerVoiceMethods({
+    projectDir,
+    methods,
+    parseText,
+    requirePolicyHash,
+    requireDomainRunning: (dir, domain) => requireDomainRunning(dir, domain),
+    verifyVoiceprintWithLocalModel,
+    routeSessionMessage,
   });
 
   methods.register('canvas.status', async () => {
@@ -5506,188 +4748,68 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       style: parseText(params.style) || undefined,
     });
   });
-  methods.register('companion.memory.add', async (params) => {
-    requireOwnerMode(projectDir);
-    const policyHash = parseText(params.policyHash) || undefined;
-    const fact = parseText(params.fact);
-    if (!fact) throw new Error('invalid_memory_fact');
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    const created = upsertCompanionMemoryVector(projectDir, {
-      text: fact,
-      source: 'conversation',
-      activate: false,
-      sourceType:
-        parseText(params.sourceType) === 'direct_correction'
-          ? 'direct_correction'
-          : 'conversation',
-    });
-    const profile = syncCompanionProfileMemoryFacts(projectDir);
-    const learningGate = runtime.nexus.learningGate;
-    return {
-      memory: created,
-      stage: created.status,
-      learningGate: {
-        stage: 'candidate',
-        approvalMode: learningGate.candidateMode,
-        interruptsUser: false,
-      },
-      needsCorrectionWizard: Boolean(created.conflictWizardID),
-      message: created.conflictWizardID
-        ? 'memory_pending_conflict_requires_correction_wizard'
-        : 'memory_pending_confirmation_required',
-      profile,
-    };
-  });
-  methods.register('companion.memory.list', async () => {
-    requireOwnerMode(projectDir);
-    return readCompanionProfile(projectDir).memoryFacts;
-  });
-  methods.register('companion.memory.pending.list', async () => {
-    requireOwnerMode(projectDir);
-    return listPendingCompanionMemoryVectors(projectDir);
-  });
-  methods.register('companion.memory.corrections.list', async () => {
-    requireOwnerMode(projectDir);
-    return listCompanionMemoryCorrections(projectDir);
-  });
-  methods.register('companion.memory.confirm', async (params) => {
-    requireOwnerMode(projectDir);
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    const memoryID = parseText(params.memoryID);
-    const sessionID = parseText(params.sessionID) || 'main';
-    if (!memoryID) throw new Error('invalid_memory_id');
-    if (runtime.nexus.learningGate.persistentRequiresApproval) {
-      const ticket = resolveApprovalTicket({
-        projectDir,
-        sessionID,
-        permission: 'memory_write',
-        patterns: [
-          'memory_stage=persistent',
-          `memory_id=${memoryID}`,
-          'action=confirm',
-        ],
-      });
-      if (!ticket.ok) throw new Error(`approval_required:${ticket.reason}`);
-    }
-    const confirm = typeof params.confirm === 'boolean' ? Boolean(params.confirm) : true;
-    const updated = confirmCompanionMemoryVector(projectDir, {
-      memoryID,
-      confirm,
-      supersedeConflicts:
-        typeof params.supersedeConflicts === 'boolean'
-          ? Boolean(params.supersedeConflicts)
-          : true,
-    });
-    if (!updated) throw new Error('memory_not_found');
-    const profile = syncCompanionProfileMemoryFacts(projectDir);
-    return {
-      memory: updated,
-      stage: updated.status,
-      learningGate: {
-        stage: 'persistent',
-        approvalMode: runtime.nexus.learningGate.persistentRequiresApproval
-          ? 'modal_approval'
-          : 'toast_gate',
-        interruptsUser: runtime.nexus.learningGate.persistentRequiresApproval,
-      },
-      profile,
-    };
-  });
-  methods.register('companion.memory.update', async (params) => {
-    requireOwnerMode(projectDir);
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    const memoryID = parseText(params.memoryID);
-    if (!memoryID) throw new Error('invalid_memory_id');
-    const updated = updateCompanionMemoryVector(projectDir, {
-      memoryID,
-      text: parseText(params.text) || undefined,
-      memoryKind:
-        parseText(params.memoryKind) === 'Fact' ||
-        parseText(params.memoryKind) === 'Insight' ||
-        parseText(params.memoryKind) === 'UserPreference'
-          ? (parseText(params.memoryKind) as 'Fact' | 'Insight' | 'UserPreference')
-          : undefined,
-      confidence:
-        typeof params.confidence === 'number' && Number.isFinite(params.confidence)
-          ? Number(params.confidence)
-          : undefined,
-      tier:
-        parseText(params.tier) === 'L1' ||
-        parseText(params.tier) === 'L2' ||
-        parseText(params.tier) === 'L3'
-          ? (parseText(params.tier) as 'L1' | 'L2' | 'L3')
-          : undefined,
-      status:
-        parseText(params.status) === 'pending' ||
-        parseText(params.status) === 'active' ||
-        parseText(params.status) === 'superseded'
-          ? (parseText(params.status) as 'pending' | 'active' | 'superseded')
-          : undefined,
-    });
-    if (!updated) throw new Error('memory_not_found');
-    const profile = syncCompanionProfileMemoryFacts(projectDir);
-    return { memory: updated, profile };
-  });
-  methods.register('companion.memory.archive', async (params) => {
-    requireOwnerMode(projectDir);
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    const memoryID = parseText(params.memoryID);
-    if (!memoryID) throw new Error('invalid_memory_id');
-    const archived =
-      typeof params.archived === 'boolean' ? Boolean(params.archived) : true;
-    const updated = archiveCompanionMemoryVector(projectDir, {
-      memoryID,
-      archived,
-    });
-    if (!updated) throw new Error('memory_not_found');
-    return { memory: updated };
-  });
-  methods.register('companion.memory.search', async (params) => {
-    requireOwnerMode(projectDir);
-    const query = parseText(params.query);
-    if (!query) throw new Error('invalid_memory_query');
-    const limit =
-      typeof params.limit === 'number' && params.limit > 0
-        ? Math.min(20, Number(params.limit))
-        : 5;
-    const threshold =
-      typeof params.threshold === 'number' && params.threshold >= 0
-        ? Number(params.threshold)
-        : undefined;
-    const recencyHalfLifeDays =
-      typeof params.recencyHalfLifeDays === 'number' && params.recencyHalfLifeDays > 0
-        ? Number(params.recencyHalfLifeDays)
-        : undefined;
-    return searchCompanionMemoryVectors(projectDir, query, limit, {
-      threshold,
-      recencyHalfLifeDays,
-    });
-  });
-  methods.register('companion.memory.decay', async (params) => {
-    requireOwnerMode(projectDir);
-    const policyHash = parseText(params.policyHash) || undefined;
-    requirePolicyHash(projectDir, policyHash);
-    requireDomainRunning(projectDir, 'memory_write');
-    const halfLifeDays =
-      typeof params.halfLifeDays === 'number' && params.halfLifeDays > 0
-        ? Number(params.halfLifeDays)
-        : 30;
-    return decayCompanionMemoryVectors(projectDir, halfLifeDays);
-  });
-  methods.register('companion.memory.vector.list', async () => {
-    requireOwnerMode(projectDir);
-    return listCompanionMemoryVectors(projectDir);
+  registerMemoryMethods({
+    projectDir,
+    methods,
+    parseText,
+    requireOwnerMode,
+    requirePolicyHash,
+    requireDomainRunning: (dir, domain) => requireDomainRunning(dir, domain),
+    resolveApprovalTicket,
+    getLearningGate: () => runtime.nexus.learningGate,
   });
   methods.register('miya.memory.sqlite.stats', async () => {
     requireOwnerMode(projectDir);
     return getCompanionMemorySqliteStats(projectDir);
+  });
+  methods.register('miya.memory.pack.compile', async (params) => {
+    requireOwnerMode(projectDir);
+    const query = parseText(params.query) || '';
+    const domain =
+      parseText(params.domain) === 'relationship' ||
+      parseText(params.domain) === 'personal' ||
+      parseText(params.domain) === 'system'
+        ? (parseText(params.domain) as 'relationship' | 'personal' | 'system')
+        : 'work';
+    const l0Limit =
+      typeof params.l0Limit === 'number' && params.l0Limit > 0
+        ? Math.min(20, Number(params.l0Limit))
+        : undefined;
+    const l1Limit =
+      typeof params.l1Limit === 'number' && params.l1Limit > 0
+        ? Math.min(30, Number(params.l1Limit))
+        : undefined;
+    return buildMemoryPack(projectDir, {
+      query,
+      domain,
+      l0Limit,
+      l1Limit,
+    });
+  });
+  methods.register('miya.memory.events.list', async (params) => {
+    requireOwnerMode(projectDir);
+    const since = parseText(params.since) || undefined;
+    const limit =
+      typeof params.limit === 'number' && params.limit > 0
+        ? Math.min(2000, Number(params.limit))
+        : undefined;
+    return listMemoryEvents(projectDir, { since, limit });
+  });
+  methods.register('miya.memory.evidence.get', async (params) => {
+    requireOwnerMode(projectDir);
+    const auditID = parseText(params.auditID);
+    if (!auditID) throw new Error('invalid_audit_id');
+    const found = getEvidencePack(projectDir, auditID);
+    if (!found) throw new Error('evidence_not_found');
+    return found;
+  });
+  methods.register('miya.contextfs.get', async (params) => {
+    requireOwnerMode(projectDir);
+    const uri = parseText(params.uri);
+    if (!uri) throw new Error('invalid_contextfs_uri');
+    const resolved = resolveContextFsUri(projectDir, uri);
+    if (!resolved) throw new Error('contextfs_not_found');
+    return resolved;
   });
   methods.register('miya.memory.log.append', async (params) => {
     requireOwnerMode(projectDir);
@@ -5738,6 +4860,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       maxLogs,
       cooldownMinutes,
       idempotencyKey,
+      policyHash: currentPolicyHash(projectDir),
     });
     const profile = syncCompanionProfileMemoryFacts(projectDir);
     return {
@@ -6065,94 +5188,6 @@ async function _handleWebhook(
   return new Response('Not Found', { status: 404 });
 }
 
-function normalizeNodeHeaders(headers: IncomingMessage['headers']): HeadersInit {
-  const normalized: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (typeof value === 'string') {
-      normalized[key] = value;
-      continue;
-    }
-    if (Array.isArray(value) && value.length > 0) {
-      normalized[key] = value.join(', ');
-    }
-  }
-  return normalized;
-}
-
-function toNodeRequest(
-  req: IncomingMessage,
-  hostname: string,
-  port: number,
-): Request {
-  const hostHeader =
-    typeof req.headers.host === 'string' && req.headers.host.trim()
-      ? req.headers.host.trim()
-      : `${hostname}:${port}`;
-  const requestUrl = new URL(req.url || '/', `http://${hostHeader}`);
-  return new Request(requestUrl, {
-    method: req.method ?? 'GET',
-    headers: normalizeNodeHeaders(req.headers),
-  });
-}
-
-async function sendNodeResponse(
-  req: IncomingMessage,
-  res: ServerResponse,
-  response: Response,
-): Promise<void> {
-  res.statusCode = response.status;
-  for (const [key, value] of response.headers.entries()) {
-    res.setHeader(key, value);
-  }
-  if ((req.method ?? 'GET').toUpperCase() === 'HEAD') {
-    res.end();
-    return;
-  }
-  if (!response.body) {
-    res.end();
-    return;
-  }
-  const body = Buffer.from(await response.arrayBuffer());
-  res.end(body);
-}
-
-function normalizeWsInput(message: WsRawData): string {
-  if (typeof message === 'string') return message;
-  if (Buffer.isBuffer(message)) return message.toString('utf-8');
-  if (Array.isArray(message)) return Buffer.concat(message).toString('utf-8');
-  return Buffer.from(message).toString('utf-8');
-}
-
-function reserveGatewayPort(hostname: string, configuredPort: number): number {
-  if (configuredPort > 0) {
-    return configuredPort;
-  }
-  const script = [
-    "const net=require('node:net');",
-    'const host=process.argv[1]||"127.0.0.1";',
-    'const s=net.createServer();',
-    's.listen(0,host,()=>{',
-    'const address=s.address();',
-    "if(address&&typeof address==='object'){process.stdout.write(String(address.port));}",
-    's.close(()=>process.exit(0));',
-    '});',
-    "s.on('error',()=>process.exit(1));",
-  ].join('');
-  const probe = spawnSync('node', ['-e', script, hostname], {
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  if (probe.status !== 0) {
-    throw new Error(`gateway_port_reservation_failed:${String(probe.stderr || '').trim()}`);
-  }
-  const reserved = Number(String(probe.stdout || '').trim());
-  if (!Number.isFinite(reserved) || reserved <= 0) {
-    throw new Error('gateway_port_reservation_invalid');
-  }
-  return Math.floor(reserved);
-}
-
 async function routeGatewayHttpRequest(
   projectDir: string,
   runtime: GatewayRuntime,
@@ -6196,6 +5231,27 @@ async function routeGatewayHttpRequest(
   }
 
   if (url.pathname === '/' || url.pathname === '/index.html') {
+    const gatewayState = syncGatewayState(projectDir, runtime);
+    const uiBasePath = normalizeControlUiBasePath(controlUi.basePath || '/control') || '/control';
+    const wsUrl = `${gatewayState.url.replace(/^http/i, 'ws')}/ws`;
+    return new Response(
+      [
+        'Miya Gateway is running.',
+        `status=${gatewayState.status}`,
+        `api_status=${gatewayState.url}/api/status`,
+        `ws=${wsUrl}`,
+        `control_ui=${gatewayState.url}${uiBasePath}`,
+      ].join('\n'),
+      {
+        headers: {
+          'content-type': 'text/plain; charset=utf-8',
+          'cache-control': 'no-store',
+        },
+      },
+    );
+  }
+
+  if (url.pathname === '/console') {
     return new Response(renderConsoleHtml(buildSnapshot(projectDir, runtime)), {
       headers: {
         'content-type': 'text/html; charset=utf-8',
@@ -6353,10 +5409,12 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       wizardRunnerBusy: false,
       dependencyAssistHashes: new Set(),
       daemonLauncherUnsubscribe: undefined,
+      startupSelfCheck: undefined,
       negotiationBudgets: new Map(),
       nexus: {
         sessionId: 'main',
         activeTool: undefined,
+        jobId: undefined,
         permission: undefined,
         pendingTickets: 0,
         killSwitchMode: 'off',
@@ -6369,6 +5427,7 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       },
     };
 
+    runtime.startupSelfCheck = undefined;
     runtime.methods = createMethods(projectDir, runtime);
 
     wsServer.on('connection', (ws) => {
@@ -6501,6 +5560,11 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         if (frameSessionID) {
           runtime.nexus.sessionId = frameSessionID;
         }
+        const frameJobID = parseText(frame.params?.jobID) || parseText(frame.params?.jobId);
+        if (frameJobID) {
+          runtime.nexus.jobId = frameJobID;
+        }
+        const invokeStartedAt = Date.now();
 
         try {
           const result = await invokeGatewayMethod(
@@ -6514,12 +5578,33 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
               ws,
             } as GatewayMethodContext,
           );
+          appendGatewayMethodAudit(projectDir, {
+            method: frame.method,
+            requestID: frame.id,
+            clientID: wsData.clientID,
+            role: wsData.role,
+            sessionID: frameSessionID || undefined,
+            jobID: frameJobID || undefined,
+            ok: true,
+            durationMs: Date.now() - invokeStartedAt,
+          });
           ws.send(JSON.stringify(toResponseFrame({ id: frame.id, ok: true, result })));
           if (frame.method !== 'gateway.status.get') {
             maybeBroadcast(projectDir, runtime);
           }
         } catch (error) {
           const messageText = error instanceof Error ? error.message : String(error);
+          appendGatewayMethodAudit(projectDir, {
+            method: frame.method,
+            requestID: frame.id,
+            clientID: wsData.clientID,
+            role: wsData.role,
+            sessionID: frameSessionID || undefined,
+            jobID: frameJobID || undefined,
+            ok: false,
+            durationMs: Date.now() - invokeStartedAt,
+            error: messageText,
+          });
           ws.send(
             JSON.stringify(
               toResponseFrame({

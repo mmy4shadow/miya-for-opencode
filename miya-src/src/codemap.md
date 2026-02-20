@@ -4,6 +4,7 @@
 - `src/index.ts` delivers the miya plugin by merging configuration, instantiating orchestrator/subagent definitions, wiring background managers, tmux helpers, built-in tools, MCPs, and lifecycle hooks so OpenCode sees a single cohesive module.
 - `config/`, `agents/`, `tools/`, `background/`, `hooks/`, and `utils/` contain the reusable building blocks (loader/schema/constants, agent factories/permission helpers, tool factories, background polling/session managers, hook implementations, and tmux/variant/log helpers) that power that entry point.
 - `cli/` exposes the install/update script (argument parsing + interactive prompts) that edits OpenCode config, installs recommended/custom skills, and updates provider credentials to bootstrap this plugin on a host machine.
+- `gateway/` hosts Miya control-plane runtime, RPC protocol orchestration, and control UI/webchat serving. Core façade remains `gateway/index.ts`, while low-level HTTP/WS/render/file helpers were split into dedicated modules for maintainability.
 
 ## Design
 - Agent creation follows explicit factories (`agents/index.ts`, per-agent creators under `agents/`) with override/permission helpers (`config/utils.ts`, `cli/skills.ts`) so defaults live in `config/constants.ts`, prompts can be swapped via `config/loader.ts`, and variant labels propagate through `utils/agent-variant.ts`.
