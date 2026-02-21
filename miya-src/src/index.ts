@@ -10,6 +10,7 @@ import {
   extractAgentModelSelectionsFromEvent,
   normalizeAgentName,
   persistAgentRuntimeFromConfigSnapshot,
+  persistAgentRuntimeFromUiModelState,
   persistAgentRuntimeSelection,
   readPersistedAgentRuntime,
 } from './config/agent-model-persistence';
@@ -418,6 +419,30 @@ function sanitizeConfiguredAgentModels(
   return { adjusted };
 }
 
+function ensureLegacyModelAliases(opencodeConfig: Record<string, unknown>): void {
+  const providerMap = isPlainObject(opencodeConfig.provider)
+    ? (opencodeConfig.provider as Record<string, unknown>)
+    : {};
+  const openrouter = providerMap.openrouter;
+  if (!isPlainObject(openrouter)) return;
+  const models = isPlainObject(openrouter.models)
+    ? (openrouter.models as Record<string, unknown>)
+    : null;
+  if (!models) return;
+
+  const canonical = models['z-ai/glm-5'];
+  if (!canonical) return;
+  if (models['minimax/z-ai/glm-5']) return;
+
+  models['minimax/z-ai/glm-5'] = {
+    ...(isPlainObject(canonical) ? canonical : {}),
+    id: 'minimax/z-ai/glm-5',
+    name: isPlainObject(canonical) && typeof canonical.name === 'string'
+      ? `${canonical.name} (Legacy Alias)`
+      : 'GLM-5 (Legacy Alias)',
+  };
+}
+
 const MiyaPlugin: Plugin = async (ctx) => {
   const config = loadPluginConfig(ctx.directory);
   const agents = getAgentConfigs(config, ctx.directory);
@@ -766,6 +791,13 @@ const MiyaPlugin: Plugin = async (ctx) => {
     mcp: mcps,
 
     config: async (opencodeConfig: Record<string, unknown>) => {
+      const uiSyncResult = persistAgentRuntimeFromUiModelState(ctx.directory);
+      if (uiSyncResult.updated > 0) {
+        log('[model-persistence] synchronized from ui model state', {
+          updated: uiSyncResult.updated,
+          sourcePath: uiSyncResult.sourcePath,
+        });
+      }
       const persistedRuntime = readPersistedAgentRuntime(ctx.directory);
       const existingDefaultAgent =
         normalizeAgentName(
@@ -945,6 +977,7 @@ const MiyaPlugin: Plugin = async (ctx) => {
         ? (config.provider as Record<string, unknown>)
         : {};
       opencodeConfig.provider = deepMergeObject(existingProvider, pluginProvider);
+      ensureLegacyModelAliases(opencodeConfig);
       const sanitizeResult = sanitizeConfiguredAgentModels(opencodeConfig);
       if (sanitizeResult.adjusted.length > 0) {
         log('[model-persistence] sanitized invalid agent model assignments', {

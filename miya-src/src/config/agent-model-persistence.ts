@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
@@ -32,6 +33,12 @@ interface PersistedAgentRuntimeFile {
 interface PersistedAgentModelsFile {
   updatedAt?: string;
   agents?: Record<string, unknown>;
+}
+
+interface UiModelStateFile {
+  model?: unknown;
+  models?: unknown;
+  byAgent?: unknown;
 }
 
 export interface AgentRuntimeSelectionInput {
@@ -147,6 +154,76 @@ function normalizeStringValue(value: unknown): string | undefined {
 function normalizeOptions(value: unknown): Record<string, unknown> | undefined {
   if (!isObject(value)) return undefined;
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function getUiModelStateFileCandidates(): string[] {
+  const candidates = [
+    process.env.XDG_STATE_HOME
+      ? path.join(process.env.XDG_STATE_HOME, 'opencode', 'model.json')
+      : '',
+    path.join(os.homedir(), '.local', 'state', 'opencode', 'model.json'),
+    process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, 'opencode', 'state', 'model.json')
+      : '',
+    process.env.APPDATA
+      ? path.join(process.env.APPDATA, 'opencode', 'state', 'model.json')
+      : '',
+  ].filter((item) => item.trim().length > 0);
+
+  return Array.from(new Set(candidates));
+}
+
+function parseUiModelStateAgentMap(value: unknown): Record<string, string> {
+  if (!isObject(value)) return {};
+  const modelsByAgent: Record<string, string> = {};
+  for (const [rawAgentName, rawSelection] of Object.entries(value)) {
+    const agentName = normalizeAgentName(rawAgentName);
+    if (!agentName) continue;
+    const model = normalizeModelRef(rawSelection);
+    if (model) {
+      modelsByAgent[agentName] = model;
+      continue;
+    }
+    if (isObject(rawSelection)) {
+      const normalizedFromObject = normalizeModelRef({
+        providerID: rawSelection.providerID,
+        modelID: rawSelection.modelID,
+      });
+      if (normalizedFromObject) {
+        modelsByAgent[agentName] = normalizedFromObject;
+      }
+    }
+  }
+  return modelsByAgent;
+}
+
+function readUiModelStateModels(): {
+  sourcePath?: string;
+  modelsByAgent: Record<string, string>;
+} {
+  for (const candidate of getUiModelStateFileCandidates()) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8')) as UiModelStateFile;
+      const maps = [
+        parseUiModelStateAgentMap(parsed.model),
+        parseUiModelStateAgentMap(parsed.models),
+        parseUiModelStateAgentMap(parsed.byAgent),
+      ];
+      const modelsByAgent = Object.assign({}, ...maps);
+      if (Object.keys(modelsByAgent).length === 0) {
+        continue;
+      }
+      return {
+        sourcePath: candidate,
+        modelsByAgent,
+      };
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return { modelsByAgent: {} };
 }
 
 function normalizeAgentRuntimeEntry(value: unknown): AgentRuntimeEntry | null {
@@ -776,6 +853,27 @@ export function persistAgentRuntimeFromConfigSnapshot(
   }
 
   return { updated, activeAgentId };
+}
+
+export function persistAgentRuntimeFromUiModelState(projectDir: string): {
+  updated: number;
+  sourcePath?: string;
+} {
+  const { sourcePath, modelsByAgent } = readUiModelStateModels();
+  if (Object.keys(modelsByAgent).length === 0) {
+    return { updated: 0 };
+  }
+
+  let updated = 0;
+  for (const [agentName, model] of Object.entries(modelsByAgent)) {
+    const changed = persistAgentRuntimeSelection(projectDir, {
+      agentName,
+      model,
+    });
+    if (changed) updated += 1;
+  }
+
+  return { updated, sourcePath };
 }
 
 export function extractAgentModelSelectionsFromEvent(

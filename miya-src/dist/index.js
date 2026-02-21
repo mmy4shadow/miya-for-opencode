@@ -3047,7 +3047,7 @@ var require_main = __commonJS({
     var ril_1 = require_ril();
     ril_1.default.install();
     var path52 = __require("path");
-    var os8 = __require("os");
+    var os9 = __require("os");
     var crypto_1 = __require("crypto");
     var net_1 = __require("net");
     var api_1 = require_api();
@@ -3184,7 +3184,7 @@ var require_main = __commonJS({
       if (XDG_RUNTIME_DIR) {
         result = path52.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
       } else {
-        result = path52.join(os8.tmpdir(), `vscode-${randomSuffix}.sock`);
+        result = path52.join(os9.tmpdir(), `vscode-${randomSuffix}.sock`);
       }
       const limit = safeIpcPathLengths.get(process.platform);
       if (limit !== void 0 && result.length > limit) {
@@ -3424,7 +3424,7 @@ var FALLBACK_FAILOVER_TIMEOUT_MS = 15e3;
 
 // src/config/loader.ts
 import * as fs4 from "node:fs";
-import * as os from "node:os";
+import * as os2 from "node:os";
 import * as path4 from "node:path";
 
 // src/config/agent-mcps.ts
@@ -3475,6 +3475,7 @@ function stripJsonComments(json3) {
 
 // src/config/agent-model-persistence.ts
 import * as fs3 from "node:fs";
+import * as os from "node:os";
 import * as path3 from "node:path";
 
 // src/workflow/state.ts
@@ -3701,6 +3702,61 @@ function normalizeStringValue(value) {
 function normalizeOptions(value) {
   if (!isObject(value)) return void 0;
   return JSON.parse(JSON.stringify(value));
+}
+function getUiModelStateFileCandidates() {
+  const candidates = [
+    process.env.XDG_STATE_HOME ? path3.join(process.env.XDG_STATE_HOME, "opencode", "model.json") : "",
+    path3.join(os.homedir(), ".local", "state", "opencode", "model.json"),
+    process.env.LOCALAPPDATA ? path3.join(process.env.LOCALAPPDATA, "opencode", "state", "model.json") : "",
+    process.env.APPDATA ? path3.join(process.env.APPDATA, "opencode", "state", "model.json") : ""
+  ].filter((item) => item.trim().length > 0);
+  return Array.from(new Set(candidates));
+}
+function parseUiModelStateAgentMap(value) {
+  if (!isObject(value)) return {};
+  const modelsByAgent = {};
+  for (const [rawAgentName, rawSelection] of Object.entries(value)) {
+    const agentName = normalizeAgentName(rawAgentName);
+    if (!agentName) continue;
+    const model = normalizeModelRef(rawSelection);
+    if (model) {
+      modelsByAgent[agentName] = model;
+      continue;
+    }
+    if (isObject(rawSelection)) {
+      const normalizedFromObject = normalizeModelRef({
+        providerID: rawSelection.providerID,
+        modelID: rawSelection.modelID
+      });
+      if (normalizedFromObject) {
+        modelsByAgent[agentName] = normalizedFromObject;
+      }
+    }
+  }
+  return modelsByAgent;
+}
+function readUiModelStateModels() {
+  for (const candidate of getUiModelStateFileCandidates()) {
+    if (!fs3.existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(fs3.readFileSync(candidate, "utf-8"));
+      const maps = [
+        parseUiModelStateAgentMap(parsed.model),
+        parseUiModelStateAgentMap(parsed.models),
+        parseUiModelStateAgentMap(parsed.byAgent)
+      ];
+      const modelsByAgent = Object.assign({}, ...maps);
+      if (Object.keys(modelsByAgent).length === 0) {
+        continue;
+      }
+      return {
+        sourcePath: candidate,
+        modelsByAgent
+      };
+    } catch {
+    }
+  }
+  return { modelsByAgent: {} };
 }
 function normalizeAgentRuntimeEntry(value) {
   if (!isObject(value)) return null;
@@ -4178,6 +4234,21 @@ function persistAgentRuntimeFromConfigSnapshot(projectDir, snapshot) {
     if (changed) updated += 1;
   }
   return { updated, activeAgentId };
+}
+function persistAgentRuntimeFromUiModelState(projectDir) {
+  const { sourcePath, modelsByAgent } = readUiModelStateModels();
+  if (Object.keys(modelsByAgent).length === 0) {
+    return { updated: 0 };
+  }
+  let updated = 0;
+  for (const [agentName, model] of Object.entries(modelsByAgent)) {
+    const changed = persistAgentRuntimeSelection(projectDir, {
+      agentName,
+      model
+    });
+    if (changed) updated += 1;
+  }
+  return { updated, sourcePath };
 }
 function extractAgentModelSelectionsFromEvent(event) {
   if (!isObject(event)) return [];
@@ -18136,7 +18207,7 @@ var PluginConfigSchema = external_exports.object({
 var PROMPT_DIR_NAME = "miya";
 var CONFIG_BASE_NAME = "miya";
 function getUserConfigDir() {
-  return process.env.XDG_CONFIG_HOME || path4.join(os.homedir(), ".config");
+  return process.env.XDG_CONFIG_HOME || path4.join(os2.homedir(), ".config");
 }
 function loadConfigFromPath(configPath) {
   try {
@@ -18264,7 +18335,7 @@ function loadAgentPrompt(agentName) {
 
 // src/config/model-health.ts
 import * as fs5 from "node:fs";
-import * as os2 from "node:os";
+import * as os3 from "node:os";
 import * as path5 from "node:path";
 var STRONG_PROVIDER_IDS = /* @__PURE__ */ new Set([
   "openai",
@@ -18288,7 +18359,7 @@ var PROVIDER_ENV_MAP = {
   "github-copilot": ["GITHUB_TOKEN", "GITHUB_COPILOT_TOKEN"]
 };
 function getAuthFileCandidates() {
-  const home = os2.homedir();
+  const home = os3.homedir();
   const candidates = [path5.join(home, ".local", "share", "opencode", "auth.json")];
   if (process.env.XDG_DATA_HOME) {
     candidates.unshift(path5.join(process.env.XDG_DATA_HOME, "opencode", "auth.json"));
@@ -19698,9 +19769,9 @@ ${result.stderr}` : warning
 
 // src/utils/logger.ts
 import * as fs8 from "node:fs";
-import * as os3 from "node:os";
+import * as os4 from "node:os";
 import * as path10 from "node:path";
-var logFile = path10.join(os3.tmpdir(), "miya.log");
+var logFile = path10.join(os4.tmpdir(), "miya.log");
 function sanitizeLogValue(value) {
   if (value instanceof Error) {
     return {
@@ -33166,7 +33237,7 @@ import { spawnSync as spawnSync7 } from "node:child_process";
 import { createHash as createHash15, randomUUID as randomUUID18 } from "node:crypto";
 import * as fs47 from "node:fs";
 import { createServer } from "node:http";
-import * as os7 from "node:os";
+import * as os8 from "node:os";
 import * as path48 from "node:path";
 import WebSocket2, { WebSocketServer } from "ws";
 
@@ -33525,7 +33596,7 @@ async function sendWechatDesktopMessage(input) {
 
 // src/multimodal/vision.ts
 import * as fs13 from "node:fs";
-import * as os4 from "node:os";
+import * as os5 from "node:os";
 
 // src/media/store.ts
 import * as fs11 from "node:fs";
@@ -34250,7 +34321,7 @@ async function analyzeVision(projectDir, input) {
       mimeType: media.mimeType,
       localPath: media.localPath,
       metadata: media.metadata ?? {},
-      host: os4.hostname()
+      host: os5.hostname()
     }
   };
 }
@@ -43569,7 +43640,7 @@ function getRouterSessionState(projectDir, sessionID2) {
 
 // src/skills/loader.ts
 import * as fs40 from "node:fs";
-import * as os5 from "node:os";
+import * as os6 from "node:os";
 import * as path41 from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
@@ -43694,7 +43765,7 @@ function enforcePermissionMetadataGate(source, frontmatter, gate) {
 }
 function discoverSkills(projectDir, extraDirs = []) {
   const workspaceRoot = path41.join(projectDir, "skills");
-  const globalRoot = path41.join(os5.homedir(), ".config", "opencode", "miya", "skills");
+  const globalRoot = path41.join(os6.homedir(), ".config", "opencode", "miya", "skills");
   const scopedDirs = [
     { source: "workspace", dirs: listSkillDirs(workspaceRoot) },
     { source: "global", dirs: listSkillDirs(globalRoot) },
@@ -43800,7 +43871,7 @@ function setSkillEnabled(projectDir, skillID, enabled) {
 // src/skills/sync.ts
 import { createHash as createHash13 } from "node:crypto";
 import * as fs42 from "node:fs";
-import * as os6 from "node:os";
+import * as os7 from "node:os";
 import * as path43 from "node:path";
 var DEFAULT_STATE3 = {
   version: 1,
@@ -43867,7 +43938,7 @@ function normalizeText5(value) {
 function defaultSourceRoots(projectDir) {
   return [
     path43.join(projectDir, "skills"),
-    path43.join(os6.homedir(), ".config", "opencode", "miya", "skills")
+    path43.join(os7.homedir(), ".config", "opencode", "miya", "skills")
   ];
 }
 function listSkillReposFromRoot(rootDir) {
@@ -49962,7 +50033,7 @@ function createMethods(projectDir, runtime) {
       patterns: [`repo=${repo}`]
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
-    const root = path48.join(os7.homedir(), ".config", "opencode", "miya", "skills");
+    const root = path48.join(os8.homedir(), ".config", "opencode", "miya", "skills");
     fs47.mkdirSync(root, { recursive: true });
     const name = targetName || repo.split("/").filter(Boolean).pop()?.replace(/\.git$/i, "") || `skill-${Date.now().toString(36)}`;
     const target = path48.join(root, name);
@@ -52744,7 +52815,7 @@ import { dirname as dirname34, join as join49 } from "node:path";
 // src/tools/ast-grep/downloader.ts
 import { chmodSync, existsSync as existsSync44, mkdirSync as mkdirSync40, promises as fsPromises, unlinkSync as unlinkSync3 } from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
-import { homedir as homedir6 } from "node:os";
+import { homedir as homedir7 } from "node:os";
 import { join as join48 } from "node:path";
 var REPO = "ast-grep/ast-grep";
 var DEFAULT_VERSION = "0.40.0";
@@ -52769,11 +52840,11 @@ var PLATFORM_MAP = {
 function getCacheDir() {
   if (process.platform === "win32") {
     const localAppData = process.env.LOCALAPPDATA || process.env.APPDATA;
-    const base2 = localAppData || join48(homedir6(), "AppData", "Local");
+    const base2 = localAppData || join48(homedir7(), "AppData", "Local");
     return join48(base2, "miya", "bin");
   }
   const xdgCache = process.env.XDG_CACHE_HOME;
-  const base = xdgCache || join48(homedir6(), ".cache");
+  const base = xdgCache || join48(homedir7(), ".cache");
   return join48(base, "miya", "bin");
 }
 function getBinaryName() {
@@ -52798,8 +52869,8 @@ async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   if (existsSync44(binaryPath)) {
     return binaryPath;
   }
-  const { arch, os: os8 } = platformInfo;
-  const assetName = `app-${arch}-${os8}.zip`;
+  const { arch, os: os9 } = platformInfo;
+  const assetName = `app-${arch}-${os9}.zip`;
   const downloadUrl = `https://github.com/${REPO}/releases/download/${version3}/${assetName}`;
   console.log("[miya] Downloading ast-grep binary...");
   try {
@@ -55149,7 +55220,7 @@ import { pathToFileURL } from "node:url";
 
 // src/tools/lsp/config.ts
 import { existsSync as existsSync49 } from "node:fs";
-import { homedir as homedir7 } from "node:os";
+import { homedir as homedir8 } from "node:os";
 import { join as join52 } from "node:path";
 
 // src/tools/lsp/constants.ts
@@ -55317,7 +55388,7 @@ function isServerInstalled(command) {
   if (existsSync49(localBin) || existsSync49(localBin + ext)) {
     return true;
   }
-  const globalBin = join52(homedir7(), ".config", "opencode", "bin", cmd);
+  const globalBin = join52(homedir8(), ".config", "opencode", "bin", cmd);
   if (existsSync49(globalBin) || existsSync49(globalBin + ext)) {
     return true;
   }
@@ -56960,6 +57031,21 @@ function sanitizeConfiguredAgentModels(opencodeConfig) {
   }
   return { adjusted };
 }
+function ensureLegacyModelAliases(opencodeConfig) {
+  const providerMap = isPlainObject3(opencodeConfig.provider) ? opencodeConfig.provider : {};
+  const openrouter = providerMap.openrouter;
+  if (!isPlainObject3(openrouter)) return;
+  const models = isPlainObject3(openrouter.models) ? openrouter.models : null;
+  if (!models) return;
+  const canonical = models["z-ai/glm-5"];
+  if (!canonical) return;
+  if (models["minimax/z-ai/glm-5"]) return;
+  models["minimax/z-ai/glm-5"] = {
+    ...isPlainObject3(canonical) ? canonical : {},
+    id: "minimax/z-ai/glm-5",
+    name: isPlainObject3(canonical) && typeof canonical.name === "string" ? `${canonical.name} (Legacy Alias)` : "GLM-5 (Legacy Alias)"
+  };
+}
 var MiyaPlugin = async (ctx) => {
   const config3 = loadPluginConfig(ctx.directory);
   const agents = getAgentConfigs(config3, ctx.directory);
@@ -57214,6 +57300,13 @@ var MiyaPlugin = async (ctx) => {
     },
     mcp: mcps,
     config: async (opencodeConfig) => {
+      const uiSyncResult = persistAgentRuntimeFromUiModelState(ctx.directory);
+      if (uiSyncResult.updated > 0) {
+        log("[model-persistence] synchronized from ui model state", {
+          updated: uiSyncResult.updated,
+          sourcePath: uiSyncResult.sourcePath
+        });
+      }
       const persistedRuntime = readPersistedAgentRuntime(ctx.directory);
       const existingDefaultAgent = normalizeAgentName(
         String(
@@ -57346,6 +57439,7 @@ var MiyaPlugin = async (ctx) => {
       const existingProvider = isPlainObject3(opencodeConfig.provider) ? opencodeConfig.provider : {};
       const pluginProvider = isPlainObject3(config3.provider) ? config3.provider : {};
       opencodeConfig.provider = deepMergeObject(existingProvider, pluginProvider);
+      ensureLegacyModelAliases(opencodeConfig);
       const sanitizeResult = sanitizeConfiguredAgentModels(opencodeConfig);
       if (sanitizeResult.adjusted.length > 0) {
         log("[model-persistence] sanitized invalid agent model assignments", {

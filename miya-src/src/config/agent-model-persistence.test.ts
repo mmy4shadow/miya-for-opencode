@@ -12,6 +12,7 @@ import {
   removePersistedAgentRuntimeSelection,
   persistAgentModelSelection,
   persistAgentRuntimeFromConfigSnapshot,
+  persistAgentRuntimeFromUiModelState,
   persistAgentRuntimeSelection,
   readPersistedAgentModels,
   readPersistedAgentRuntime,
@@ -25,6 +26,7 @@ describe('agent-model-persistence', () => {
   });
 
   afterEach(() => {
+    delete process.env.XDG_STATE_HOME;
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -320,6 +322,35 @@ describe('agent-model-persistence', () => {
     expect(runtime.activeAgentId).toBe('6-ui-designer');
     expect(runtime.agents['3-docs-helper']?.model).toBe('openrouter/moonshotai/kimi-k2.5');
     expect(runtime.agents['6-ui-designer']?.baseURL).toBe('https://gemini.example/v1');
+  });
+
+  test('syncs persisted runtime from ui model state file when present', () => {
+    const stateHome = path.join(tempDir, 'state-home');
+    process.env.XDG_STATE_HOME = stateHome;
+    const stateDir = path.join(stateHome, 'opencode');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, 'model.json'),
+      JSON.stringify(
+        {
+          model: {
+            '1-task-manager': { providerID: 'openai', modelID: 'gpt-5.3-codex' },
+            '2-code-search': { providerID: 'openai', modelID: 'gpt-5.1-codex-mini' },
+          },
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
+    const result = persistAgentRuntimeFromUiModelState(tempDir);
+    expect(result.updated).toBe(2);
+    expect(result.sourcePath?.endsWith(path.join('opencode', 'model.json'))).toBe(true);
+
+    const runtime = readPersistedAgentRuntime(tempDir);
+    expect(runtime.agents['1-task-manager']?.model).toBe('openai/gpt-5.3-codex');
+    expect(runtime.agents['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
   });
 
   test('persists six agent configs independently without overwriting each other', () => {
