@@ -49,5 +49,9 @@ export declare function persistAgentRuntimeFromConfigSnapshot(projectDir: string
     updated: number;
     activeAgentId?: string;
 };
+export declare function persistAgentRuntimeFromUiModelState(projectDir: string): {
+    updated: number;
+    sourcePath?: string;
+};
 export declare function extractAgentModelSelectionsFromEvent(event: unknown): AgentModelSelectionFromEvent[];
 export {};

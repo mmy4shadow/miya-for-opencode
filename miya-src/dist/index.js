@@ -3046,7 +3046,7 @@ var require_main = __commonJS({
     exports.createMessageConnection = exports.createServerSocketTransport = exports.createClientSocketTransport = exports.createServerPipeTransport = exports.createClientPipeTransport = exports.generateRandomPipeName = exports.StreamMessageWriter = exports.StreamMessageReader = exports.SocketMessageWriter = exports.SocketMessageReader = exports.PortMessageWriter = exports.PortMessageReader = exports.IPCMessageWriter = exports.IPCMessageReader = void 0;
     var ril_1 = require_ril();
     ril_1.default.install();
-    var path52 = __require("path");
+    var path53 = __require("path");
     var os9 = __require("os");
     var crypto_1 = __require("crypto");
     var net_1 = __require("net");
@@ -3182,9 +3182,9 @@ var require_main = __commonJS({
       }
       let result;
       if (XDG_RUNTIME_DIR) {
-        result = path52.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
+        result = path53.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
       } else {
-        result = path52.join(os9.tmpdir(), `vscode-${randomSuffix}.sock`);
+        result = path53.join(os9.tmpdir(), `vscode-${randomSuffix}.sock`);
       }
       const limit = safeIpcPathLengths.get(process.platform);
       if (limit !== void 0 && result.length > limit) {
@@ -3292,8 +3292,8 @@ var require_node = __commonJS({
 
 // src/index.ts
 import { spawn as spawn6, spawnSync as spawnSync9 } from "node:child_process";
-import * as fs50 from "node:fs";
-import * as path51 from "node:path";
+import * as fs51 from "node:fs";
+import * as path52 from "node:path";
 
 // src/cli/custom-skills.ts
 var CUSTOM_SKILLS = [
@@ -5104,10 +5104,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path52) {
-  if (!path52)
+function getElementAtPath(obj, path53) {
+  if (!path53)
     return obj;
-  return path52.reduce((acc, key) => acc?.[key], obj);
+  return path53.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -5490,11 +5490,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path52, issues) {
+function prefixIssues(path53, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path52);
+    iss.path.unshift(path53);
     return iss;
   });
 }
@@ -5677,7 +5677,7 @@ function formatError(error92, mapper = (issue3) => issue3.message) {
 }
 function treeifyError(error92, mapper = (issue3) => issue3.message) {
   const result = { errors: [] };
-  const processError = (error93, path52 = []) => {
+  const processError = (error93, path53 = []) => {
     var _a2, _b;
     for (const issue3 of error93.issues) {
       if (issue3.code === "invalid_union" && issue3.errors.length) {
@@ -5687,7 +5687,7 @@ function treeifyError(error92, mapper = (issue3) => issue3.message) {
       } else if (issue3.code === "invalid_element") {
         processError({ issues: issue3.issues }, issue3.path);
       } else {
-        const fullpath = [...path52, ...issue3.path];
+        const fullpath = [...path53, ...issue3.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue3));
           continue;
@@ -5719,8 +5719,8 @@ function treeifyError(error92, mapper = (issue3) => issue3.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path52 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path52) {
+  const path53 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path53) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -17697,13 +17697,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path52 = ref.slice(1).split("/").filter(Boolean);
-  if (path52.length === 0) {
+  const path53 = ref.slice(1).split("/").filter(Boolean);
+  if (path53.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path52[0] === defsKey) {
-    const key = path52[1];
+  if (path53[0] === defsKey) {
+    const key = path53[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -19956,19 +19956,19 @@ async function findTmuxPath() {
       return null;
     }
     const stdout = lookup.stdout;
-    const path52 = stdout.trim().split("\n")[0];
-    if (!path52) {
+    const path53 = stdout.trim().split("\n")[0];
+    if (!path53) {
       log("[tmux] findTmuxPath: no path in output");
       return null;
     }
-    const verify = await runProcess(path52, ["-V"]);
+    const verify = await runProcess(path53, ["-V"]);
     const verifyExit = verify.exitCode;
     if (verifyExit !== 0) {
-      log("[tmux] findTmuxPath: tmux -V failed", { path: path52, verifyExit });
+      log("[tmux] findTmuxPath: tmux -V failed", { path: path53, verifyExit });
       return null;
     }
-    log("[tmux] findTmuxPath: found tmux", { path: path52 });
-    return path52;
+    log("[tmux] findTmuxPath: found tmux", { path: path53 });
+    return path53;
   } catch (err) {
     log("[tmux] findTmuxPath: exception", { error: String(err) });
     return null;
@@ -20140,8 +20140,8 @@ function isPwshAvailable() {
   const result = runProcessSync("where", ["pwsh"]);
   return result.exitCode === 0;
 }
-function escapePowerShellPath(path52) {
-  return path52.replace(/'/g, "''");
+function escapePowerShellPath(path53) {
+  return path53.replace(/'/g, "''");
 }
 function getWindowsZipExtractor() {
   const buildNumber = getWindowsBuildNumber();
@@ -20809,6 +20809,97 @@ var TmuxSessionManager = class {
     log("[tmux-session-manager] cleanup complete");
   }
 };
+
+// src/config/model-event-audit.ts
+import * as fs9 from "node:fs";
+import * as path11 from "node:path";
+import { randomUUID } from "node:crypto";
+var MAX_AUDIT_FILE_BYTES = 5 * 1024 * 1024;
+var MAX_STRING_LENGTH = 4e3;
+var MAX_DEPTH = 8;
+var SENSITIVE_KEY_PATTERNS = [
+  /api[-_]?key/i,
+  /token/i,
+  /authorization/i,
+  /secret/i,
+  /password/i,
+  /cookie/i
+];
+var MODEL_EVENT_KEYWORDS = [
+  "settings.",
+  "config.",
+  "agent.",
+  "model",
+  "provider",
+  "session.agent"
+];
+function shouldAuditModelEvent(event) {
+  if (!event || typeof event !== "object" || Array.isArray(event)) return false;
+  const eventType = String(event.type ?? "").trim().toLowerCase();
+  if (!eventType) return false;
+  return MODEL_EVENT_KEYWORDS.some((keyword) => eventType.includes(keyword));
+}
+function auditFile(projectDir) {
+  return path11.join(getMiyaRuntimeDir(projectDir), "audit", "model-event-frames.jsonl");
+}
+function rotateAuditFile(file3) {
+  if (!fs9.existsSync(file3)) return;
+  const stat = fs9.statSync(file3);
+  if (stat.size < MAX_AUDIT_FILE_BYTES) return;
+  const prev1 = `${file3}.1`;
+  const prev2 = `${file3}.2`;
+  if (fs9.existsSync(prev2)) fs9.unlinkSync(prev2);
+  if (fs9.existsSync(prev1)) fs9.renameSync(prev1, prev2);
+  fs9.renameSync(file3, prev1);
+}
+function isSensitiveKey(key) {
+  return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+}
+function truncateString(text) {
+  if (text.length <= MAX_STRING_LENGTH) return text;
+  return `${text.slice(0, MAX_STRING_LENGTH)}...(truncated:${text.length})`;
+}
+function sanitizeForAudit(value, depth = 0, visited = /* @__PURE__ */ new WeakSet()) {
+  if (value === null || typeof value === "undefined") return value;
+  if (typeof value === "string") return truncateString(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return value.toString();
+  if (depth >= MAX_DEPTH) return "[max_depth]";
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForAudit(item, depth + 1, visited));
+  }
+  if (typeof value === "object") {
+    if (visited.has(value)) return "[circular]";
+    visited.add(value);
+    const result = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (isSensitiveKey(key)) {
+        result[key] = "[redacted]";
+        continue;
+      }
+      result[key] = sanitizeForAudit(item, depth + 1, visited);
+    }
+    return result;
+  }
+  return String(value);
+}
+function appendModelEventAudit(projectDir, input) {
+  const file3 = auditFile(projectDir);
+  fs9.mkdirSync(path11.dirname(file3), { recursive: true });
+  rotateAuditFile(file3);
+  const eventType = input.event && typeof input.event === "object" ? String(input.event.type ?? "") : "";
+  const payload = {
+    id: `mevt_${randomUUID()}`,
+    at: (/* @__PURE__ */ new Date()).toISOString(),
+    pid: process.pid,
+    eventType,
+    extractedSelectionCount: Array.isArray(input.selections) ? input.selections.length : 0,
+    extractedSelections: sanitizeForAudit(input.selections ?? []),
+    event: sanitizeForAudit(input.event)
+  };
+  fs9.appendFileSync(file3, `${JSON.stringify(payload)}
+`, "utf-8");
+}
 
 // node_modules/@opencode-ai/plugin/node_modules/zod/v4/classic/external.js
 var external_exports2 = {};
@@ -21541,10 +21632,10 @@ function mergeDefs2(...defs) {
 function cloneDef2(schema) {
   return mergeDefs2(schema._zod.def);
 }
-function getElementAtPath2(obj, path52) {
-  if (!path52)
+function getElementAtPath2(obj, path53) {
+  if (!path53)
     return obj;
-  return path52.reduce((acc, key) => acc?.[key], obj);
+  return path53.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject2(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -21905,11 +21996,11 @@ function aborted2(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues2(path52, issues) {
+function prefixIssues2(path53, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path52);
+    iss.path.unshift(path53);
     return iss;
   });
 }
@@ -22077,7 +22168,7 @@ function treeifyError2(error92, _mapper) {
     return issue3.message;
   };
   const result = { errors: [] };
-  const processError = (error93, path52 = []) => {
+  const processError = (error93, path53 = []) => {
     var _a2, _b;
     for (const issue3 of error93.issues) {
       if (issue3.code === "invalid_union" && issue3.errors.length) {
@@ -22087,7 +22178,7 @@ function treeifyError2(error92, _mapper) {
       } else if (issue3.code === "invalid_element") {
         processError({ issues: issue3.issues }, issue3.path);
       } else {
-        const fullpath = [...path52, ...issue3.path];
+        const fullpath = [...path53, ...issue3.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue3));
           continue;
@@ -22119,8 +22210,8 @@ function treeifyError2(error92, _mapper) {
 }
 function toDotPath2(_path) {
   const segs = [];
-  const path52 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path52) {
+  const path53 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path53) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -33234,21 +33325,21 @@ tool.schema = external_exports2;
 
 // src/gateway/index.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { createHash as createHash15, randomUUID as randomUUID18 } from "node:crypto";
-import * as fs47 from "node:fs";
+import { createHash as createHash15, randomUUID as randomUUID19 } from "node:crypto";
+import * as fs48 from "node:fs";
 import { createServer } from "node:http";
 import * as os8 from "node:os";
-import * as path48 from "node:path";
+import * as path49 from "node:path";
 import WebSocket2, { WebSocketServer } from "ws";
 
 // src/channels/service.ts
-import * as fs16 from "node:fs";
-import * as path16 from "node:path";
-import { createHash as createHash5, randomUUID as randomUUID3 } from "node:crypto";
+import * as fs17 from "node:fs";
+import * as path17 from "node:path";
+import { createHash as createHash5, randomUUID as randomUUID4 } from "node:crypto";
 
 // src/channel/outbound/shared.ts
-import { createHash, randomUUID } from "node:crypto";
-import * as fs9 from "node:fs";
+import { createHash, randomUUID as randomUUID2 } from "node:crypto";
+import * as fs10 from "node:fs";
 function safeValueFromSignal(signal, key) {
   const matched = new RegExp(`${key}=([^|]*)`).exec(signal)?.[1];
   if (matched == null) return void 0;
@@ -33260,7 +33351,7 @@ function deriveDesktopFailureDetail(input) {
 }
 function buildEvidenceDir(projectDir, channel) {
   const root = getMiyaVisionTempDir(projectDir, channel);
-  fs9.mkdirSync(root, { recursive: true });
+  fs10.mkdirSync(root, { recursive: true });
   return root;
 }
 async function sendDesktopOutbound(input) {
@@ -33268,7 +33359,7 @@ async function sendDesktopOutbound(input) {
   const text = (input.text ?? "").trim();
   const mediaPath = (input.mediaPath ?? "").trim();
   const payloadHash = createHash("sha256").update(`${text}||${mediaPath}`).digest("hex");
-  const traceID = `desktop_${randomUUID()}`;
+  const traceID = `desktop_${randomUUID2()}`;
   const evidenceDir = buildEvidenceDir(input.projectDir, input.channel);
   if (process.platform !== "win32") {
     return Promise.resolve({
@@ -33595,24 +33686,24 @@ async function sendWechatDesktopMessage(input) {
 }
 
 // src/multimodal/vision.ts
-import * as fs13 from "node:fs";
+import * as fs14 from "node:fs";
 import * as os5 from "node:os";
 
 // src/media/store.ts
-import * as fs11 from "node:fs";
-import * as path12 from "node:path";
-import { randomUUID as randomUUID2 } from "node:crypto";
+import * as fs12 from "node:fs";
+import * as path13 from "node:path";
+import { randomUUID as randomUUID3 } from "node:crypto";
 
 // src/security/system-keyring.ts
 import { createCipheriv, createDecipheriv, createHash as createHash2, randomBytes } from "node:crypto";
 import { spawnSync as spawnSync3 } from "node:child_process";
-import * as fs10 from "node:fs";
-import * as path11 from "node:path";
+import * as fs11 from "node:fs";
+import * as path12 from "node:path";
 function keyFile(projectDir) {
-  return path11.join(getMiyaRuntimeDir(projectDir), "security", "master.key");
+  return path12.join(getMiyaRuntimeDir(projectDir), "security", "master.key");
 }
 function ensureDir4(file3) {
-  fs10.mkdirSync(path11.dirname(file3), { recursive: true });
+  fs11.mkdirSync(path12.dirname(file3), { recursive: true });
 }
 function toBase64(text) {
   return Buffer.from(text, "utf-8").toString("base64");
@@ -33671,12 +33762,12 @@ function decryptWithDpapi(blob) {
 }
 function deriveFallbackKey(projectDir) {
   const file3 = keyFile(projectDir);
-  if (fs10.existsSync(file3)) {
-    return fs10.readFileSync(file3);
+  if (fs11.existsSync(file3)) {
+    return fs11.readFileSync(file3);
   }
   const entropy = randomBytes(32);
   ensureDir4(file3);
-  fs10.writeFileSync(file3, entropy);
+  fs11.writeFileSync(file3, entropy);
   return entropy;
 }
 function encryptFallback(projectDir, plainText) {
@@ -33759,13 +33850,13 @@ function nowIso3() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function mediaDir(projectDir) {
-  return path12.join(getMiyaRuntimeDir(projectDir), "media");
+  return path13.join(getMiyaRuntimeDir(projectDir), "media");
 }
 function mediaIndexFile(projectDir) {
-  return path12.join(mediaDir(projectDir), "index.json");
+  return path13.join(mediaDir(projectDir), "index.json");
 }
 function ensureDir5(dirPath) {
-  fs11.mkdirSync(dirPath, { recursive: true });
+  fs12.mkdirSync(dirPath, { recursive: true });
 }
 function decodeMetadata(projectDir, metadata) {
   if (!metadata || typeof metadata !== "object") return metadata;
@@ -33782,11 +33873,11 @@ function decodeMetadata(projectDir, metadata) {
 }
 function readStore(projectDir) {
   const file3 = mediaIndexFile(projectDir);
-  if (!fs11.existsSync(file3)) {
+  if (!fs12.existsSync(file3)) {
     return { items: {} };
   }
   try {
-    const parsed = JSON.parse(fs11.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs12.readFileSync(file3, "utf-8"));
     const items = {};
     for (const [id, item] of Object.entries(parsed.items ?? {})) {
       items[id] = {
@@ -33816,7 +33907,7 @@ function writeStore(projectDir, store2) {
       } : item.metadata
     };
   }
-  fs11.writeFileSync(
+  fs12.writeFileSync(
     mediaIndexFile(projectDir),
     `${JSON.stringify(encrypted, null, 2)}
 `,
@@ -33830,14 +33921,14 @@ function buildExpiration(ttlHours) {
 function ingestMedia(projectDir, input) {
   const ttlHours = Math.max(1, input.ttlHours ?? DEFAULT_TTL_HOURS);
   const store2 = readStore(projectDir);
-  const id = `media_${randomUUID2()}`;
+  const id = `media_${randomUUID3()}`;
   let localPath;
   if (input.contentBase64) {
     const dir = mediaDir(projectDir);
     ensureDir5(dir);
-    const ext = path12.extname(input.fileName) || ".bin";
-    const filePath14 = path12.join(dir, `${id}${ext}`);
-    fs11.writeFileSync(filePath14, Buffer.from(input.contentBase64, "base64"));
+    const ext = path13.extname(input.fileName) || ".bin";
+    const filePath14 = path13.join(dir, `${id}${ext}`);
+    fs12.writeFileSync(filePath14, Buffer.from(input.contentBase64, "base64"));
     localPath = filePath14;
   }
   const item = {
@@ -33871,9 +33962,9 @@ function runMediaGc(projectDir) {
   for (const [id, item] of Object.entries(store2.items)) {
     const expired = Date.parse(item.expiresAt) <= now;
     if (!expired) continue;
-    if (item.localPath && fs11.existsSync(item.localPath)) {
+    if (item.localPath && fs12.existsSync(item.localPath)) {
       try {
-        fs11.unlinkSync(item.localPath);
+        fs12.unlinkSync(item.localPath);
       } catch {
       }
     }
@@ -33889,23 +33980,23 @@ function runMediaGc(projectDir) {
 
 // src/multimodal/ocr-cache.ts
 import { createHash as createHash3 } from "node:crypto";
-import * as fs12 from "node:fs";
-import * as path13 from "node:path";
+import * as fs13 from "node:fs";
+import * as path14 from "node:path";
 var MAX_CACHE_ITEMS = 500;
 function nowIso4() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath2(projectDir) {
-  return path13.join(getMiyaRuntimeDir(projectDir), "ocr-cache.json");
+  return path14.join(getMiyaRuntimeDir(projectDir), "ocr-cache.json");
 }
 function ensureDir6(projectDir) {
-  fs12.mkdirSync(path13.dirname(filePath2(projectDir)), { recursive: true });
+  fs13.mkdirSync(path14.dirname(filePath2(projectDir)), { recursive: true });
 }
 function readStore2(projectDir) {
   const file3 = filePath2(projectDir);
-  if (!fs12.existsSync(file3)) return { entries: [] };
+  if (!fs13.existsSync(file3)) return { entries: [] };
   try {
-    const parsed = JSON.parse(fs12.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs13.readFileSync(file3, "utf-8"));
     return {
       entries: Array.isArray(parsed.entries) ? parsed.entries : []
     };
@@ -33915,7 +34006,7 @@ function readStore2(projectDir) {
 }
 function writeStore2(projectDir, store2) {
   ensureDir6(projectDir);
-  fs12.writeFileSync(filePath2(projectDir), `${JSON.stringify(store2, null, 2)}
+  fs13.writeFileSync(filePath2(projectDir), `${JSON.stringify(store2, null, 2)}
 `, "utf-8");
 }
 function toKey(mediaID, question) {
@@ -33974,8 +34065,8 @@ async function runTesseractOcr(imagePath) {
 async function runRemoteVisionInference(imagePath, question) {
   const endpoint = process.env.MIYA_VISION_OCR_ENDPOINT?.trim();
   if (!endpoint) return { text: "" };
-  if (!fs13.existsSync(imagePath)) return { text: "" };
-  const image = fs13.readFileSync(imagePath);
+  if (!fs14.existsSync(imagePath)) return { text: "" };
+  const image = fs14.readFileSync(imagePath);
   const mimeType = imagePath.endsWith(".png") ? "image/png" : imagePath.endsWith(".jpg") || imagePath.endsWith(".jpeg") ? "image/jpeg" : "application/octet-stream";
   try {
     const response = await fetch(endpoint, {
@@ -34108,7 +34199,7 @@ async function analyzeDesktopOutboundEvidence(input) {
   const candidates = [
     input.postSendScreenshotPath,
     input.preSendScreenshotPath
-  ].filter((item) => typeof item === "string" && fs13.existsSync(item));
+  ].filter((item) => typeof item === "string" && fs14.existsSync(item));
   if (candidates.length === 0) {
     const recipientMatch = input.recipientTextCheck ?? "uncertain";
     const sendStatusDetected = input.receiptStatus === "confirmed" ? "sent" : "uncertain";
@@ -34188,7 +34279,7 @@ async function analyzeDesktopOutboundEvidence(input) {
   };
 }
 function resolveCaptureCapability(input) {
-  const hasScreenshots = typeof input.preSendScreenshotPath === "string" && input.preSendScreenshotPath.length > 0 && fs13.existsSync(input.preSendScreenshotPath) || typeof input.postSendScreenshotPath === "string" && input.postSendScreenshotPath.length > 0 && fs13.existsSync(input.postSendScreenshotPath);
+  const hasScreenshots = typeof input.preSendScreenshotPath === "string" && input.preSendScreenshotPath.length > 0 && fs14.existsSync(input.preSendScreenshotPath) || typeof input.postSendScreenshotPath === "string" && input.postSendScreenshotPath.length > 0 && fs14.existsSync(input.postSendScreenshotPath);
   const supported = parseCaptureMethods(process.env.MIYA_CAPTURE_CAPABILITIES);
   const preferred = CAPTURE_PRIORITY.find((item) => supported.includes(item));
   const requested = normalizeCaptureMethod(process.env.MIYA_CAPTURE_METHOD);
@@ -34281,7 +34372,7 @@ async function analyzeVision(projectDir, input) {
   const media = getMediaItem(projectDir, input.mediaID);
   if (!media) throw new Error("media_not_found");
   if (media.kind !== "image") throw new Error("invalid_vision_media_kind");
-  const filePath14 = media.localPath && fs13.existsSync(media.localPath) ? media.localPath : "";
+  const filePath14 = media.localPath && fs14.existsSync(media.localPath) ? media.localPath : "";
   const ocr = filePath14 ? await readTextFromImage(filePath14, input.question) : { source: "none", text: "" };
   const metadataSummary = summarizeFromMetadata(media.metadata);
   const summary = ocr.summary || ocr.text || metadataSummary;
@@ -34342,8 +34433,8 @@ function assertChannelCanSend(channel) {
 }
 
 // src/channels/pairing-store.ts
-import * as fs14 from "node:fs";
-import * as path14 from "node:path";
+import * as fs15 from "node:fs";
+import * as path15 from "node:path";
 
 // src/channels/types.ts
 var CHANNEL_NAMES = [
@@ -34368,10 +34459,10 @@ function nowIso5() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath3(projectDir) {
-  return path14.join(getMiyaRuntimeDir(projectDir), "channels.json");
+  return path15.join(getMiyaRuntimeDir(projectDir), "channels.json");
 }
 function ensureDir7(file3) {
-  fs14.mkdirSync(path14.dirname(file3), { recursive: true });
+  fs15.mkdirSync(path15.dirname(file3), { recursive: true });
 }
 function defaultChannelState(name) {
   return {
@@ -34392,11 +34483,11 @@ function defaultStore() {
 }
 function readChannelStore(projectDir) {
   const file3 = filePath3(projectDir);
-  if (!fs14.existsSync(file3)) {
+  if (!fs15.existsSync(file3)) {
     return defaultStore();
   }
   try {
-    const parsed = JSON.parse(fs14.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs15.readFileSync(file3, "utf-8"));
     const fallback = defaultStore();
     const mergedChannels = {};
     for (const name of CHANNEL_NAMES) {
@@ -34462,7 +34553,7 @@ function writeChannelStore(projectDir, store2) {
       messagePreview: pair.messagePreview ? encryptSensitiveValue(projectDir, pair.messagePreview) : pair.messagePreview
     }))
   };
-  fs14.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
+  fs15.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
 `, "utf-8");
 }
 function listChannelStates(projectDir) {
@@ -34580,8 +34671,8 @@ function listContactTiers(projectDir, channel) {
 
 // src/policy/index.ts
 import { createHash as createHash4 } from "node:crypto";
-import * as fs15 from "node:fs";
-import * as path15 from "node:path";
+import * as fs16 from "node:fs";
+import * as path16 from "node:path";
 var POLICY_DOMAINS = [
   "outbound_send",
   "desktop_control",
@@ -34599,7 +34690,7 @@ function nowIso6() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function policyFile(projectDir) {
-  return path15.join(getMiyaRuntimeDir(projectDir), "policy.json");
+  return path16.join(getMiyaRuntimeDir(projectDir), "policy.json");
 }
 function defaultPolicy() {
   return {
@@ -34631,15 +34722,15 @@ function defaultPolicy() {
 }
 function readPolicy(projectDir) {
   const file3 = policyFile(projectDir);
-  if (!fs15.existsSync(file3)) {
+  if (!fs16.existsSync(file3)) {
     const base = defaultPolicy();
-    fs15.mkdirSync(path15.dirname(file3), { recursive: true });
-    fs15.writeFileSync(file3, `${JSON.stringify(base, null, 2)}
+    fs16.mkdirSync(path16.dirname(file3), { recursive: true });
+    fs16.writeFileSync(file3, `${JSON.stringify(base, null, 2)}
 `, "utf-8");
     return base;
   }
   try {
-    const parsed = JSON.parse(fs15.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs16.readFileSync(file3, "utf-8"));
     const base = defaultPolicy();
     const parsedDomains = parsed.domains && typeof parsed.domains === "object" ? parsed.domains : {};
     return {
@@ -34670,8 +34761,8 @@ function writePolicy(projectDir, patch) {
     },
     updatedAt: nowIso6()
   };
-  fs15.mkdirSync(path15.dirname(file3), { recursive: true });
-  fs15.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs16.mkdirSync(path16.dirname(file3), { recursive: true });
+  fs16.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
@@ -34737,12 +34828,12 @@ function parseEnvList(input) {
   return input.split(",").map((value) => value.trim()).filter(Boolean);
 }
 function outboundAuditFile(projectDir) {
-  return path16.join(getMiyaRuntimeDir(projectDir), "channels-outbound.jsonl");
+  return path17.join(getMiyaRuntimeDir(projectDir), "channels-outbound.jsonl");
 }
 function appendOutboundAudit(projectDir, row) {
   const file3 = outboundAuditFile(projectDir);
-  fs16.mkdirSync(path16.dirname(file3), { recursive: true });
-  fs16.appendFileSync(file3, `${JSON.stringify(row)}
+  fs17.mkdirSync(path17.dirname(file3), { recursive: true });
+  fs17.appendFileSync(file3, `${JSON.stringify(row)}
 `, "utf-8");
 }
 function semanticTagsForOutboundMessage(message) {
@@ -34893,8 +34984,8 @@ function buildEvidenceBundle(row) {
 }
 function listOutboundAudit(projectDir, limit = 50) {
   const file3 = outboundAuditFile(projectDir);
-  if (!fs16.existsSync(file3)) return [];
-  const rows = fs16.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+  if (!fs17.existsSync(file3)) return [];
+  const rows = fs17.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -35182,7 +35273,7 @@ var ChannelRuntime = class {
     );
     assertSemanticTags(semanticTags);
     const payload = {
-      id: row.id ?? `out_${randomUUID3()}`,
+      id: row.id ?? `out_${randomUUID4()}`,
       at: row.at ?? (/* @__PURE__ */ new Date()).toISOString(),
       channel: row.channel,
       destination: row.destination,
@@ -35759,9 +35850,9 @@ var ChannelRuntime = class {
 };
 
 // src/safety/store.ts
-import * as fs18 from "node:fs";
-import * as path18 from "node:path";
-import { randomUUID as randomUUID4 } from "node:crypto";
+import * as fs19 from "node:fs";
+import * as path19 from "node:path";
+import { randomUUID as randomUUID5 } from "node:crypto";
 
 // src/safety/tier.ts
 var SAFETY_RANK = {
@@ -35780,19 +35871,19 @@ function tierAtLeast(current, required3) {
 }
 
 // src/safety/state-machine.ts
-import * as fs17 from "node:fs";
-import * as path17 from "node:path";
+import * as fs18 from "node:fs";
+import * as path18 from "node:path";
 function nowIso7() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function stateFile(projectDir) {
-  return path17.join(getMiyaRuntimeDir(projectDir), "safety-state.json");
+  return path18.join(getMiyaRuntimeDir(projectDir), "safety-state.json");
 }
-function auditFile(projectDir) {
-  return path17.join(getMiyaRuntimeDir(projectDir), "safety-state-audit.jsonl");
+function auditFile2(projectDir) {
+  return path18.join(getMiyaRuntimeDir(projectDir), "safety-state-audit.jsonl");
 }
 function ensureDir8(filePath14) {
-  fs17.mkdirSync(path17.dirname(filePath14), { recursive: true });
+  fs18.mkdirSync(path18.dirname(filePath14), { recursive: true });
 }
 function defaultState() {
   return {
@@ -35811,18 +35902,18 @@ function writeState(projectDir, state2) {
     updatedAt: nowIso7()
   };
   ensureDir8(file3);
-  fs17.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs18.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
 function readSafetyState(projectDir) {
   const file3 = stateFile(projectDir);
-  if (!fs17.existsSync(file3)) {
+  if (!fs18.existsSync(file3)) {
     const created = defaultState();
     return writeState(projectDir, created);
   }
   try {
-    const parsed = JSON.parse(fs17.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs18.readFileSync(file3, "utf-8"));
     const base = defaultState();
     const domains = {
       ...base.domains,
@@ -35838,9 +35929,9 @@ function readSafetyState(projectDir) {
   }
 }
 function appendAudit(projectDir, row) {
-  const file3 = auditFile(projectDir);
+  const file3 = auditFile2(projectDir);
   ensureDir8(file3);
-  fs17.appendFileSync(file3, `${JSON.stringify(row)}
+  fs18.appendFileSync(file3, `${JSON.stringify(row)}
 `, "utf-8");
 }
 function syncPolicyDomain(projectDir, domain3, state2) {
@@ -35893,22 +35984,22 @@ var RECORD_LIMIT = 500;
 var TOKEN_TTL_MS = 12e4;
 var TOKEN_LIMIT_PER_SESSION = 200;
 function runtimeFile(projectDir, name) {
-  return path18.join(getMiyaRuntimeDir(projectDir), name);
+  return path19.join(getMiyaRuntimeDir(projectDir), name);
 }
 function ensureDir9(file3) {
-  fs18.mkdirSync(path18.dirname(file3), { recursive: true });
+  fs19.mkdirSync(path19.dirname(file3), { recursive: true });
 }
 function readJson(file3, fallback) {
-  if (!fs18.existsSync(file3)) return fallback;
+  if (!fs19.existsSync(file3)) return fallback;
   try {
-    return JSON.parse(fs18.readFileSync(file3, "utf-8"));
+    return JSON.parse(fs19.readFileSync(file3, "utf-8"));
   } catch {
     return fallback;
   }
 }
 function writeJson(file3, value) {
   ensureDir9(file3);
-  fs18.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
+  fs19.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
 }
 function nowIso8() {
@@ -35916,19 +36007,19 @@ function nowIso8() {
 }
 function syncGatewayStatus(projectDir, status) {
   const file3 = runtimeFile(projectDir, "gateway.json");
-  if (!fs18.existsSync(file3)) return;
+  if (!fs19.existsSync(file3)) return;
   const current = readJson(file3, {});
   if (!current || typeof current !== "object") return;
   writeJson(file3, { ...current, status });
 }
 function createTraceId() {
-  return randomUUID4();
+  return randomUUID5();
 }
 function writeSelfApprovalRecord(projectDir, record3) {
   const file3 = runtimeFile(projectDir, "self-approval.json");
   const current = readJson(file3, { records: [] });
   const next = {
-    id: randomUUID4(),
+    id: randomUUID5(),
     created_at: nowIso8(),
     ...record3
   };
@@ -36239,17 +36330,17 @@ function evaluateOutboundDecisionFusion(input) {
 }
 
 // src/policy/incident.ts
-import * as fs19 from "node:fs";
-import * as path19 from "node:path";
-import { randomUUID as randomUUID5 } from "node:crypto";
+import * as fs20 from "node:fs";
+import * as path20 from "node:path";
+import { randomUUID as randomUUID6 } from "node:crypto";
 function incidentFile(projectDir) {
-  return path19.join(getMiyaRuntimeDir(projectDir), "policy-incidents.jsonl");
+  return path20.join(getMiyaRuntimeDir(projectDir), "policy-incidents.jsonl");
 }
 function appendPolicyIncident(projectDir, incident) {
   assertSemanticTags(incident.semanticTags);
   const semanticTags = normalizeSemanticTags(incident.semanticTags);
   const payload = {
-    id: incident.id ?? `incident_${randomUUID5()}`,
+    id: incident.id ?? `incident_${randomUUID6()}`,
     at: incident.at ?? (/* @__PURE__ */ new Date()).toISOString(),
     type: incident.type,
     reason: incident.reason,
@@ -36264,15 +36355,15 @@ function appendPolicyIncident(projectDir, incident) {
     details: incident.details
   };
   const file3 = incidentFile(projectDir);
-  fs19.mkdirSync(path19.dirname(file3), { recursive: true });
-  fs19.appendFileSync(file3, `${JSON.stringify(payload)}
+  fs20.mkdirSync(path20.dirname(file3), { recursive: true });
+  fs20.appendFileSync(file3, `${JSON.stringify(payload)}
 `, "utf-8");
   return payload;
 }
 function listPolicyIncidents(projectDir, limit = 50) {
   const file3 = incidentFile(projectDir);
-  if (!fs19.existsSync(file3)) return [];
-  const rows = fs19.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+  if (!fs20.existsSync(file3)) return [];
+  const rows = fs20.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -36283,9 +36374,9 @@ function listPolicyIncidents(projectDir, limit = 50) {
 }
 
 // src/nodes/index.ts
-import * as fs20 from "node:fs";
-import * as path20 from "node:path";
-import { createHash as createHash7, randomBytes as randomBytes2, randomUUID as randomUUID6, timingSafeEqual } from "node:crypto";
+import * as fs21 from "node:fs";
+import * as path21 from "node:path";
+import { createHash as createHash7, randomBytes as randomBytes2, randomUUID as randomUUID7, timingSafeEqual } from "node:crypto";
 var HEARTBEAT_STALE_MS = 2 * 60 * 1e3;
 function nowIso9() {
   return (/* @__PURE__ */ new Date()).toISOString();
@@ -36361,14 +36452,14 @@ function applyHeartbeatHealth(store2) {
   return changed;
 }
 function filePath4(projectDir) {
-  return path20.join(getMiyaRuntimeDir(projectDir), "nodes.json");
+  return path21.join(getMiyaRuntimeDir(projectDir), "nodes.json");
 }
 function ensureDir10(file3) {
-  fs20.mkdirSync(path20.dirname(file3), { recursive: true });
+  fs21.mkdirSync(path21.dirname(file3), { recursive: true });
 }
 function readStore3(projectDir) {
   const file3 = filePath4(projectDir);
-  if (!fs20.existsSync(file3)) {
+  if (!fs21.existsSync(file3)) {
     return {
       nodes: {},
       devices: {},
@@ -36377,7 +36468,7 @@ function readStore3(projectDir) {
     };
   }
   try {
-    const parsed = JSON.parse(fs20.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs21.readFileSync(file3, "utf-8"));
     const rawNodes = parsed.nodes ?? {};
     const nodes = {};
     for (const [nodeID, node] of Object.entries(rawNodes)) {
@@ -36406,7 +36497,7 @@ function readStore3(projectDir) {
 function writeStore3(projectDir, store2) {
   const file3 = filePath4(projectDir);
   ensureDir10(file3);
-  fs20.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
+  fs21.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
 `, "utf-8");
 }
 function readStoreWithHealth(projectDir) {
@@ -36567,7 +36658,7 @@ function resolveNodePair(projectDir, pairID, status) {
 function createInvokeRequest(projectDir, input) {
   const store2 = readStore3(projectDir);
   const invoke = {
-    id: `invoke_${randomUUID6()}`,
+    id: `invoke_${randomUUID7()}`,
     nodeID: input.nodeID,
     capability: input.capability,
     args: input.args,
@@ -36605,9 +36696,9 @@ function listInvokeRequests(projectDir, limit = 50) {
 }
 
 // src/daemon/launcher.ts
-import { randomUUID as randomUUID7 } from "node:crypto";
-import * as fs23 from "node:fs";
-import * as path23 from "node:path";
+import { randomUUID as randomUUID8 } from "node:crypto";
+import * as fs24 from "node:fs";
+import * as path24 from "node:path";
 import { spawn as spawn4, spawnSync as spawnSync4 } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -37317,27 +37408,27 @@ function buildSchemaDocument() {
 }
 
 // src/settings/store.ts
-import * as fs21 from "node:fs";
-import * as path21 from "node:path";
+import * as fs22 from "node:fs";
+import * as path22 from "node:path";
 var EMPTY_PATCH = { set: {}, unset: [] };
 function runtimeFile2(projectDir, fileName) {
-  return path21.join(getMiyaRuntimeDir(projectDir), fileName);
+  return path22.join(getMiyaRuntimeDir(projectDir), fileName);
 }
 function ensureDir11(file3) {
-  fs21.mkdirSync(path21.dirname(file3), { recursive: true });
+  fs22.mkdirSync(path22.dirname(file3), { recursive: true });
 }
 function cloneValue2(value) {
   return JSON.parse(JSON.stringify(value));
 }
 function writeJson2(file3, value) {
   ensureDir11(file3);
-  fs21.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
+  fs22.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
 }
 function readJsonObject(file3) {
-  if (!fs21.existsSync(file3)) return {};
+  if (!fs22.existsSync(file3)) return {};
   try {
-    const parsed = JSON.parse(fs21.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs22.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return {};
     }
@@ -37498,7 +37589,7 @@ function ensureSettingsFiles(projectDir) {
   const configPath = runtimeFile2(projectDir, "config.json");
   writeJson2(registryPath, buildRegistryDocument());
   writeJson2(schemaPath, buildSchemaDocument());
-  if (!fs21.existsSync(configPath)) {
+  if (!fs22.existsSync(configPath)) {
     writeJson2(configPath, buildDefaultConfig());
     return;
   }
@@ -37621,8 +37712,8 @@ function getConfigValue(projectDir, key) {
 import { spawn as spawn3 } from "node:child_process";
 
 // src/safety/evidence.ts
-import * as fs22 from "node:fs";
-import * as path22 from "node:path";
+import * as fs23 from "node:fs";
+import * as path23 from "node:path";
 var MAX_OUTPUT = 8e3;
 var LARGE_FILE_LIMIT = 2 * 1024 * 1024;
 var SECRET_RULES = [
@@ -37707,9 +37798,9 @@ ${diffText}`);
     }
     checks.push("secret scan (workspace diff)");
     const oversized = changedFiles.map((file3) => {
-      const full = path22.join(projectDir, file3);
-      if (!fs22.existsSync(full)) return null;
-      const stat = fs22.statSync(full);
+      const full = path23.join(projectDir, file3);
+      if (!fs23.existsSync(full)) return null;
+      const stat = fs23.statSync(full);
       if (!stat.isFile()) return null;
       if (stat.size <= LARGE_FILE_LIMIT) return null;
       return `${file3} (${stat.size} bytes)`;
@@ -38113,23 +38204,23 @@ function nowIso10() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function daemonDir(projectDir) {
-  return path23.join(getMiyaRuntimeDir(projectDir), "daemon");
+  return path24.join(getMiyaRuntimeDir(projectDir), "daemon");
 }
 function daemonPidFile(projectDir) {
-  return path23.join(daemonDir(projectDir), "daemon.pid");
+  return path24.join(daemonDir(projectDir), "daemon.pid");
 }
 function ensureDaemonDir(projectDir) {
-  fs23.mkdirSync(daemonDir(projectDir), { recursive: true });
+  fs24.mkdirSync(daemonDir(projectDir), { recursive: true });
 }
 function safeWriteJson(filePath14, payload) {
-  fs23.mkdirSync(path23.dirname(filePath14), { recursive: true });
-  fs23.writeFileSync(filePath14, `${JSON.stringify(payload, null, 2)}
+  fs24.mkdirSync(path24.dirname(filePath14), { recursive: true });
+  fs24.writeFileSync(filePath14, `${JSON.stringify(payload, null, 2)}
 `, "utf-8");
 }
 function safeReadJson(filePath14) {
-  if (!fs23.existsSync(filePath14)) return null;
+  if (!fs24.existsSync(filePath14)) return null;
   try {
-    const parsed = JSON.parse(fs23.readFileSync(filePath14, "utf-8"));
+    const parsed = JSON.parse(fs24.readFileSync(filePath14, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     return parsed;
   } catch {
@@ -38146,19 +38237,19 @@ function toDaemonLock(raw) {
   return { pid, wsPort, token, updatedAt };
 }
 function resolveHostScriptPath(projectDir) {
-  const here = path23.dirname(fileURLToPath(import.meta.url));
+  const here = path24.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path23.join(here, "host.ts"),
-    path23.join(here, "host.js"),
-    path23.join(projectDir, "src", "daemon", "host.ts"),
-    path23.join(projectDir, "dist", "daemon", "host.js"),
-    path23.join(projectDir, "miya-src", "src", "daemon", "host.ts"),
-    path23.join(projectDir, "miya-src", "dist", "daemon", "host.js")
+    path24.join(here, "host.ts"),
+    path24.join(here, "host.js"),
+    path24.join(projectDir, "src", "daemon", "host.ts"),
+    path24.join(projectDir, "dist", "daemon", "host.js"),
+    path24.join(projectDir, "miya-src", "src", "daemon", "host.ts"),
+    path24.join(projectDir, "miya-src", "dist", "daemon", "host.js")
   ];
   for (const candidate of candidates) {
-    if (fs23.existsSync(candidate)) return candidate;
+    if (fs24.existsSync(candidate)) return candidate;
   }
-  return path23.join(here, "host.js");
+  return path24.join(here, "host.js");
 }
 function noteLaunchFailure(runtime, reason) {
   runtime.consecutiveLaunchFailures += 1;
@@ -38181,18 +38272,18 @@ function resolveNodeBinary() {
   if (resolvedNodeBinaryCache !== void 0) return resolvedNodeBinaryCache;
   const configured = process.env.MIYA_NODE_BIN?.trim();
   const windowsNodeCandidates = process.platform === "win32" ? [
-    path23.join(process.env.ProgramFiles ?? "C:\\Program Files", "nodejs", "node.exe"),
-    path23.join(
+    path24.join(process.env.ProgramFiles ?? "C:\\Program Files", "nodejs", "node.exe"),
+    path24.join(
       process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
       "nodejs",
       "node.exe"
     ),
-    path23.join(process.env.LOCALAPPDATA ?? "", "Programs", "nodejs", "node.exe")
+    path24.join(process.env.LOCALAPPDATA ?? "", "Programs", "nodejs", "node.exe")
   ] : [];
   const candidates = [
     configured || null,
     (() => {
-      const execBase = path23.basename(process.execPath).toLowerCase();
+      const execBase = path24.basename(process.execPath).toLowerCase();
       return execBase === "node" || execBase === "node.exe" ? process.execPath : null;
     })(),
     ...windowsNodeCandidates,
@@ -38243,7 +38334,7 @@ function spawnDaemon(runtime) {
     noteLaunchFailure(runtime, "node_not_found");
     return false;
   }
-  const binaryBase = path23.basename(nodeBinary).toLowerCase();
+  const binaryBase = path24.basename(nodeBinary).toLowerCase();
   if (binaryBase.includes("powershell") || binaryBase === "pwsh.exe") {
     runtime.snapshot.connected = false;
     runtime.snapshot.statusText = "Miya Daemon Disabled (invalid_runtime_binary)";
@@ -38265,7 +38356,7 @@ function spawnDaemon(runtime) {
     nodeBinary,
     nodeArgs,
     {
-      cwd: path23.dirname(hostScript),
+      cwd: path24.dirname(hostScript),
       detached: true,
       stdio: "ignore",
       windowsHide: true
@@ -38275,8 +38366,8 @@ function spawnDaemon(runtime) {
 }
 function readPidFile(projectDir) {
   const file3 = daemonPidFile(projectDir);
-  if (!fs23.existsSync(file3)) return null;
-  const raw = fs23.readFileSync(file3, "utf-8").trim();
+  if (!fs24.existsSync(file3)) return null;
+  const raw = fs24.readFileSync(file3, "utf-8").trim();
   const pid = Number(raw);
   if (!Number.isFinite(pid) || pid <= 0) return null;
   return pid;
@@ -38540,13 +38631,13 @@ function ensureMiyaLauncher(projectDir) {
   const backpressure = config3.runtime?.backpressure;
   const configuredMaxPending = typeof backpressure?.daemon_max_pending_requests === "number" ? Number(backpressure.daemon_max_pending_requests) : Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64);
   const configuredMaxFailures = typeof backpressure?.daemon_max_consecutive_failures === "number" ? Number(backpressure.daemon_max_consecutive_failures) : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
-  const daemonToken = lifecycleMode === "service_experimental" ? String(process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? "") : randomUUID7();
+  const daemonToken = lifecycleMode === "service_experimental" ? String(process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? "") : randomUUID8();
   const runtime = {
     projectDir,
     lifecycleMode,
     daemonToken,
-    parentLockFile: path23.join(daemonDir(projectDir), "parent.lock.json"),
-    daemonLockFile: path23.join(daemonDir(projectDir), "daemon.lock.json"),
+    parentLockFile: path24.join(daemonDir(projectDir), "parent.lock.json"),
+    daemonLockFile: path24.join(daemonDir(projectDir), "daemon.lock.json"),
     reconnectBackoffMs: 1e3,
     connected: false,
     reqSeq: 0,
@@ -38649,7 +38740,7 @@ process.on("exit", () => {
   for (const runtime of runtimes.values()) {
     cleanupRuntime(runtime);
     try {
-      fs23.rmSync(runtime.parentLockFile, { force: true });
+      fs24.rmSync(runtime.parentLockFile, { force: true });
     } catch {
     }
   }
@@ -38757,17 +38848,17 @@ function getMiyaClient(projectDir) {
 }
 
 // src/security/owner-identity.ts
-import { createHash as createHash8, randomUUID as randomUUID8 } from "node:crypto";
-import * as fs24 from "node:fs";
-import * as path24 from "node:path";
+import { createHash as createHash8, randomUUID as randomUUID9 } from "node:crypto";
+import * as fs25 from "node:fs";
+import * as path25 from "node:path";
 function nowIso11() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath5(projectDir) {
-  return path24.join(getMiyaRuntimeDir(projectDir), "security", "owner-identity.json");
+  return path25.join(getMiyaRuntimeDir(projectDir), "security", "owner-identity.json");
 }
 function guestAuditPath(projectDir) {
-  return path24.join(getMiyaRuntimeDir(projectDir), "security", "guest-conversations.jsonl");
+  return path25.join(getMiyaRuntimeDir(projectDir), "security", "guest-conversations.jsonl");
 }
 function clamp(input, min, max) {
   if (!Number.isFinite(input)) return min;
@@ -38823,7 +38914,7 @@ function defaultVoiceprintSampleDir(projectDir) {
 }
 function readOwnerIdentityState(projectDir) {
   const file3 = filePath5(projectDir);
-  if (!fs24.existsSync(file3)) {
+  if (!fs25.existsSync(file3)) {
     return {
       ...defaultState2(),
       voiceprintModelPath: defaultVoiceprintModelPath(projectDir),
@@ -38831,7 +38922,7 @@ function readOwnerIdentityState(projectDir) {
     };
   }
   try {
-    const parsed = JSON.parse(fs24.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs25.readFileSync(file3, "utf-8"));
     return {
       ...defaultState2(),
       ...parsed,
@@ -38850,13 +38941,13 @@ function readOwnerIdentityState(projectDir) {
 }
 function writeOwnerIdentityState(projectDir, state2) {
   const file3 = filePath5(projectDir);
-  fs24.mkdirSync(path24.dirname(file3), { recursive: true });
+  fs25.mkdirSync(path25.dirname(file3), { recursive: true });
   const next = {
     ...state2,
     voiceprintThresholds: normalizeVoiceprintThresholds(state2.voiceprintThresholds),
     updatedAt: nowIso11()
   };
-  fs24.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs25.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
@@ -38867,7 +38958,7 @@ function initOwnerIdentity(projectDir, input) {
     initialized: true,
     passwordHash: hashSecret(input.password),
     passphraseHash: hashSecret(input.passphrase),
-    voiceprintEmbeddingID: input.voiceprintEmbeddingID || current.voiceprintEmbeddingID || `owner_${randomUUID8()}`,
+    voiceprintEmbeddingID: input.voiceprintEmbeddingID || current.voiceprintEmbeddingID || `owner_${randomUUID9()}`,
     voiceprintModelPath: input.voiceprintModelPath || current.voiceprintModelPath || defaultVoiceprintModelPath(projectDir),
     voiceprintSampleDir: input.voiceprintSampleDir || current.voiceprintSampleDir || defaultVoiceprintSampleDir(projectDir),
     voiceprintThresholds: normalizeVoiceprintThresholds({
@@ -38946,33 +39037,33 @@ function setInteractionMode(projectDir, mode) {
 }
 function appendGuestConversation(projectDir, input) {
   const file3 = guestAuditPath(projectDir);
-  fs24.mkdirSync(path24.dirname(file3), { recursive: true });
+  fs25.mkdirSync(path25.dirname(file3), { recursive: true });
   const row = {
-    id: `guest_${randomUUID8()}`,
+    id: `guest_${randomUUID9()}`,
     at: nowIso11(),
     source: input.source,
     sessionID: input.sessionID,
     text: input.text
   };
-  fs24.appendFileSync(file3, `${JSON.stringify(row)}
+  fs25.appendFileSync(file3, `${JSON.stringify(row)}
 `, "utf-8");
 }
 
 // src/security/owner-sync.ts
-import { randomUUID as randomUUID9 } from "node:crypto";
-import * as fs25 from "node:fs";
-import * as path25 from "node:path";
+import { randomUUID as randomUUID10 } from "node:crypto";
+import * as fs26 from "node:fs";
+import * as path26 from "node:path";
 function nowIso12() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function storeFile(projectDir) {
-  return path25.join(getMiyaRuntimeDir(projectDir), "security", "owner-sync.json");
+  return path26.join(getMiyaRuntimeDir(projectDir), "security", "owner-sync.json");
 }
 function readStore4(projectDir) {
   const file3 = storeFile(projectDir);
-  if (!fs25.existsSync(file3)) return { tokens: [] };
+  if (!fs26.existsSync(file3)) return { tokens: [] };
   try {
-    const parsed = JSON.parse(fs25.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs26.readFileSync(file3, "utf-8"));
     return Array.isArray(parsed.tokens) ? parsed : { tokens: [] };
   } catch {
     return { tokens: [] };
@@ -38980,8 +39071,8 @@ function readStore4(projectDir) {
 }
 function writeStore4(projectDir, store2) {
   const file3 = storeFile(projectDir);
-  fs25.mkdirSync(path25.dirname(file3), { recursive: true });
-  fs25.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
+  fs26.mkdirSync(path26.dirname(file3), { recursive: true });
+  fs26.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
 `, "utf-8");
 }
 function purgeExpired(tokens) {
@@ -38997,7 +39088,7 @@ function normalizeToken(input) {
   return input.trim().toUpperCase();
 }
 function createToken() {
-  return `OS${randomUUID9().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+  return `OS${randomUUID10().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
 }
 function issueOwnerSyncToken(projectDir, input) {
   const ttlMs = Math.max(6e4, Number(input.ttlMs ?? 10 * 6e4));
@@ -39106,17 +39197,17 @@ function detectOwnerSyncTokenFromText(text) {
 }
 
 // src/voice/state.ts
-import * as fs26 from "node:fs";
-import * as path26 from "node:path";
-import { randomUUID as randomUUID10 } from "node:crypto";
+import * as fs27 from "node:fs";
+import * as path27 from "node:path";
+import { randomUUID as randomUUID11 } from "node:crypto";
 function nowIso13() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath6(projectDir) {
-  return path26.join(getMiyaRuntimeDir(projectDir), "voice.json");
+  return path27.join(getMiyaRuntimeDir(projectDir), "voice.json");
 }
 function ensureDir12(file3) {
-  fs26.mkdirSync(path26.dirname(file3), { recursive: true });
+  fs27.mkdirSync(path27.dirname(file3), { recursive: true });
 }
 function defaultState3() {
   return {
@@ -39131,9 +39222,9 @@ function defaultState3() {
 }
 function readVoiceState(projectDir) {
   const file3 = filePath6(projectDir);
-  if (!fs26.existsSync(file3)) return defaultState3();
+  if (!fs27.existsSync(file3)) return defaultState3();
   try {
-    const parsed = JSON.parse(fs26.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs27.readFileSync(file3, "utf-8"));
     return {
       ...defaultState3(),
       ...parsed,
@@ -39146,7 +39237,7 @@ function readVoiceState(projectDir) {
 function writeVoiceState(projectDir, state2) {
   const file3 = filePath6(projectDir);
   ensureDir12(file3);
-  fs26.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
+  fs27.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
 `, "utf-8");
   return state2;
 }
@@ -39161,7 +39252,7 @@ function patchVoiceState(projectDir, patch) {
 function appendVoiceHistory(projectDir, input) {
   const state2 = readVoiceState(projectDir);
   const item = {
-    id: `voice_${randomUUID10()}`,
+    id: `voice_${randomUUID11()}`,
     text: input.text,
     source: input.source,
     language: input.language,
@@ -39188,10 +39279,10 @@ function clearVoiceHistory(projectDir) {
 }
 
 // src/config/provider-override-audit.ts
-import * as fs27 from "node:fs";
-import * as path27 from "node:path";
+import * as fs28 from "node:fs";
+import * as path28 from "node:path";
 function providerOverrideAuditFile(projectDir) {
-  return path27.join(getMiyaRuntimeDir(projectDir), "audit", "provider-overrides.jsonl");
+  return path28.join(getMiyaRuntimeDir(projectDir), "audit", "provider-overrides.jsonl");
 }
 function appendProviderOverrideAudit(projectDir, input) {
   const entry2 = {
@@ -39206,16 +39297,16 @@ function appendProviderOverrideAudit(projectDir, input) {
     optionKeys: [...input.optionKeys].sort()
   };
   const file3 = providerOverrideAuditFile(projectDir);
-  fs27.mkdirSync(path27.dirname(file3), { recursive: true });
-  fs27.appendFileSync(file3, `${JSON.stringify(entry2)}
+  fs28.mkdirSync(path28.dirname(file3), { recursive: true });
+  fs28.appendFileSync(file3, `${JSON.stringify(entry2)}
 `, "utf-8");
   return entry2;
 }
 function listProviderOverrideAudits(projectDir, limit = 50) {
   const file3 = providerOverrideAuditFile(projectDir);
-  if (!fs27.existsSync(file3)) return [];
+  if (!fs28.existsSync(file3)) return [];
   const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
-  const lines = fs27.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean);
+  const lines = fs28.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean);
   return lines.slice(-safeLimit).map((line) => {
     try {
       return JSON.parse(line);
@@ -39292,17 +39383,17 @@ var AgentModelRuntimeApi = class {
 };
 
 // src/canvas/state.ts
-import { randomUUID as randomUUID11 } from "node:crypto";
-import * as fs28 from "node:fs";
-import * as path28 from "node:path";
+import { randomUUID as randomUUID12 } from "node:crypto";
+import * as fs29 from "node:fs";
+import * as path29 from "node:path";
 function nowIso14() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath7(projectDir) {
-  return path28.join(getMiyaRuntimeDir(projectDir), "canvas.json");
+  return path29.join(getMiyaRuntimeDir(projectDir), "canvas.json");
 }
 function ensureDir13(file3) {
-  fs28.mkdirSync(path28.dirname(file3), { recursive: true });
+  fs29.mkdirSync(path29.dirname(file3), { recursive: true });
 }
 function defaultState4() {
   return {
@@ -39313,9 +39404,9 @@ function defaultState4() {
 }
 function readCanvasState(projectDir) {
   const file3 = filePath7(projectDir);
-  if (!fs28.existsSync(file3)) return defaultState4();
+  if (!fs29.existsSync(file3)) return defaultState4();
   try {
-    const parsed = JSON.parse(fs28.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs29.readFileSync(file3, "utf-8"));
     return {
       activeDocID: parsed.activeDocID,
       docs: parsed.docs ?? {},
@@ -39328,14 +39419,14 @@ function readCanvasState(projectDir) {
 function writeCanvasState(projectDir, state2) {
   const file3 = filePath7(projectDir);
   ensureDir13(file3);
-  fs28.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
+  fs29.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
 `, "utf-8");
   return state2;
 }
 function pushEvent(state2, input) {
   state2.events = [
     {
-      id: `canvas_evt_${randomUUID11()}`,
+      id: `canvas_evt_${randomUUID12()}`,
       kind: input.kind,
       docID: input.docID,
       at: nowIso14(),
@@ -39346,7 +39437,7 @@ function pushEvent(state2, input) {
 }
 function openCanvasDoc(projectDir, input) {
   const state2 = readCanvasState(projectDir);
-  const id = `canvas_${randomUUID11()}`;
+  const id = `canvas_${randomUUID12()}`;
   const now = nowIso14();
   const doc = {
     id,
@@ -39397,17 +39488,17 @@ function getCanvasDoc(projectDir, docID) {
 }
 
 // src/companion/store.ts
-import { randomUUID as randomUUID13 } from "node:crypto";
-import * as fs30 from "node:fs";
-import * as path30 from "node:path";
+import { randomUUID as randomUUID14 } from "node:crypto";
+import * as fs31 from "node:fs";
+import * as path31 from "node:path";
 
 // src/companion/memory-vector.ts
-import { createHash as createHash9, randomUUID as randomUUID12 } from "node:crypto";
+import { createHash as createHash9, randomUUID as randomUUID13 } from "node:crypto";
 
 // src/companion/memory-sqlite.ts
-import * as fs29 from "node:fs";
+import * as fs30 from "node:fs";
 import { createRequire } from "node:module";
-import * as path29 from "node:path";
+import * as path30 from "node:path";
 var require2 = createRequire(import.meta.url);
 function createSqlDatabase(file3) {
   try {
@@ -39469,10 +39560,10 @@ function textToEmbeddingLite(text, dims = 96) {
   return vec.map((value) => value / norm);
 }
 function memoryDir(projectDir) {
-  return path29.join(getMiyaRuntimeDir(projectDir), "memory");
+  return path30.join(getMiyaRuntimeDir(projectDir), "memory");
 }
 function sqlitePath(projectDir) {
-  return path29.join(memoryDir(projectDir), "memories.sqlite");
+  return path30.join(memoryDir(projectDir), "memories.sqlite");
 }
 function safeJsonParse(value, fallback) {
   if (typeof value !== "string" || !value.trim()) return fallback;
@@ -39620,7 +39711,7 @@ function ensureSchema(db) {
   }
 }
 function openDatabase(projectDir) {
-  fs29.mkdirSync(memoryDir(projectDir), { recursive: true });
+  fs30.mkdirSync(memoryDir(projectDir), { recursive: true });
   const db = createSqlDatabase(sqlitePath(projectDir));
   ensureSchema(db);
   return db;
@@ -40383,7 +40474,7 @@ function qualityScore(item) {
 }
 function appendMutationEvent(projectDir, eventType, memoryID, payload) {
   appendMemoryEvent(projectDir, {
-    eventID: `evt_${randomUUID12()}`,
+    eventID: `evt_${randomUUID13()}`,
     eventType,
     entityType: "mem_cell",
     entityID: memoryID,
@@ -40529,7 +40620,7 @@ function upsertCompanionMemoryVector(projectDir, input) {
   const tier = input.tier ?? (confidence >= 0.95 ? "L0" : confidence >= 0.6 ? "L1" : "L2");
   const triplet = parseTriplet(text);
   const created = {
-    id: `mem_${randomUUID12()}`,
+    id: `mem_${randomUUID13()}`,
     text,
     source: input.source?.trim() || "manual",
     embedding,
@@ -40587,7 +40678,7 @@ function upsertCompanionMemoryVector(projectDir, input) {
         upsertMemoryCells(projectDir, conflicting);
       } else {
         const wizard = {
-          id: `mcw_${randomUUID12()}`,
+          id: `mcw_${randomUUID13()}`,
           conflictKey: preference.key,
           candidateMemoryID: created.id,
           existingMemoryIDs: conflicting.map((item) => item.id),
@@ -40780,10 +40871,10 @@ function nowIso17() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath8(projectDir) {
-  return path30.join(getMiyaRuntimeDir(projectDir), "companion.json");
+  return path31.join(getMiyaRuntimeDir(projectDir), "companion.json");
 }
 function ensureDir14(file3) {
-  fs30.mkdirSync(path30.dirname(file3), { recursive: true });
+  fs31.mkdirSync(path31.dirname(file3), { recursive: true });
 }
 function defaultProfile() {
   return {
@@ -40803,14 +40894,14 @@ function deriveActiveMemoryFacts(projectDir) {
 }
 function readCompanionProfile(projectDir) {
   const file3 = filePath8(projectDir);
-  if (!fs30.existsSync(file3)) {
+  if (!fs31.existsSync(file3)) {
     return {
       ...defaultProfile(),
       memoryFacts: deriveActiveMemoryFacts(projectDir)
     };
   }
   try {
-    const parsed = JSON.parse(fs30.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs31.readFileSync(file3, "utf-8"));
     return {
       ...defaultProfile(),
       ...parsed,
@@ -40834,7 +40925,7 @@ function writeCompanionProfile(projectDir, profile) {
     memoryFacts: deriveActiveMemoryFacts(projectDir),
     updatedAt: nowIso17()
   };
-  fs30.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs31.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
@@ -40848,7 +40939,7 @@ function patchCompanionProfile(projectDir, patch) {
 function addCompanionAsset(projectDir, input) {
   const current = readCompanionProfile(projectDir);
   const asset = {
-    id: `asset_${randomUUID13()}`,
+    id: `asset_${randomUUID14()}`,
     type: input.type,
     pathOrUrl: input.pathOrUrl,
     label: input.label,
@@ -40879,19 +40970,19 @@ function syncCompanionProfileMemoryFacts(projectDir) {
 }
 
 // src/companion/memory-reflect.ts
-import { createHash as createHash11, randomUUID as randomUUID15 } from "node:crypto";
-import * as fs32 from "node:fs";
-import * as path32 from "node:path";
+import { createHash as createHash11, randomUUID as randomUUID16 } from "node:crypto";
+import * as fs33 from "node:fs";
+import * as path33 from "node:path";
 
 // src/learning/skill-drafts.ts
-import { createHash as createHash10, randomUUID as randomUUID14 } from "node:crypto";
-import * as fs31 from "node:fs";
-import * as path31 from "node:path";
+import { createHash as createHash10, randomUUID as randomUUID15 } from "node:crypto";
+import * as fs32 from "node:fs";
+import * as path32 from "node:path";
 function nowIso18() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath9(projectDir) {
-  return path31.join(getMiyaRuntimeDir(projectDir), "learning-skill-drafts.json");
+  return path32.join(getMiyaRuntimeDir(projectDir), "learning-skill-drafts.json");
 }
 function normalizeText3(text) {
   return String(text ?? "").replace(/\s+/g, " ").trim();
@@ -40907,7 +40998,7 @@ function hashText(text) {
   return createHash10("sha256").update(text).digest("hex").slice(0, 16);
 }
 function ensureDir15(projectDir) {
-  fs31.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+  fs32.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
 }
 function clamp2(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -40915,7 +41006,7 @@ function clamp2(value, min, max) {
 function normalizeDraft(raw) {
   const now = nowIso18();
   return {
-    id: String(raw.id ?? `draft_${randomUUID14()}`),
+    id: String(raw.id ?? `draft_${randomUUID15()}`),
     source: raw.source === "reflect" ? "reflect" : "ralph",
     status: raw.status === "accepted" || raw.status === "rejected" || raw.status === "recommended" || raw.status === "draft" ? raw.status : "draft",
     title: normalizeText3(String(raw.title ?? "")),
@@ -40933,9 +41024,9 @@ function normalizeDraft(raw) {
 }
 function readStore5(projectDir) {
   const file3 = filePath9(projectDir);
-  if (!fs31.existsSync(file3)) return { drafts: [] };
+  if (!fs32.existsSync(file3)) return { drafts: [] };
   try {
-    const parsed = JSON.parse(fs31.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs32.readFileSync(file3, "utf-8"));
     const drafts = Array.isArray(parsed?.drafts) ? parsed.drafts.map((item) => normalizeDraft(item)) : [];
     return { drafts };
   } catch {
@@ -40944,7 +41035,7 @@ function readStore5(projectDir) {
 }
 function writeStore5(projectDir, store2) {
   ensureDir15(projectDir);
-  fs31.writeFileSync(filePath9(projectDir), `${JSON.stringify(store2, null, 2)}
+  fs32.writeFileSync(filePath9(projectDir), `${JSON.stringify(store2, null, 2)}
 `, "utf-8");
 }
 function findSimilarDraftIndex(drafts, candidate) {
@@ -41074,7 +41165,7 @@ function createSkillDraftFromRalph(projectDir, input) {
   const problemSummary = normalizeText3(latestVerify?.failureSummary ?? input.result.summary);
   const confidence = input.result.success ? 0.82 : 0.58;
   return upsertDraft(projectDir, {
-    id: `draft_${randomUUID14()}`,
+    id: `draft_${randomUUID15()}`,
     source: "ralph",
     status: input.result.success ? "recommended" : "draft",
     title: `Ralph \u4FEE\u590D\u6A21\u5F0F: ${normalizeText3(input.taskDescription).slice(0, 48)}`,
@@ -41097,7 +41188,7 @@ function createSkillDraftsFromReflect(projectDir, input) {
   if (preferenceMemories.length === 0) return [];
   const pattern = preferenceMemories.map((item) => item.text).join(" | ");
   const draft = upsertDraft(projectDir, {
-    id: `draft_${randomUUID14()}`,
+    id: `draft_${randomUUID15()}`,
     source: "reflect",
     status: "draft",
     title: "Reflect \u504F\u597D\u6267\u884C\u8349\u6848",
@@ -41120,16 +41211,16 @@ function nowIso19() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function memoryDir2(projectDir) {
-  return path32.join(getMiyaRuntimeDir(projectDir), "memory");
+  return path33.join(getMiyaRuntimeDir(projectDir), "memory");
 }
 function reflectJobPath(projectDir) {
-  return path32.join(memoryDir2(projectDir), "reflect-jobs.jsonl");
+  return path33.join(memoryDir2(projectDir), "reflect-jobs.jsonl");
 }
 function reflectStatePath(projectDir) {
-  return path32.join(memoryDir2(projectDir), "reflect-state.json");
+  return path33.join(memoryDir2(projectDir), "reflect-state.json");
 }
 function ensureDir16(projectDir) {
-  fs32.mkdirSync(memoryDir2(projectDir), { recursive: true });
+  fs33.mkdirSync(memoryDir2(projectDir), { recursive: true });
 }
 function normalizeText4(input) {
   return input.trim().replace(/\s+/g, " ");
@@ -41141,9 +41232,9 @@ ${normalizeText4(input.text)}`).digest("hex");
 }
 function readReflectState(projectDir) {
   const file3 = reflectStatePath(projectDir);
-  if (!fs32.existsSync(file3)) return {};
+  if (!fs33.existsSync(file3)) return {};
   try {
-    const parsed = JSON.parse(fs32.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs33.readFileSync(file3, "utf-8"));
     return parsed ?? {};
   } catch {
     return {};
@@ -41156,7 +41247,7 @@ function writeReflectState(projectDir, patch) {
     ...readReflectState(projectDir),
     ...patch
   };
-  fs32.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs33.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
@@ -41279,7 +41370,7 @@ function appendShortTermMemoryLog(projectDir, input) {
   const messageHash = input.messageID || hashMessage({ text, sender: input.sender, at });
   ensureDir16(projectDir);
   const row = {
-    id: `st_${randomUUID15()}`,
+    id: `st_${randomUUID16()}`,
     sessionID: input.sessionID?.trim() || "main",
     sender: input.sender,
     text,
@@ -41289,7 +41380,7 @@ function appendShortTermMemoryLog(projectDir, input) {
   const saved = appendRawMemoryLog(projectDir, row);
   if (!saved) return null;
   appendMemoryEvent(projectDir, {
-    eventID: `evt_${randomUUID15()}`,
+    eventID: `evt_${randomUUID16()}`,
     eventType: "raw_log_appended",
     entityType: "raw_log",
     entityID: saved.id,
@@ -41326,7 +41417,7 @@ function reflectCompanionMemory(projectDir, input) {
     const deltaMs = Date.now() - Date.parse(state2.lastReflectAt);
     if (Number.isFinite(deltaMs) && deltaMs < cooldownMinutes * 60 * 1e3) {
       const blocked = {
-        jobID: `reflect_${randomUUID15()}`,
+        jobID: `reflect_${randomUUID16()}`,
         processedLogs: 0,
         generatedTriplets: 0,
         generatedFacts: 0,
@@ -41334,7 +41425,7 @@ function reflectCompanionMemory(projectDir, input) {
         generatedPreferences: 0,
         createdMemories: [],
         archivedLogs: 0,
-        auditID: `audit_${randomUUID15()}`
+        auditID: `audit_${randomUUID16()}`
       };
       writeReflectState(projectDir, {
         lastReflectReason: `cooldown_blocked_${cooldownMinutes}m`
@@ -41349,7 +41440,7 @@ function reflectCompanionMemory(projectDir, input) {
   const minLogs = Math.max(1, input?.minLogs ?? 1);
   if (!input?.force && pending.length < minLogs) {
     return {
-      jobID: `reflect_${randomUUID15()}`,
+      jobID: `reflect_${randomUUID16()}`,
       processedLogs: 0,
       generatedTriplets: 0,
       generatedFacts: 0,
@@ -41357,7 +41448,7 @@ function reflectCompanionMemory(projectDir, input) {
       generatedPreferences: 0,
       createdMemories: [],
       archivedLogs: 0,
-      auditID: `audit_${randomUUID15()}`
+      auditID: `audit_${randomUUID16()}`
     };
   }
   const maxLogs = Math.max(1, input?.maxLogs ?? 50);
@@ -41375,8 +41466,8 @@ function reflectCompanionMemory(projectDir, input) {
     (item) => item.kind === "UserPreference"
   ).length;
   const processedAt = nowIso19();
-  const jobID = `reflect_${randomUUID15()}`;
-  const auditID = `audit_${randomUUID15()}`;
+  const jobID = `reflect_${randomUUID16()}`;
+  const auditID = `audit_${randomUUID16()}`;
   const constructed = constructReflectBatch(projectDir, {
     jobID,
     auditID,
@@ -41418,7 +41509,7 @@ function reflectCompanionMemory(projectDir, input) {
   createSkillDraftsFromReflect(projectDir, {
     createdMemories
   });
-  fs32.appendFileSync(
+  fs33.appendFileSync(
     reflectJobPath(projectDir),
     `${JSON.stringify({ ...result, at: processedAt })}
 `,
@@ -41465,9 +41556,9 @@ function maybeReflectOnSessionEnd(projectDir, input) {
 }
 
 // src/companion/wizard.ts
-import { createHash as createHash12, randomUUID as randomUUID16 } from "node:crypto";
-import * as fs33 from "node:fs";
-import * as path33 from "node:path";
+import { createHash as createHash12, randomUUID as randomUUID17 } from "node:crypto";
+import * as fs34 from "node:fs";
+import * as path34 from "node:path";
 function nowIso20() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
@@ -41476,44 +41567,44 @@ function normalizeSessionId(sessionId) {
   return normalized || "main";
 }
 function profilesRoot(projectDir) {
-  return path33.join(getMiyaRuntimeDir(projectDir), "profiles", "companion");
+  return path34.join(getMiyaRuntimeDir(projectDir), "profiles", "companion");
 }
 function sessionRoot(projectDir, sessionId) {
-  return path33.join(profilesRoot(projectDir), "sessions", normalizeSessionId(sessionId));
+  return path34.join(profilesRoot(projectDir), "sessions", normalizeSessionId(sessionId));
 }
 function currentProfileDir(projectDir, sessionId) {
-  return path33.join(sessionRoot(projectDir, sessionId), "current");
+  return path34.join(sessionRoot(projectDir, sessionId), "current");
 }
 function wizardFilePath(projectDir, sessionId) {
-  return path33.join(currentProfileDir(projectDir, sessionId), "wizard-state.json");
+  return path34.join(currentProfileDir(projectDir, sessionId), "wizard-state.json");
 }
 function metadataPath(projectDir, sessionId) {
-  return path33.join(currentProfileDir(projectDir, sessionId), "metadata.json");
+  return path34.join(currentProfileDir(projectDir, sessionId), "metadata.json");
 }
 function ensureProfileLayout(projectDir, sessionId) {
   const current = currentProfileDir(projectDir, sessionId);
-  fs33.mkdirSync(path33.join(current, "photos"), { recursive: true });
-  fs33.mkdirSync(path33.join(current, "embeddings"), { recursive: true });
-  fs33.mkdirSync(path33.join(current, "lora"), { recursive: true });
-  fs33.mkdirSync(path33.join(current, "voice"), { recursive: true });
-  fs33.mkdirSync(path33.join(sessionRoot(projectDir, sessionId), "history"), { recursive: true });
+  fs34.mkdirSync(path34.join(current, "photos"), { recursive: true });
+  fs34.mkdirSync(path34.join(current, "embeddings"), { recursive: true });
+  fs34.mkdirSync(path34.join(current, "lora"), { recursive: true });
+  fs34.mkdirSync(path34.join(current, "voice"), { recursive: true });
+  fs34.mkdirSync(path34.join(sessionRoot(projectDir, sessionId), "history"), { recursive: true });
 }
 function safeReadJson2(filePath14) {
-  if (!fs33.existsSync(filePath14)) return null;
+  if (!fs34.existsSync(filePath14)) return null;
   try {
-    return JSON.parse(fs33.readFileSync(filePath14, "utf-8"));
+    return JSON.parse(fs34.readFileSync(filePath14, "utf-8"));
   } catch {
     return null;
   }
 }
 function safeWriteJson2(filePath14, value) {
-  fs33.mkdirSync(path33.dirname(filePath14), { recursive: true });
-  fs33.writeFileSync(filePath14, `${JSON.stringify(value, null, 2)}
+  fs34.mkdirSync(path34.dirname(filePath14), { recursive: true });
+  fs34.writeFileSync(filePath14, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
 }
 function checksumFile(filePath14) {
   try {
-    const data = fs33.readFileSync(filePath14);
+    const data = fs34.readFileSync(filePath14);
     return `sha256:${createHash12("sha256").update(data).digest("hex")}`;
   } catch {
     return "sha256:unknown";
@@ -41599,30 +41690,30 @@ function writeState2(projectDir, sessionId, state2) {
 }
 function moveCurrentToHistory(projectDir, sessionId) {
   const current = currentProfileDir(projectDir, sessionId);
-  if (!fs33.existsSync(current)) return;
-  const historyDir = path33.join(
+  if (!fs34.existsSync(current)) return;
+  const historyDir = path34.join(
     sessionRoot(projectDir, sessionId),
     "history",
     (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")
   );
-  fs33.mkdirSync(path33.dirname(historyDir), { recursive: true });
-  fs33.cpSync(current, historyDir, { recursive: true });
-  fs33.rmSync(current, { recursive: true, force: true });
+  fs34.mkdirSync(path34.dirname(historyDir), { recursive: true });
+  fs34.cpSync(current, historyDir, { recursive: true });
+  fs34.rmSync(current, { recursive: true, force: true });
 }
 function listSessionDirs(projectDir) {
-  const root = path33.join(profilesRoot(projectDir), "sessions");
-  if (!fs33.existsSync(root)) return [];
-  return fs33.readdirSync(root, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => entry2.name);
+  const root = path34.join(profilesRoot(projectDir), "sessions");
+  if (!fs34.existsSync(root)) return [];
+  return fs34.readdirSync(root, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => entry2.name);
 }
 function sessionHasWizardFile(projectDir, sessionDirName) {
-  const file3 = path33.join(
+  const file3 = path34.join(
     profilesRoot(projectDir),
     "sessions",
     sessionDirName,
     "current",
     "wizard-state.json"
   );
-  return fs33.existsSync(file3);
+  return fs34.existsSync(file3);
 }
 function stateHasAssets(state2) {
   return state2.assets.photos.length > 0 || Boolean(state2.assets.voiceSample) || Boolean(state2.assets.personalityText);
@@ -41698,23 +41789,23 @@ function resetCompanionWizard(projectDir, sessionId = "main") {
 }
 function copyMediaToProfile(projectDir, mediaIDs, targetDir) {
   const output = [];
-  fs33.mkdirSync(targetDir, { recursive: true });
+  fs34.mkdirSync(targetDir, { recursive: true });
   for (const mediaID of mediaIDs) {
     const item = getMediaItem(projectDir, mediaID);
-    if (!item?.localPath || !fs33.existsSync(item.localPath)) {
+    if (!item?.localPath || !fs34.existsSync(item.localPath)) {
       throw new Error(`media_asset_not_found:${mediaID}`);
     }
-    const ext = path33.extname(item.fileName) || extensionForMime(item.mimeType);
+    const ext = path34.extname(item.fileName) || extensionForMime(item.mimeType);
     const fileName = `${String(output.length + 1).padStart(2, "0")}_original${ext}`;
-    const filePath14 = path33.join(targetDir, fileName);
-    fs33.copyFileSync(item.localPath, filePath14);
+    const filePath14 = path34.join(targetDir, fileName);
+    fs34.copyFileSync(item.localPath, filePath14);
     output.push(filePath14);
   }
   return output;
 }
 function enqueueJob(state2, input) {
   const job = {
-    id: `wjob_${randomUUID16()}`,
+    id: `wjob_${randomUUID17()}`,
     type: input.type,
     status: "queued",
     progress: 0,
@@ -41743,8 +41834,8 @@ function submitWizardPhotos(projectDir, input) {
   if (input.mediaIDs.length < 1 || input.mediaIDs.length > 5) {
     throw new Error("wizard_photo_count_invalid:must_be_1_to_5");
   }
-  const photosDir = path33.join(currentProfileDir(projectDir, sessionId), "photos");
-  fs33.rmSync(photosDir, { recursive: true, force: true });
+  const photosDir = path34.join(currentProfileDir(projectDir, sessionId), "photos");
+  fs34.rmSync(photosDir, { recursive: true, force: true });
   const copied = copyMediaToProfile(projectDir, input.mediaIDs, photosDir);
   if (copied.length < 1 || copied.length > 5 || copied.length !== input.mediaIDs.length) {
     throw new Error("wizard_photo_copy_invalid:must_be_1_to_5");
@@ -41772,7 +41863,7 @@ function submitWizardPhotos(projectDir, input) {
       ...metadata.assets,
       photos: {
         count: copied.length,
-        paths: copied.map((item) => path33.relative(currentProfileDir(projectDir, sessionId), item)),
+        paths: copied.map((item) => path34.relative(currentProfileDir(projectDir, sessionId), item)),
         checksums: copied.map((item) => checksumFile(item))
       }
     },
@@ -41791,12 +41882,12 @@ function submitWizardVoice(projectDir, input) {
   if (current.state !== "awaiting_voice") {
     throw new Error(`wizard_state_invalid:${current.state}`);
   }
-  const voiceDir = path33.join(currentProfileDir(projectDir, sessionId), "voice");
-  fs33.mkdirSync(voiceDir, { recursive: true });
+  const voiceDir = path34.join(currentProfileDir(projectDir, sessionId), "voice");
+  fs34.mkdirSync(voiceDir, { recursive: true });
   const copied = copyMediaToProfile(projectDir, [input.mediaID], voiceDir);
   if (copied.length !== 1) throw new Error("voice_asset_not_found");
-  const voicePath = path33.join(voiceDir, "original_sample.wav");
-  fs33.copyFileSync(copied[0], voicePath);
+  const voicePath = path34.join(voiceDir, "original_sample.wav");
+  fs34.copyFileSync(copied[0], voicePath);
   const withJob = enqueueJob(
     {
       ...current,
@@ -41841,7 +41932,7 @@ function submitWizardPersonality(projectDir, input) {
   }
   const text = input.personalityText.trim();
   if (!text) throw new Error("invalid_personality_text");
-  const personaPath = path33.join(currentProfileDir(projectDir, sessionId), "persona.json");
+  const personaPath = path34.join(currentProfileDir(projectDir, sessionId), "persona.json");
   const persona = {
     sourceText: text,
     generatedPrompt: `system: ${text}`,
@@ -42014,8 +42105,8 @@ function wizardChecklist(state2) {
 }
 
 // src/multimodal/image.ts
-import * as fs34 from "node:fs";
-import * as path34 from "node:path";
+import * as fs35 from "node:fs";
+import * as path35 from "node:path";
 var DEFAULT_IMAGE_MODEL = "local:flux.1-schnell";
 var DEFAULT_IMAGE_SIZE = "1024x1024";
 var BLANK_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6sYz0AAAAASUVORK5CYII=";
@@ -42024,8 +42115,8 @@ function sanitizePrompt(prompt) {
 }
 function toBase64FromFile(filePath14) {
   try {
-    if (!fs34.existsSync(filePath14)) return null;
-    return fs34.readFileSync(filePath14).toString("base64");
+    if (!fs35.existsSync(filePath14)) return null;
+    return fs35.readFileSync(filePath14).toString("base64");
   } catch {
     return null;
   }
@@ -42062,8 +42153,8 @@ async function generateImage(projectDir, input) {
     localPath: item.localPath
   }));
   const outputDir = getMiyaImageTempDir(projectDir);
-  const outputPath = path34.join(outputDir, `flux-${Date.now()}.png`);
-  const profileDir = path34.join(
+  const outputPath = path35.join(outputDir, `flux-${Date.now()}.png`);
+  const profileDir = path35.join(
     getMiyaRuntimeDir(projectDir),
     "profiles",
     "companion",
@@ -42145,17 +42236,17 @@ async function generateImage(projectDir, input) {
 }
 
 // src/multimodal/vision-regression.ts
-import * as path35 from "node:path";
+import * as path36 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-var FIXTURE_FILE = path35.join(
-  path35.dirname(fileURLToPath2(import.meta.url)),
+var FIXTURE_FILE = path36.join(
+  path36.dirname(fileURLToPath2(import.meta.url)),
   "fixtures",
   "desktop-outbound-ocr-regression.json"
 );
 
 // src/multimodal/voice.ts
-import * as fs35 from "node:fs";
-import * as path36 from "node:path";
+import * as fs36 from "node:fs";
+import * as path37 from "node:path";
 var DEFAULT_VOICE = "default";
 var DEFAULT_TTS_MODEL = "local:gpt-sovits-v2pro";
 function resolveVoiceInputText(projectDir, input) {
@@ -42213,8 +42304,8 @@ function buildSilentWavBase64(durationMs) {
 }
 function toBase64FromFile2(filePath14) {
   try {
-    if (!fs35.existsSync(filePath14)) return null;
-    return fs35.readFileSync(filePath14).toString("base64");
+    if (!fs36.existsSync(filePath14)) return null;
+    return fs36.readFileSync(filePath14).toString("base64");
   } catch {
     return null;
   }
@@ -42247,8 +42338,8 @@ async function synthesizeVoiceOutput(projectDir, input) {
   const mimeType = format === "mp3" ? "audio/mpeg" : format === "ogg" ? "audio/ogg" : "audio/wav";
   const estDurationMs = Math.max(600, Math.min(7e3, text.length * 55));
   const outputDir = getMiyaVoiceTempDir(projectDir);
-  const outputPath = path36.join(outputDir, `tts-${Date.now()}.${format}`);
-  const profileDir = path36.join(
+  const outputPath = path37.join(outputDir, `tts-${Date.now()}.${format}`);
+  const profileDir = path37.join(
     getMiyaRuntimeDir(projectDir),
     "profiles",
     "companion",
@@ -42365,26 +42456,26 @@ function detectMultimodalIntent(text) {
 }
 
 // src/resource-scheduler/scheduler.ts
-import { randomUUID as randomUUID17 } from "node:crypto";
+import { randomUUID as randomUUID18 } from "node:crypto";
 
 // src/resource-scheduler/store.ts
-import * as fs36 from "node:fs";
-import * as path37 from "node:path";
+import * as fs37 from "node:fs";
+import * as path38 from "node:path";
 function schedulerDir(projectDir) {
-  return path37.join(getMiyaRuntimeDir(projectDir), "resource-scheduler");
+  return path38.join(getMiyaRuntimeDir(projectDir), "resource-scheduler");
 }
 function snapshotPath(projectDir) {
-  return path37.join(schedulerDir(projectDir), "state.json");
+  return path38.join(schedulerDir(projectDir), "state.json");
 }
 function eventsPath(projectDir) {
-  return path37.join(schedulerDir(projectDir), "events.jsonl");
+  return path38.join(schedulerDir(projectDir), "events.jsonl");
 }
 function ensureDir17(projectDir) {
-  fs36.mkdirSync(schedulerDir(projectDir), { recursive: true });
+  fs37.mkdirSync(schedulerDir(projectDir), { recursive: true });
 }
 function writeSchedulerSnapshot(projectDir, snapshot) {
   ensureDir17(projectDir);
-  fs36.writeFileSync(
+  fs37.writeFileSync(
     snapshotPath(projectDir),
     `${JSON.stringify(snapshot, null, 2)}
 `,
@@ -42393,7 +42484,7 @@ function writeSchedulerSnapshot(projectDir, snapshot) {
 }
 function appendSchedulerEvent(projectDir, event) {
   ensureDir17(projectDir);
-  fs36.appendFileSync(eventsPath(projectDir), `${JSON.stringify(event)}
+  fs37.appendFileSync(eventsPath(projectDir), `${JSON.stringify(event)}
 `, "utf-8");
 }
 
@@ -42498,7 +42589,7 @@ var ResourceScheduler = class {
     this.recordSnapshot();
   }
   async acquire(request) {
-    const pendingID = `lease_${randomUUID17()}`;
+    const pendingID = `lease_${randomUUID18()}`;
     return new Promise((resolve7, reject) => {
       const timeoutMs = typeof request.timeoutMs === "number" && request.timeoutMs > 0 ? request.timeoutMs : void 0;
       const timeoutAtMs = timeoutMs ? Date.now() + timeoutMs : void 0;
@@ -42847,8 +42938,8 @@ function getResourceScheduler(projectDir, options) {
 }
 
 // src/sessions/index.ts
-import * as fs37 from "node:fs";
-import * as path38 from "node:path";
+import * as fs38 from "node:fs";
+import * as path39 from "node:path";
 var DEFAULT_POLICY = {
   activation: "active",
   reply: "auto",
@@ -42858,18 +42949,18 @@ function nowIso22() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath10(projectDir) {
-  return path38.join(getMiyaRuntimeDir(projectDir), "sessions.json");
+  return path39.join(getMiyaRuntimeDir(projectDir), "sessions.json");
 }
 function ensureDir18(file3) {
-  fs37.mkdirSync(path38.dirname(file3), { recursive: true });
+  fs38.mkdirSync(path39.dirname(file3), { recursive: true });
 }
 function readStore6(projectDir) {
   const file3 = filePath10(projectDir);
-  if (!fs37.existsSync(file3)) {
+  if (!fs38.existsSync(file3)) {
     return { sessions: {} };
   }
   try {
-    const parsed = JSON.parse(fs37.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs38.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || !parsed.sessions) {
       return { sessions: {} };
     }
@@ -42930,7 +43021,7 @@ function writeStore6(projectDir, store2) {
       }))
     };
   }
-  fs37.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
+  fs38.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
 `, "utf-8");
 }
 function sanitizeSession(value) {
@@ -43107,16 +43198,16 @@ function resolveAgentWithFeedback(intent, availableAgents, ranked) {
 }
 
 // src/router/learner.ts
-import * as fs38 from "node:fs";
-import * as path39 from "node:path";
+import * as fs39 from "node:fs";
+import * as path40 from "node:path";
 function filePath11(projectDir) {
-  return path39.join(getMiyaRuntimeDir(projectDir), "router-history.json");
+  return path40.join(getMiyaRuntimeDir(projectDir), "router-history.json");
 }
 function readStore7(projectDir) {
   const file3 = filePath11(projectDir);
-  if (!fs38.existsSync(file3)) return { records: [] };
+  if (!fs39.existsSync(file3)) return { records: [] };
   try {
-    const parsed = JSON.parse(fs38.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs39.readFileSync(file3, "utf-8"));
     return { records: Array.isArray(parsed.records) ? parsed.records : [] };
   } catch {
     return { records: [] };
@@ -43124,8 +43215,8 @@ function readStore7(projectDir) {
 }
 function writeStore7(projectDir, store2) {
   const file3 = filePath11(projectDir);
-  fs38.mkdirSync(path39.dirname(file3), { recursive: true });
-  fs38.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
+  fs39.mkdirSync(path40.dirname(file3), { recursive: true });
+  fs39.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
 `, "utf-8");
 }
 function addRouteFeedback(projectDir, record3) {
@@ -43166,8 +43257,8 @@ function rankAgentsByFeedback(projectDir, intent, availableAgents) {
 }
 
 // src/router/runtime.ts
-import * as fs39 from "node:fs";
-import * as path40 from "node:path";
+import * as fs40 from "node:fs";
+import * as path41 from "node:path";
 var DEFAULT_MODE = {
   ecoMode: true,
   stageTokenMultiplier: {
@@ -43260,16 +43351,16 @@ function buildAgentPlan(input) {
   };
 }
 function modeFile(projectDir) {
-  return path40.join(getMiyaRuntimeDir(projectDir), "router-mode.json");
+  return path41.join(getMiyaRuntimeDir(projectDir), "router-mode.json");
 }
 function costFile(projectDir) {
-  return path40.join(getMiyaRuntimeDir(projectDir), "router-cost.jsonl");
+  return path41.join(getMiyaRuntimeDir(projectDir), "router-cost.jsonl");
 }
 function sessionStateFile(projectDir) {
-  return path40.join(getMiyaRuntimeDir(projectDir), "router-session-state.json");
+  return path41.join(getMiyaRuntimeDir(projectDir), "router-session-state.json");
 }
 function ensureDir19(projectDir) {
-  fs39.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+  fs40.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
 }
 function clamp3(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -43303,9 +43394,9 @@ function parseMode(raw) {
 }
 function readRouterModeConfig(projectDir) {
   const file3 = modeFile(projectDir);
-  if (!fs39.existsSync(file3)) return DEFAULT_MODE;
+  if (!fs40.existsSync(file3)) return DEFAULT_MODE;
   try {
-    const parsed = JSON.parse(fs39.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs40.readFileSync(file3, "utf-8"));
     return parseMode(parsed);
   } catch {
     return DEFAULT_MODE;
@@ -43326,15 +43417,15 @@ function writeRouterModeConfig(projectDir, patch) {
       ...patch.stageCostUsdPer1k ?? {}
     }
   });
-  fs39.writeFileSync(modeFile(projectDir), `${JSON.stringify(next, null, 2)}
+  fs40.writeFileSync(modeFile(projectDir), `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
 function readSessionStore(projectDir) {
   const file3 = sessionStateFile(projectDir);
-  if (!fs39.existsSync(file3)) return { sessions: {} };
+  if (!fs40.existsSync(file3)) return { sessions: {} };
   try {
-    const parsed = JSON.parse(fs39.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs40.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || !parsed.sessions) return { sessions: {} };
     return {
       sessions: Object.fromEntries(
@@ -43355,7 +43446,7 @@ function readSessionStore(projectDir) {
 }
 function writeSessionStore(projectDir, store2) {
   ensureDir19(projectDir);
-  fs39.writeFileSync(sessionStateFile(projectDir), `${JSON.stringify(store2, null, 2)}
+  fs40.writeFileSync(sessionStateFile(projectDir), `${JSON.stringify(store2, null, 2)}
 `, "utf-8");
 }
 function getSessionState2(projectDir, sessionID2) {
@@ -43379,8 +43470,8 @@ function levelToStage(level) {
 }
 function readCostRows(projectDir, limit = 500) {
   const file3 = costFile(projectDir);
-  if (!fs39.existsSync(file3)) return [];
-  const rows = fs39.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+  if (!fs40.existsSync(file3)) return [];
+  const rows = fs40.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -43391,7 +43482,7 @@ function readCostRows(projectDir, limit = 500) {
 }
 function appendCostRow(projectDir, row) {
   ensureDir19(projectDir);
-  fs39.appendFileSync(costFile(projectDir), `${JSON.stringify(row)}
+  fs40.appendFileSync(costFile(projectDir), `${JSON.stringify(row)}
 `, "utf-8");
 }
 function analyzeRouteComplexity(text) {
@@ -43639,9 +43730,9 @@ function getRouterSessionState(projectDir, sessionID2) {
 }
 
 // src/skills/loader.ts
-import * as fs40 from "node:fs";
+import * as fs41 from "node:fs";
 import * as os6 from "node:os";
-import * as path41 from "node:path";
+import * as path42 from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/skills/frontmatter.ts
@@ -43739,18 +43830,18 @@ function evaluateSkillGate(frontmatter) {
 
 // src/skills/loader.ts
 function isSkillDir(dir) {
-  const skillFile = path41.join(dir, "SKILL.md");
-  return fs40.existsSync(skillFile);
+  const skillFile = path42.join(dir, "SKILL.md");
+  return fs41.existsSync(skillFile);
 }
 function listSkillDirs(rootDir) {
-  if (!fs40.existsSync(rootDir)) return [];
-  const entries = fs40.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path41.join(rootDir, entry2.name));
+  if (!fs41.existsSync(rootDir)) return [];
+  const entries = fs41.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path42.join(rootDir, entry2.name));
   return entries.filter(isSkillDir);
 }
 function builtinSkillRoots(projectDir) {
   const roots = /* @__PURE__ */ new Set();
-  const localBuiltinRoot = path41.dirname(fileURLToPath3(import.meta.url));
-  roots.add(path41.join(projectDir, "miya-src", "src", "skills"));
+  const localBuiltinRoot = path42.dirname(fileURLToPath3(import.meta.url));
+  roots.add(path42.join(projectDir, "miya-src", "src", "skills"));
   roots.add(localBuiltinRoot);
   return [...roots];
 }
@@ -43764,8 +43855,8 @@ function enforcePermissionMetadataGate(source, frontmatter, gate) {
   };
 }
 function discoverSkills(projectDir, extraDirs = []) {
-  const workspaceRoot = path41.join(projectDir, "skills");
-  const globalRoot = path41.join(os6.homedir(), ".config", "opencode", "miya", "skills");
+  const workspaceRoot = path42.join(projectDir, "skills");
+  const globalRoot = path42.join(os6.homedir(), ".config", "opencode", "miya", "skills");
   const scopedDirs = [
     { source: "workspace", dirs: listSkillDirs(workspaceRoot) },
     { source: "global", dirs: listSkillDirs(globalRoot) },
@@ -43775,7 +43866,7 @@ function discoverSkills(projectDir, extraDirs = []) {
     },
     {
       source: "extra",
-      dirs: extraDirs.flatMap((root) => listSkillDirs(path41.resolve(projectDir, root)))
+      dirs: extraDirs.flatMap((root) => listSkillDirs(path42.resolve(projectDir, root)))
     }
   ];
   const precedence = {
@@ -43787,15 +43878,15 @@ function discoverSkills(projectDir, extraDirs = []) {
   const byName = /* @__PURE__ */ new Map();
   for (const scope of scopedDirs) {
     for (const dir of scope.dirs) {
-      const skillFile = path41.join(dir, "SKILL.md");
+      const skillFile = path42.join(dir, "SKILL.md");
       let content = "";
       try {
-        content = fs40.readFileSync(skillFile, "utf-8");
+        content = fs41.readFileSync(skillFile, "utf-8");
       } catch {
         continue;
       }
       const frontmatter = parseSkillFrontmatter(content);
-      const name = frontmatter.name ?? path41.basename(dir);
+      const name = frontmatter.name ?? path42.basename(dir);
       const gate = enforcePermissionMetadataGate(
         scope.source,
         frontmatter,
@@ -43820,24 +43911,24 @@ function discoverSkills(projectDir, extraDirs = []) {
 }
 
 // src/skills/state.ts
-import * as fs41 from "node:fs";
-import * as path42 from "node:path";
+import * as fs42 from "node:fs";
+import * as path43 from "node:path";
 function nowIso24() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath12(projectDir) {
-  return path42.join(getMiyaRuntimeDir(projectDir), "skills.json");
+  return path43.join(getMiyaRuntimeDir(projectDir), "skills.json");
 }
 function ensureDir20(file3) {
-  fs41.mkdirSync(path42.dirname(file3), { recursive: true });
+  fs42.mkdirSync(path43.dirname(file3), { recursive: true });
 }
 function readState(projectDir) {
   const file3 = filePath12(projectDir);
-  if (!fs41.existsSync(file3)) {
+  if (!fs42.existsSync(file3)) {
     return { enabled: [], updatedAt: nowIso24() };
   }
   try {
-    const parsed = JSON.parse(fs41.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs42.readFileSync(file3, "utf-8"));
     return {
       enabled: Array.isArray(parsed.enabled) ? parsed.enabled.map(String) : [],
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso24()
@@ -43849,7 +43940,7 @@ function readState(projectDir) {
 function writeState3(projectDir, state2) {
   const file3 = filePath12(projectDir);
   ensureDir20(file3);
-  fs41.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
+  fs42.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
 `, "utf-8");
 }
 function listEnabledSkills(projectDir) {
@@ -43870,9 +43961,9 @@ function setSkillEnabled(projectDir, skillID, enabled) {
 
 // src/skills/sync.ts
 import { createHash as createHash13 } from "node:crypto";
-import * as fs42 from "node:fs";
+import * as fs43 from "node:fs";
 import * as os7 from "node:os";
-import * as path43 from "node:path";
+import * as path44 from "node:path";
 var DEFAULT_STATE3 = {
   version: 1,
   updatedAt: (/* @__PURE__ */ new Date(0)).toISOString(),
@@ -43888,13 +43979,13 @@ function nowIso25(options) {
   return options?.now?.() ?? (/* @__PURE__ */ new Date()).toISOString();
 }
 function stateFile2(projectDir) {
-  return path43.join(getMiyaRuntimeDir(projectDir), "ecosystem-bridge.json");
+  return path44.join(getMiyaRuntimeDir(projectDir), "ecosystem-bridge.json");
 }
 function readState2(projectDir) {
   const file3 = stateFile2(projectDir);
-  if (!fs42.existsSync(file3)) return { ...DEFAULT_STATE3 };
+  if (!fs43.existsSync(file3)) return { ...DEFAULT_STATE3 };
   try {
-    const parsed = JSON.parse(fs42.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs43.readFileSync(file3, "utf-8"));
     return {
       version: 1,
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : (/* @__PURE__ */ new Date(0)).toISOString(),
@@ -43908,13 +43999,13 @@ function readState2(projectDir) {
 }
 function writeState4(projectDir, state2, options) {
   const file3 = stateFile2(projectDir);
-  fs42.mkdirSync(path43.dirname(file3), { recursive: true });
+  fs43.mkdirSync(path44.dirname(file3), { recursive: true });
   const next = {
     ...state2,
     version: 1,
     updatedAt: nowIso25(options)
   };
-  fs42.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs43.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
 }
 function runGit(args, cwd) {
@@ -43937,22 +44028,22 @@ function normalizeText5(value) {
 }
 function defaultSourceRoots(projectDir) {
   return [
-    path43.join(projectDir, "skills"),
-    path43.join(os7.homedir(), ".config", "opencode", "miya", "skills")
+    path44.join(projectDir, "skills"),
+    path44.join(os7.homedir(), ".config", "opencode", "miya", "skills")
   ];
 }
 function listSkillReposFromRoot(rootDir) {
-  if (!fs42.existsSync(rootDir)) return [];
-  return fs42.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path43.join(rootDir, entry2.name)).filter((dir) => {
-    return fs42.existsSync(path43.join(dir, "SKILL.md")) && fs42.existsSync(path43.join(dir, ".git"));
+  if (!fs43.existsSync(rootDir)) return [];
+  return fs43.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path44.join(rootDir, entry2.name)).filter((dir) => {
+    return fs43.existsSync(path44.join(dir, "SKILL.md")) && fs43.existsSync(path44.join(dir, ".git"));
   });
 }
 function sanitizeIdSegment(input) {
   return input.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 function buildSourcePackID(repo, localDir) {
-  const base = sanitizeIdSegment(path43.basename(localDir) || "source-pack") || "source-pack";
-  const fingerprint = createHash13("sha256").update(`${repo ?? ""}|${path43.resolve(localDir)}`).digest("hex").slice(0, 12);
+  const base = sanitizeIdSegment(path44.basename(localDir) || "source-pack") || "source-pack";
+  const fingerprint = createHash13("sha256").update(`${repo ?? ""}|${path44.resolve(localDir)}`).digest("hex").slice(0, 12);
   return `${base}-${fingerprint}`;
 }
 function trustLevelForRepo(repo) {
@@ -43960,15 +44051,15 @@ function trustLevelForRepo(repo) {
   return TRUSTED_SOURCE_ALLOWLIST.some((rule) => rule.test(repo)) ? "allowlisted" : "untrusted";
 }
 function resolveSkillName(localDir) {
-  const manifest = path43.join(localDir, "SKILL.md");
-  if (!fs42.existsSync(manifest)) return path43.basename(localDir);
+  const manifest = path44.join(localDir, "SKILL.md");
+  if (!fs43.existsSync(manifest)) return path44.basename(localDir);
   try {
-    const raw = fs42.readFileSync(manifest, "utf-8");
+    const raw = fs43.readFileSync(manifest, "utf-8");
     const heading = /^#\s+(.+)$/m.exec(raw)?.[1]?.trim();
     if (heading) return heading;
   } catch {
   }
-  return path43.basename(localDir);
+  return path44.basename(localDir);
 }
 function readGitValue(options, cwd, args) {
   const result = git(options, args, cwd);
@@ -44007,7 +44098,7 @@ function discoverSourcePacks(projectDir, state2, options) {
   const dirs = /* @__PURE__ */ new Set();
   for (const root of roots) {
     for (const repoDir of listSkillReposFromRoot(root)) {
-      dirs.add(path43.resolve(repoDir));
+      dirs.add(path44.resolve(repoDir));
     }
   }
   const packs = [];
@@ -44022,7 +44113,7 @@ function discoverSourcePacks(projectDir, state2, options) {
     const pinnedRelease = state2.pinnedReleases[sourcePackID];
     packs.push({
       sourcePackID,
-      name: path43.basename(localDir),
+      name: path44.basename(localDir),
       skillName: resolveSkillName(localDir),
       repo,
       localDir,
@@ -44329,18 +44420,18 @@ function buildMcpServiceManifest(disabledMcps = []) {
 }
 
 // src/autoflow/state.ts
-import * as fs43 from "node:fs";
-import * as path44 from "node:path";
+import * as fs44 from "node:fs";
+import * as path45 from "node:path";
 var DEFAULT_MAX_FIX_ROUNDS = 3;
 var MAX_HISTORY = 120;
 function nowIso26() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function stateFilePath(projectDir) {
-  return path44.join(getMiyaRuntimeDir(projectDir), "autoflow-state.json");
+  return path45.join(getMiyaRuntimeDir(projectDir), "autoflow-state.json");
 }
 function ensureRuntimeDir(projectDir) {
-  fs43.mkdirSync(path44.dirname(stateFilePath(projectDir)), { recursive: true });
+  fs44.mkdirSync(path45.dirname(stateFilePath(projectDir)), { recursive: true });
 }
 function normalizeFixRounds(value) {
   if (!Number.isFinite(value)) return DEFAULT_MAX_FIX_ROUNDS;
@@ -44381,9 +44472,9 @@ function normalizeState(sessionID2, raw) {
 }
 function readStore8(projectDir) {
   const file3 = stateFilePath(projectDir);
-  if (!fs43.existsSync(file3)) return { sessions: {} };
+  if (!fs44.existsSync(file3)) return { sessions: {} };
   try {
-    const parsed = JSON.parse(fs43.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs44.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || !parsed.sessions) {
       return { sessions: {} };
     }
@@ -44398,7 +44489,7 @@ function readStore8(projectDir) {
 }
 function writeStore8(projectDir, store2) {
   ensureRuntimeDir(projectDir);
-  fs43.writeFileSync(stateFilePath(projectDir), `${JSON.stringify(store2, null, 2)}
+  fs44.writeFileSync(stateFilePath(projectDir), `${JSON.stringify(store2, null, 2)}
 `, "utf-8");
 }
 function loadAutoflowSession(projectDir, sessionID2) {
@@ -44869,8 +44960,8 @@ ${verification.stdout}`);
 }
 
 // src/autoflow/persistent.ts
-import * as fs44 from "node:fs";
-import * as path45 from "node:path";
+import * as fs45 from "node:fs";
+import * as path46 from "node:path";
 var DEFAULT_CONFIG = {
   enabled: true,
   resumeCooldownMs: 2500,
@@ -44879,7 +44970,7 @@ var DEFAULT_CONFIG = {
   resumeTimeoutMs: 9e4
 };
 function storeFile2(projectDir) {
-  return path45.join(getMiyaRuntimeDir(projectDir), "autoflow-persistent.json");
+  return path46.join(getMiyaRuntimeDir(projectDir), "autoflow-persistent.json");
 }
 function nowIso27() {
   return (/* @__PURE__ */ new Date()).toISOString();
@@ -44930,10 +45021,10 @@ function normalizeRuntime(sessionID2, raw) {
 }
 function readStore9(projectDir) {
   const file3 = storeFile2(projectDir);
-  if (!fs44.existsSync(file3)) return { config: DEFAULT_CONFIG, sessions: {} };
+  if (!fs45.existsSync(file3)) return { config: DEFAULT_CONFIG, sessions: {} };
   try {
     const parsed = JSON.parse(
-      fs44.readFileSync(file3, "utf-8")
+      fs45.readFileSync(file3, "utf-8")
     );
     const sessionsRaw = parsed.sessions && typeof parsed.sessions === "object" ? parsed.sessions : {};
     const sessions = Object.fromEntries(
@@ -44951,7 +45042,7 @@ function readStore9(projectDir) {
   }
 }
 function writeStore9(projectDir, store2) {
-  fs44.mkdirSync(path45.dirname(storeFile2(projectDir)), { recursive: true });
+  fs45.mkdirSync(path46.dirname(storeFile2(projectDir)), { recursive: true });
   const normalized = {
     config: normalizeConfig(store2.config),
     sessions: Object.fromEntries(
@@ -44961,7 +45052,7 @@ function writeStore9(projectDir, store2) {
       ])
     )
   };
-  fs44.writeFileSync(
+  fs45.writeFileSync(
     storeFile2(projectDir),
     `${JSON.stringify(normalized, null, 2)}
 `,
@@ -45185,8 +45276,8 @@ async function handleAutoflowPersistentEvent(input) {
 }
 
 // src/gateway/control-ui.ts
-import fs45 from "node:fs";
-import path46 from "node:path";
+import fs46 from "node:fs";
+import path47 from "node:path";
 
 // src/gateway/control-ui-shared.ts
 function normalizeControlUiBasePath(basePath) {
@@ -45248,7 +45339,7 @@ function textResponse(status, body) {
 }
 function isSafeRelativePath(relPath) {
   if (!relPath) return false;
-  const normalized = path46.posix.normalize(relPath);
+  const normalized = path47.posix.normalize(relPath);
   if (normalized.startsWith("../") || normalized === "..") return false;
   if (normalized.includes("\0")) return false;
   return true;
@@ -45269,14 +45360,14 @@ function resolveRequestedFile(pathname, basePath) {
 function resolveRootState(projectDir) {
   const envRoot = process.env.MIYA_GATEWAY_UI_ROOT?.trim();
   const candidates = envRoot ? [envRoot] : [
-    path46.join(projectDir, "miya-src", "gateway-ui", "dist"),
-    path46.join(projectDir, "gateway-ui", "dist"),
-    path46.join(projectDir, ".opencode", "miya", "gateway-ui", "dist"),
-    path46.join(projectDir, ".opencode", "miya", "gateway-ui")
+    path47.join(projectDir, "miya-src", "gateway-ui", "dist"),
+    path47.join(projectDir, "gateway-ui", "dist"),
+    path47.join(projectDir, ".opencode", "miya", "gateway-ui", "dist"),
+    path47.join(projectDir, ".opencode", "miya", "gateway-ui")
   ];
   for (const candidate of candidates) {
-    const indexPath = path46.join(candidate, "index.html");
-    if (fs45.existsSync(indexPath) && fs45.statSync(indexPath).isFile()) {
+    const indexPath = path47.join(candidate, "index.html");
+    if (fs46.existsSync(indexPath) && fs46.statSync(indexPath).isFile()) {
       return { kind: "resolved", path: candidate };
     }
   }
@@ -45315,22 +45406,22 @@ function handleControlUiHttpRequest(request, opts) {
     );
   }
   if (!root || root.kind !== "resolved") return null;
-  const filePath14 = path46.join(root.path, requestedFile);
+  const filePath14 = path47.join(root.path, requestedFile);
   if (!filePath14.startsWith(root.path)) {
     return textResponse(404, "Not Found");
   }
-  const indexPath = path46.join(root.path, "index.html");
-  const resolvedPath = fs45.existsSync(filePath14) && fs45.statSync(filePath14).isFile() ? filePath14 : indexPath;
-  if (!fs45.existsSync(resolvedPath) || !fs45.statSync(resolvedPath).isFile()) {
+  const indexPath = path47.join(root.path, "index.html");
+  const resolvedPath = fs46.existsSync(filePath14) && fs46.statSync(filePath14).isFile() ? filePath14 : indexPath;
+  if (!fs46.existsSync(resolvedPath) || !fs46.statSync(resolvedPath).isFile()) {
     return textResponse(404, "Not Found");
   }
   const headers = securityHeaders(
-    contentTypeForExt(path46.extname(resolvedPath).toLowerCase())
+    contentTypeForExt(path47.extname(resolvedPath).toLowerCase())
   );
   if (request.method === "HEAD") {
     return new Response(null, { status: 200, headers });
   }
-  const body = fs45.readFileSync(resolvedPath);
+  const body = fs46.readFileSync(resolvedPath);
   return new Response(body, {
     status: 200,
     headers
@@ -46794,34 +46885,34 @@ function sanitizeGatewayContext(input) {
 }
 
 // src/gateway/state-files.ts
-import * as fs46 from "node:fs";
-import * as path47 from "node:path";
+import * as fs47 from "node:fs";
+import * as path48 from "node:path";
 function gatewayFile(projectDir) {
-  return path47.join(getMiyaRuntimeDir(projectDir), "gateway.json");
+  return path48.join(getMiyaRuntimeDir(projectDir), "gateway.json");
 }
 function trustModeFile(projectDir) {
-  return path47.join(getMiyaRuntimeDir(projectDir), "gateway-trust-mode.json");
+  return path48.join(getMiyaRuntimeDir(projectDir), "gateway-trust-mode.json");
 }
 function psycheModeFile(projectDir) {
-  return path47.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-mode.json");
+  return path48.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-mode.json");
 }
 function learningGateFile(projectDir) {
-  return path47.join(getMiyaRuntimeDir(projectDir), "gateway-learning-gate.json");
+  return path48.join(getMiyaRuntimeDir(projectDir), "gateway-learning-gate.json");
 }
 function ensureDir21(file3) {
-  fs46.mkdirSync(path47.dirname(file3), { recursive: true });
+  fs47.mkdirSync(path48.dirname(file3), { recursive: true });
 }
 function writeJsonAtomic(file3, payload) {
   ensureDir21(file3);
   const tmp = `${file3}.tmp.${process.pid}.${Date.now()}`;
-  fs46.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}
+  fs47.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}
 `, "utf-8");
-  fs46.renameSync(tmp, file3);
+  fs47.renameSync(tmp, file3);
 }
 function safeReadJsonObject(file3) {
-  if (!fs46.existsSync(file3)) return null;
+  if (!fs47.existsSync(file3)) return null;
   try {
-    const parsed = JSON.parse(fs46.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs47.readFileSync(file3, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     return parsed;
   } catch {
@@ -46980,7 +47071,7 @@ function resolvePsycheConsultEnabled(projectDir, mode) {
   return mode.resonanceEnabled;
 }
 function gatewayOwnerLockFile(projectDir) {
-  return path48.join(getMiyaRuntimeDir(projectDir), "gateway-owner.json");
+  return path49.join(getMiyaRuntimeDir(projectDir), "gateway-owner.json");
 }
 function readGatewayOwnerLock(projectDir) {
   const raw = safeReadJsonObject(gatewayOwnerLockFile(projectDir));
@@ -47047,13 +47138,13 @@ function removeOwnerLock(projectDir) {
   if (!lock || !token) return;
   if (lock.pid === process.pid && lock.token === token) {
     try {
-      fs47.unlinkSync(file3);
+      fs48.unlinkSync(file3);
     } catch {
     }
   }
 }
 function acquireGatewayOwner(projectDir) {
-  const existingToken = ownerTokens.get(projectDir) ?? randomUUID18();
+  const existingToken = ownerTokens.get(projectDir) ?? randomUUID19();
   ownerTokens.set(projectDir, existingToken);
   const lockFile = gatewayOwnerLockFile(projectDir);
   const lock = readGatewayOwnerLock(projectDir);
@@ -47104,7 +47195,7 @@ function describeGatewayState(state2) {
 }
 function clearGatewayStateFile(projectDir) {
   try {
-    fs47.unlinkSync(gatewayFile(projectDir));
+    fs48.unlinkSync(gatewayFile(projectDir));
   } catch {
   }
 }
@@ -47343,7 +47434,7 @@ function buildSessionPayloadByMode(mode, text) {
 async function enforceCriticalIntentGuard(projectDir, input) {
   if (shouldBypassIntentGuard(input.source)) return false;
   if (!isCriticalInjectionIntent(input.text)) return false;
-  const traceID = randomUUID18();
+  const traceID = randomUUID19();
   const reason = "critical_intent_killswitch_triggered";
   activateKillSwitch(projectDir, reason, traceID);
   appendPolicyIncident(projectDir, {
@@ -47476,13 +47567,13 @@ function assertConsoleMethodAllowed(method, context) {
   throw new Error(`console_method_forbidden:${method}`);
 }
 function interventionAuditFile(projectDir) {
-  return path48.join(getMiyaRuntimeDir(projectDir), "audit", "intervention.jsonl");
+  return path49.join(getMiyaRuntimeDir(projectDir), "audit", "intervention.jsonl");
 }
 function appendInterventionAudit(projectDir, input) {
-  const id = `intervention_${randomUUID18()}`;
+  const id = `intervention_${randomUUID19()}`;
   const file3 = interventionAuditFile(projectDir);
-  fs47.mkdirSync(path48.dirname(file3), { recursive: true });
-  fs47.appendFileSync(
+  fs48.mkdirSync(path49.dirname(file3), { recursive: true });
+  fs48.appendFileSync(
     file3,
     `${JSON.stringify({
       id,
@@ -47551,7 +47642,7 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
   });
   const audioPath = (input.mediaPath ?? "").trim();
   const cmdRaw = String(process.env.MIYA_VOICEPRINT_VERIFY_CMD ?? "").trim();
-  if (!audioPath || !fs47.existsSync(audioPath)) {
+  if (!audioPath || !fs48.existsSync(audioPath)) {
     return { mode: strict ? "unknown" : hintMode, score: input.speakerScore, source: "no_audio" };
   }
   if (!cmdRaw) {
@@ -47570,14 +47661,14 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
     };
   }
   const state2 = readOwnerIdentityState(projectDir);
-  if (!state2.voiceprintModelPath || !fs47.existsSync(state2.voiceprintModelPath)) {
+  if (!state2.voiceprintModelPath || !fs48.existsSync(state2.voiceprintModelPath)) {
     return {
       mode: strict ? "unknown" : hintMode,
       score: input.speakerScore,
       source: "strict_model_missing"
     };
   }
-  if (!state2.voiceprintSampleDir || !fs47.existsSync(state2.voiceprintSampleDir)) {
+  if (!state2.voiceprintSampleDir || !fs48.existsSync(state2.voiceprintSampleDir)) {
     return {
       mode: strict ? "unknown" : hintMode,
       score: input.speakerScore,
@@ -48599,28 +48690,28 @@ function buildSnapshot(projectDir, runtime) {
   };
 }
 function daemonProgressAuditFile(projectDir) {
-  return path48.join(getMiyaRuntimeDir(projectDir), "audit", "daemon-job-progress.jsonl");
+  return path49.join(getMiyaRuntimeDir(projectDir), "audit", "daemon-job-progress.jsonl");
 }
 function appendDaemonProgressAudit(projectDir, input) {
   const file3 = daemonProgressAuditFile(projectDir);
-  fs47.mkdirSync(path48.dirname(file3), { recursive: true });
-  fs47.appendFileSync(
+  fs48.mkdirSync(path49.dirname(file3), { recursive: true });
+  fs48.appendFileSync(
     file3,
-    `${JSON.stringify({ id: `dprogress_${randomUUID18()}`, ...input })}
+    `${JSON.stringify({ id: `dprogress_${randomUUID19()}`, ...input })}
 `,
     "utf-8"
   );
 }
 function gatewayMethodAuditFile(projectDir) {
-  return path48.join(getMiyaRuntimeDir(projectDir), "audit", "gateway-methods.jsonl");
+  return path49.join(getMiyaRuntimeDir(projectDir), "audit", "gateway-methods.jsonl");
 }
 function appendGatewayMethodAudit(projectDir, input) {
   const file3 = gatewayMethodAuditFile(projectDir);
-  fs47.mkdirSync(path48.dirname(file3), { recursive: true });
-  fs47.appendFileSync(
+  fs48.mkdirSync(path49.dirname(file3), { recursive: true });
+  fs48.appendFileSync(
     file3,
     `${JSON.stringify({
-      id: `gmethod_${randomUUID18()}`,
+      id: `gmethod_${randomUUID19()}`,
       at: nowIso29(),
       ...input
     })}
@@ -48891,7 +48982,7 @@ function resolveApprovalTicket(input) {
       }
     };
   }
-  activateKillSwitch(input.projectDir, "missing_evidence", randomUUID18());
+  activateKillSwitch(input.projectDir, "missing_evidence", randomUUID19());
   return { ok: false, reason: "missing_evidence" };
 }
 function enforceToken(input) {
@@ -48995,7 +49086,7 @@ async function runWizardTrainingWorker(projectDir, runtime) {
     const daemon = getMiyaClient(projectDir);
     const profileDir = getCompanionProfileCurrentDir(projectDir, queued.sessionId);
     if (queued.job.type === "training.image") {
-      const photosDir = path48.join(profileDir, "photos");
+      const photosDir = path49.join(profileDir, "photos");
       const result2 = await daemon.runFluxTraining({
         profileDir,
         photosDir,
@@ -49037,7 +49128,7 @@ async function runWizardTrainingWorker(projectDir, runtime) {
       });
       return;
     }
-    const voiceSamplePath = path48.join(profileDir, "voice", "original_sample.wav");
+    const voiceSamplePath = path49.join(profileDir, "voice", "original_sample.wav");
     const result = await daemon.runSovitsTraining({
       profileDir,
       voiceSamplePath,
@@ -49087,7 +49178,7 @@ function ensureWsData(runtime, ws) {
     return existing;
   }
   const fallback = {
-    clientID: `ws_${randomUUID18()}`,
+    clientID: `ws_${randomUUID19()}`,
     role: "unknown",
     subscriptions: /* @__PURE__ */ new Set(["*"]),
     authenticated: !process.env.MIYA_GATEWAY_TOKEN
@@ -49212,8 +49303,8 @@ function createMethods(projectDir, runtime) {
     const limitRaw = typeof params.limit === "number" ? Number(params.limit) : 100;
     const limit = Math.max(1, Math.min(1e3, Math.floor(limitRaw)));
     const file3 = gatewayMethodAuditFile(projectDir);
-    if (!fs47.existsSync(file3)) return [];
-    const lines = fs47.readFileSync(file3, "utf-8").trim().split(/\r?\n/).filter(Boolean);
+    if (!fs48.existsSync(file3)) return [];
+    const lines = fs48.readFileSync(file3, "utf-8").trim().split(/\r?\n/).filter(Boolean);
     return lines.slice(Math.max(0, lines.length - limit)).map((line) => {
       try {
         return JSON.parse(line);
@@ -49622,7 +49713,7 @@ function createMethods(projectDir, runtime) {
     if (!mode) throw new Error("invalid_killswitch_mode");
     const reason = parseText(params.reason) || `manual_mode:${mode}`;
     if (mode === "all_stop") {
-      const traceID = randomUUID18();
+      const traceID = randomUUID19();
       activateKillSwitch(projectDir, reason, traceID);
       transitionSafetyState(projectDir, {
         source: "killswitch.set_mode",
@@ -49691,7 +49782,7 @@ function createMethods(projectDir, runtime) {
       false
     );
     const token = saveApprovalToken(projectDir, sessionID2, {
-      trace_id: randomUUID18(),
+      trace_id: randomUUID19(),
       request_hash: requestHash,
       tier: tierText,
       action
@@ -50033,11 +50124,11 @@ function createMethods(projectDir, runtime) {
       patterns: [`repo=${repo}`]
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
-    const root = path48.join(os8.homedir(), ".config", "opencode", "miya", "skills");
-    fs47.mkdirSync(root, { recursive: true });
+    const root = path49.join(os8.homedir(), ".config", "opencode", "miya", "skills");
+    fs48.mkdirSync(root, { recursive: true });
     const name = targetName || repo.split("/").filter(Boolean).pop()?.replace(/\.git$/i, "") || `skill-${Date.now().toString(36)}`;
-    const target = path48.join(root, name);
-    if (fs47.existsSync(target)) return { ok: false, message: `target_exists:${target}` };
+    const target = path49.join(root, name);
+    if (fs48.existsSync(target)) return { ok: false, message: `target_exists:${target}` };
     const proc = spawnSync7("git", ["clone", "--depth", "1", repo, target], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"]
@@ -50049,17 +50140,17 @@ function createMethods(projectDir, runtime) {
       };
     }
     const installed = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []).find(
-      (item) => path48.resolve(item.dir) === path48.resolve(target)
+      (item) => path49.resolve(item.dir) === path49.resolve(target)
     );
     if (!installed) {
-      fs47.rmSync(target, { recursive: true, force: true });
+      fs48.rmSync(target, { recursive: true, force: true });
       return {
         ok: false,
         message: "installed_skill_invalid:manifest_not_found"
       };
     }
     if (installed.gate.reasons.includes("missing_permission_metadata")) {
-      fs47.rmSync(target, { recursive: true, force: true });
+      fs48.rmSync(target, { recursive: true, force: true });
       return {
         ok: false,
         message: "installed_skill_invalid:missing_permission_metadata"
@@ -51275,8 +51366,8 @@ function startGatewayWithLog(projectDir) {
 }
 
 // src/intake/store.ts
-import * as fs48 from "node:fs";
-import * as path49 from "node:path";
+import * as fs49 from "node:fs";
+import * as path50 from "node:path";
 var DEFAULT_STATE4 = {
   proposals: [],
   whitelist: [],
@@ -51287,10 +51378,10 @@ var MAX_PROPOSALS = 1e3;
 var MAX_LIST_ENTRIES = 1e3;
 var MAX_EVENTS = 5e3;
 function filePath13(projectDir) {
-  return path49.join(getMiyaRuntimeDir(projectDir), "intake.json");
+  return path50.join(getMiyaRuntimeDir(projectDir), "intake.json");
 }
 function ensureDir22(file3) {
-  fs48.mkdirSync(path49.dirname(file3), { recursive: true });
+  fs49.mkdirSync(path50.dirname(file3), { recursive: true });
 }
 function randomId2(prefix) {
   const time5 = Date.now().toString(36);
@@ -51314,11 +51405,11 @@ function createIntakeId(prefix) {
 }
 function readIntakeState(projectDir) {
   const file3 = filePath13(projectDir);
-  if (!fs48.existsSync(file3)) {
+  if (!fs49.existsSync(file3)) {
     return { ...DEFAULT_STATE4 };
   }
   try {
-    const parsed = JSON.parse(fs48.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs49.readFileSync(file3, "utf-8"));
     return sanitizeState(parsed);
   } catch {
     return { ...DEFAULT_STATE4 };
@@ -51333,7 +51424,7 @@ function writeIntakeState(projectDir, state2) {
     blacklist: state2.blacklist.slice(0, MAX_LIST_ENTRIES),
     events: state2.events.slice(0, MAX_EVENTS)
   };
-  fs48.writeFileSync(file3, `${JSON.stringify(normalized, null, 2)}
+  fs49.writeFileSync(file3, `${JSON.stringify(normalized, null, 2)}
 `, "utf-8");
 }
 
@@ -52805,18 +52896,18 @@ activated_at=${next.activated_at ?? nowIso31()}`;
 }
 
 // src/tools/ast-grep/cli.ts
-import { existsSync as existsSync46 } from "node:fs";
+import { existsSync as existsSync47 } from "node:fs";
 
 // src/tools/ast-grep/constants.ts
-import { existsSync as existsSync45, statSync as statSync2 } from "node:fs";
+import { existsSync as existsSync46, statSync as statSync3 } from "node:fs";
 import { createRequire as createRequire3 } from "node:module";
-import { dirname as dirname34, join as join49 } from "node:path";
+import { dirname as dirname35, join as join50 } from "node:path";
 
 // src/tools/ast-grep/downloader.ts
-import { chmodSync, existsSync as existsSync44, mkdirSync as mkdirSync40, promises as fsPromises, unlinkSync as unlinkSync3 } from "node:fs";
+import { chmodSync, existsSync as existsSync45, mkdirSync as mkdirSync41, promises as fsPromises, unlinkSync as unlinkSync4 } from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
 import { homedir as homedir7 } from "node:os";
-import { join as join48 } from "node:path";
+import { join as join49 } from "node:path";
 var REPO = "ast-grep/ast-grep";
 var DEFAULT_VERSION = "0.40.0";
 function getAstGrepVersion() {
@@ -52840,19 +52931,19 @@ var PLATFORM_MAP = {
 function getCacheDir() {
   if (process.platform === "win32") {
     const localAppData = process.env.LOCALAPPDATA || process.env.APPDATA;
-    const base2 = localAppData || join48(homedir7(), "AppData", "Local");
-    return join48(base2, "miya", "bin");
+    const base2 = localAppData || join49(homedir7(), "AppData", "Local");
+    return join49(base2, "miya", "bin");
   }
   const xdgCache = process.env.XDG_CACHE_HOME;
-  const base = xdgCache || join48(homedir7(), ".cache");
-  return join48(base, "miya", "bin");
+  const base = xdgCache || join49(homedir7(), ".cache");
+  return join49(base, "miya", "bin");
 }
 function getBinaryName() {
   return process.platform === "win32" ? "sg.exe" : "sg";
 }
 function getCachedBinaryPath() {
-  const binaryPath = join48(getCacheDir(), getBinaryName());
-  return existsSync44(binaryPath) ? binaryPath : null;
+  const binaryPath = join49(getCacheDir(), getBinaryName());
+  return existsSync45(binaryPath) ? binaryPath : null;
 }
 async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   const platformKey = `${process.platform}-${process.arch}`;
@@ -52865,8 +52956,8 @@ async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   }
   const cacheDir = getCacheDir();
   const binaryName = getBinaryName();
-  const binaryPath = join48(cacheDir, binaryName);
-  if (existsSync44(binaryPath)) {
+  const binaryPath = join49(cacheDir, binaryName);
+  if (existsSync45(binaryPath)) {
     return binaryPath;
   }
   const { arch, os: os9 } = platformInfo;
@@ -52874,21 +52965,21 @@ async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   const downloadUrl = `https://github.com/${REPO}/releases/download/${version3}/${assetName}`;
   console.log("[miya] Downloading ast-grep binary...");
   try {
-    if (!existsSync44(cacheDir)) {
-      mkdirSync40(cacheDir, { recursive: true });
+    if (!existsSync45(cacheDir)) {
+      mkdirSync41(cacheDir, { recursive: true });
     }
     const response = await fetch(downloadUrl, { redirect: "follow" });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
-    const archivePath = join48(cacheDir, assetName);
+    const archivePath = join49(cacheDir, assetName);
     const arrayBuffer = await response.arrayBuffer();
     await fsPromises.writeFile(archivePath, Buffer.from(arrayBuffer));
     await extractZip(archivePath, cacheDir);
-    if (existsSync44(archivePath)) {
-      unlinkSync3(archivePath);
+    if (existsSync45(archivePath)) {
+      unlinkSync4(archivePath);
     }
-    if (process.platform !== "win32" && existsSync44(binaryPath)) {
+    if (process.platform !== "win32" && existsSync45(binaryPath)) {
       chmodSync(binaryPath, 493);
     }
     console.log("[miya] ast-grep binary ready.");
@@ -52942,7 +53033,7 @@ var CLI_LANGUAGES = [
 var MIN_BINARY_SIZE = 1e4;
 function isValidBinary(filePath14) {
   try {
-    return statSync2(filePath14).size > MIN_BINARY_SIZE;
+    return statSync3(filePath14).size > MIN_BINARY_SIZE;
   } catch {
     return false;
   }
@@ -52971,9 +53062,9 @@ function findSgCliPathSync() {
   try {
     const require3 = createRequire3(import.meta.url);
     const cliPkgPath = require3.resolve("@ast-grep/cli/package.json");
-    const cliDir = dirname34(cliPkgPath);
-    const sgPath = join49(cliDir, binaryName);
-    if (existsSync45(sgPath) && isValidBinary(sgPath)) {
+    const cliDir = dirname35(cliPkgPath);
+    const sgPath = join50(cliDir, binaryName);
+    if (existsSync46(sgPath) && isValidBinary(sgPath)) {
       return sgPath;
     }
   } catch {
@@ -52983,10 +53074,10 @@ function findSgCliPathSync() {
     try {
       const require3 = createRequire3(import.meta.url);
       const pkgPath = require3.resolve(`${platformPkg}/package.json`);
-      const pkgDir = dirname34(pkgPath);
+      const pkgDir = dirname35(pkgPath);
       const astGrepName = process.platform === "win32" ? "ast-grep.exe" : "ast-grep";
-      const binaryPath = join49(pkgDir, astGrepName);
-      if (existsSync45(binaryPath) && isValidBinary(binaryPath)) {
+      const binaryPath = join50(pkgDir, astGrepName);
+      if (existsSync46(binaryPath) && isValidBinary(binaryPath)) {
         return binaryPath;
       }
     } catch {
@@ -52994,9 +53085,9 @@ function findSgCliPathSync() {
   }
   if (process.platform === "darwin") {
     const homebrewPaths = ["/opt/homebrew/bin/sg", "/usr/local/bin/sg"];
-    for (const path52 of homebrewPaths) {
-      if (existsSync45(path52) && isValidBinary(path52)) {
-        return path52;
+    for (const path53 of homebrewPaths) {
+      if (existsSync46(path53) && isValidBinary(path53)) {
+        return path53;
       }
     }
   }
@@ -53013,8 +53104,8 @@ function getSgCliPath() {
   }
   return "sg";
 }
-function setSgCliPath(path52) {
-  resolvedCliPath = path52;
+function setSgCliPath(path53) {
+  resolvedCliPath = path53;
 }
 var DEFAULT_TIMEOUT_MS3 = 3e5;
 var DEFAULT_MAX_OUTPUT_BYTES = 1 * 1024 * 1024;
@@ -53024,7 +53115,7 @@ var DEFAULT_MAX_MATCHES = 500;
 var initPromise = null;
 async function getAstGrepPath() {
   const currentPath = getSgCliPath();
-  if (currentPath !== "sg" && existsSync46(currentPath)) {
+  if (currentPath !== "sg" && existsSync47(currentPath)) {
     return currentPath;
   }
   if (initPromise) {
@@ -53032,7 +53123,7 @@ async function getAstGrepPath() {
   }
   initPromise = (async () => {
     const syncPath = findSgCliPathSync();
-    if (syncPath && existsSync46(syncPath)) {
+    if (syncPath && existsSync47(syncPath)) {
       setSgCliPath(syncPath);
       return syncPath;
     }
@@ -53071,7 +53162,7 @@ async function runSg(options) {
   const paths = options.paths && options.paths.length > 0 ? options.paths : ["."];
   args.push(...paths);
   let cliPath = getSgCliPath();
-  if (!existsSync46(cliPath) && cliPath !== "sg") {
+  if (!existsSync47(cliPath) && cliPath !== "sg") {
     const downloadedPath = await getAstGrepPath();
     if (downloadedPath) {
       cliPath = downloadedPath;
@@ -54902,30 +54993,30 @@ function createMcpTools() {
 
 // src/tools/grep/constants.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
-import { existsSync as existsSync48 } from "node:fs";
-import { dirname as dirname35, join as join51 } from "node:path";
+import { existsSync as existsSync49 } from "node:fs";
+import { dirname as dirname36, join as join52 } from "node:path";
 
 // src/tools/grep/downloader.ts
 import {
   chmodSync as chmodSync2,
-  existsSync as existsSync47,
+  existsSync as existsSync48,
   promises as fsPromises2,
-  mkdirSync as mkdirSync41,
+  mkdirSync as mkdirSync42,
   readdirSync as readdirSync5,
-  unlinkSync as unlinkSync4
+  unlinkSync as unlinkSync5
 } from "node:fs";
-import { join as join50 } from "node:path";
+import { join as join51 } from "node:path";
 function getInstallDir() {
   const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
-  return join50(homeDir, ".cache", "miya", "bin");
+  return join51(homeDir, ".cache", "miya", "bin");
 }
 function getRgPath() {
   const isWindows = process.platform === "win32";
-  return join50(getInstallDir(), isWindows ? "rg.exe" : "rg");
+  return join51(getInstallDir(), isWindows ? "rg.exe" : "rg");
 }
 function getInstalledRipgrepPath() {
   const rgPath = getRgPath();
-  return existsSync47(rgPath) ? rgPath : null;
+  return existsSync48(rgPath) ? rgPath : null;
 }
 
 // src/tools/grep/constants.ts
@@ -54944,26 +55035,26 @@ function findExecutable(name) {
 }
 function getDataDir() {
   if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA || process.env.APPDATA || join51(process.env.USERPROFILE || ".", "AppData", "Local");
+    return process.env.LOCALAPPDATA || process.env.APPDATA || join52(process.env.USERPROFILE || ".", "AppData", "Local");
   }
-  return process.env.XDG_DATA_HOME || join51(process.env.HOME || ".", ".local", "share");
+  return process.env.XDG_DATA_HOME || join52(process.env.HOME || ".", ".local", "share");
 }
 function getOpenCodeBundledRg() {
   const execPath = process.execPath;
-  const execDir = dirname35(execPath);
+  const execDir = dirname36(execPath);
   const isWindows = process.platform === "win32";
   const rgName = isWindows ? "rg.exe" : "rg";
   const candidates = [
     // OpenCode XDG data path (highest priority - where OpenCode installs rg)
-    join51(getDataDir(), "opencode", "bin", rgName),
+    join52(getDataDir(), "opencode", "bin", rgName),
     // Legacy paths relative to execPath
-    join51(execDir, rgName),
-    join51(execDir, "bin", rgName),
-    join51(execDir, "..", "bin", rgName),
-    join51(execDir, "..", "libexec", rgName)
+    join52(execDir, rgName),
+    join52(execDir, "bin", rgName),
+    join52(execDir, "..", "bin", rgName),
+    join52(execDir, "..", "libexec", rgName)
   ];
   for (const candidate of candidates) {
-    if (existsSync48(candidate)) {
+    if (existsSync49(candidate)) {
       return candidate;
     }
   }
@@ -55219,9 +55310,9 @@ import { extname as extname3, resolve as resolve5 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // src/tools/lsp/config.ts
-import { existsSync as existsSync49 } from "node:fs";
+import { existsSync as existsSync50 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
-import { join as join52 } from "node:path";
+import { join as join53 } from "node:path";
 
 // src/tools/lsp/constants.ts
 var SEVERITY_MAP = {
@@ -55371,7 +55462,7 @@ function isServerInstalled(command) {
   if (command.length === 0) return false;
   const cmd = command[0];
   if (cmd.includes("/") || cmd.includes("\\")) {
-    return existsSync49(cmd);
+    return existsSync50(cmd);
   }
   const isWindows = process.platform === "win32";
   const ext = isWindows ? ".exe" : "";
@@ -55379,17 +55470,17 @@ function isServerInstalled(command) {
   const pathSeparator = isWindows ? ";" : ":";
   const paths = pathEnv.split(pathSeparator);
   for (const p of paths) {
-    if (existsSync49(join52(p, cmd)) || existsSync49(join52(p, cmd + ext))) {
+    if (existsSync50(join53(p, cmd)) || existsSync50(join53(p, cmd + ext))) {
       return true;
     }
   }
   const cwd = process.cwd();
-  const localBin = join52(cwd, "node_modules", ".bin", cmd);
-  if (existsSync49(localBin) || existsSync49(localBin + ext)) {
+  const localBin = join53(cwd, "node_modules", ".bin", cmd);
+  if (existsSync50(localBin) || existsSync50(localBin + ext)) {
     return true;
   }
-  const globalBin = join52(homedir8(), ".config", "opencode", "bin", cmd);
-  if (existsSync49(globalBin) || existsSync49(globalBin + ext)) {
+  const globalBin = join53(homedir8(), ".config", "opencode", "bin", cmd);
+  if (existsSync50(globalBin) || existsSync50(globalBin + ext)) {
     return true;
   }
   return false;
@@ -55714,22 +55805,22 @@ stderr: ${stderr}` : "")
 
 // src/tools/lsp/utils.ts
 import {
-  existsSync as existsSync50,
+  existsSync as existsSync51,
   readFileSync as readFileSync44,
-  statSync as statSync3,
-  unlinkSync as unlinkSync5,
+  statSync as statSync4,
+  unlinkSync as unlinkSync6,
   writeFileSync as writeFileSync34
 } from "node:fs";
-import { dirname as dirname36, extname as extname4, join as join53, resolve as resolve6 } from "node:path";
+import { dirname as dirname37, extname as extname4, join as join54, resolve as resolve6 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 function findWorkspaceRoot(filePath14) {
   let dir = resolve6(filePath14);
   try {
-    if (!statSync3(dir).isDirectory()) {
-      dir = dirname36(dir);
+    if (!statSync4(dir).isDirectory()) {
+      dir = dirname37(dir);
     }
   } catch {
-    dir = dirname36(dir);
+    dir = dirname37(dir);
   }
   const markers = [
     ".git",
@@ -55741,14 +55832,14 @@ function findWorkspaceRoot(filePath14) {
   let prevDir = "";
   while (dir !== prevDir) {
     for (const marker of markers) {
-      if (existsSync50(join53(dir, marker))) {
+      if (existsSync51(join54(dir, marker))) {
         return dir;
       }
     }
     prevDir = dir;
-    dir = dirname36(dir);
+    dir = dirname37(dir);
   }
-  return dirname36(resolve6(filePath14));
+  return dirname37(resolve6(filePath14));
 }
 function uriToPath(uri) {
   return fileURLToPath4(uri);
@@ -55913,7 +56004,7 @@ function applyWorkspaceEdit(edit) {
             const newPath = uriToPath(change.newUri);
             const content = readFileSync44(oldPath, "utf-8");
             writeFileSync34(newPath, content, "utf-8");
-            unlinkSync5(oldPath);
+            unlinkSync6(oldPath);
             result.filesModified.push(newPath);
           } catch (err) {
             result.success = false;
@@ -55922,7 +56013,7 @@ function applyWorkspaceEdit(edit) {
         } else if (change.kind === "delete") {
           try {
             const filePath14 = uriToPath(change.uri);
-            unlinkSync5(filePath14);
+            unlinkSync6(filePath14);
             result.filesModified.push(filePath14);
           } catch (err) {
             result.success = false;
@@ -56097,8 +56188,8 @@ var lsp_rename = tool({
 });
 
 // src/tools/automation.ts
-import * as fs49 from "node:fs";
-import * as path50 from "node:path";
+import * as fs50 from "node:fs";
+import * as path51 from "node:path";
 var z16 = tool.schema;
 function formatJobs(jobs) {
   if (jobs.length === 0) {
@@ -56161,19 +56252,19 @@ function parseNaturalSchedule(input) {
   return { time: time5, command };
 }
 function readAutoGitStatus(projectDir) {
-  const file3 = path50.join(projectDir, ".opencode", "miya", "auto-git-push.json");
-  if (!fs49.existsSync(file3)) return {};
+  const file3 = path51.join(projectDir, ".opencode", "miya", "auto-git-push.json");
+  if (!fs50.existsSync(file3)) return {};
   try {
-    return JSON.parse(fs49.readFileSync(file3, "utf-8"));
+    return JSON.parse(fs50.readFileSync(file3, "utf-8"));
   } catch {
     return {};
   }
 }
 function readGatewayStatus(projectDir) {
-  const file3 = path50.join(projectDir, ".opencode", "miya", "gateway.json");
-  if (!fs49.existsSync(file3)) return {};
+  const file3 = path51.join(projectDir, ".opencode", "miya", "gateway.json");
+  if (!fs50.existsSync(file3)) return {};
   try {
-    return JSON.parse(fs49.readFileSync(file3, "utf-8"));
+    return JSON.parse(fs50.readFileSync(file3, "utf-8"));
   } catch {
     return {};
   }
@@ -56763,25 +56854,25 @@ function deepMergeObject(base, override) {
 var autoUiOpenAtByDir = /* @__PURE__ */ new Map();
 var dockLaunchAtByDir = /* @__PURE__ */ new Map();
 function resolveMiyaRoot(projectDir) {
-  const nestedRoot = path51.join(projectDir, "miya-src");
-  if (fs50.existsSync(path51.join(nestedRoot, "src", "index.ts"))) {
+  const nestedRoot = path52.join(projectDir, "miya-src");
+  if (fs51.existsSync(path52.join(nestedRoot, "src", "index.ts"))) {
     return nestedRoot;
   }
-  if (fs50.existsSync(path51.join(projectDir, "src", "index.ts"))) {
+  if (fs51.existsSync(path52.join(projectDir, "src", "index.ts"))) {
     return projectDir;
   }
   return nestedRoot;
 }
 function autoUiOpenGuardFile(projectDir) {
-  return path51.join(projectDir, ".opencode", "miya", "ui-auto-open.guard.json");
+  return path52.join(projectDir, ".opencode", "miya", "ui-auto-open.guard.json");
 }
 function dockLaunchGuardFile(projectDir) {
-  return path51.join(projectDir, ".opencode", "miya", "dock-launch.guard.json");
+  return path52.join(projectDir, ".opencode", "miya", "dock-launch.guard.json");
 }
 function readLaunchGuard(file3) {
-  if (!fs50.existsSync(file3)) return { atMs: 0, pid: 0 };
+  if (!fs51.existsSync(file3)) return { atMs: 0, pid: 0 };
   try {
-    const parsed = JSON.parse(fs50.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs51.readFileSync(file3, "utf-8"));
     const atMs = Number(parsed?.atMs ?? 0);
     const pid = Number(parsed?.pid ?? 0);
     return {
@@ -56796,8 +56887,8 @@ function readLastAutoUiOpen(projectDir) {
   return readLaunchGuard(autoUiOpenGuardFile(projectDir));
 }
 function writeLaunchGuard(file3, atMs, pid) {
-  fs50.mkdirSync(path51.dirname(file3), { recursive: true });
-  fs50.writeFileSync(
+  fs51.mkdirSync(path52.dirname(file3), { recursive: true });
+  fs51.writeFileSync(
     file3,
     `${JSON.stringify({ atMs, pid, at: new Date(atMs).toISOString() }, null, 2)}
 `,
@@ -56849,17 +56940,17 @@ function openUrlSilently(url3) {
 function launchDockSilently(projectDir) {
   if (process.platform !== "win32") return;
   const miyaRoot = resolveMiyaRoot(projectDir);
-  const pidFile = path51.join(miyaRoot, "tools", "miya-dock", "miya-dock.pid");
-  if (fs50.existsSync(pidFile)) {
+  const pidFile = path52.join(miyaRoot, "tools", "miya-dock", "miya-dock.pid");
+  if (fs51.existsSync(pidFile)) {
     try {
-      const pid = Number(fs50.readFileSync(pidFile, "utf-8").trim());
+      const pid = Number(fs51.readFileSync(pidFile, "utf-8").trim());
       if (isPidAlive2(pid)) return;
     } catch {
     }
   }
-  const dockScript = path51.join(miyaRoot, "tools", "miya-dock", "miya-dock.ps1");
-  const bat = path51.join(miyaRoot, "tools", "miya-dock", "miya-launch.bat");
-  if (!fs50.existsSync(dockScript) && !fs50.existsSync(bat)) return;
+  const dockScript = path52.join(miyaRoot, "tools", "miya-dock", "miya-dock.ps1");
+  const bat = path52.join(miyaRoot, "tools", "miya-dock", "miya-launch.bat");
+  if (!fs51.existsSync(dockScript) && !fs51.existsSync(bat)) return;
   const now = Date.now();
   const memLast = dockLaunchAtByDir.get(projectDir) ?? 0;
   const persisted = readLastDockLaunch(projectDir);
@@ -56870,7 +56961,7 @@ function launchDockSilently(projectDir) {
   }
   dockLaunchAtByDir.set(projectDir, now);
   writeLastDockLaunchAt(projectDir, now);
-  const child = fs50.existsSync(dockScript) ? spawn6(
+  const child = fs51.existsSync(dockScript) ? spawn6(
     "powershell.exe",
     [
       "-NoLogo",
@@ -56900,15 +56991,15 @@ function launchDockSilently(projectDir) {
   child.unref();
 }
 function gatewayTerminalLockFile(projectDir) {
-  return path51.join(projectDir, ".opencode", "miya", "gateway-terminal.lock.json");
+  return path52.join(projectDir, ".opencode", "miya", "gateway-terminal.lock.json");
 }
 function gatewayTerminalLaunchGuardFile(projectDir) {
-  return path51.join(projectDir, ".opencode", "miya", "gateway-terminal-launch.guard.json");
+  return path52.join(projectDir, ".opencode", "miya", "gateway-terminal-launch.guard.json");
 }
 function writeLastGatewayTerminalLaunchAt(projectDir, atMs) {
   const file3 = gatewayTerminalLaunchGuardFile(projectDir);
-  fs50.mkdirSync(path51.dirname(file3), { recursive: true });
-  fs50.writeFileSync(
+  fs51.mkdirSync(path52.dirname(file3), { recursive: true });
+  fs51.writeFileSync(
     file3,
     `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
 `,
@@ -56917,9 +57008,9 @@ function writeLastGatewayTerminalLaunchAt(projectDir, atMs) {
 }
 function readGatewayTerminalOwnerPid(projectDir) {
   const file3 = gatewayTerminalLockFile(projectDir);
-  if (!fs50.existsSync(file3)) return 0;
+  if (!fs51.existsSync(file3)) return 0;
   try {
-    const parsed = JSON.parse(fs50.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs51.readFileSync(file3, "utf-8"));
     const pid = Number(parsed.pid ?? 0);
     return Number.isFinite(pid) ? pid : 0;
   } catch {
@@ -56955,9 +57046,9 @@ function launchGatewayTerminalDetached(projectDir) {
   const nodeBinary = resolveGatewayTerminalNodeBinary();
   if (!nodeBinary) return;
   const miyaRoot = resolveMiyaRoot(projectDir);
-  const distCli = path51.join(miyaRoot, "dist", "cli", "index.js");
-  const srcCli = path51.join(miyaRoot, "src", "cli", "index.ts");
-  const script = fs50.existsSync(distCli) && fs50.statSync(distCli).isFile() ? `"${nodeBinary}" "${distCli}" gateway terminal --workspace "${projectDir}"` : fs50.existsSync(srcCli) && fs50.statSync(srcCli).isFile() ? `"${nodeBinary}" --import tsx "${srcCli}" gateway terminal --workspace "${projectDir}"` : "";
+  const distCli = path52.join(miyaRoot, "dist", "cli", "index.js");
+  const srcCli = path52.join(miyaRoot, "src", "cli", "index.ts");
+  const script = fs51.existsSync(distCli) && fs51.statSync(distCli).isFile() ? `"${nodeBinary}" "${distCli}" gateway terminal --workspace "${projectDir}"` : fs51.existsSync(srcCli) && fs51.statSync(srcCli).isFile() ? `"${nodeBinary}" --import tsx "${srcCli}" gateway terminal --workspace "${projectDir}"` : "";
   if (!script) return;
   writeLastGatewayTerminalLaunchAt(projectDir, now);
   const cmdLine = `start "miya-gateway" cmd /k ${script}`;
@@ -57484,7 +57575,20 @@ var MiyaPlugin = async (ctx) => {
       }
     },
     event: async (input) => {
+      const auditEnabled = process.env.MIYA_MODEL_EVENT_AUDIT !== "0";
       const selections = extractAgentModelSelectionsFromEvent(input.event);
+      if (auditEnabled && shouldAuditModelEvent(input.event)) {
+        try {
+          appendModelEventAudit(ctx.directory, {
+            event: input.event,
+            selections
+          });
+        } catch (error92) {
+          log("[model-event-audit] append failed", {
+            error: error92 instanceof Error ? error92.message : String(error92)
+          });
+        }
+      }
       for (const modelSelection of selections) {
         const changed = persistAgentRuntimeSelection(ctx.directory, {
           agentName: modelSelection.agentName,

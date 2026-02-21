@@ -14,6 +14,7 @@ import {
   persistAgentRuntimeSelection,
   readPersistedAgentRuntime,
 } from './config/agent-model-persistence';
+import { appendModelEventAudit, shouldAuditModelEvent } from './config/model-event-audit';
 import { parseList } from './config/agent-mcps';
 import {
   createGatewayTools,
@@ -1049,8 +1050,21 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
 
     event: async (input) => {
+      const auditEnabled = process.env.MIYA_MODEL_EVENT_AUDIT !== '0';
       // Handle model/runtime persistence from message, agent switch, and settings-save events.
       const selections = extractAgentModelSelectionsFromEvent(input.event);
+      if (auditEnabled && shouldAuditModelEvent(input.event)) {
+        try {
+          appendModelEventAudit(ctx.directory, {
+            event: input.event,
+            selections,
+          });
+        } catch (error) {
+          log('[model-event-audit] append failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       for (const modelSelection of selections) {
         const changed = persistAgentRuntimeSelection(ctx.directory, {
           agentName: modelSelection.agentName,
