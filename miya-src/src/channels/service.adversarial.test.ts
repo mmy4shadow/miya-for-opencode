@@ -16,6 +16,7 @@ type VisionStubResult = {
   ocrPreview: string;
   uiStyleMismatch: boolean;
   retries: number;
+  lowConfidenceAttempts: number;
   capture: {
     method: 'wgc_hwnd' | 'print_window' | 'dxgi_duplication' | 'uia_only' | 'unknown';
     confidence: number;
@@ -50,6 +51,7 @@ function createRuntime(projectDir: string): ChannelRuntime {
           ocrPreview: '',
           uiStyleMismatch: true,
           retries: 0,
+          lowConfidenceAttempts: 1,
           capture: {
             method: 'uia_only',
             confidence: 0.28,
@@ -209,6 +211,7 @@ describe('channel runtime adversarial cases', () => {
       ocrPreview: '与 other_user 的聊天\\n已发送',
       uiStyleMismatch: false,
       retries: 0,
+      lowConfidenceAttempts: 0,
       capture: {
         method: 'wgc_hwnd',
         confidence: 0.91,
@@ -255,6 +258,7 @@ describe('channel runtime adversarial cases', () => {
       ocrPreview: '与 owner-user 的聊天\\n发送失败',
       uiStyleMismatch: false,
       retries: 0,
+      lowConfidenceAttempts: 0,
       capture: {
         method: 'wgc_hwnd',
         confidence: 0.88,

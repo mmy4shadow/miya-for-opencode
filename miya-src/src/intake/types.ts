@@ -3,6 +3,7 @@ export type IntakeTrigger =
   | 'skill_or_toolchain_change'
   | 'high_risk_action'
   | 'directive_content'
+  | 'read_only_research'
   | 'manual';
 
 export type IntakeScope =

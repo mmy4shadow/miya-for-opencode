@@ -8,7 +8,18 @@ describe('model-event-audit', () => {
   test('captures only model-related event types', () => {
     expect(shouldAuditModelEvent({ type: 'settings.saved' })).toBe(true);
     expect(shouldAuditModelEvent({ type: 'agent.changed' })).toBe(true);
-    expect(shouldAuditModelEvent({ type: 'message.updated' })).toBe(false);
+    expect(
+      shouldAuditModelEvent({
+        type: 'message.updated',
+        properties: {
+          selectedAgent: '5-code-fixer',
+          model: 'openrouter/z-ai/glm-5',
+        },
+      }),
+    ).toBe(true);
+    expect(shouldAuditModelEvent({ type: 'message.updated', properties: { info: { role: 'user' } } })).toBe(
+      false,
+    );
     expect(shouldAuditModelEvent({ type: '' })).toBe(false);
     expect(shouldAuditModelEvent(null)).toBe(false);
   });
@@ -59,4 +70,3 @@ describe('model-event-audit', () => {
     }
   });
 });
-

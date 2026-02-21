@@ -278,6 +278,15 @@ export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
     description: '网页指令型内容是否触发信息闸门。',
   }),
   entry({
+    key: 'intake.policy.silentAuditTrustScoreMin',
+    type: 'number',
+    minimum: 0,
+    maximum: 1,
+    defaultValue: 0.85,
+    risk: 'MED',
+    description: '只读研究来源达到该信任分后改为静默审计。',
+  }),
+  entry({
     key: 'intake.policy.autoWhitelistOnApprove',
     type: 'boolean',
     defaultValue: true,

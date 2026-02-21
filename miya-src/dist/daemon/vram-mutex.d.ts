@@ -23,5 +23,6 @@ export declare class VramMutex {
     }): void;
     unregister(daemonJobID: string): void;
     lowLaneTargets(): VramTaskControl[];
+    preemptTargets(incomingLane: VramTrafficLane): VramTaskControl[];
     hasActiveJob(daemonJobID: string): boolean;
 }

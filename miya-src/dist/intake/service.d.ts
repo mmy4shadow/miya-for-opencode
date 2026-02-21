@@ -34,6 +34,7 @@ export interface IntakeStatsResult {
     rejectedCount: number;
     trialCount: number;
     consideredEvents: number;
+    trustScore: number;
     verdict: 'insufficient_data' | 'hard_deny' | 'downrank' | 'normal';
     recommendedExplorePercent: number;
 }

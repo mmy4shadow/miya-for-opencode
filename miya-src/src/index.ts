@@ -30,6 +30,10 @@ import {
   trackWebsearchToolOutput,
 } from './intake/websearch-guard';
 import {
+  appendShadowSessionLog,
+  shouldRouteToShadowSession,
+} from './sessions/shadow';
+import {
   ensureMiyaLauncher,
   getLauncherDaemonSnapshot,
   subscribeLauncherEvents,
@@ -286,6 +290,25 @@ function readGatewayTerminalOwnerPid(projectDir: string): number {
   }
 }
 
+function gatewayStateFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'gateway.json');
+}
+
+function gatewayOwnerFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'gateway-owner.json');
+}
+
+function readPidFromJson(file: string, key: string): number {
+  if (!fs.existsSync(file)) return 0;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>;
+    const pid = Number(parsed[key] ?? 0);
+    return Number.isFinite(pid) ? pid : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function resolveGatewayTerminalNodeBinary(): string | null {
   const candidates = [
     process.env.MIYA_NODE_BIN?.trim() || null,
@@ -308,6 +331,10 @@ function resolveGatewayTerminalNodeBinary(): string | null {
 
 function launchGatewayTerminalDetached(projectDir: string): void {
   if (process.platform !== 'win32') return;
+  const gatewayStatePid = readPidFromJson(gatewayStateFile(projectDir), 'pid');
+  if (isPidAlive(gatewayStatePid)) return;
+  const gatewayOwnerPid = readPidFromJson(gatewayOwnerFile(projectDir), 'pid');
+  if (isPidAlive(gatewayOwnerPid)) return;
   const lockPid = readGatewayTerminalOwnerPid(projectDir);
   if (isPidAlive(lockPid)) return;
 
@@ -739,6 +766,36 @@ const MiyaPlugin: Plugin = async (ctx) => {
     },
     output: { title: string; output: string; metadata: Record<string, unknown> },
   ) => {
+    if (
+      shouldRouteToShadowSession({
+        tool: input.tool,
+        output: output.output,
+      })
+    ) {
+      const archivePath = appendShadowSessionLog({
+        projectDir: ctx.directory,
+        sessionID: input.sessionID,
+        tool: input.tool,
+        callID: input.callID,
+        output: output.output,
+      });
+      const tail = String(output.output ?? '')
+        .split(/\r?\n/)
+        .slice(-4)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 280);
+      output.output = [
+        'shadow_session=true',
+        `archive=${archivePath}`,
+        `tool=${input.tool}`,
+        `chars=${String(output.output ?? '').length}`,
+        tail ? `tail=${tail}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    }
     await postReadNudgeHook['tool.execute.after'](input, output);
     if (postWriteSimplicityEnabled) {
       await postWriteSimplicityHook['tool.execute.after'](input, output);

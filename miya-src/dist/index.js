@@ -3047,7 +3047,7 @@ var require_main = __commonJS({
     var ril_1 = require_ril();
     ril_1.default.install();
     var path53 = __require("path");
-    var os9 = __require("os");
+    var os10 = __require("os");
     var crypto_1 = __require("crypto");
     var net_1 = __require("net");
     var api_1 = require_api();
@@ -3184,7 +3184,7 @@ var require_main = __commonJS({
       if (XDG_RUNTIME_DIR) {
         result = path53.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
       } else {
-        result = path53.join(os9.tmpdir(), `vscode-${randomSuffix}.sock`);
+        result = path53.join(os10.tmpdir(), `vscode-${randomSuffix}.sock`);
       }
       const limit = safeIpcPathLengths.get(process.platform);
       if (limit !== void 0 && result.length > limit) {
@@ -4108,7 +4108,7 @@ function parseAgentPatchSet(setMap, source, activeAgentHint) {
       break;
     }
   }
-  const activeAgentFromHint = normalizeAgentName(String(defaultAgentFromPatch || activeAgentHint || "")) ?? void 0;
+  const activeAgentFromHint = normalizeAgentName(String(activeAgentHint || defaultAgentFromPatch || "")) ?? void 0;
   const getOrCreateDraft = (agentNameRaw) => {
     const agentName = normalizeAgentName(agentNameRaw);
     if (!agentName) return null;
@@ -4322,7 +4322,7 @@ function extractAgentModelSelectionsFromEvent(event) {
   ].includes(eventType)) {
     const info = isObject(properties.info) ? properties.info : {};
     const activeAgentHint = String(
-      properties.activeAgent ?? properties.currentAgent ?? properties.selectedAgent ?? properties.agent ?? properties.defaultAgent ?? properties.default_agent ?? info.activeAgent ?? info.currentAgent ?? info.selectedAgent ?? info.agent ?? info.defaultAgent ?? info.default_agent ?? ""
+      properties.activeAgent ?? properties.currentAgent ?? properties.selectedAgent ?? properties.agent ?? info.activeAgent ?? info.currentAgent ?? info.selectedAgent ?? info.agent ?? ""
     );
     const patchRaw = properties.patch;
     if (isObject(patchRaw) && isObject(patchRaw.set)) {
@@ -20812,6 +20812,7 @@ var TmuxSessionManager = class {
 
 // src/config/model-event-audit.ts
 import * as fs9 from "node:fs";
+import * as os5 from "node:os";
 import * as path11 from "node:path";
 import { randomUUID } from "node:crypto";
 var MAX_AUDIT_FILE_BYTES = 5 * 1024 * 1024;
@@ -20833,14 +20834,64 @@ var MODEL_EVENT_KEYWORDS = [
   "provider",
   "session.agent"
 ];
+var MODEL_SIGNAL_KEYWORDS = [
+  "model",
+  "provider",
+  "agent",
+  "default_agent",
+  "defaultagent",
+  "selectedagent",
+  "activeagent",
+  "currentagent",
+  "baseurl",
+  "apikey"
+];
+function textHasModelSignal(value) {
+  const lowered = value.trim().toLowerCase();
+  if (!lowered) return false;
+  return MODEL_SIGNAL_KEYWORDS.some((keyword) => lowered.includes(keyword));
+}
+function containsModelSignal(value, depth = 0) {
+  if (value === null || typeof value === "undefined") return false;
+  if (depth > 6) return false;
+  if (typeof value === "string") return textHasModelSignal(value);
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => containsModelSignal(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      if (textHasModelSignal(key)) return true;
+      if (containsModelSignal(item, depth + 1)) return true;
+    }
+  }
+  return false;
+}
 function shouldAuditModelEvent(event) {
   if (!event || typeof event !== "object" || Array.isArray(event)) return false;
   const eventType = String(event.type ?? "").trim().toLowerCase();
-  if (!eventType) return false;
-  return MODEL_EVENT_KEYWORDS.some((keyword) => eventType.includes(keyword));
+  if (eventType && MODEL_EVENT_KEYWORDS.some((keyword) => eventType.includes(keyword))) {
+    return true;
+  }
+  return containsModelSignal(event.properties ?? event);
 }
-function auditFile(projectDir) {
-  return path11.join(getMiyaRuntimeDir(projectDir), "audit", "model-event-frames.jsonl");
+function shouldMirrorHomeAudit() {
+  const envValue = String(process.env.MIYA_MODEL_EVENT_AUDIT_MIRROR_HOME ?? "").trim();
+  if (envValue === "1") return true;
+  if (envValue === "0") return false;
+  return process.platform === "win32";
+}
+function auditFiles(projectDir) {
+  const runtimeFile3 = path11.join(getMiyaRuntimeDir(projectDir), "audit", "model-event-frames.jsonl");
+  const candidates = [runtimeFile3];
+  if (shouldMirrorHomeAudit()) {
+    candidates.push(
+      path11.join(os5.homedir(), ".opencode", "miya", "audit", "model-event-frames.jsonl")
+    );
+  }
+  return Array.from(new Set(candidates));
 }
 function rotateAuditFile(file3) {
   if (!fs9.existsSync(file3)) return;
@@ -20884,9 +20935,6 @@ function sanitizeForAudit(value, depth = 0, visited = /* @__PURE__ */ new WeakSe
   return String(value);
 }
 function appendModelEventAudit(projectDir, input) {
-  const file3 = auditFile(projectDir);
-  fs9.mkdirSync(path11.dirname(file3), { recursive: true });
-  rotateAuditFile(file3);
   const eventType = input.event && typeof input.event === "object" ? String(input.event.type ?? "") : "";
   const payload = {
     id: `mevt_${randomUUID()}`,
@@ -20897,8 +20945,12 @@ function appendModelEventAudit(projectDir, input) {
     extractedSelections: sanitizeForAudit(input.selections ?? []),
     event: sanitizeForAudit(input.event)
   };
-  fs9.appendFileSync(file3, `${JSON.stringify(payload)}
+  for (const file3 of auditFiles(projectDir)) {
+    fs9.mkdirSync(path11.dirname(file3), { recursive: true });
+    rotateAuditFile(file3);
+    fs9.appendFileSync(file3, `${JSON.stringify(payload)}
 `, "utf-8");
+  }
 }
 
 // node_modules/@opencode-ai/plugin/node_modules/zod/v4/classic/external.js
@@ -33328,7 +33380,7 @@ import { spawnSync as spawnSync7 } from "node:child_process";
 import { createHash as createHash15, randomUUID as randomUUID19 } from "node:crypto";
 import * as fs48 from "node:fs";
 import { createServer } from "node:http";
-import * as os8 from "node:os";
+import * as os9 from "node:os";
 import * as path49 from "node:path";
 import WebSocket2, { WebSocketServer } from "ws";
 
@@ -33687,7 +33739,7 @@ async function sendWechatDesktopMessage(input) {
 
 // src/multimodal/vision.ts
 import * as fs14 from "node:fs";
-import * as os5 from "node:os";
+import * as os6 from "node:os";
 
 // src/media/store.ts
 import * as fs12 from "node:fs";
@@ -34412,7 +34464,7 @@ async function analyzeVision(projectDir, input) {
       mimeType: media.mimeType,
       localPath: media.localPath,
       metadata: media.metadata ?? {},
-      host: os5.hostname()
+      host: os6.hostname()
     }
   };
 }
@@ -35879,7 +35931,7 @@ function nowIso7() {
 function stateFile(projectDir) {
   return path18.join(getMiyaRuntimeDir(projectDir), "safety-state.json");
 }
-function auditFile2(projectDir) {
+function auditFile(projectDir) {
   return path18.join(getMiyaRuntimeDir(projectDir), "safety-state-audit.jsonl");
 }
 function ensureDir8(filePath14) {
@@ -35929,7 +35981,7 @@ function readSafetyState(projectDir) {
   }
 }
 function appendAudit(projectDir, row) {
-  const file3 = auditFile2(projectDir);
+  const file3 = auditFile(projectDir);
   ensureDir8(file3);
   fs18.appendFileSync(file3, `${JSON.stringify(row)}
 `, "utf-8");
@@ -36933,6 +36985,15 @@ var SETTINGS_REGISTRY = [
     defaultValue: true,
     risk: "HIGH",
     description: "\u7F51\u9875\u6307\u4EE4\u578B\u5185\u5BB9\u662F\u5426\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
+  }),
+  entry({
+    key: "intake.policy.silentAuditTrustScoreMin",
+    type: "number",
+    minimum: 0,
+    maximum: 1,
+    defaultValue: 0.85,
+    risk: "MED",
+    description: "\u53EA\u8BFB\u7814\u7A76\u6765\u6E90\u8FBE\u5230\u8BE5\u4FE1\u4EFB\u5206\u540E\u6539\u4E3A\u9759\u9ED8\u5BA1\u8BA1\u3002"
   }),
   entry({
     key: "intake.policy.autoWhitelistOnApprove",
@@ -42494,9 +42555,13 @@ function clampNonNegative(value) {
   return Math.floor(value);
 }
 function calculateVramBudget(input) {
+  const loadedVramMB = input.snapshot.loadedModels.reduce(
+    (sum, model) => sum + clampNonNegative(model.vramMB),
+    0
+  );
   const availableMB = Math.max(
     0,
-    clampNonNegative(input.snapshot.totalVramMB) - clampNonNegative(input.snapshot.safetyMarginMB) - clampNonNegative(input.snapshot.usedVramMB)
+    clampNonNegative(input.snapshot.totalVramMB) - clampNonNegative(input.snapshot.safetyMarginMB) - clampNonNegative(input.snapshot.usedVramMB) - loadedVramMB
   );
   const loaded = new Map(
     input.snapshot.loadedModels.map((model) => [model.modelID, clampNonNegative(model.vramMB)])
@@ -43731,7 +43796,7 @@ function getRouterSessionState(projectDir, sessionID2) {
 
 // src/skills/loader.ts
 import * as fs41 from "node:fs";
-import * as os6 from "node:os";
+import * as os7 from "node:os";
 import * as path42 from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
@@ -43856,7 +43921,7 @@ function enforcePermissionMetadataGate(source, frontmatter, gate) {
 }
 function discoverSkills(projectDir, extraDirs = []) {
   const workspaceRoot = path42.join(projectDir, "skills");
-  const globalRoot = path42.join(os6.homedir(), ".config", "opencode", "miya", "skills");
+  const globalRoot = path42.join(os7.homedir(), ".config", "opencode", "miya", "skills");
   const scopedDirs = [
     { source: "workspace", dirs: listSkillDirs(workspaceRoot) },
     { source: "global", dirs: listSkillDirs(globalRoot) },
@@ -43962,7 +44027,7 @@ function setSkillEnabled(projectDir, skillID, enabled) {
 // src/skills/sync.ts
 import { createHash as createHash13 } from "node:crypto";
 import * as fs43 from "node:fs";
-import * as os7 from "node:os";
+import * as os8 from "node:os";
 import * as path44 from "node:path";
 var DEFAULT_STATE3 = {
   version: 1,
@@ -44029,7 +44094,7 @@ function normalizeText5(value) {
 function defaultSourceRoots(projectDir) {
   return [
     path44.join(projectDir, "skills"),
-    path44.join(os7.homedir(), ".config", "opencode", "miya", "skills")
+    path44.join(os8.homedir(), ".config", "opencode", "miya", "skills")
   ];
 }
 function listSkillReposFromRoot(rootDir) {
@@ -46935,6 +47000,48 @@ var dependencies = /* @__PURE__ */ new Map();
 var ownerTokens = /* @__PURE__ */ new Map();
 var controlUiFallbackLoggedAtByDir = /* @__PURE__ */ new Map();
 var followerRecoveryTimers = /* @__PURE__ */ new Map();
+function fallbackMemorySqliteStats(projectDir) {
+  return {
+    sqlitePath: path49.join(getMiyaRuntimeDir(projectDir), "memory", "memories.sqlite"),
+    memoryCount: 0,
+    candidateCount: 0,
+    activeCount: 0,
+    vectorCount: 0,
+    graphCount: 0,
+    rawLogCount: 0,
+    pendingRawLogCount: 0,
+    evidenceCount: 0,
+    eventCount: 0
+  };
+}
+function readMemoryObservability(projectDir) {
+  const sqlite = (() => {
+    try {
+      return getCompanionMemorySqliteStats(projectDir);
+    } catch (error92) {
+      log("[gateway] memory sqlite stats degraded", {
+        projectDir,
+        error: error92 instanceof Error ? error92.message : String(error92)
+      });
+      return fallbackMemorySqliteStats(projectDir);
+    }
+  })();
+  const pendingVectors = (() => {
+    try {
+      return listPendingCompanionMemoryVectors(projectDir).length;
+    } catch (error92) {
+      log("[gateway] memory pending vectors degraded", {
+        projectDir,
+        error: error92 instanceof Error ? error92.message : String(error92)
+      });
+      return 0;
+    }
+  })();
+  return {
+    sqlite,
+    pendingVectors
+  };
+}
 function nowIso29() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
@@ -47685,8 +47792,8 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
       command: spec.command,
       args,
       timeoutMs: 45e3,
-      resource: { priority: 90, vramMB: 256, modelID: "local:eres2net", modelVramMB: 512 },
-      metadata: { stage: "security.voiceprint.verify", audioPath }
+      resource: { priority: 90, vramMB: 0, modelID: "local:eres2net", modelVramMB: 0 },
+      metadata: { stage: "security.voiceprint.verify", audioPath, compute: "cpu" }
     });
     if (result.exitCode !== 0) {
       return {
@@ -48509,8 +48616,7 @@ function buildSnapshot(projectDir, runtime) {
   const routingMode = readRouterModeConfig(projectDir);
   const routingCost = getRouteCostSummary(projectDir, 500);
   const routingRecent = listRouteCostRecords(projectDir, 20);
-  const memorySqlite = getCompanionMemorySqliteStats(projectDir);
-  const memoryPendingVectors = listPendingCompanionMemoryVectors(projectDir).length;
+  const memoryObservability = readMemoryObservability(projectDir);
   const learningStats = getLearningStats(projectDir);
   const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
     id: item.id,
@@ -48664,8 +48770,8 @@ function buildSnapshot(projectDir, runtime) {
       gateway: runtime.methods.stats(),
       daemon: getLauncherBackpressureStats(projectDir),
       memory: {
-        sqlite: memorySqlite,
-        pendingVectors: memoryPendingVectors
+        sqlite: memoryObservability.sqlite,
+        pendingVectors: memoryObservability.pendingVectors
       },
       router: routingCost
     },
@@ -50124,7 +50230,7 @@ function createMethods(projectDir, runtime) {
       patterns: [`repo=${repo}`]
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
-    const root = path49.join(os8.homedir(), ".config", "opencode", "miya", "skills");
+    const root = path49.join(os9.homedir(), ".config", "opencode", "miya", "skills");
     fs48.mkdirSync(root, { recursive: true });
     const name = targetName || repo.split("/").filter(Boolean).pop()?.replace(/\.git$/i, "") || `skill-${Date.now().toString(36)}`;
     const target = path49.join(root, name);
@@ -51145,15 +51251,15 @@ function ensureGatewayRunning(projectDir) {
   }, 5e3);
   runtime.memoryReflectTimer = setInterval(() => {
     const reflected = maybeAutoReflectCompanionMemory(projectDir, {
-      idleMinutes: 5,
-      minPendingLogs: 1,
-      cooldownMinutes: 3,
-      maxLogs: 120
+      idleMinutes: 60,
+      minPendingLogs: 200,
+      cooldownMinutes: 12 * 60,
+      maxLogs: 500
     });
     if (reflected) {
       syncCompanionProfileMemoryFacts(projectDir);
     }
-  }, 2e4);
+  }, 5 * 60 * 1e3);
   runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === "job.progress") {
@@ -51482,6 +51588,13 @@ function readIntakeConfig(projectDir) {
         Math.trunc(asNum(config3["intake.stats.downrankExplorePercent"], 30))
       )
     ),
+    silentAuditTrustScoreMin: Math.max(
+      0,
+      Math.min(
+        1,
+        asNum(config3["intake.policy.silentAuditTrustScoreMin"], 0.85)
+      )
+    ),
     sourceUnit: asSourceUnit(
       config3["intake.stats.sourceUnit"],
       "DOMAIN_PATH_PREFIX"
@@ -51629,6 +51742,7 @@ function evaluateStatsForEvents(config3, sourceUnitKey, events) {
   const rejectedCount = window.filter((event) => event.outcome === "rejected").length;
   const trialCount = window.filter((event) => event.outcome === "trial").length;
   const considered = usefulCount + rejectedCount;
+  const trustScore = considered > 0 ? usefulCount / considered : 0;
   let verdict = "insufficient_data";
   let explorePercent = 100;
   if (considered >= config3.windowN) {
@@ -51650,6 +51764,7 @@ function evaluateStatsForEvents(config3, sourceUnitKey, events) {
     rejectedCount,
     trialCount,
     consideredEvents: considered,
+    trustScore,
     verdict,
     recommendedExplorePercent: explorePercent
   };
@@ -51720,6 +51835,40 @@ function proposeIntake(projectDir, input) {
     state2.proposals.unshift(proposal2);
     writeIntakeState(projectDir, state2);
     return { status: "auto_allowed", proposal: proposal2, matchedRule: whiteRule, stats };
+  }
+  if (input.trigger === "directive_content" && stats.consideredEvents >= Math.max(3, Math.floor(config3.windowN / 2)) && stats.trustScore >= config3.silentAuditTrustScoreMin) {
+    const proposal2 = {
+      id: createIntakeId("intake"),
+      status: "auto_allowed",
+      trigger: input.trigger,
+      source: source.source,
+      sourceFingerprint: source.fingerprint,
+      sourceUnitKey: source.sourceUnitKey,
+      summaryPoints: safeArray(input.summaryPoints, 3),
+      originalPlan: (input.originalPlan ?? "").trim(),
+      suggestedChange: (input.suggestedChange ?? "").trim(),
+      benefits: safeArray(input.benefits),
+      risks: safeArray(input.risks),
+      evidence: safeArray(input.evidence, 20),
+      proposedChanges: input.proposedChanges,
+      requestedAt: nowIso30(),
+      resolvedAt: nowIso30(),
+      resolution: {
+        decision: "auto_allowed_by_silent_threshold",
+        scope: "DOMAIN",
+        reason: `trust_score=${stats.trustScore.toFixed(2)}`
+      }
+    };
+    state2.proposals.unshift(proposal2);
+    appendEvent(state2, {
+      proposalId: proposal2.id,
+      sourceUnitKey: proposal2.sourceUnitKey,
+      sourceFingerprint: proposal2.sourceFingerprint,
+      outcome: "useful",
+      decision: "auto_allowed_by_silent_threshold"
+    });
+    writeIntakeState(projectDir, state2);
+    return { status: "auto_allowed", proposal: proposal2, stats };
   }
   const proposal = {
     id: createIntakeId("intake"),
@@ -52906,7 +53055,7 @@ import { dirname as dirname35, join as join50 } from "node:path";
 // src/tools/ast-grep/downloader.ts
 import { chmodSync, existsSync as existsSync45, mkdirSync as mkdirSync41, promises as fsPromises, unlinkSync as unlinkSync4 } from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
-import { homedir as homedir7 } from "node:os";
+import { homedir as homedir8 } from "node:os";
 import { join as join49 } from "node:path";
 var REPO = "ast-grep/ast-grep";
 var DEFAULT_VERSION = "0.40.0";
@@ -52931,11 +53080,11 @@ var PLATFORM_MAP = {
 function getCacheDir() {
   if (process.platform === "win32") {
     const localAppData = process.env.LOCALAPPDATA || process.env.APPDATA;
-    const base2 = localAppData || join49(homedir7(), "AppData", "Local");
+    const base2 = localAppData || join49(homedir8(), "AppData", "Local");
     return join49(base2, "miya", "bin");
   }
   const xdgCache = process.env.XDG_CACHE_HOME;
-  const base = xdgCache || join49(homedir7(), ".cache");
+  const base = xdgCache || join49(homedir8(), ".cache");
   return join49(base, "miya", "bin");
 }
 function getBinaryName() {
@@ -52960,8 +53109,8 @@ async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   if (existsSync45(binaryPath)) {
     return binaryPath;
   }
-  const { arch, os: os9 } = platformInfo;
-  const assetName = `app-${arch}-${os9}.zip`;
+  const { arch, os: os10 } = platformInfo;
+  const assetName = `app-${arch}-${os10}.zip`;
   const downloadUrl = `https://github.com/${REPO}/releases/download/${version3}/${assetName}`;
   console.log("[miya] Downloading ast-grep binary...");
   try {
@@ -55311,7 +55460,7 @@ import { pathToFileURL } from "node:url";
 
 // src/tools/lsp/config.ts
 import { existsSync as existsSync50 } from "node:fs";
-import { homedir as homedir8 } from "node:os";
+import { homedir as homedir9 } from "node:os";
 import { join as join53 } from "node:path";
 
 // src/tools/lsp/constants.ts
@@ -55479,7 +55628,7 @@ function isServerInstalled(command) {
   if (existsSync50(localBin) || existsSync50(localBin + ext)) {
     return true;
   }
-  const globalBin = join53(homedir8(), ".config", "opencode", "bin", cmd);
+  const globalBin = join53(homedir9(), ".config", "opencode", "bin", cmd);
   if (existsSync50(globalBin) || existsSync50(globalBin + ext)) {
     return true;
   }
@@ -57017,6 +57166,22 @@ function readGatewayTerminalOwnerPid(projectDir) {
     return 0;
   }
 }
+function gatewayStateFile(projectDir) {
+  return path52.join(projectDir, ".opencode", "miya", "gateway.json");
+}
+function gatewayOwnerFile(projectDir) {
+  return path52.join(projectDir, ".opencode", "miya", "gateway-owner.json");
+}
+function readPidFromJson(file3, key) {
+  if (!fs51.existsSync(file3)) return 0;
+  try {
+    const parsed = JSON.parse(fs51.readFileSync(file3, "utf-8"));
+    const pid = Number(parsed[key] ?? 0);
+    return Number.isFinite(pid) ? pid : 0;
+  } catch {
+    return 0;
+  }
+}
 function resolveGatewayTerminalNodeBinary() {
   const candidates = [
     process.env.MIYA_NODE_BIN?.trim() || null,
@@ -57038,6 +57203,10 @@ function resolveGatewayTerminalNodeBinary() {
 }
 function launchGatewayTerminalDetached(projectDir) {
   if (process.platform !== "win32") return;
+  const gatewayStatePid = readPidFromJson(gatewayStateFile(projectDir), "pid");
+  if (isPidAlive2(gatewayStatePid)) return;
+  const gatewayOwnerPid = readPidFromJson(gatewayOwnerFile(projectDir), "pid");
+  if (isPidAlive2(gatewayOwnerPid)) return;
   const lockPid = readGatewayTerminalOwnerPid(projectDir);
   if (isPidAlive2(lockPid)) return;
   const now = Date.now();

@@ -10,6 +10,8 @@ export interface SafetyPermissionRequest {
   messageID?: string;
 }
 
+export type SideEffectReversibility = 'none' | 'reversible' | 'irreversible';
+
 const IRREVERSIBLE_BASH_PATTERNS: RegExp[] = [
   /\bgit\s+push\b/i,
   /\bgit\s+remote\s+set-url\b/i,
@@ -38,6 +40,15 @@ const SENSITIVE_PATH_PATTERNS: RegExp[] = [
   /token/i,
 ];
 
+const READ_ONLY_BASH_PATTERNS: RegExp[] = [
+  /^\s*(ls|dir)\b/i,
+  /^\s*(cat|type)\b/i,
+  /^\s*(grep|rg|findstr)\b/i,
+  /^\s*(pwd|cd)\b/i,
+  /^\s*(echo)\b/i,
+  /^\s*git\s+(status|log|show|diff)\b/i,
+];
+
 function normalizePattern(pattern: string): string {
   return pattern.trim().replaceAll('\\', '/');
 }
@@ -45,6 +56,13 @@ function normalizePattern(pattern: string): string {
 function hasIrreversiblePattern(patterns: string[]): boolean {
   return patterns.some((pattern) =>
     IRREVERSIBLE_BASH_PATTERNS.some((rule) => rule.test(pattern)),
+  );
+}
+
+function isReadOnlyShellPattern(patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  return patterns.every((pattern) =>
+    READ_ONLY_BASH_PATTERNS.some((rule) => rule.test(pattern.trim())),
   );
 }
 
@@ -76,10 +94,39 @@ export function isSideEffectPermission(permission: string): boolean {
   );
 }
 
+export function classifySideEffect(
+  request: Pick<SafetyPermissionRequest, 'permission' | 'patterns'>,
+): {
+  sideEffect: boolean;
+  reversibility: SideEffectReversibility;
+} {
+  if (!isSideEffectPermission(request.permission)) {
+    return { sideEffect: false, reversibility: 'none' };
+  }
+  const patterns = request.patterns.map(normalizePattern);
+  if (request.permission === 'bash') {
+    if (isReadOnlyShellPattern(patterns)) {
+      return { sideEffect: true, reversibility: 'reversible' };
+    }
+    return {
+      sideEffect: true,
+      reversibility: hasIrreversiblePattern(patterns) ? 'irreversible' : 'reversible',
+    };
+  }
+  if (request.permission === 'edit') {
+    return {
+      sideEffect: true,
+      reversibility: hasIrreversibleEditPattern(patterns) ? 'irreversible' : 'reversible',
+    };
+  }
+  return { sideEffect: true, reversibility: 'irreversible' };
+}
+
 export function requiredTierForRequest(
   request: Pick<SafetyPermissionRequest, 'permission' | 'patterns'>,
 ): SafetyTier {
   const patterns = request.patterns.map(normalizePattern);
+  const sideEffect = classifySideEffect(request);
 
   if (request.permission === 'external_directory') return 'THOROUGH';
   if (request.permission === 'external_message') return 'THOROUGH';
@@ -98,7 +145,7 @@ export function requiredTierForRequest(
   if (request.permission === 'skills_install') return 'THOROUGH';
   if (request.permission === 'webhook_outbound') return 'THOROUGH';
   if (request.permission === 'bash') {
-    return hasIrreversiblePattern(patterns) ? 'THOROUGH' : 'STANDARD';
+    return sideEffect.reversibility === 'irreversible' ? 'THOROUGH' : 'STANDARD';
   }
   if (request.permission === 'edit') {
     if (hasSensitivePath(patterns) || hasIrreversibleEditPattern(patterns)) {

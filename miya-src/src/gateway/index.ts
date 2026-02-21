@@ -538,6 +538,57 @@ interface GatewayOwnerLock {
   startedAt: string;
 }
 
+function fallbackMemorySqliteStats(
+  projectDir: string,
+): ReturnType<typeof getCompanionMemorySqliteStats> {
+  return {
+    sqlitePath: path.join(getMiyaRuntimeDir(projectDir), 'memory', 'memories.sqlite'),
+    memoryCount: 0,
+    candidateCount: 0,
+    activeCount: 0,
+    vectorCount: 0,
+    graphCount: 0,
+    rawLogCount: 0,
+    pendingRawLogCount: 0,
+    evidenceCount: 0,
+    eventCount: 0,
+  };
+}
+
+function readMemoryObservability(projectDir: string): {
+  sqlite: ReturnType<typeof getCompanionMemorySqliteStats>;
+  pendingVectors: number;
+} {
+  const sqlite = (() => {
+    try {
+      return getCompanionMemorySqliteStats(projectDir);
+    } catch (error) {
+      log('[gateway] memory sqlite stats degraded', {
+        projectDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return fallbackMemorySqliteStats(projectDir);
+    }
+  })();
+
+  const pendingVectors = (() => {
+    try {
+      return listPendingCompanionMemoryVectors(projectDir).length;
+    } catch (error) {
+      log('[gateway] memory pending vectors degraded', {
+        projectDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 0;
+    }
+  })();
+
+  return {
+    sqlite,
+    pendingVectors,
+  };
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -1468,8 +1519,8 @@ async function verifyVoiceprintWithLocalModel(
       command: spec.command,
       args,
       timeoutMs: 45_000,
-      resource: { priority: 90, vramMB: 256, modelID: 'local:eres2net', modelVramMB: 512 },
-      metadata: { stage: 'security.voiceprint.verify', audioPath },
+      resource: { priority: 90, vramMB: 0, modelID: 'local:eres2net', modelVramMB: 0 },
+      metadata: { stage: 'security.voiceprint.verify', audioPath, compute: 'cpu' },
     });
     if (result.exitCode !== 0) {
       return {
@@ -2500,8 +2551,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const routingMode = readRouterModeConfig(projectDir);
   const routingCost = getRouteCostSummary(projectDir, 500);
   const routingRecent = listRouteCostRecords(projectDir, 20);
-  const memorySqlite = getCompanionMemorySqliteStats(projectDir);
-  const memoryPendingVectors = listPendingCompanionMemoryVectors(projectDir).length;
+  const memoryObservability = readMemoryObservability(projectDir);
   const learningStats = getLearningStats(projectDir);
   const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
     id: item.id,
@@ -2676,8 +2726,8 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
       gateway: runtime.methods.stats(),
       daemon: getLauncherBackpressureStats(projectDir),
       memory: {
-        sqlite: memorySqlite,
-        pendingVectors: memoryPendingVectors,
+        sqlite: memoryObservability.sqlite,
+        pendingVectors: memoryObservability.pendingVectors,
       },
       router: routingCost,
     },
@@ -5683,15 +5733,15 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
   runtime.memoryReflectTimer = setInterval(() => {
     // MemoryWorker: consolidate short-term logs after idle periods.
     const reflected = maybeAutoReflectCompanionMemory(projectDir, {
-      idleMinutes: 5,
-      minPendingLogs: 1,
-      cooldownMinutes: 3,
-      maxLogs: 120,
+      idleMinutes: 60,
+      minPendingLogs: 200,
+      cooldownMinutes: 12 * 60,
+      maxLogs: 500,
     });
     if (reflected) {
       syncCompanionProfileMemoryFacts(projectDir);
     }
-  }, 20_000);
+  }, 5 * 60 * 1000);
   runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === 'job.progress') {

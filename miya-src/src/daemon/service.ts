@@ -50,6 +50,31 @@ function nowIso(): string {
 }
 
 const MAX_VRAM_HARD_LIMIT_MB = 8192;
+const VRAM_BUDGET_SAFETY_BUFFER_MB = 1024;
+const PREEMPT_GRACE_MS = Math.max(
+  200,
+  Math.min(
+    3_000,
+    Number.parseInt(process.env.MIYA_VRAM_PREEMPT_GRACE_MS ?? '450', 10) || 450,
+  ),
+);
+const VRAM_LEDGER_MODEL_MB: Record<string, number> = {
+  'local:flux.1-schnell': 4096,
+  'local:gpt-sovits-v2pro': 3072,
+  'local:qwen3vl-4b': 2816,
+  'local:qwen3vl-4b-instruct-q4_k_m': 2816,
+  'local:whisper': 1536,
+  // 主人声纹/VAD链路默认走 CPU，不占用显存账本。
+  'local:eres2net': 0,
+};
+const VRAM_LEDGER_TASK_MB: Partial<Record<ResourceTaskKind, number>> = {
+  'image.generate': 1536,
+  'vision.analyze': 768,
+  'voice.tts': 768,
+  'voice.asr': 0,
+  'training.image': 2048,
+  'training.voice': 1536,
+};
 
 type ModelTier = 'lora' | 'embedding' | 'reference';
 
@@ -236,7 +261,7 @@ export class MiyaDaemonService {
     for (const trainingJobID of this.activeTrainingJobIDs) {
       this.requestTrainingCancel(trainingJobID);
     }
-    const targets = this.vramMutex.lowLaneTargets();
+    const targets = this.vramMutex.preemptTargets(input.lane);
     if (targets.length === 0) return;
     for (const target of targets) {
       this.emitProgress({
@@ -253,7 +278,7 @@ export class MiyaDaemonService {
         this.requestTrainingCancel(target.trainingJobID);
       }
     }
-    await delay(2_000);
+    await delay(PREEMPT_GRACE_MS);
     for (const target of targets) {
       if (!this.vramMutex.hasActiveJob(target.daemonJobID)) continue;
       this.emitProgress({
@@ -270,6 +295,20 @@ export class MiyaDaemonService {
         this.requestTrainingCancel(target.trainingJobID);
       }
     }
+  }
+
+  private estimateLedgerRequiredVramMB(input: {
+    kind: ResourceTaskKind;
+    requestedTaskVramMB: number;
+    requestedModelVramMB: number;
+    modelID?: string;
+  }): number {
+    const fromTask = Math.max(0, input.requestedTaskVramMB);
+    const fromModel = Math.max(0, input.requestedModelVramMB);
+    const modelKey = String(input.modelID ?? '').trim().toLowerCase();
+    const ledgerModel = modelKey ? (VRAM_LEDGER_MODEL_MB[modelKey] ?? 0) : 0;
+    const ledgerTask = VRAM_LEDGER_TASK_MB[input.kind] ?? 0;
+    return Math.max(fromTask + fromModel, ledgerTask + ledgerModel);
   }
 
   private getPythonRuntime(): PythonRuntimeStatus {
@@ -354,10 +393,10 @@ export class MiyaDaemonService {
     generatedTriplets?: number;
   } {
     const reflected = maybeAutoReflectCompanionMemory(this.projectDir, {
-      idleMinutes: 5,
-      minPendingLogs: 1,
-      cooldownMinutes: 3,
-      maxLogs: 120,
+      idleMinutes: 60,
+      minPendingLogs: 200,
+      cooldownMinutes: 12 * 60,
+      maxLogs: 500,
     });
     if (!reflected) return { triggered: false };
     return {
@@ -543,6 +582,29 @@ export class MiyaDaemonService {
     );
     if (normalizedVramMB + normalizedModelVramMB > MAX_VRAM_HARD_LIMIT_MB) {
       throw new Error('vram_hard_limit_exceeded_8gb');
+    }
+    const snapshot = scheduler.snapshot();
+    const loadedVramMB = snapshot.loadedModels.reduce(
+      (sum, model) => sum + Math.max(0, Math.floor(model.vramMB)),
+      0,
+    );
+    const currentFreeVramMB = Math.max(
+      0,
+      Math.floor(snapshot.totalVramMB) -
+        Math.floor(snapshot.safetyMarginMB) -
+        Math.floor(snapshot.usedVramMB) -
+        loadedVramMB,
+    );
+    const requiredVramMB = this.estimateLedgerRequiredVramMB({
+      kind: input.kind,
+      requestedTaskVramMB: normalizedVramMB,
+      requestedModelVramMB: normalizedModelVramMB,
+      modelID: input.resource?.modelID,
+    });
+    if (currentFreeVramMB - requiredVramMB < VRAM_BUDGET_SAFETY_BUFFER_MB) {
+      throw new Error(
+        `VRAM_BUDGET_EXCEEDED:free=${currentFreeVramMB}:required=${requiredVramMB}:margin=${VRAM_BUDGET_SAFETY_BUFFER_MB}`,
+      );
     }
     const lease = await scheduler.acquire({
       kind: input.kind,

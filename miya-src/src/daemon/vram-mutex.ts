@@ -59,6 +59,18 @@ export class VramMutex {
     return [...this.active.values()].filter((item) => item.lane === 'low');
   }
 
+  preemptTargets(incomingLane: VramTrafficLane): VramTaskControl[] {
+    if (incomingLane === 'critical') {
+      return [...this.active.values()].filter(
+        (item) => item.lane === 'low' || item.lane === 'high',
+      );
+    }
+    if (incomingLane === 'high') {
+      return [...this.active.values()].filter((item) => item.lane === 'low');
+    }
+    return [];
+  }
+
   hasActiveJob(daemonJobID: string): boolean {
     return this.active.has(daemonJobID);
   }

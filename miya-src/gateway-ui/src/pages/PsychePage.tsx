@@ -330,8 +330,8 @@ export const PsychePage = React.memo(function PsychePage() {
   const { snapshot, loading } = useGateway();
 
   const handleSave = useCallback(async (config: PsycheModeConfig) => {
+    void config;
     // TODO: Call gateway RPC to save configuration
-    console.log('Saving Psyche config:', config);
     // await gatewayClient.request('setPsycheMode', config);
   }, []);
 

@@ -16,11 +16,16 @@ export function calculateVramBudget(input: {
   task: VramBudgetTaskInput;
   models: VramBudgetModelInput[];
 }): VramBudgetPlan {
+  const loadedVramMB = input.snapshot.loadedModels.reduce(
+    (sum, model) => sum + clampNonNegative(model.vramMB),
+    0,
+  );
   const availableMB = Math.max(
     0,
     clampNonNegative(input.snapshot.totalVramMB) -
       clampNonNegative(input.snapshot.safetyMarginMB) -
-      clampNonNegative(input.snapshot.usedVramMB),
+      clampNonNegative(input.snapshot.usedVramMB) -
+      loadedVramMB,
   );
 
   const loaded = new Map(

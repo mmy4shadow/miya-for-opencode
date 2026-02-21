@@ -54,6 +54,7 @@ export declare class MiyaDaemonService {
     private emitProgress;
     private maybeEmitAudioFiller;
     private preemptLowLaneIfNeeded;
+    private estimateLedgerRequiredVramMB;
     private getPythonRuntime;
     getPythonRuntimeStatus(): PythonRuntimeStatus | null;
     private assertPythonRuntimeReady;

@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import * as fc from 'fast-check';
 import { PsychePage } from './PsychePage';
 import type { PsycheModeConfig, GatewaySnapshot } from '../types/gateway';
@@ -374,11 +374,11 @@ describe('Property 7: Psyche Configuration Save', () => {
     );
   });
 
-  it('should call save handler when save button is clicked', () => {
-    fc.assert(
-      fc.property(
+  it('should call save handler when save button is clicked', async () => {
+    await fc.assert(
+      fc.asyncProperty(
         psycheModeConfigArbitrary(),
-        (config) => {
+        async (config) => {
           const { container, unmount } = renderPsychePage(config);
 
           const saveButton = Array.from(container.querySelectorAll('button')).find(
@@ -387,8 +387,13 @@ describe('Property 7: Psyche Configuration Save', () => {
 
           expect(saveButton).toBeTruthy();
 
-          // Click the save button
-          saveButton?.click();
+          // Click the save button and wait async state updates to flush
+          await act(async () => {
+            if (saveButton) {
+              fireEvent.click(saveButton);
+            }
+            await Promise.resolve();
+          });
 
           // Button should show "保存中..." or "保存配置"
           const buttonText = saveButton?.textContent;
@@ -402,11 +407,11 @@ describe('Property 7: Psyche Configuration Save', () => {
     );
   });
 
-  it('should maintain form state during save operation', () => {
-    fc.assert(
-      fc.property(
+  it('should maintain form state during save operation', async () => {
+    await fc.assert(
+      fc.asyncProperty(
         psycheModeConfigArbitrary(),
-        (config) => {
+        async (config) => {
           const { container, unmount } = renderPsychePage(config);
 
           // Get initial checkbox states
@@ -417,8 +422,13 @@ describe('Property 7: Psyche Configuration Save', () => {
             btn => btn.textContent?.includes('保存配置')
           );
 
-          // Click save
-          saveButton?.click();
+          // Click save and wait async state updates to flush
+          await act(async () => {
+            if (saveButton) {
+              fireEvent.click(saveButton);
+            }
+            await Promise.resolve();
+          });
 
           // Form values should remain the same
           const currentResonanceState = resonanceCheckbox?.checked;

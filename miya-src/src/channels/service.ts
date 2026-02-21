@@ -894,6 +894,42 @@ export class ChannelRuntime {
     return { sent: false, message: audit.message, auditID: audit.id };
   }
 
+  private writeDesktopFallbackDraft(input: {
+    channel: 'qq' | 'wechat';
+    destination: string;
+    text: string;
+    mediaPath?: string;
+    payloadHash: string;
+  }): string {
+    const dir = path.join(getMiyaRuntimeDir(this.projectDir), 'channels-draft');
+    fs.mkdirSync(dir, { recursive: true });
+    const safeTarget = input.destination
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .slice(0, 40) || 'unknown';
+    const file = path.join(
+      dir,
+      `${new Date().toISOString().replace(/[:.]/g, '-')}_${input.channel}_${safeTarget}.json`,
+    );
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify(
+        {
+          at: new Date().toISOString(),
+          channel: input.channel,
+          destination: input.destination,
+          text: input.text,
+          mediaPath: input.mediaPath,
+          payloadHash: input.payloadHash,
+          note: 'desktop_control_fallback_manual_send',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+    return file;
+  }
+
   async sendMessage(input: {
     channel: ChannelName;
     destination: string;
@@ -1210,6 +1246,18 @@ export class ChannelRuntime {
             result.sent = false;
             result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
           }
+          if (visionCheck.lowConfidenceAttempts >= 2) {
+            result.sent = false;
+            const draftPath = this.writeDesktopFallbackDraft({
+              channel: 'qq',
+              destination: input.destination,
+              text,
+              mediaPath: mediaPath || undefined,
+              payloadHash: result.payloadHash ?? payloadHash,
+            });
+            result.message =
+              `outbound_degraded:vision_low_confidence_twice:draft_only:path=${draftPath}`;
+          }
           if (result.sent && result.receiptStatus !== 'confirmed') {
             result.sent = false;
             result.message = 'outbound_blocked:receipt_uncertain';
@@ -1289,6 +1337,18 @@ export class ChannelRuntime {
         if (visionCheck.uiStyleMismatch) {
           result.sent = false;
           result.message = 'outbound_degraded:ui_style_mismatch:draft_only';
+        }
+        if (visionCheck.lowConfidenceAttempts >= 2) {
+          result.sent = false;
+          const draftPath = this.writeDesktopFallbackDraft({
+            channel: 'wechat',
+            destination: input.destination,
+            text,
+            mediaPath: mediaPath || undefined,
+            payloadHash: result.payloadHash ?? payloadHash,
+          });
+          result.message =
+            `outbound_degraded:vision_low_confidence_twice:draft_only:path=${draftPath}`;
         }
         if (result.sent && result.receiptStatus !== 'confirmed') {
           result.sent = false;

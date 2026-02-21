@@ -122,4 +122,18 @@ describe('daemon service', () => {
     expect(lowResult.timedOut).toBe(false);
     expect(lowResult.exitCode === 0).toBe(false);
   });
+
+  test('returns VRAM_BUDGET_EXCEEDED when free margin drops below safety buffer', async () => {
+    const daemon = new MiyaDaemonService(tempProjectDir());
+    daemon.start();
+    await expect(
+      daemon.runTask(
+        {
+          kind: 'generic',
+          resource: { priority: 20, vramMB: 7000, modelVramMB: 0 },
+        },
+        async () => 'noop',
+      ),
+    ).rejects.toThrow(/VRAM_BUDGET_EXCEEDED/);
+  });
 });

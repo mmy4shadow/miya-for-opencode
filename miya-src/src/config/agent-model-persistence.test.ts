@@ -278,6 +278,27 @@ describe('agent-model-persistence', () => {
     expect(extracted[0]?.activeAgentId).toBe('1-task-manager');
   });
 
+  test('prefers explicit activeAgent hint over default_agent when resolving agent.* patch', () => {
+    const extracted = extractAgentModelSelectionsFromEvent({
+      type: 'settings.saved',
+      properties: {
+        activeAgent: '1-task-manager',
+        patch: {
+          set: {
+            default_agent: '6-ui-designer',
+            'agent.model': 'openai/gpt-5.3-codex',
+            'agent.providerID': 'openai',
+          },
+        },
+      },
+    });
+
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0]?.agentName).toBe('1-task-manager');
+    expect(extracted[0]?.model).toBe('openai/gpt-5.3-codex');
+    expect(extracted[0]?.activeAgentId).toBe('1-task-manager');
+  });
+
   test('extracts nested model fields with selectedAgent hint', () => {
     const extracted = extractAgentModelSelectionsFromEvent({
       type: 'settings.saved',

@@ -111,7 +111,7 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - 结论：当前主链路可运行，但仍存在“接口壳层已接入、能力未真正下沉”的未闭环点；本节结论覆盖同日“已落地”表述中的冲突项。
 - 问题 1（网关拆域未闭环，属 `P0-1` 在途）：拆域已推进到“部分方法下沉”，`channels/security/nodes/memory/sessions/voice` 已迁入 `gateway/methods/*.ts`；但 `companion` 与多数编排/协议/部分方法仍集中在 `gateway/index.ts`，尚未形成可独立演进的按域实现闭环（`miya-src/src/gateway/methods/channels.ts`、`miya-src/src/gateway/methods/security.ts`、`miya-src/src/gateway/methods/nodes.ts`、`未落地:src/gateway/methods/companion.ts`、`miya-src/src/gateway/methods/memory.ts`、`miya-src/src/gateway/methods/sessions.ts`、`miya-src/src/gateway/methods/voice.ts`、`miya-src/src/gateway/index.ts`）。
 - 问题 2（配置语义与运行默认值冲突）：`SlimCompat` schema 默认值为 `false`，但运行态在未配置时按 `true` 处理，导致“默认关闭”的配置预期与“默认启用”实际行为冲突，存在触发链路歧义（`miya-src/src/config/schema.ts`、`miya-src/src/index.ts`）。
-- 问题 3（命令覆盖导致用户自定义失效风险）：`miya-gateway-start` 在配置注入阶段被无条件重写，和其它命令的“仅缺失时注入”策略不一致，用户自定义模板可能被静默覆盖（`miya-src/src/index.ts`）。
+- 问题 3（已修复，2026-02-21）：`miya-gateway-start` 注入逻辑已改为“仅缺失时注入”，与其它命令策略一致，避免静默覆盖用户自定义模板（`miya-src/src/index.ts`）。
 - 问题 4（伴随开关语义未收口）：`autoOpenOptIn` 常量固定为 `true`，对最终行为无约束增量，属于保留占位变量，增加理解成本（`miya-src/src/index.ts`）。
 - 修正口径：网关拆域当前状态应按“进行中（第一阶段：域壳层 + 组合注册）”维护，不应表述为“已完成拆域”。
 

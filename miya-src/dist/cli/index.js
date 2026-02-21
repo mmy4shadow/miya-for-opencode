@@ -16249,6 +16249,15 @@ var init_registry = __esm({
         description: "\u7F51\u9875\u6307\u4EE4\u578B\u5185\u5BB9\u662F\u5426\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
       }),
       entry({
+        key: "intake.policy.silentAuditTrustScoreMin",
+        type: "number",
+        minimum: 0,
+        maximum: 1,
+        defaultValue: 0.85,
+        risk: "MED",
+        description: "\u53EA\u8BFB\u7814\u7A76\u6765\u6E90\u8FBE\u5230\u8BE5\u4FE1\u4EFB\u5206\u540E\u6539\u4E3A\u9759\u9ED8\u5BA1\u8BA1\u3002"
+      }),
+      entry({
         key: "intake.policy.autoWhitelistOnApprove",
         type: "boolean",
         defaultValue: true,
@@ -37257,9 +37266,13 @@ function clampNonNegative(value) {
   return Math.floor(value);
 }
 function calculateVramBudget(input) {
+  const loadedVramMB = input.snapshot.loadedModels.reduce(
+    (sum, model) => sum + clampNonNegative(model.vramMB),
+    0
+  );
   const availableMB = Math.max(
     0,
-    clampNonNegative(input.snapshot.totalVramMB) - clampNonNegative(input.snapshot.safetyMarginMB) - clampNonNegative(input.snapshot.usedVramMB)
+    clampNonNegative(input.snapshot.totalVramMB) - clampNonNegative(input.snapshot.safetyMarginMB) - clampNonNegative(input.snapshot.usedVramMB) - loadedVramMB
   );
   const loaded = new Map(
     input.snapshot.loadedModels.map((model) => [model.modelID, clampNonNegative(model.vramMB)])
@@ -41226,6 +41239,48 @@ import { createServer } from "node:http";
 import * as os5 from "node:os";
 import * as path41 from "node:path";
 import WebSocket2, { WebSocketServer } from "ws";
+function fallbackMemorySqliteStats(projectDir) {
+  return {
+    sqlitePath: path41.join(getMiyaRuntimeDir(projectDir), "memory", "memories.sqlite"),
+    memoryCount: 0,
+    candidateCount: 0,
+    activeCount: 0,
+    vectorCount: 0,
+    graphCount: 0,
+    rawLogCount: 0,
+    pendingRawLogCount: 0,
+    evidenceCount: 0,
+    eventCount: 0
+  };
+}
+function readMemoryObservability(projectDir) {
+  const sqlite = (() => {
+    try {
+      return getCompanionMemorySqliteStats(projectDir);
+    } catch (error92) {
+      log("[gateway] memory sqlite stats degraded", {
+        projectDir,
+        error: error92 instanceof Error ? error92.message : String(error92)
+      });
+      return fallbackMemorySqliteStats(projectDir);
+    }
+  })();
+  const pendingVectors = (() => {
+    try {
+      return listPendingCompanionMemoryVectors(projectDir).length;
+    } catch (error92) {
+      log("[gateway] memory pending vectors degraded", {
+        projectDir,
+        error: error92 instanceof Error ? error92.message : String(error92)
+      });
+      return 0;
+    }
+  })();
+  return {
+    sqlite,
+    pendingVectors
+  };
+}
 function nowIso24() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
@@ -41889,8 +41944,8 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
       command: spec.command,
       args,
       timeoutMs: 45e3,
-      resource: { priority: 90, vramMB: 256, modelID: "local:eres2net", modelVramMB: 512 },
-      metadata: { stage: "security.voiceprint.verify", audioPath }
+      resource: { priority: 90, vramMB: 0, modelID: "local:eres2net", modelVramMB: 0 },
+      metadata: { stage: "security.voiceprint.verify", audioPath, compute: "cpu" }
     });
     if (result.exitCode !== 0) {
       return {
@@ -42713,8 +42768,7 @@ function buildSnapshot(projectDir, runtime) {
   const routingMode = readRouterModeConfig(projectDir);
   const routingCost = getRouteCostSummary(projectDir, 500);
   const routingRecent = listRouteCostRecords(projectDir, 20);
-  const memorySqlite = getCompanionMemorySqliteStats(projectDir);
-  const memoryPendingVectors = listPendingCompanionMemoryVectors(projectDir).length;
+  const memoryObservability = readMemoryObservability(projectDir);
   const learningStats = getLearningStats(projectDir);
   const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
     id: item.id,
@@ -42868,8 +42922,8 @@ function buildSnapshot(projectDir, runtime) {
       gateway: runtime.methods.stats(),
       daemon: getLauncherBackpressureStats(projectDir),
       memory: {
-        sqlite: memorySqlite,
-        pendingVectors: memoryPendingVectors
+        sqlite: memoryObservability.sqlite,
+        pendingVectors: memoryObservability.pendingVectors
       },
       router: routingCost
     },
@@ -45349,15 +45403,15 @@ function ensureGatewayRunning(projectDir) {
   }, 5e3);
   runtime.memoryReflectTimer = setInterval(() => {
     const reflected = maybeAutoReflectCompanionMemory(projectDir, {
-      idleMinutes: 5,
-      minPendingLogs: 1,
-      cooldownMinutes: 3,
-      maxLogs: 120
+      idleMinutes: 60,
+      minPendingLogs: 200,
+      cooldownMinutes: 12 * 60,
+      maxLogs: 500
     });
     if (reflected) {
       syncCompanionProfileMemoryFacts(projectDir);
     }
-  }, 2e4);
+  }, 5 * 60 * 1e3);
   runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
     appendDaemonProgressAudit(projectDir, event);
     if (event.type === "job.progress") {

@@ -43,7 +43,7 @@ function formatProposalOutput(result: ReturnType<typeof proposeIntake>): string 
   }
   if (result.stats) {
     lines.push(
-      `stats=U${result.stats.usefulCount}/R${result.stats.rejectedCount}/T${result.stats.trialCount} verdict=${result.stats.verdict} explore=${result.stats.recommendedExplorePercent}%`,
+      `stats=U${result.stats.usefulCount}/R${result.stats.rejectedCount}/T${result.stats.trialCount} trust=${result.stats.trustScore.toFixed(2)} verdict=${result.stats.verdict} explore=${result.stats.recommendedExplorePercent}%`,
     );
   }
 
@@ -75,7 +75,8 @@ function parseTrigger(value: unknown): IntakeTrigger {
     value === 'config_change' ||
     value === 'skill_or_toolchain_change' ||
     value === 'high_risk_action' ||
-    value === 'directive_content'
+    value === 'directive_content' ||
+    value === 'read_only_research'
   ) {
     return value;
   }
@@ -93,7 +94,7 @@ export function createIntakeTools(
         .string()
         .optional()
         .describe(
-          'config_change|skill_or_toolchain_change|high_risk_action|directive_content|manual',
+          'config_change|skill_or_toolchain_change|high_risk_action|directive_content|read_only_research|manual',
         ),
       source: z
         .any()
@@ -188,7 +189,7 @@ export function createIntakeTools(
       }
       if (result.stats) {
         lines.push(
-          `stats=U${result.stats.usefulCount}/R${result.stats.rejectedCount}/T${result.stats.trialCount} verdict=${result.stats.verdict} explore=${result.stats.recommendedExplorePercent}%`,
+          `stats=U${result.stats.usefulCount}/R${result.stats.rejectedCount}/T${result.stats.trialCount} trust=${result.stats.trustScore.toFixed(2)} verdict=${result.stats.verdict} explore=${result.stats.recommendedExplorePercent}%`,
         );
       }
       return lines.join('\n');

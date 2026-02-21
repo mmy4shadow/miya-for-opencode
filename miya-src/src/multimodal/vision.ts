@@ -250,6 +250,7 @@ export async function analyzeDesktopOutboundEvidence(
   ocrPreview: string;
   uiStyleMismatch: boolean;
   retries: number;
+  lowConfidenceAttempts: number;
   capture: CaptureCapabilityReport;
 }> {
   const capture = resolveCaptureCapability(input);
@@ -267,6 +268,7 @@ export async function analyzeDesktopOutboundEvidence(
       ocrPreview: '',
       uiStyleMismatch: true,
       retries: 0,
+      lowConfidenceAttempts: 1,
       capture: {
         method: capture.method,
         confidence: capture.confidence,
@@ -290,6 +292,8 @@ export async function analyzeDesktopOutboundEvidence(
   let inferred = await readTextFromImage(candidates[0], '识别聊天界面收件人与发送状态');
   let signals = parseDesktopOcrSignals(inferred.text, input.destination);
   let retries = 0;
+  let lowConfidenceAttempts =
+    inferred.source === 'none' || isLowConfidenceText(inferred.text) ? 1 : 0;
   let uiStyleMismatch =
     inferred.source === 'none' ||
     (signals.recipientMatch !== 'matched' && isLowConfidenceText(inferred.text));
@@ -304,6 +308,9 @@ export async function analyzeDesktopOutboundEvidence(
     );
     const retrySignals = parseDesktopOcrSignals(retryInferred.text, input.destination);
     retries = 1;
+    if (retryInferred.source === 'none' || isLowConfidenceText(retryInferred.text)) {
+      lowConfidenceAttempts += 1;
+    }
 
     const retryBetter =
       retrySignals.recipientMatch === 'matched' ||
@@ -342,7 +349,7 @@ export async function analyzeDesktopOutboundEvidence(
     retries,
   });
   const mergedConfidence = Number(Math.min(confidence, capture.confidence).toFixed(2));
-  if (mergedConfidence < 0.45) {
+  if (mergedConfidence < 0.45 || lowConfidenceAttempts >= 2) {
     uiStyleMismatch = true;
   }
 
@@ -353,6 +360,7 @@ export async function analyzeDesktopOutboundEvidence(
     ocrPreview: inferred.text.slice(0, 300),
     uiStyleMismatch,
     retries,
+    lowConfidenceAttempts,
     capture: {
       method: capture.method,
       confidence: mergedConfidence,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  classifySideEffect,
   isSideEffectPermission,
   requiredTierForRequest,
 } from './risk';
@@ -47,5 +48,20 @@ describe('safety risk tiers', () => {
         patterns: ['cap=system.run'],
       }),
     ).toBe('THOROUGH');
+  });
+
+  test('classifies bash reversibility with read-only fast path', () => {
+    expect(
+      classifySideEffect({
+        permission: 'bash',
+        patterns: ['ls -la'],
+      }).reversibility,
+    ).toBe('reversible');
+    expect(
+      classifySideEffect({
+        permission: 'bash',
+        patterns: ['rm -rf dist'],
+      }).reversibility,
+    ).toBe('irreversible');
   });
 });

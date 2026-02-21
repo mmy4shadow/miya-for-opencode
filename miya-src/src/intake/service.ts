@@ -22,6 +22,7 @@ interface IntakeRuntimeConfig {
   hardDenyWhenUsefulLessThanRejected: boolean;
   downrankThresholdRatioX100: number;
   downrankExplorePercent: number;
+  silentAuditTrustScoreMin: number;
   sourceUnit: 'DOMAIN_PATH_PREFIX' | 'DOMAIN' | 'PATH_PREFIX';
 }
 
@@ -78,6 +79,7 @@ export interface IntakeStatsResult {
   rejectedCount: number;
   trialCount: number;
   consideredEvents: number;
+  trustScore: number;
   verdict: 'insufficient_data' | 'hard_deny' | 'downrank' | 'normal';
   recommendedExplorePercent: number;
 }
@@ -150,6 +152,13 @@ function readIntakeConfig(projectDir: string): IntakeRuntimeConfig {
       Math.min(
         100,
         Math.trunc(asNum(config['intake.stats.downrankExplorePercent'], 30)),
+      ),
+    ),
+    silentAuditTrustScoreMin: Math.max(
+      0,
+      Math.min(
+        1,
+        asNum(config['intake.policy.silentAuditTrustScoreMin'], 0.85),
       ),
     ),
     sourceUnit: asSourceUnit(
@@ -348,6 +357,7 @@ function evaluateStatsForEvents(
   const rejectedCount = window.filter((event) => event.outcome === 'rejected').length;
   const trialCount = window.filter((event) => event.outcome === 'trial').length;
   const considered = usefulCount + rejectedCount;
+  const trustScore = considered > 0 ? usefulCount / considered : 0;
 
   let verdict: IntakeStatsResult['verdict'] = 'insufficient_data';
   let explorePercent = 100;
@@ -378,6 +388,7 @@ function evaluateStatsForEvents(
     rejectedCount,
     trialCount,
     consideredEvents: considered,
+    trustScore,
     verdict,
     recommendedExplorePercent: explorePercent,
   };
@@ -461,6 +472,46 @@ export function proposeIntake(
     state.proposals.unshift(proposal);
     writeIntakeState(projectDir, state);
     return { status: 'auto_allowed', proposal, matchedRule: whiteRule, stats };
+  }
+
+  if (
+    (input.trigger === 'directive_content' ||
+      input.trigger === 'read_only_research') &&
+    stats.consideredEvents >= Math.max(3, Math.floor(config.windowN / 2)) &&
+    stats.trustScore >= config.silentAuditTrustScoreMin
+  ) {
+    const proposal: IntakeProposal = {
+      id: createIntakeId('intake'),
+      status: 'auto_allowed',
+      trigger: input.trigger,
+      source: source.source,
+      sourceFingerprint: source.fingerprint,
+      sourceUnitKey: source.sourceUnitKey,
+      summaryPoints: safeArray(input.summaryPoints, 3),
+      originalPlan: (input.originalPlan ?? '').trim(),
+      suggestedChange: (input.suggestedChange ?? '').trim(),
+      benefits: safeArray(input.benefits),
+      risks: safeArray(input.risks),
+      evidence: safeArray(input.evidence, 20),
+      proposedChanges: input.proposedChanges,
+      requestedAt: nowIso(),
+      resolvedAt: nowIso(),
+      resolution: {
+        decision: 'auto_allowed_by_silent_threshold',
+        scope: 'DOMAIN',
+        reason: `trust_score=${stats.trustScore.toFixed(2)}`,
+      },
+    };
+    state.proposals.unshift(proposal);
+    appendEvent(state, {
+      proposalId: proposal.id,
+      sourceUnitKey: proposal.sourceUnitKey,
+      sourceFingerprint: proposal.sourceFingerprint,
+      outcome: 'useful',
+      decision: 'auto_allowed_by_silent_threshold',
+    });
+    writeIntakeState(projectDir, state);
+    return { status: 'auto_allowed', proposal, stats };
   }
 
   const proposal: IntakeProposal = {

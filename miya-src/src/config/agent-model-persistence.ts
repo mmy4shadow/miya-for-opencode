@@ -703,7 +703,7 @@ function parseAgentPatchSet(
     }
   }
   const activeAgentFromHint =
-    normalizeAgentName(String(defaultAgentFromPatch || activeAgentHint || '')) ?? undefined;
+    normalizeAgentName(String(activeAgentHint || defaultAgentFromPatch || '')) ?? undefined;
 
   const getOrCreateDraft = (agentNameRaw: string): AgentPatchDraft | null => {
     const agentName = normalizeAgentName(agentNameRaw);
@@ -982,14 +982,10 @@ export function extractAgentModelSelectionsFromEvent(
         properties.currentAgent ??
         properties.selectedAgent ??
         properties.agent ??
-        properties.defaultAgent ??
-        properties.default_agent ??
         info.activeAgent ??
         info.currentAgent ??
         info.selectedAgent ??
         info.agent ??
-        info.defaultAgent ??
-        info.default_agent ??
         '',
     );
     const patchRaw = properties.patch;

@@ -312,6 +312,168 @@ export function createSafetyTools(
     },
   });
 
+  const miya_self_approve_bundle = tool({
+    description:
+      'Approve a batch plan in one pass and mint short-lived tokens for multiple side-effect actions.',
+    args: {
+      actions: z
+        .array(
+          z.object({
+            permission: z.string(),
+            patterns: z.array(z.string()).optional(),
+            action: z.string().optional(),
+          }),
+        )
+        .describe('Batch actions that should share one approval run'),
+      tier: z.enum(['LIGHT', 'STANDARD', 'THOROUGH']).optional(),
+      rollback: z.string().optional().describe('Shared rollback strategy summary'),
+    },
+    async execute(args, toolContext) {
+      const sessionID =
+        toolContext && typeof toolContext === 'object' && 'sessionID' in toolContext
+          ? String((toolContext as { sessionID: string }).sessionID)
+          : 'main';
+      const actions = Array.isArray(args.actions) ? args.actions : [];
+      if (actions.length === 0) {
+        return 'VERDICT=DENY\nreason=empty_bundle_actions';
+      }
+
+      let tier = normalizeTier(typeof args.tier === 'string' ? args.tier : undefined);
+      const requests = actions.map((item) => ({
+        permission: String(item.permission ?? ''),
+        patterns: Array.isArray(item.patterns) ? item.patterns.map(String) : [],
+        action:
+          typeof item.action === 'string' && item.action.trim().length > 0
+            ? item.action.trim()
+            : undefined,
+      }));
+      for (const request of requests) {
+        tier = maxTier(tier, requiredTierForRequest(request));
+      }
+
+      const traceID = createTraceId();
+      const requestHash = buildRequestHash(
+        {
+          permission: 'bundle',
+          patterns: requests.flatMap((item) => item.patterns),
+        },
+        false,
+      );
+      const actionSummary = `bundle_actions=${requests.length}`;
+      const evidence = await collectSafetyEvidence(ctx.directory, tier);
+      const verifier = await runVerifier(ctx, {
+        sessionID,
+        traceID,
+        requestHash,
+        tier,
+        action: actionSummary,
+        checks: evidence.checks,
+        evidence: evidence.evidence,
+        issues: evidence.issues,
+      });
+      const allow = evidence.pass && verifier.verdict === 'allow';
+      const reason = allow
+        ? verifier.summary
+        : evidence.issues.length > 0
+          ? evidence.issues.join(' | ')
+          : verifier.summary;
+
+      const rollbackStrategy =
+        args.rollback && String(args.rollback).trim().length > 0
+          ? String(args.rollback)
+          : 'Revert via git checkpoint and keep kill switch active until fixed.';
+
+      if (!allow) {
+        writeSelfApprovalRecord(ctx.directory, {
+          trace_id: traceID,
+          session_id: sessionID,
+          request_hash: requestHash,
+          action: actionSummary,
+          tier,
+          status: 'deny',
+          reason,
+          checks: evidence.checks,
+          evidence: evidence.evidence.slice(0, 40),
+          executor: {
+            agent: 'executor',
+            plan: actionSummary,
+          },
+          verifier: {
+            agent: '4-architecture-advisor',
+            verdict: 'deny',
+            summary: verifier.summary,
+          },
+          rollback: {
+            strategy: rollbackStrategy,
+          },
+        });
+        activateKillSwitch(ctx.directory, `self_approval_denied:${reason}`, traceID);
+        return formatResult({
+          verdict: 'deny',
+          traceID,
+          requestHash,
+          tier,
+          reason,
+          checks: evidence.checks,
+          issues: evidence.issues,
+        });
+      }
+
+      for (const request of requests) {
+        const tokenHash = buildRequestHash(
+          {
+            permission: request.permission,
+            patterns: request.patterns,
+          },
+          false,
+        );
+        const action = request.action ?? `${request.permission} side-effect`;
+        writeSelfApprovalRecord(ctx.directory, {
+          trace_id: traceID,
+          session_id: sessionID,
+          request_hash: tokenHash,
+          action,
+          tier,
+          status: 'allow',
+          reason,
+          checks: evidence.checks,
+          evidence: evidence.evidence.slice(0, 40),
+          executor: {
+            agent: 'executor',
+            plan: action,
+          },
+          verifier: {
+            agent: '4-architecture-advisor',
+            verdict: 'allow',
+            summary: verifier.summary,
+          },
+          rollback: {
+            strategy: rollbackStrategy,
+          },
+        });
+        saveApprovalToken(ctx.directory, sessionID, {
+          trace_id: traceID,
+          request_hash: tokenHash,
+          tier,
+          action,
+        });
+      }
+
+      return [
+        formatResult({
+          verdict: 'allow',
+          traceID,
+          requestHash,
+          tier,
+          reason,
+          checks: evidence.checks,
+          issues: evidence.issues,
+        }),
+        `bundle_actions=${requests.length}`,
+      ].join('\n');
+    },
+  });
+
   const miya_kill_activate = tool({
     description: 'Activate fail-stop kill switch for all side-effect permissions.',
     args: {
@@ -353,6 +515,7 @@ export function createSafetyTools(
 
   return {
     miya_self_approve,
+    miya_self_approve_bundle,
     miya_kill_activate,
     miya_kill_release,
     miya_kill_status,
