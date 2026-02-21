@@ -1693,7 +1693,7 @@ S_old = C_old * exp(-lambda * (t_now - t_old))
   - 对外回复允许 L1；L2 仅保留证据指针（按需展开）。
 
 #### **2）存储层：SQLite-WAL + ContextFS（进行中）**
-- 目标：把当前 `JSON 主链路 + SQLite 同步副本` 迁移为 `SQLite 主链路`，所有状态迁移在事务内完成。
+ - 目标：在既有 `SQLite 主链路（raw_logs/mem_cells）` 基础上，继续固化初始化/扩展加载策略，并收敛 ContextFS 为唯一上下文入口（不再以“JSON→SQLite 迁移”作为当前目标）。
 - 保留原则：raw logs 与 audit events 必须 append-only；任何派生记忆必须可反查证据。
 - ContextFS 统一 URI 命名空间（规划冻结）：
   - `miya://mem/cell/<id>`
