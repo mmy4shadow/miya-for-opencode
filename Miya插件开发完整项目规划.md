@@ -60,6 +60,12 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
   - 说明：真正“验证码/密码放行”属于交互协议升级，需与 OpenCode permission UI 联动；本轮先完成语义与风控接口，不编造可回滚承诺。
   - 代码：`miya-src/src/safety/risk.ts`。
 
+- 2026-02-21 端到端验收与复发点闭环（本轮）：
+  - 验收命令实跑通过：`npm --prefix miya-src run -s typecheck`、`npm --prefix miya-src run -s build`、`npm --prefix miya-src run -s test:integration:report`、`opencode debug config|skill|paths`。
+  - 复发点 R1（集成测试入口不匹配）已收口：统一改为 `bun test src/integration`，避免 `tsx --test + bun:test` 混跑与 `**` filter 失配。
+  - 复发点台账已落文件：`miya-src/test/E2E_ACCEPTANCE_REGRESSION_GUARD.md`（逐条记录“症状/根因/修复位点/防复发守卫”）。
+  - 对应修复文件：`miya-src/package.json`、`miya-src/tools/run-integration-suite.ts`、`miya-src/src/gateway/index.ts`、`miya-src/src/companion/store.ts`、`miya-src/src/gateway/methods/memory.ts`。
+
 ## 2026-02-15 全面修订补丁（高优先级解释层，不删除原文）
 
 本补丁为本规划的“解释层/冻结条款集合”。若与后文出现冲突，**先以 `0.4 总状态矩阵` 为准**，再更新本补丁与对应章节，避免“文档内自相矛盾”。

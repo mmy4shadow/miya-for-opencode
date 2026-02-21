@@ -39,7 +39,7 @@
     "test": "npm run test:core && npm run test:ui",
     "test:core": "npm run typecheck",
     "test:ui": "npm --prefix gateway-ui run test:run",
-    "test:integration": "tsx --test src/integration/**/*.test.ts",
+    "test:integration": "bun test src/integration",
     "test:integration:report": "tsx tools/run-integration-suite.ts",
     "check:contracts": "tsx tools/hook-contract-check.ts",
     "doc:lint": "tsx tools/doc-lint.ts",
@@ -78,3 +78,4 @@
     "@ast-grep/cli"
   ]
 }
+

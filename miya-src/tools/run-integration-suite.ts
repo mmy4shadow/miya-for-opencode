@@ -27,7 +27,7 @@ function ensureReportDir(cwd: string): string {
 async function main(): Promise<void> {
   const startedAt = nowIso();
   const startedMs = Date.now();
-  const command = ['tsx', '--test', 'src/integration/**/*.test.ts'];
+  const command = ['bun', 'test', 'src/integration'];
   const proc = spawn(command[0], command.slice(1), {
     cwd: process.cwd(),
     env: { ...process.env, MIYA_RUN_INTEGRATION: '1' },
@@ -74,3 +74,4 @@ async function main(): Promise<void> {
 }
 
 void main();
+
