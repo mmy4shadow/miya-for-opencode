@@ -26,6 +26,7 @@ export declare function analyzeDesktopOutboundEvidence(input: {
     ocrPreview: string;
     uiStyleMismatch: boolean;
     retries: number;
+    lowConfidenceAttempts: number;
     capture: CaptureCapabilityReport;
 }>;
 export declare function analyzeVision(projectDir: string, input: VisionAnalyzeInput): Promise<VisionAnalyzeResult>;

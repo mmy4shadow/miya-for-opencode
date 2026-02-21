@@ -1,4 +1,4 @@
-export type IntakeTrigger = 'config_change' | 'skill_or_toolchain_change' | 'high_risk_action' | 'directive_content' | 'manual';
+export type IntakeTrigger = 'config_change' | 'skill_or_toolchain_change' | 'high_risk_action' | 'directive_content' | 'read_only_research' | 'manual';
 export type IntakeScope = 'CONTENT_FINGERPRINT' | 'PAGE' | 'PATH_PREFIX' | 'DOMAIN';
 export interface IntakeSource {
     domain: string;

@@ -141,6 +141,7 @@ export declare class ChannelRuntime {
     private checkSendFingerprint;
     private normalizeDesktopRuntimeError;
     private recordDesktopRuntimeFailure;
+    private writeDesktopFallbackDraft;
     sendMessage(input: {
         channel: ChannelName;
         destination: string;

@@ -16250,10 +16250,10 @@ var init_registry = __esm({
       }),
       entry({
         key: "intake.policy.silentAuditTrustScoreMin",
-        type: "number",
+        type: "integer",
         minimum: 0,
-        maximum: 1,
-        defaultValue: 0.85,
+        maximum: 100,
+        defaultValue: 85,
         risk: "MED",
         description: "\u53EA\u8BFB\u7814\u7A76\u6765\u6E90\u8FBE\u5230\u8BE5\u4FE1\u4EFB\u5206\u540E\u6539\u4E3A\u9759\u9ED8\u5BA1\u8BA1\u3002"
       }),
@@ -30952,6 +30952,7 @@ async function analyzeDesktopOutboundEvidence(input) {
       ocrPreview: "",
       uiStyleMismatch: true,
       retries: 0,
+      lowConfidenceAttempts: 1,
       capture: {
         method: capture.method,
         confidence: capture.confidence,
@@ -30973,6 +30974,7 @@ async function analyzeDesktopOutboundEvidence(input) {
   let inferred = await readTextFromImage(candidates[0], "\u8BC6\u522B\u804A\u5929\u754C\u9762\u6536\u4EF6\u4EBA\u4E0E\u53D1\u9001\u72B6\u6001");
   let signals = parseDesktopOcrSignals(inferred.text, input.destination);
   let retries = 0;
+  let lowConfidenceAttempts = inferred.source === "none" || isLowConfidenceText(inferred.text) ? 1 : 0;
   let uiStyleMismatch = inferred.source === "none" || signals.recipientMatch !== "matched" && isLowConfidenceText(inferred.text);
   if (candidates.length > 1 && (signals.recipientMatch === "mismatch" || uiStyleMismatch)) {
     const retryInferred = await readTextFromImage(
@@ -30981,6 +30983,9 @@ async function analyzeDesktopOutboundEvidence(input) {
     );
     const retrySignals = parseDesktopOcrSignals(retryInferred.text, input.destination);
     retries = 1;
+    if (retryInferred.source === "none" || isLowConfidenceText(retryInferred.text)) {
+      lowConfidenceAttempts += 1;
+    }
     const retryBetter = retrySignals.recipientMatch === "matched" || retrySignals.sendStatusDetected !== "uncertain" && signals.sendStatusDetected === "uncertain" || !isLowConfidenceText(retryInferred.text) && isLowConfidenceText(inferred.text);
     if (retryBetter) {
       inferred = retryInferred;
@@ -30999,7 +31004,7 @@ async function analyzeDesktopOutboundEvidence(input) {
     retries
   });
   const mergedConfidence = Number(Math.min(confidence, capture.confidence).toFixed(2));
-  if (mergedConfidence < 0.45) {
+  if (mergedConfidence < 0.45 || lowConfidenceAttempts >= 2) {
     uiStyleMismatch = true;
   }
   return {
@@ -31009,6 +31014,7 @@ async function analyzeDesktopOutboundEvidence(input) {
     ocrPreview: inferred.text.slice(0, 300),
     uiStyleMismatch,
     retries,
+    lowConfidenceAttempts,
     capture: {
       method: capture.method,
       confidence: mergedConfidence,
@@ -32156,6 +32162,34 @@ var init_service = __esm({
         });
         return { sent: false, message: audit.message, auditID: audit.id };
       }
+      writeDesktopFallbackDraft(input) {
+        const dir = path12.join(getMiyaRuntimeDir(this.projectDir), "channels-draft");
+        fs13.mkdirSync(dir, { recursive: true });
+        const safeTarget = input.destination.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40) || "unknown";
+        const file3 = path12.join(
+          dir,
+          `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}_${input.channel}_${safeTarget}.json`
+        );
+        fs13.writeFileSync(
+          file3,
+          `${JSON.stringify(
+            {
+              at: (/* @__PURE__ */ new Date()).toISOString(),
+              channel: input.channel,
+              destination: input.destination,
+              text: input.text,
+              mediaPath: input.mediaPath,
+              payloadHash: input.payloadHash,
+              note: "desktop_control_fallback_manual_send"
+            },
+            null,
+            2
+          )}
+`,
+          "utf-8"
+        );
+        return file3;
+      }
       async sendMessage(input) {
         const text = (input.text ?? "").trim();
         const mediaPath = (input.mediaPath ?? "").trim();
@@ -32419,6 +32453,17 @@ var init_service = __esm({
                 result2.sent = false;
                 result2.message = "outbound_degraded:ui_style_mismatch:draft_only";
               }
+              if (visionCheck2.lowConfidenceAttempts >= 2) {
+                result2.sent = false;
+                const draftPath = this.writeDesktopFallbackDraft({
+                  channel: "qq",
+                  destination: input.destination,
+                  text,
+                  mediaPath: mediaPath || void 0,
+                  payloadHash: result2.payloadHash ?? payloadHash
+                });
+                result2.message = `outbound_degraded:vision_low_confidence_twice:draft_only:path=${draftPath}`;
+              }
               if (result2.sent && result2.receiptStatus !== "confirmed") {
                 result2.sent = false;
                 result2.message = "outbound_blocked:receipt_uncertain";
@@ -32494,6 +32539,17 @@ var init_service = __esm({
             if (visionCheck.uiStyleMismatch) {
               result.sent = false;
               result.message = "outbound_degraded:ui_style_mismatch:draft_only";
+            }
+            if (visionCheck.lowConfidenceAttempts >= 2) {
+              result.sent = false;
+              const draftPath = this.writeDesktopFallbackDraft({
+                channel: "wechat",
+                destination: input.destination,
+                text,
+                mediaPath: mediaPath || void 0,
+                payloadHash: result.payloadHash ?? payloadHash
+              });
+              result.message = `outbound_degraded:vision_low_confidence_twice:draft_only:path=${draftPath}`;
             }
             if (result.sent && result.receiptStatus !== "confirmed") {
               result.sent = false;
@@ -32979,6 +33035,12 @@ function hasIrreversiblePattern(patterns) {
     (pattern) => IRREVERSIBLE_BASH_PATTERNS.some((rule) => rule.test(pattern))
   );
 }
+function isReadOnlyShellPattern(patterns) {
+  if (patterns.length === 0) return false;
+  return patterns.every(
+    (pattern) => READ_ONLY_BASH_PATTERNS.some((rule) => rule.test(pattern.trim()))
+  );
+}
 function hasSensitivePath(patterns) {
   return patterns.some(
     (pattern) => SENSITIVE_PATH_PATTERNS.some((rule) => rule.test(pattern))
@@ -32989,8 +33051,34 @@ function hasIrreversibleEditPattern(patterns) {
     (pattern) => /\b(delete|remove|overwrite|truncate|destroy|wipe)\b/i.test(pattern) || pattern.endsWith(".env") || pattern.includes("/.env")
   );
 }
+function isSideEffectPermission(permission) {
+  return permission === "edit" || permission === "bash" || permission === "external_directory" || permission === "external_message" || permission === "desktop_control" || permission === "node_invoke" || permission === "skills_install" || permission === "webhook_outbound";
+}
+function classifySideEffect(request) {
+  if (!isSideEffectPermission(request.permission)) {
+    return { sideEffect: false, reversibility: "none" };
+  }
+  const patterns = request.patterns.map(normalizePattern);
+  if (request.permission === "bash") {
+    if (isReadOnlyShellPattern(patterns)) {
+      return { sideEffect: true, reversibility: "reversible" };
+    }
+    return {
+      sideEffect: true,
+      reversibility: hasIrreversiblePattern(patterns) ? "irreversible" : "reversible"
+    };
+  }
+  if (request.permission === "edit") {
+    return {
+      sideEffect: true,
+      reversibility: hasIrreversibleEditPattern(patterns) ? "irreversible" : "reversible"
+    };
+  }
+  return { sideEffect: true, reversibility: "irreversible" };
+}
 function requiredTierForRequest(request) {
   const patterns = request.patterns.map(normalizePattern);
+  const sideEffect = classifySideEffect(request);
   if (request.permission === "external_directory") return "THOROUGH";
   if (request.permission === "external_message") return "THOROUGH";
   if (request.permission === "desktop_control") return "THOROUGH";
@@ -33006,7 +33094,7 @@ function requiredTierForRequest(request) {
   if (request.permission === "skills_install") return "THOROUGH";
   if (request.permission === "webhook_outbound") return "THOROUGH";
   if (request.permission === "bash") {
-    return hasIrreversiblePattern(patterns) ? "THOROUGH" : "STANDARD";
+    return sideEffect.reversibility === "irreversible" ? "THOROUGH" : "STANDARD";
   }
   if (request.permission === "edit") {
     if (hasSensitivePath(patterns) || hasIrreversibleEditPattern(patterns)) {
@@ -33025,7 +33113,7 @@ function buildRequestHash(request, includeMessageContext = true) {
   };
   return createHash5("sha256").update(JSON.stringify(payload)).digest("hex");
 }
-var IRREVERSIBLE_BASH_PATTERNS, SENSITIVE_PATH_PATTERNS;
+var IRREVERSIBLE_BASH_PATTERNS, SENSITIVE_PATH_PATTERNS, READ_ONLY_BASH_PATTERNS;
 var init_risk = __esm({
   "src/safety/risk.ts"() {
     "use strict";
@@ -33054,6 +33142,14 @@ var init_risk = __esm({
       /credential/i,
       /secret/i,
       /token/i
+    ];
+    READ_ONLY_BASH_PATTERNS = [
+      /^\s*(ls|dir)\b/i,
+      /^\s*(cat|type)\b/i,
+      /^\s*(grep|rg|findstr)\b/i,
+      /^\s*(pwd|cd)\b/i,
+      /^\s*(echo)\b/i,
+      /^\s*git\s+(status|log|show|diff)\b/i
     ];
   }
 });

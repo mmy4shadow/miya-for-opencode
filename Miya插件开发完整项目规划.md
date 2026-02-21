@@ -24,6 +24,42 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
   - 进行中：`网关拆域第二阶段（companion/编排继续下沉）`、`Cortex Arbiter（仲裁规则显式化+回归测试）`、`模式可观测闭环（指标口径固化+读写路径收敛）`、`Capture Capability Tree（从 limitations 口径到专用采集 worker）`、`Phase F 多代理/持久执行体验与恢复策略`。
   - 未落地/暂缓：`Slow Brain/Shadow Rollout`、`策略实验框架`、`Context Pipeline 独立模块化`、`OpenClaw openclaw.* 网关方法暴露`、`local VLM cmd + action_plan bridge`、`test:regression/benchmark:memory-recall` 等“基准套件”。
 
+## 2026-02-21 增量架构裁决（本轮新增，覆盖“既有问题+致命危机”）
+
+本节仅记录“本轮已落地的源码改动”和“明确暂不强推的项”，避免规划与实现再次漂移。
+
+- VRAM 悖论（8/12GB 挤压）：
+  - 已落地：`Traffic Lane` 抢占从“仅 low lane”升级为“critical 可抢占 high+low；high 可抢占 low”，并把强制卸载等待收敛到毫秒级（默认 `450ms`，可配 `MIYA_VRAM_PREEMPT_GRACE_MS`）。
+  - 已落地：Daemon 增加显存账本估算（按 `kind/modelID`）与统一拒绝码 `VRAM_BUDGET_EXCEEDED`（安全余量阈值 `1024MB`）。
+  - 已落地：VRAM 预算可用值计算修正为 `total - safety - active - loaded_models`，避免“只扣 active 不扣已加载模型”的预算乐观偏差。
+  - 已落地：声纹/VAD 严格按 CPU 口径运行（`voice.asr` 资源预算改为 `vramMB=0, modelVramMB=0`）。
+  - 代码：`miya-src/src/daemon/service.ts`、`miya-src/src/daemon/vram-mutex.ts`、`miya-src/src/resource-scheduler/vram.ts`、`miya-src/src/gateway/index.ts`。
+
+- Intake Gate 审批润滑：
+  - 已落地：新增“高信任来源静默审计阈值”（`intake.policy.silentAuditTrustScoreMin`，默认 `0.85`），命中后 `directive_content/read_only_research` 可自动放行并审计，不再阻断。
+  - 已落地：Intake 统计口径新增 `trustScore`，工具输出可直接观察 `U/R/T + trust`。
+  - 已落地（首版）：补充批量审批工具 `miya_self_approve_bundle`（单次审批签发多动作 token），用于 Plan Bundle 场景。
+  - 代码：`miya-src/src/intake/service.ts`、`miya-src/src/intake/index.ts`、`miya-src/src/intake/types.ts`、`miya-src/src/settings/registry.ts`、`miya-src/src/safety/index.ts`。
+
+- 记忆抽取 Token/速率陷阱：
+  - 已落地：自动反思从“高频小批”改为“低频大批”，Daemon/Gateway 均调整为 `idle>=60m + minPending>=200 + cooldown=12h + maxLogs=500`；`Session_End` 反思保留。
+  - 说明：当前记忆抽取主链是规则+结构化提取，不依赖高价大模型，不存在“每 10 分钟触发大模型反思”的必经路径。
+  - 代码：`miya-src/src/daemon/service.ts`、`miya-src/src/gateway/index.ts`、`miya-src/src/companion/memory-reflect.ts`。
+
+- 桌控发送韧性：
+  - 已落地：视觉核验增加“低置信计数”，连续两次低置信直接降级草稿并停止继续尝试（fail-fast）。
+  - 已落地：降级时落盘手动草稿到 `runtime/channels-draft/*.json`，返回路径供人工一键接管。
+  - 代码：`miya-src/src/multimodal/vision.ts`、`miya-src/src/channels/service.ts`。
+
+- 危机 A（主会话污染）：
+  - 已落地（首版）：新增“影子会话归档”拦截，高噪声工具输出转存 `runtime/shadow-sessions/*.jsonl`，前台保留摘要，降低主会话被错误堆栈/长日志污染风险。
+  - 代码：`miya-src/src/sessions/shadow.ts`、`miya-src/src/index.ts`。
+
+- 危机 C（不可逆回滚伪命题）：
+  - 已落地（语义层）：新增副作用可逆性分类 `none/reversible/irreversible`，`bash/edit` 的不可逆模式被显式标注并用于 tier 判定（不可逆默认 `THOROUGH`）。
+  - 说明：真正“验证码/密码放行”属于交互协议升级，需与 OpenCode permission UI 联动；本轮先完成语义与风控接口，不编造可回滚承诺。
+  - 代码：`miya-src/src/safety/risk.ts`。
+
 ## 2026-02-15 全面修订补丁（高优先级解释层，不删除原文）
 
 本补丁为本规划的“解释层/冻结条款集合”。若与后文出现冲突，**先以 `0.4 总状态矩阵` 为准**，再更新本补丁与对应章节，避免“文档内自相矛盾”。

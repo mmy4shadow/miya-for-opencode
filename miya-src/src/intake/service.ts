@@ -158,7 +158,7 @@ function readIntakeConfig(projectDir: string): IntakeRuntimeConfig {
       0,
       Math.min(
         1,
-        asNum(config['intake.policy.silentAuditTrustScoreMin'], 0.85),
+        asNum(config['intake.policy.silentAuditTrustScoreMin'], 85) / 100,
       ),
     ),
     sourceUnit: asSourceUnit(

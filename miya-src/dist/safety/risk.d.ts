@@ -7,6 +7,11 @@ export interface SafetyPermissionRequest {
     toolCallID?: string;
     messageID?: string;
 }
+export type SideEffectReversibility = 'none' | 'reversible' | 'irreversible';
 export declare function isSideEffectPermission(permission: string): boolean;
+export declare function classifySideEffect(request: Pick<SafetyPermissionRequest, 'permission' | 'patterns'>): {
+    sideEffect: boolean;
+    reversibility: SideEffectReversibility;
+};
 export declare function requiredTierForRequest(request: Pick<SafetyPermissionRequest, 'permission' | 'patterns'>): SafetyTier;
 export declare function buildRequestHash(request: Pick<SafetyPermissionRequest, 'permission' | 'patterns' | 'toolCallID' | 'messageID'>, includeMessageContext?: boolean): string;

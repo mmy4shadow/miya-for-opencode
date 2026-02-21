@@ -279,10 +279,10 @@ export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
   }),
   entry({
     key: 'intake.policy.silentAuditTrustScoreMin',
-    type: 'number',
+    type: 'integer',
     minimum: 0,
-    maximum: 1,
-    defaultValue: 0.85,
+    maximum: 100,
+    defaultValue: 85,
     risk: 'MED',
     description: '只读研究来源达到该信任分后改为静默审计。',
   }),
