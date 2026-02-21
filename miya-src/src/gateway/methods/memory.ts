@@ -1,4 +1,5 @@
 import {
+  type CompanionMemoryVector,
   archiveCompanionMemoryVector,
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
@@ -9,6 +10,9 @@ import {
   updateCompanionMemoryVector,
   upsertCompanionMemoryVector,
 } from '../../companion/memory-vector';
+import {
+  randomUUID,
+} from 'node:crypto';
 import {
   readCompanionProfile,
   syncCompanionProfileMemoryFacts,
@@ -39,6 +43,30 @@ export interface MemoryMethodDeps extends GatewayMethodRegistrarDeps {
 export function registerMemoryMethods(deps: MemoryMethodDeps): void {
   const { methods, projectDir, parseText } = deps;
 
+  const isMemoryRuntimeUnavailable = (error: unknown): boolean =>
+    String(error instanceof Error ? error.message : error).includes(
+      'sqlite_runtime_unavailable',
+    );
+
+  const createDegradedCandidate = (fact: string): CompanionMemoryVector => {
+    const now = new Date().toISOString();
+    return {
+      id: `volatile_${randomUUID()}`,
+      text: fact,
+      source: 'conversation',
+      embedding: [],
+      score: 0,
+      confidence: 0.3,
+      tier: 'L2',
+      status: 'candidate',
+      accessCount: 0,
+      isArchived: false,
+      createdAt: now,
+      updatedAt: now,
+      lastAccessedAt: now,
+    };
+  };
+
   methods.register('companion.memory.add', async (params) => {
     deps.requireOwnerMode(projectDir);
     const policyHash = parseText(params.policyHash) || undefined;
@@ -46,15 +74,23 @@ export function registerMemoryMethods(deps: MemoryMethodDeps): void {
     if (!fact) throw new Error('invalid_memory_fact');
     deps.requirePolicyHash(projectDir, policyHash);
     deps.requireDomainRunning(projectDir, 'memory_write');
-    const created = upsertCompanionMemoryVector(projectDir, {
-      text: fact,
-      source: 'conversation',
-      activate: false,
-      sourceType:
-        parseText(params.sourceType) === 'direct_correction'
-          ? 'direct_correction'
-          : 'conversation',
-    });
+    let created: CompanionMemoryVector;
+    let degraded = false;
+    try {
+      created = upsertCompanionMemoryVector(projectDir, {
+        text: fact,
+        source: 'conversation',
+        activate: false,
+        sourceType:
+          parseText(params.sourceType) === 'direct_correction'
+            ? 'direct_correction'
+            : 'conversation',
+      });
+    } catch (error) {
+      if (!isMemoryRuntimeUnavailable(error)) throw error;
+      created = createDegradedCandidate(fact);
+      degraded = true;
+    }
     const profile = syncCompanionProfileMemoryFacts(projectDir);
     const learningGate = deps.getLearningGate();
     return {
@@ -68,7 +104,9 @@ export function registerMemoryMethods(deps: MemoryMethodDeps): void {
       needsCorrectionWizard: Boolean(created.conflictWizardID),
       message: created.conflictWizardID
         ? 'memory_pending_conflict_requires_correction_wizard'
-        : 'memory_pending_confirmation_required',
+        : degraded
+          ? 'memory_pending_confirmation_required:degraded_sqlite_runtime'
+          : 'memory_pending_confirmation_required',
       profile,
     };
   });

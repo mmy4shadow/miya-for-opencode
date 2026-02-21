@@ -1025,10 +1025,17 @@ export function stopGateway(projectDir: string): {
   const runtime = runtimes.get(projectDir);
   if (!runtime) return { stopped: false };
 
-  maybeReflectOnSessionEnd(projectDir, {
-    minPendingLogs: 50,
-    maxLogs: 200,
-  });
+  try {
+    maybeReflectOnSessionEnd(projectDir, {
+      minPendingLogs: 50,
+      maxLogs: 200,
+    });
+  } catch (error) {
+    log('[gateway] skip memory reflect during stop due to runtime limitation', {
+      projectDir,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   const previous = toGatewayState(projectDir, runtime);
   if (runtime.wizardTickTimer) {

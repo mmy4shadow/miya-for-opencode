@@ -55,10 +55,14 @@ function defaultProfile(): CompanionProfile {
 }
 
 function deriveActiveMemoryFacts(projectDir: string): string[] {
-  return listCompanionMemoryVectors(projectDir)
-    .filter((item) => item.status === 'active' && !item.isArchived)
-    .map((item) => item.text)
-    .slice(0, 300);
+  try {
+    return listCompanionMemoryVectors(projectDir)
+      .filter((item) => item.status === 'active' && !item.isArchived)
+      .map((item) => item.text)
+      .slice(0, 300);
+  } catch {
+    return [];
+  }
 }
 
 export function readCompanionProfile(projectDir: string): CompanionProfile {

@@ -33377,7 +33377,7 @@ tool.schema = external_exports2;
 
 // src/gateway/index.ts
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { createHash as createHash15, randomUUID as randomUUID19 } from "node:crypto";
+import { createHash as createHash15, randomUUID as randomUUID20 } from "node:crypto";
 import * as fs48 from "node:fs";
 import { createServer } from "node:http";
 import * as os9 from "node:os";
@@ -41044,7 +41044,11 @@ function defaultProfile() {
   };
 }
 function deriveActiveMemoryFacts(projectDir) {
-  return listCompanionMemoryVectors(projectDir).filter((item) => item.status === "active" && !item.isArchived).map((item) => item.text).slice(0, 300);
+  try {
+    return listCompanionMemoryVectors(projectDir).filter((item) => item.status === "active" && !item.isArchived).map((item) => item.text).slice(0, 300);
+  } catch {
+    return [];
+  }
 }
 function readCompanionProfile(projectDir) {
   const file3 = filePath8(projectDir);
@@ -45824,8 +45828,32 @@ function registerChannelMethods(deps) {
 }
 
 // src/gateway/methods/memory.ts
+import {
+  randomUUID as randomUUID19
+} from "node:crypto";
 function registerMemoryMethods(deps) {
   const { methods, projectDir, parseText: parseText2 } = deps;
+  const isMemoryRuntimeUnavailable = (error92) => String(error92 instanceof Error ? error92.message : error92).includes(
+    "sqlite_runtime_unavailable"
+  );
+  const createDegradedCandidate = (fact) => {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    return {
+      id: `volatile_${randomUUID19()}`,
+      text: fact,
+      source: "conversation",
+      embedding: [],
+      score: 0,
+      confidence: 0.3,
+      tier: "L2",
+      status: "candidate",
+      accessCount: 0,
+      isArchived: false,
+      createdAt: now,
+      updatedAt: now,
+      lastAccessedAt: now
+    };
+  };
   methods.register("companion.memory.add", async (params) => {
     deps.requireOwnerMode(projectDir);
     const policyHash = parseText2(params.policyHash) || void 0;
@@ -45833,12 +45861,20 @@ function registerMemoryMethods(deps) {
     if (!fact) throw new Error("invalid_memory_fact");
     deps.requirePolicyHash(projectDir, policyHash);
     deps.requireDomainRunning(projectDir, "memory_write");
-    const created = upsertCompanionMemoryVector(projectDir, {
-      text: fact,
-      source: "conversation",
-      activate: false,
-      sourceType: parseText2(params.sourceType) === "direct_correction" ? "direct_correction" : "conversation"
-    });
+    let created;
+    let degraded = false;
+    try {
+      created = upsertCompanionMemoryVector(projectDir, {
+        text: fact,
+        source: "conversation",
+        activate: false,
+        sourceType: parseText2(params.sourceType) === "direct_correction" ? "direct_correction" : "conversation"
+      });
+    } catch (error92) {
+      if (!isMemoryRuntimeUnavailable(error92)) throw error92;
+      created = createDegradedCandidate(fact);
+      degraded = true;
+    }
     const profile = syncCompanionProfileMemoryFacts(projectDir);
     const learningGate = deps.getLearningGate();
     return {
@@ -45850,7 +45886,7 @@ function registerMemoryMethods(deps) {
         interruptsUser: false
       },
       needsCorrectionWizard: Boolean(created.conflictWizardID),
-      message: created.conflictWizardID ? "memory_pending_conflict_requires_correction_wizard" : "memory_pending_confirmation_required",
+      message: created.conflictWizardID ? "memory_pending_conflict_requires_correction_wizard" : degraded ? "memory_pending_confirmation_required:degraded_sqlite_runtime" : "memory_pending_confirmation_required",
       profile
     };
   });
@@ -47344,7 +47380,7 @@ function removeOwnerLock(projectDir) {
   }
 }
 function acquireGatewayOwner(projectDir) {
-  const existingToken = ownerTokens.get(projectDir) ?? randomUUID19();
+  const existingToken = ownerTokens.get(projectDir) ?? randomUUID20();
   ownerTokens.set(projectDir, existingToken);
   const lockFile = gatewayOwnerLockFile(projectDir);
   const lock = readGatewayOwnerLock(projectDir);
@@ -47471,10 +47507,17 @@ function syncGatewayState(projectDir, runtime) {
 function stopGateway(projectDir) {
   const runtime = runtimes2.get(projectDir);
   if (!runtime) return { stopped: false };
-  maybeReflectOnSessionEnd(projectDir, {
-    minPendingLogs: 50,
-    maxLogs: 200
-  });
+  try {
+    maybeReflectOnSessionEnd(projectDir, {
+      minPendingLogs: 50,
+      maxLogs: 200
+    });
+  } catch (error92) {
+    log("[gateway] skip memory reflect during stop due to runtime limitation", {
+      projectDir,
+      error: error92 instanceof Error ? error92.message : String(error92)
+    });
+  }
   const previous = toGatewayState(projectDir, runtime);
   if (runtime.wizardTickTimer) {
     clearInterval(runtime.wizardTickTimer);
@@ -47634,7 +47677,7 @@ function buildSessionPayloadByMode(mode, text) {
 async function enforceCriticalIntentGuard(projectDir, input) {
   if (shouldBypassIntentGuard(input.source)) return false;
   if (!isCriticalInjectionIntent(input.text)) return false;
-  const traceID = randomUUID19();
+  const traceID = randomUUID20();
   const reason = "critical_intent_killswitch_triggered";
   activateKillSwitch(projectDir, reason, traceID);
   appendPolicyIncident(projectDir, {
@@ -47770,7 +47813,7 @@ function interventionAuditFile(projectDir) {
   return path49.join(getMiyaRuntimeDir(projectDir), "audit", "intervention.jsonl");
 }
 function appendInterventionAudit(projectDir, input) {
-  const id = `intervention_${randomUUID19()}`;
+  const id = `intervention_${randomUUID20()}`;
   const file3 = interventionAuditFile(projectDir);
   fs48.mkdirSync(path49.dirname(file3), { recursive: true });
   fs48.appendFileSync(
@@ -48896,7 +48939,7 @@ function appendDaemonProgressAudit(projectDir, input) {
   fs48.mkdirSync(path49.dirname(file3), { recursive: true });
   fs48.appendFileSync(
     file3,
-    `${JSON.stringify({ id: `dprogress_${randomUUID19()}`, ...input })}
+    `${JSON.stringify({ id: `dprogress_${randomUUID20()}`, ...input })}
 `,
     "utf-8"
   );
@@ -48910,7 +48953,7 @@ function appendGatewayMethodAudit(projectDir, input) {
   fs48.appendFileSync(
     file3,
     `${JSON.stringify({
-      id: `gmethod_${randomUUID19()}`,
+      id: `gmethod_${randomUUID20()}`,
       at: nowIso29(),
       ...input
     })}
@@ -49181,7 +49224,7 @@ function resolveApprovalTicket(input) {
       }
     };
   }
-  activateKillSwitch(input.projectDir, "missing_evidence", randomUUID19());
+  activateKillSwitch(input.projectDir, "missing_evidence", randomUUID20());
   return { ok: false, reason: "missing_evidence" };
 }
 function enforceToken(input) {
@@ -49377,7 +49420,7 @@ function ensureWsData(runtime, ws) {
     return existing;
   }
   const fallback = {
-    clientID: `ws_${randomUUID19()}`,
+    clientID: `ws_${randomUUID20()}`,
     role: "unknown",
     subscriptions: /* @__PURE__ */ new Set(["*"]),
     authenticated: !process.env.MIYA_GATEWAY_TOKEN
@@ -49912,7 +49955,7 @@ function createMethods(projectDir, runtime) {
     if (!mode) throw new Error("invalid_killswitch_mode");
     const reason = parseText(params.reason) || `manual_mode:${mode}`;
     if (mode === "all_stop") {
-      const traceID = randomUUID19();
+      const traceID = randomUUID20();
       activateKillSwitch(projectDir, reason, traceID);
       transitionSafetyState(projectDir, {
         source: "killswitch.set_mode",
@@ -49981,7 +50024,7 @@ function createMethods(projectDir, runtime) {
       false
     );
     const token = saveApprovalToken(projectDir, sessionID2, {
-      trace_id: randomUUID19(),
+      trace_id: randomUUID20(),
       request_hash: requestHash,
       tier: tierText,
       action
