@@ -38,6 +38,20 @@ export interface AutoflowDagSummary {
     failed: number;
     blocked: number;
 }
+export type AutoflowFixStep = {
+    id: string;
+    type: 'command';
+    command: string;
+    description?: string;
+} | {
+    id: string;
+    type: 'agent_task';
+    agent: string;
+    prompt: string;
+    description: string;
+    timeoutMs?: number;
+    maxRetries?: number;
+};
 export interface AutoflowSessionState {
     sessionID: string;
     goal: string;
@@ -48,6 +62,7 @@ export interface AutoflowSessionState {
     fixRound: number;
     verificationCommand?: string;
     fixCommands: string[];
+    fixSteps: AutoflowFixStep[];
     planTasks: UltraworkTaskInput[];
     recentVerificationHashes: string[];
     lastError?: string;
@@ -65,6 +80,7 @@ export interface AutoflowRunInput {
     tasks?: UltraworkTaskInput[];
     verificationCommand?: string;
     fixCommands?: string[];
+    fixSteps?: AutoflowFixStep[];
     maxFixRounds?: number;
     maxParallel?: number;
     timeoutMs?: number;
@@ -86,4 +102,5 @@ export interface AutoflowRunResult {
     dagResult?: UltraworkDagResult;
     verification?: AutoflowCommandResult;
     fixResult?: AutoflowCommandResult;
+    executedFixStep?: AutoflowFixStep;
 }

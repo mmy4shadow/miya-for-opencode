@@ -1,4 +1,4 @@
-import type { AutoflowPhase, AutoflowSessionState } from './types';
+import type { AutoflowFixStep, AutoflowPhase, AutoflowSessionState } from './types';
 export declare function loadAutoflowSession(projectDir: string, sessionID: string): AutoflowSessionState | null;
 export declare function listAutoflowSessions(projectDir: string, limit?: number): AutoflowSessionState[];
 export declare function getAutoflowSession(projectDir: string, sessionID: string): AutoflowSessionState;
@@ -10,6 +10,7 @@ export declare function configureAutoflowSession(projectDir: string, input: {
     tasks?: AutoflowSessionState['planTasks'];
     verificationCommand?: string;
     fixCommands?: string[];
+    fixSteps?: AutoflowFixStep[];
     maxFixRounds?: number;
     phase?: AutoflowPhase;
 }): AutoflowSessionState;

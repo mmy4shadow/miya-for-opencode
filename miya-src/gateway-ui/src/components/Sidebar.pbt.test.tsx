@@ -421,7 +421,8 @@ describe('Sidebar Property-Based Tests', () => {
 
             // Should always have the navigation role
             const navElement = container.querySelector('nav');
-            expect(navElement?.getAttribute('role')).toBe('navigation');
+            expect(navElement).toBeInTheDocument();
+            expect(navElement?.getAttribute('aria-label')).toBeTruthy();
           },
         ),
         { numRuns: 100 },

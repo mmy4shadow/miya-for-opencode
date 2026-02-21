@@ -53,7 +53,7 @@ miya cli
 
 Usage:
   miya install [OPTIONS]
-  miya gateway <start|serve|terminal|status|doctor|shutdown|autostart>
+  miya gateway <start|serve|terminal|shell|status|doctor|shutdown|autostart>
   miya sessions <list|get|send|policy>
   miya channels <list|status|pairs|approve|reject|send>
   miya nodes <list|status|describe|pairs|approve|reject|invoke>
@@ -67,6 +67,7 @@ Usage:
 Examples:
   miya gateway status
   miya gateway terminal
+  miya gateway shell start
   miya gateway autostart install
   miya sessions send webchat:main "hello"
   miya channels send telegram 123456 "hi"
@@ -275,15 +276,25 @@ function renderGatewayAutostartScript(input: {
   workspace: string;
   nodeBinary: string;
   cliScript: string;
-  mode: 'serve' | 'terminal';
+  mode: 'serve' | 'terminal' | 'service_shell';
 }): string {
-  const nodeArgs = [
-    quoteForCmd(input.cliScript),
-    `gateway ${input.mode}`,
-    `--workspace ${quoteForCmd(input.workspace)}`,
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const nodeArgs =
+    input.mode === 'service_shell'
+      ? [
+          quoteForCmd(input.cliScript),
+          'gateway start',
+          '--force',
+          `--workspace ${quoteForCmd(input.workspace)}`,
+        ]
+          .filter(Boolean)
+          .join(' ')
+      : [
+          quoteForCmd(input.cliScript),
+          `gateway ${input.mode}`,
+          `--workspace ${quoteForCmd(input.workspace)}`,
+        ]
+          .filter(Boolean)
+          .join(' ');
   return [
     '@echo off',
     'setlocal',
@@ -309,14 +320,18 @@ function renderGatewayAutostartVbs(launcherPath: string): string {
 
 function readAutostartMode(
   workspace: string,
-): 'serve' | 'terminal' | 'unknown' {
+): 'serve' | 'terminal' | 'service_shell' | 'unknown' {
   const file = gatewayAutostartMetaFile(workspace);
   if (!fs.existsSync(file)) return 'unknown';
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
       mode?: unknown;
     };
-    if (parsed.mode === 'serve' || parsed.mode === 'terminal')
+    if (
+      parsed.mode === 'serve' ||
+      parsed.mode === 'terminal' ||
+      parsed.mode === 'service_shell'
+    )
       return parsed.mode;
     return 'unknown';
   } catch {
@@ -371,6 +386,90 @@ function releaseTerminalLock(workspace: string): void {
   try {
     fs.unlinkSync(lockFile);
   } catch {}
+}
+
+function gatewayShellStateFile(workspace: string): string {
+  return path.join(workspace, '.opencode', 'miya', 'gateway-shell.json');
+}
+
+interface GatewayShellState {
+  pid: number;
+  workspace: string;
+  startedAt: string;
+  visible: boolean;
+}
+
+function readGatewayShellState(workspace: string): GatewayShellState | null {
+  const file = gatewayShellStateFile(workspace);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      pid?: unknown;
+      workspace?: unknown;
+      startedAt?: unknown;
+      visible?: unknown;
+    };
+    const pid = Number(parsed.pid);
+    const stateWorkspace = String(parsed.workspace ?? workspace);
+    const startedAt = String(parsed.startedAt ?? '');
+    const visible =
+      parsed.visible === undefined ? true : Boolean(parsed.visible);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    if (!startedAt || !Number.isFinite(Date.parse(startedAt))) return null;
+    return { pid, workspace: stateWorkspace, startedAt, visible };
+  } catch {
+    return null;
+  }
+}
+
+function writeGatewayShellState(
+  workspace: string,
+  state: GatewayShellState,
+): void {
+  const file = gatewayShellStateFile(workspace);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+}
+
+function clearGatewayShellState(workspace: string): void {
+  try {
+    fs.unlinkSync(gatewayShellStateFile(workspace));
+  } catch {}
+}
+
+function setWindowVisibleByPid(pid: number, visible: boolean): boolean {
+  if (process.platform !== 'win32') return false;
+  const showCode = visible ? 5 : 0;
+  const script = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class MiyaShellWin32 {
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}
+"@
+$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue
+if (-not $p) { exit 2 }
+$h = $p.MainWindowHandle
+if ($h -eq 0) { exit 3 }
+[MiyaShellWin32]::ShowWindowAsync([IntPtr]$h, ${showCode}) | Out-Null
+exit 0
+`.trim();
+  try {
+    const result = spawnSync(
+      'powershell.exe',
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        stdio: 'ignore',
+        timeout: 4_000,
+        windowsHide: true,
+      },
+    );
+    return result.status === 0;
+  } catch {
+    return false;
+  }
 }
 
 function runtimeGatewayFile(cwd: string): string {
@@ -896,6 +995,231 @@ async function runGatewayTerminal(
   return 0;
 }
 
+async function runGatewayShell(
+  cwd: string,
+  args: string[],
+): Promise<number> {
+  if (process.platform !== 'win32') {
+    console.error('gateway_shell_unsupported_platform');
+    return 2;
+  }
+  const action = (args[0] ?? 'status').trim().toLowerCase();
+  const workspace =
+    readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const state = readGatewayShellState(workspace);
+  const alive = state ? isPidAlive(state.pid) : false;
+  if (state && !alive) clearGatewayShellState(workspace);
+
+  if (action === 'status') {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          action,
+          running: Boolean(state && alive),
+          pid: state?.pid ?? null,
+          visible: state?.visible ?? null,
+          workspace,
+          stateFile: gatewayShellStateFile(workspace),
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  if (action === 'stop' || action === 'shutdown') {
+    if (!state || !alive) {
+      clearGatewayShellState(workspace);
+      console.log(
+        JSON.stringify({ ok: true, action: 'stop', stopped: false }, null, 2),
+      );
+      return 0;
+    }
+    try {
+      process.kill(state.pid, 'SIGTERM');
+    } catch {
+      try {
+        process.kill(state.pid, 'SIGKILL');
+      } catch {}
+    }
+    clearGatewayShellState(workspace);
+    console.log(
+      JSON.stringify(
+        { ok: true, action: 'stop', stopped: true, pid: state.pid },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  if (action === 'start') {
+    if (state && alive) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: true,
+            action,
+            started: false,
+            reason: 'already_running',
+            pid: state.pid,
+          },
+          null,
+          2,
+        ),
+      );
+      return 0;
+    }
+    const started = await runGatewayStart(workspace);
+    if (!started.ok) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            started: false,
+            reason: started.reason,
+            detail: started.detail ?? null,
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
+    const nodeBinary = resolveNodeBinary();
+    const cliScript = resolveGatewayCliScript(workspace);
+    if (!nodeBinary || !cliScript) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            started: false,
+            reason: 'node_or_cli_not_found',
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
+    const shell = spawn(
+      'cmd.exe',
+      [
+        '/d',
+        '/k',
+        `"${nodeBinary}" "${cliScript}" gateway terminal --workspace "${workspace}"`,
+      ],
+      {
+        cwd: workspace,
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      },
+    );
+    shell.unref();
+    const shellPid = shell.pid ?? 0;
+    if (!Number.isFinite(shellPid) || shellPid <= 0) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            started: false,
+            reason: 'shell_pid_unavailable',
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
+    const next: GatewayShellState = {
+      pid: shellPid,
+      workspace,
+      startedAt: new Date().toISOString(),
+      visible: true,
+    };
+    writeGatewayShellState(workspace, next);
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          action,
+          started: true,
+          pid: shellPid,
+          workspace,
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  if (action === 'show' || action === 'hide' || action === 'toggle') {
+    const current = readGatewayShellState(workspace);
+    if (!current || !isPidAlive(current.pid)) {
+      clearGatewayShellState(workspace);
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            reason: 'shell_not_running',
+            workspace,
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
+    const shouldShow =
+      action === 'show'
+        ? true
+        : action === 'hide'
+          ? false
+          : !Boolean(current.visible);
+    const changed = setWindowVisibleByPid(current.pid, shouldShow);
+    if (!changed) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            reason: 'window_visibility_change_failed',
+            pid: current.pid,
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
+    current.visible = shouldShow;
+    writeGatewayShellState(workspace, current);
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          action,
+          pid: current.pid,
+          visible: shouldShow,
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  throw new Error(`unknown_gateway_shell_action:${action}`);
+}
+
 async function runGatewayAutostart(
   cwd: string,
   args: string[],
@@ -903,11 +1227,15 @@ async function runGatewayAutostart(
   const action = args[0] ?? 'status';
   const workspace =
     readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
-  const modeRaw = (readFlagValue(args, '--mode') ?? 'serve')
+  const modeRaw = (readFlagValue(args, '--mode') ?? 'service_shell')
     .trim()
     .toLowerCase();
-  const mode: 'serve' | 'terminal' =
-    modeRaw === 'terminal' ? 'terminal' : 'serve';
+  const mode: 'serve' | 'terminal' | 'service_shell' =
+    modeRaw === 'terminal'
+      ? 'terminal'
+      : modeRaw === 'serve'
+        ? 'serve'
+        : 'service_shell';
   const startupDir = windowsStartupDir();
   if (!startupDir) {
     console.error('gateway_autostart_unsupported_platform');
@@ -1100,6 +1428,9 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
   }
   if (action === 'terminal') {
     return await runGatewayTerminal(cwd, args.slice(1));
+  }
+  if (action === 'shell') {
+    return await runGatewayShell(cwd, args.slice(1));
   }
   if (action === 'autostart') {
     return await runGatewayAutostart(cwd, args.slice(1));

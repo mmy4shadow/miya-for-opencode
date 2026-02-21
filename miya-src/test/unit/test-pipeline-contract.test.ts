@@ -19,9 +19,9 @@ describe('test pipeline contract', () => {
   });
 
   test('dedicated test entry points are present for CI splitting', () => {
-    expect(packageJson.scripts?.['test:core']).toBe(
-      'npm run typecheck',
-    );
+    const testCore = packageJson.scripts?.['test:core'] ?? '';
+    expect(testCore.includes('npm run typecheck')).toBe(true);
+    expect(testCore.includes('vitest run')).toBe(true);
     expect(packageJson.scripts?.['test:ui']).toBe('npm --prefix gateway-ui run test:run');
     expect(packageJson.scripts?.['test:integration']).toBe(
       'tsx tools/run-integration-suite.ts',

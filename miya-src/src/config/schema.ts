@@ -91,6 +91,10 @@ export const UiConfigSchema = z.object({
     .object({
       openOnStart: z.boolean().optional(),
       dockAutoLaunch: z.boolean().optional(),
+      gatewayStartMode: z
+        .enum(['service_shell', 'service_only', 'terminal_legacy'])
+        .optional(),
+      gatewayTerminalAutoStart: z.boolean().optional(),
       autoOpenCooldownMs: z
         .number()
         .min(10_000)

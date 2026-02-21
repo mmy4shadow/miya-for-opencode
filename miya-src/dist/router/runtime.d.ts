@@ -7,6 +7,10 @@ export interface RouterModeConfig {
     forcedStage?: RouteStage;
     stageTokenMultiplier: Record<RouteStage, number>;
     stageCostUsdPer1k: Record<RouteStage, number>;
+    autoParallelEnabled: boolean;
+    autoParallelMinComplexity: RouteComplexity;
+    autoParallelMaxAgents: number;
+    sourceAllowlist: string[];
 }
 export interface RouteComplexitySignals {
     complexity: RouteComplexity;
@@ -29,6 +33,8 @@ export interface RouteExecutionPlan {
     feedbackScore: number;
     feedbackSamples: number;
     ecoMode: boolean;
+    executionMode: 'sequential' | 'auto_parallel';
+    orchestrationReason: string;
     reasons: string[];
 }
 export interface RouterCostRecord {
@@ -73,6 +79,7 @@ export declare function buildRouteExecutionPlan(input: {
     text: string;
     availableAgents: string[];
     pinnedAgent?: string;
+    source?: string;
 }): RouteExecutionPlan;
 export declare function prepareRoutePayload(projectDir: string, input: {
     text: string;

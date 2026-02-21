@@ -59,6 +59,12 @@ export declare const UiConfigSchema: z.ZodObject<{
     dashboard: z.ZodOptional<z.ZodObject<{
         openOnStart: z.ZodOptional<z.ZodBoolean>;
         dockAutoLaunch: z.ZodOptional<z.ZodBoolean>;
+        gatewayStartMode: z.ZodOptional<z.ZodEnum<{
+            service_shell: "service_shell";
+            service_only: "service_only";
+            terminal_legacy: "terminal_legacy";
+        }>>;
+        gatewayTerminalAutoStart: z.ZodOptional<z.ZodBoolean>;
         autoOpenCooldownMs: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>>;
 }, z.core.$strip>;
@@ -143,6 +149,12 @@ export declare const PluginConfigSchema: z.ZodObject<{
         dashboard: z.ZodOptional<z.ZodObject<{
             openOnStart: z.ZodOptional<z.ZodBoolean>;
             dockAutoLaunch: z.ZodOptional<z.ZodBoolean>;
+            gatewayStartMode: z.ZodOptional<z.ZodEnum<{
+                service_shell: "service_shell";
+                service_only: "service_only";
+                terminal_legacy: "terminal_legacy";
+            }>>;
+            gatewayTerminalAutoStart: z.ZodOptional<z.ZodBoolean>;
             autoOpenCooldownMs: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
     }, z.core.$strip>>;

@@ -3046,7 +3046,7 @@ var require_main = __commonJS({
     exports.createMessageConnection = exports.createServerSocketTransport = exports.createClientSocketTransport = exports.createServerPipeTransport = exports.createClientPipeTransport = exports.generateRandomPipeName = exports.StreamMessageWriter = exports.StreamMessageReader = exports.SocketMessageWriter = exports.SocketMessageReader = exports.PortMessageWriter = exports.PortMessageReader = exports.IPCMessageWriter = exports.IPCMessageReader = void 0;
     var ril_1 = require_ril();
     ril_1.default.install();
-    var path54 = __require("path");
+    var path55 = __require("path");
     var os10 = __require("os");
     var crypto_1 = __require("crypto");
     var net_1 = __require("net");
@@ -3182,9 +3182,9 @@ var require_main = __commonJS({
       }
       let result;
       if (XDG_RUNTIME_DIR) {
-        result = path54.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
+        result = path55.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
       } else {
-        result = path54.join(os10.tmpdir(), `vscode-${randomSuffix}.sock`);
+        result = path55.join(os10.tmpdir(), `vscode-${randomSuffix}.sock`);
       }
       const limit = safeIpcPathLengths.get(process.platform);
       if (limit !== void 0 && result.length > limit) {
@@ -3292,8 +3292,8 @@ var require_node = __commonJS({
 
 // src/index.ts
 import { spawn as spawn6, spawnSync as spawnSync9 } from "node:child_process";
-import * as fs52 from "node:fs";
-import * as path53 from "node:path";
+import * as fs53 from "node:fs";
+import * as path54 from "node:path";
 
 // src/cli/custom-skills.ts
 var CUSTOM_SKILLS = [
@@ -3478,9 +3478,96 @@ import * as fs3 from "node:fs";
 import * as os from "node:os";
 import * as path3 from "node:path";
 
-// src/workflow/state.ts
+// src/workflow/saves.ts
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+function getSavesDir(projectDir) {
+  return path.join(projectDir, ".opencode", "cowork-saves");
+}
+function ensureDir(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+function timestampId() {
+  const now = /* @__PURE__ */ new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  return `${y}${m}${d}_${hh}${mm}${ss}`;
+}
+function getCurrentBranch(projectDir) {
+  const result = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: projectDir,
+    encoding: "utf-8"
+  });
+  if (result.status !== 0) return null;
+  return result.stdout.trim() || null;
+}
+function savePath(projectDir, id) {
+  return path.join(getSavesDir(projectDir), `${id}.json`);
+}
+function createSaveRecord(projectDir, input) {
+  const id = timestampId();
+  const record3 = {
+    id,
+    label: input.label,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    sessionID: input.sessionID,
+    branch: getCurrentBranch(projectDir),
+    done: input.done,
+    missing: input.missing,
+    unresolved: input.unresolved,
+    notes: input.notes
+  };
+  ensureDir(getSavesDir(projectDir));
+  fs.writeFileSync(
+    savePath(projectDir, id),
+    `${JSON.stringify(record3, null, 2)}
+`
+  );
+  return record3;
+}
+function loadSaveRecord(projectDir, id) {
+  const filePath14 = savePath(projectDir, id);
+  if (!fs.existsSync(filePath14)) return null;
+  try {
+    const raw = fs.readFileSync(filePath14, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function listSaveRecords(projectDir) {
+  const dir = getSavesDir(projectDir);
+  if (!fs.existsSync(dir)) return [];
+  const files = fs.readdirSync(dir).filter((fileName) => fileName.endsWith(".json")).sort();
+  const records = [];
+  for (const fileName of files) {
+    const fullPath = path.join(dir, fileName);
+    try {
+      const raw = fs.readFileSync(fullPath, "utf-8");
+      records.push(JSON.parse(raw));
+    } catch {
+    }
+  }
+  return records;
+}
+function evaluateSave(record3) {
+  if (record3.missing.length === 0 && record3.unresolved.length === 0) {
+    return { status: "complete", reason: "No missing or unresolved items" };
+  }
+  return {
+    status: "incomplete",
+    reason: `missing=${record3.missing.length}, unresolved=${record3.unresolved.length}`
+  };
+}
+
+// src/workflow/state.ts
+import * as fs2 from "node:fs";
+import * as path2 from "node:path";
 var DEFAULT_STATE = {
   loopEnabled: true,
   autoContinue: true,
@@ -3497,21 +3584,21 @@ var DEFAULT_STATE = {
   autoContinueAt: (/* @__PURE__ */ new Date(0)).toISOString(),
   updatedAt: (/* @__PURE__ */ new Date(0)).toISOString()
 };
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
+function ensureDir2(dirPath) {
+  fs2.mkdirSync(dirPath, { recursive: true });
 }
 function getMiyaRuntimeDir(projectDir) {
-  return path.join(projectDir, ".opencode", "miya");
+  return path2.join(projectDir, ".opencode", "miya");
 }
 function getLoopStatePath(projectDir) {
-  return path.join(getMiyaRuntimeDir(projectDir), "loop-state.json");
+  return path2.join(getMiyaRuntimeDir(projectDir), "loop-state.json");
 }
 function readStateFile(filePath14) {
-  if (!fs.existsSync(filePath14)) {
+  if (!fs2.existsSync(filePath14)) {
     return { sessions: {} };
   }
   try {
-    const raw = fs.readFileSync(filePath14, "utf-8");
+    const raw = fs2.readFileSync(filePath14, "utf-8");
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || !parsed.sessions) {
       return { sessions: {} };
@@ -3522,8 +3609,8 @@ function readStateFile(filePath14) {
   }
 }
 function writeStateFile(filePath14, state2) {
-  ensureDir(path.dirname(filePath14));
-  fs.writeFileSync(filePath14, `${JSON.stringify(state2, null, 2)}
+  ensureDir2(path2.dirname(filePath14));
+  fs2.writeFileSync(filePath14, `${JSON.stringify(state2, null, 2)}
 `, "utf-8");
 }
 function getSessionState(projectDir, sessionID2) {
@@ -3558,90 +3645,6 @@ function isNegativeConfirmation(text) {
 function shouldEnableStrictQualityGate(text) {
   const lowered = text.toLowerCase();
   return lowered.includes("strict-quality-gate") || lowered.includes("strict quality gate") || lowered.includes("deepwork");
-}
-
-// src/workflow/saves.ts
-import { spawnSync } from "node:child_process";
-import * as fs2 from "node:fs";
-import * as path2 from "node:path";
-function getSavesDir(projectDir) {
-  return path2.join(projectDir, ".opencode", "cowork-saves");
-}
-function ensureDir2(dirPath) {
-  fs2.mkdirSync(dirPath, { recursive: true });
-}
-function timestampId() {
-  const now = /* @__PURE__ */ new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
-  return `${y}${m}${d}_${hh}${mm}${ss}`;
-}
-function getCurrentBranch(projectDir) {
-  const result = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd: projectDir,
-    encoding: "utf-8"
-  });
-  if (result.status !== 0) return null;
-  return result.stdout.trim() || null;
-}
-function savePath(projectDir, id) {
-  return path2.join(getSavesDir(projectDir), `${id}.json`);
-}
-function createSaveRecord(projectDir, input) {
-  const id = timestampId();
-  const record3 = {
-    id,
-    label: input.label,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-    sessionID: input.sessionID,
-    branch: getCurrentBranch(projectDir),
-    done: input.done,
-    missing: input.missing,
-    unresolved: input.unresolved,
-    notes: input.notes
-  };
-  ensureDir2(getSavesDir(projectDir));
-  fs2.writeFileSync(savePath(projectDir, id), `${JSON.stringify(record3, null, 2)}
-`);
-  return record3;
-}
-function loadSaveRecord(projectDir, id) {
-  const filePath14 = savePath(projectDir, id);
-  if (!fs2.existsSync(filePath14)) return null;
-  try {
-    const raw = fs2.readFileSync(filePath14, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-function listSaveRecords(projectDir) {
-  const dir = getSavesDir(projectDir);
-  if (!fs2.existsSync(dir)) return [];
-  const files = fs2.readdirSync(dir).filter((fileName) => fileName.endsWith(".json")).sort();
-  const records = [];
-  for (const fileName of files) {
-    const fullPath = path2.join(dir, fileName);
-    try {
-      const raw = fs2.readFileSync(fullPath, "utf-8");
-      records.push(JSON.parse(raw));
-    } catch {
-    }
-  }
-  return records;
-}
-function evaluateSave(record3) {
-  if (record3.missing.length === 0 && record3.unresolved.length === 0) {
-    return { status: "complete", reason: "No missing or unresolved items" };
-  }
-  return {
-    status: "incomplete",
-    reason: `missing=${record3.missing.length}, unresolved=${record3.unresolved.length}`
-  };
 }
 
 // src/config/agent-model-persistence.ts
@@ -3739,7 +3742,9 @@ function readUiModelStateModels() {
   for (const candidate of getUiModelStateFileCandidates()) {
     if (!fs3.existsSync(candidate)) continue;
     try {
-      const parsed = JSON.parse(fs3.readFileSync(candidate, "utf-8"));
+      const parsed = JSON.parse(
+        fs3.readFileSync(candidate, "utf-8")
+      );
       const maps = [
         parseUiModelStateAgentMap(parsed.model),
         parseUiModelStateAgentMap(parsed.models),
@@ -4108,7 +4113,9 @@ function parseAgentPatchSet(setMap, source, activeAgentHint) {
       break;
     }
   }
-  const activeAgentFromHint = normalizeAgentName(String(activeAgentHint || defaultAgentFromPatch || "")) ?? void 0;
+  const activeAgentFromHint = normalizeAgentName(
+    String(activeAgentHint || defaultAgentFromPatch || "")
+  ) ?? void 0;
   const getOrCreateDraft = (agentNameRaw) => {
     const agentName = normalizeAgentName(agentNameRaw);
     if (!agentName) return null;
@@ -4207,7 +4214,9 @@ function parseAgentPatchSet(setMap, source, activeAgentHint) {
 }
 function persistAgentRuntimeFromConfigSnapshot(projectDir, snapshot) {
   if (!isObject(snapshot)) return { updated: 0 };
-  const activeAgentId = normalizeAgentName(String(snapshot.default_agent ?? snapshot.defaultAgent ?? "")) ?? void 0;
+  const activeAgentId = normalizeAgentName(
+    String(snapshot.default_agent ?? snapshot.defaultAgent ?? "")
+  ) ?? void 0;
   const agentMap = isObject(snapshot.agent) ? snapshot.agent : isObject(snapshot.agents) ? snapshot.agents : {};
   let updated = 0;
   for (const [rawAgentName, rawAgentConfig] of Object.entries(agentMap)) {
@@ -4262,11 +4271,15 @@ function extractAgentModelSelectionsFromEvent(event) {
       )
     ) ?? null;
     if (!agentName) return null;
-    const model = normalizeModelRef(scope.model ?? scope.selectedModel ?? scope.agentModel);
+    const model = normalizeModelRef(
+      scope.model ?? scope.selectedModel ?? scope.agentModel
+    );
     const variant = normalizeStringValue(scope.variant);
     const providerID = normalizeProviderID(scope.providerID ?? scope.provider) ?? (model ? normalizeProviderID(model.split("/")[0]) : void 0);
     const options = normalizeOptions(scope.options ?? scope.providerOptions);
-    const apiKey = normalizeStringValue(scope.apiKey ?? (isObject(scope.options) ? scope.options.apiKey : void 0));
+    const apiKey = normalizeStringValue(
+      scope.apiKey ?? (isObject(scope.options) ? scope.options.apiKey : void 0)
+    );
     const baseURL = normalizeStringValue(
       scope.baseURL ?? (isObject(scope.options) ? scope.options.baseURL : void 0)
     );
@@ -4290,11 +4303,23 @@ function extractAgentModelSelectionsFromEvent(event) {
     if (!isObject(info) || info.role !== "user") {
       return [];
     }
-    const result = extractFromEvent("message", info, String(properties.agent ?? ""), true);
+    const result = extractFromEvent(
+      "message",
+      info,
+      String(properties.agent ?? ""),
+      true
+    );
     return result ? [result] : [];
   }
-  if (["agent.selected", "agent.changed", "session.agent.changed"].includes(eventType)) {
-    const result = extractFromEvent("agent_switch", properties, void 0, true);
+  if (["agent.selected", "agent.changed", "session.agent.changed"].includes(
+    eventType
+  )) {
+    const result = extractFromEvent(
+      "agent_switch",
+      properties,
+      void 0,
+      true
+    );
     return result ? [result] : [];
   }
   if (["session.created", "session.updated", "config.updated"].includes(eventType)) {
@@ -4308,7 +4333,12 @@ function extractAgentModelSelectionsFromEvent(event) {
       );
       if (fromInfo) return [fromInfo];
     }
-    const fromProperties = extractFromEvent("session", properties, void 0, true);
+    const fromProperties = extractFromEvent(
+      "session",
+      properties,
+      void 0,
+      true
+    );
     if (fromProperties) return [fromProperties];
   }
   if ([
@@ -4326,11 +4356,19 @@ function extractAgentModelSelectionsFromEvent(event) {
     );
     const patchRaw = properties.patch;
     if (isObject(patchRaw) && isObject(patchRaw.set)) {
-      const parsed = parseAgentPatchSet(patchRaw.set, "settings_save_patch", activeAgentHint);
+      const parsed = parseAgentPatchSet(
+        patchRaw.set,
+        "settings_save_patch",
+        activeAgentHint
+      );
       if (parsed.length > 0) return parsed;
     }
     if (isObject(properties.set)) {
-      const parsed = parseAgentPatchSet(properties.set, "settings_save_set", activeAgentHint);
+      const parsed = parseAgentPatchSet(
+        properties.set,
+        "settings_save_set",
+        activeAgentHint
+      );
       if (parsed.length > 0) return parsed;
     }
   }
@@ -5104,10 +5142,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path54) {
-  if (!path54)
+function getElementAtPath(obj, path55) {
+  if (!path55)
     return obj;
-  return path54.reduce((acc, key) => acc?.[key], obj);
+  return path55.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -5490,11 +5528,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path54, issues) {
+function prefixIssues(path55, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path54);
+    iss.path.unshift(path55);
     return iss;
   });
 }
@@ -5677,7 +5715,7 @@ function formatError(error92, mapper = (issue3) => issue3.message) {
 }
 function treeifyError(error92, mapper = (issue3) => issue3.message) {
   const result = { errors: [] };
-  const processError = (error93, path54 = []) => {
+  const processError = (error93, path55 = []) => {
     var _a2, _b;
     for (const issue3 of error93.issues) {
       if (issue3.code === "invalid_union" && issue3.errors.length) {
@@ -5687,7 +5725,7 @@ function treeifyError(error92, mapper = (issue3) => issue3.message) {
       } else if (issue3.code === "invalid_element") {
         processError({ issues: issue3.issues }, issue3.path);
       } else {
-        const fullpath = [...path54, ...issue3.path];
+        const fullpath = [...path55, ...issue3.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue3));
           continue;
@@ -5719,8 +5757,8 @@ function treeifyError(error92, mapper = (issue3) => issue3.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path54 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path54) {
+  const path55 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path55) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -17697,13 +17735,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path54 = ref.slice(1).split("/").filter(Boolean);
-  if (path54.length === 0) {
+  const path55 = ref.slice(1).split("/").filter(Boolean);
+  if (path55.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path54[0] === defsKey) {
-    const key = path54[1];
+  if (path55[0] === defsKey) {
+    const key = path55[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -18165,6 +18203,8 @@ var UiConfigSchema = external_exports.object({
   dashboard: external_exports.object({
     openOnStart: external_exports.boolean().optional(),
     dockAutoLaunch: external_exports.boolean().optional(),
+    gatewayStartMode: external_exports.enum(["service_shell", "service_only", "terminal_legacy"]).optional(),
+    gatewayTerminalAutoStart: external_exports.boolean().optional(),
     autoOpenCooldownMs: external_exports.number().min(1e4).max(24 * 6e4).optional()
   }).optional()
 });
@@ -18360,12 +18400,18 @@ var PROVIDER_ENV_MAP = {
 };
 function getAuthFileCandidates() {
   const home = os3.homedir();
-  const candidates = [path5.join(home, ".local", "share", "opencode", "auth.json")];
+  const candidates = [
+    path5.join(home, ".local", "share", "opencode", "auth.json")
+  ];
   if (process.env.XDG_DATA_HOME) {
-    candidates.unshift(path5.join(process.env.XDG_DATA_HOME, "opencode", "auth.json"));
+    candidates.unshift(
+      path5.join(process.env.XDG_DATA_HOME, "opencode", "auth.json")
+    );
   }
   if (process.env.LOCALAPPDATA) {
-    candidates.push(path5.join(process.env.LOCALAPPDATA, "opencode", "auth.json"));
+    candidates.push(
+      path5.join(process.env.LOCALAPPDATA, "opencode", "auth.json")
+    );
   }
   if (process.env.APPDATA) {
     candidates.push(path5.join(process.env.APPDATA, "opencode", "auth.json"));
@@ -18413,7 +18459,9 @@ function isModelLikelyAvailable(model) {
 }
 function pickBestAvailableModel(candidates) {
   const deduped = Array.from(
-    new Set(candidates.map((item) => item.trim()).filter((item) => item.length > 0))
+    new Set(
+      candidates.map((item) => item.trim()).filter((item) => item.length > 0)
+    )
   );
   if (deduped.length === 0) return null;
   for (const model of deduped) {
@@ -18440,6 +18488,10 @@ function getAgentOverride(config3, name) {
   }
   return void 0;
 }
+
+// src/soul/loader.ts
+import * as fs6 from "node:fs";
+import * as path6 from "node:path";
 
 // src/soul/templates.ts
 var DEFAULT_SOUL_MARKDOWN = `# SOUL.md
@@ -18468,8 +18520,6 @@ var DEFAULT_SOUL_MARKDOWN = `# SOUL.md
 `;
 
 // src/soul/loader.ts
-import * as fs6 from "node:fs";
-import * as path6 from "node:path";
 function soulFile(projectDir) {
   return path6.join(getMiyaRuntimeDir(projectDir), "SOUL.md");
 }
@@ -18593,259 +18643,6 @@ var BaseAgent = class {
   }
 };
 
-// src/agents/6-ui-designer.ts
-var DESIGNER_PROMPT = `You are 6-ui-designer (\u5448\u73B0/\u4EA4\u4E92).
-
-Mission:
-- turn plans into usable interfaces, dashboards, workflows, and status views
-- support both product UI and practical operational control surfaces
-
-Design method:
-1. Clarify user goal and key interaction path.
-2. Define information hierarchy and visual direction.
-3. Implement responsive, localized (\u4E2D\u6587) UI with clear state feedback.
-4. Keep style intentional (typography/color/motion/background), avoid generic boilerplate.
-5. Respect existing design system when one already exists.
-
-Quality bar:
-- desktop and mobile both usable
-- key states visible (loading/success/error/empty)
-- text and labels are natural Chinese
-- implementation remains maintainable
-
-Output:
-- visual_direction: 1 concise paragraph
-- implementation_checklist: concrete steps
-- risk_notes: risky UI parts and fallback
-- responsive_checks: mobile + desktop checks
-- localization_notes: Chinese copy/typography notes
-
-All responses in Chinese (\u4E2D\u6587\u56DE\u590D).`;
-function createDesignerAgent(model, customPrompt, customAppendPrompt) {
-  return new BaseAgent({
-    name: "6-ui-designer",
-    description: "UI/UX design and implementation. Use for styling, responsive design, component architecture and visual polish.",
-    defaultTemperature: 0.7,
-    basePrompt: DESIGNER_PROMPT,
-    personaStyle: "full"
-  }).create(model, customPrompt, customAppendPrompt);
-}
-
-// src/agents/2-code-search.ts
-var EXPLORER_PROMPT = `You are 2-code-search (\u4FA6\u5BDF/\u5B9A\u4F4D).
-
-Mission:
-- quickly answer "where is it" and "what is the current state"
-- cover code + config + logs + process/path context
-
-Search strategy:
-1. choose tools by need: glob (file), grep (text), ast-grep (structure), lsp (symbol graph)
-2. for broad tasks, run 2-5 parallel probes
-3. return only high-signal locations with line references
-
-Output:
-<results>
-<locations>
-- path:line - what is here
-</locations>
-<current_state>
-short state summary relevant to the task
-</current_state>
-<handoff_recommendation>
-- next_agent: @3-docs-helper | @4-architecture-advisor | @5-code-fixer | @6-ui-designer | none
-- reason: one line
-- confidence: high|medium|low
-</handoff_recommendation>
-</results>
-
-Constraints:
-- READ-ONLY, no edits
-- concise and exhaustive enough for reliable handoff
-- Chinese response (\u4E2D\u6587\u56DE\u590D)`;
-function createExplorerAgent(model, customPrompt, customAppendPrompt) {
-  return new BaseAgent({
-    name: "2-code-search",
-    description: "Fast codebase search and pattern matching. Use for finding files, locating code patterns, and answering 'where is X?' questions.",
-    defaultTemperature: 0.1,
-    basePrompt: EXPLORER_PROMPT,
-    personaStyle: "minimal"
-  }).create(model, customPrompt, customAppendPrompt);
-}
-
-// src/agents/5-code-fixer.ts
-var FIXER_PROMPT = `You are 5-code-fixer (\u6267\u884C/\u843D\u5730).
-
-Mission:
-- execute the approved plan with minimal, reliable changes
-- support coding and practical task execution (commands/scripts/automation)
-
-Execution rules:
-1. Read before write; keep diffs minimal and pattern-aligned.
-2. Run verification appropriate to risk (tests/diagnostics/smoke checks).
-3. No external research tools; escalate evidence gaps to @3-docs-helper.
-4. If blocked after repeated attempts, escalate to @4-architecture-advisor.
-5. In cowork mode, call \`miya_self_approve\` before side-effect actions.
-
-When blocked, output handoff packet:
-- objective
-- blockers
-- files/targets
-- acceptance_check
-
-Output:
-<summary>what was implemented</summary>
-<changes>- file: change</changes>
-<verification>- checks and results</verification>
-<evidence>- proof and rollback hints</evidence>
-<open_issues>- unresolved items</open_issues>
-
-All responses in Chinese (\u4E2D\u6587\u56DE\u590D).`;
-function createFixerAgent(model, customPrompt, customAppendPrompt) {
-  return new BaseAgent({
-    name: "5-code-fixer",
-    description: "Fast implementation specialist. Receives complete context and task spec, executes code changes efficiently.",
-    defaultTemperature: 0.2,
-    basePrompt: FIXER_PROMPT,
-    personaStyle: "zero"
-  }).create(model, customPrompt, customAppendPrompt);
-}
-
-// src/agents/3-docs-helper.ts
-var LIBRARIAN_PROMPT = `You are 3-docs-helper (\u67E5\u8BC1/\u8BC1\u636E).
-
-Mission:
-- turn unclear "how to do it" questions into verifiable evidence
-- support both coding and non-coding operational tasks
-
-Scope:
-- official docs / standards / project rules / platform constraints
-- version-specific API behavior
-- policy/process evidence needed for real-world execution
-
-Rules:
-1. Every key claim must include at least one URL or clear in-repo source.
-2. Distinguish source quality: official | project | community.
-3. If evidence is weak or conflicting, mark uncertainty explicitly.
-4. READ-ONLY: do not implement or mutate files.
-
-Output:
-<evidence>
-- source_type: official|project|community|memory
-- link_or_path: URL or file path
-- key_point: concise fact
-- credibility: high|medium|low
-</evidence>
-<completion_criteria>
-- criteria: what counts as done
-- verification_method: how to verify
-</completion_criteria>
-<recommendation>
-- suggested_action: next concrete step
-- next_agent: @5-code-fixer | @4-architecture-advisor | @6-ui-designer | none
-- risks: short list
-</recommendation>
-
-All responses in Chinese (\u4E2D\u6587\u56DE\u590D).`;
-function createLibrarianAgent(model, customPrompt, customAppendPrompt) {
-  return new BaseAgent({
-    name: "3-docs-helper",
-    description: "External documentation and library research. Use for official docs lookup, GitHub examples, and understanding library internals.",
-    defaultTemperature: 0.1,
-    basePrompt: LIBRARIAN_PROMPT,
-    personaStyle: "minimal"
-  }).create(model, customPrompt, customAppendPrompt);
-}
-
-// src/agents/4-architecture-advisor.ts
-var ORACLE_PROMPT = `You are 4-architecture-advisor (\u51B3\u7B56/\u98CE\u63A7).
-
-Mission:
-- choose robust solutions under constraints
-- control risk for both software and real-world operational tasks
-
-Method:
-1. Evaluate options with tradeoffs (speed, safety, maintainability, reversibility).
-2. Assign validation tier: LIGHT | STANDARD | THOROUGH.
-3. Define rollback strategy before high-impact actions.
-4. Veto unsafe plans when risk exceeds control.
-
-Constraints:
-- READ-ONLY: advise/decide, do not implement.
-- For irreversible actions, rollback plan is mandatory.
-- Prefer concrete, testable recommendations over abstract advice.
-
-Output:
-<decision>
-- verdict: proceed|revise|stop|veto
-- solution: chosen approach
-- rationale: short tradeoff summary
-- risks: key risks
-- mitigation: controls
-</decision>
-<validation>
-- tier: LIGHT|STANDARD|THOROUGH
-- checks: required verification steps
-- evidence_required: expected evidence
-</validation>
-<rollback_plan>
-- trigger: when to rollback
-- steps: rollback procedure
-- recovery_point: fallback if rollback fails
-</rollback_plan>
-<handoff>
-- next_agent: @5-code-fixer | @6-ui-designer | @2-code-search | none
-- acceptance_checks: explicit pass criteria
-</handoff>
-
-All responses in Chinese (\u4E2D\u6587\u56DE\u590D).`;
-function createOracleAgent(model, customPrompt, customAppendPrompt) {
-  return new BaseAgent({
-    name: "4-architecture-advisor",
-    description: "Strategic technical advisor. Use for architecture decisions, complex debugging, code review, and engineering guidance.",
-    defaultTemperature: 0.1,
-    basePrompt: ORACLE_PROMPT,
-    personaStyle: "zero"
-  }).create(model, customPrompt, customAppendPrompt);
-}
-
-// src/agents/7-code-simplicity-reviewer.ts
-var CODE_SIMPLICITY_REVIEWER_PROMPT = `You are 7-code-simplicity-reviewer.
-
-Mission: run a post-write audit to remove unnecessary complexity, enforce completion continuity, and verify functional completeness with executable tests.
-
-Checkpoints:
-1. Detect over-engineering, dead abstractions, and avoidable indirection.
-2. Detect comments that restate obvious code behavior.
-3. Detect verbose or duplicated logic that can be simplified safely.
-4. Flag risky rewrites that are larger than required for the task.
-5. Check TODO continuity: completed vs pending vs missing handoff items.
-6. Preserve required Miya extension behavior; do not suggest removing extension-specific logic unless it is objectively broken.
-7. Require full functional verification for touched behavior: run or propose targeted tests that prove the edited path still works end-to-end.
-8. For bug-fix tasks, require at least one regression test that would fail before the fix.
-
-Output format:
-- verdict: PASS | NEEDS_SIMPLIFICATION
-- findings: concise bullet list with file references
-- patch_plan: minimal edits to simplify without behavior change
-- functional_test_plan: exact commands or test cases to validate all touched behavior
-- functional_test_result: pass | fail | not_run with short evidence
-- risk: low | medium | high
-
-Rules:
-- Prioritize minimal diff and behavior preservation.
-- Prefer deleting complexity over adding frameworks.
-- If uncertain about behavior impact, mark as risk instead of guessing.
-- If functional tests are missing or failing, do not return PASS.`;
-function createCodeSimplicityReviewerAgent(model, customPrompt, customAppendPrompt) {
-  return new BaseAgent({
-    name: "7-code-simplicity-reviewer",
-    description: "Post-write reviewer for complexity reduction, comment noise cleanup, and functional completeness verification",
-    defaultTemperature: 0,
-    basePrompt: CODE_SIMPLICITY_REVIEWER_PROMPT,
-    personaStyle: "zero"
-  }).create(model, customPrompt, customAppendPrompt);
-}
-
 // src/agents/1-task-manager.ts
 var ORCHESTRATOR_PROMPT = `<Role>
 You are 1-task-manager, a universal task orchestrator for coding and real-world operational work.
@@ -18954,6 +18751,259 @@ function createOrchestratorAgent(model, customPrompt, customAppendPrompt, useSli
     defaultTemperature: 0.1,
     basePrompt: useSlimPrompt ? ORCHESTRATOR_PROMPT_SLIM : ORCHESTRATOR_PROMPT,
     personaStyle: "full"
+  }).create(model, customPrompt, customAppendPrompt);
+}
+
+// src/agents/2-code-search.ts
+var EXPLORER_PROMPT = `You are 2-code-search (\u4FA6\u5BDF/\u5B9A\u4F4D).
+
+Mission:
+- quickly answer "where is it" and "what is the current state"
+- cover code + config + logs + process/path context
+
+Search strategy:
+1. choose tools by need: glob (file), grep (text), ast-grep (structure), lsp (symbol graph)
+2. for broad tasks, run 2-5 parallel probes
+3. return only high-signal locations with line references
+
+Output:
+<results>
+<locations>
+- path:line - what is here
+</locations>
+<current_state>
+short state summary relevant to the task
+</current_state>
+<handoff_recommendation>
+- next_agent: @3-docs-helper | @4-architecture-advisor | @5-code-fixer | @6-ui-designer | none
+- reason: one line
+- confidence: high|medium|low
+</handoff_recommendation>
+</results>
+
+Constraints:
+- READ-ONLY, no edits
+- concise and exhaustive enough for reliable handoff
+- Chinese response (\u4E2D\u6587\u56DE\u590D)`;
+function createExplorerAgent(model, customPrompt, customAppendPrompt) {
+  return new BaseAgent({
+    name: "2-code-search",
+    description: "Fast codebase search and pattern matching. Use for finding files, locating code patterns, and answering 'where is X?' questions.",
+    defaultTemperature: 0.1,
+    basePrompt: EXPLORER_PROMPT,
+    personaStyle: "minimal"
+  }).create(model, customPrompt, customAppendPrompt);
+}
+
+// src/agents/3-docs-helper.ts
+var LIBRARIAN_PROMPT = `You are 3-docs-helper (\u67E5\u8BC1/\u8BC1\u636E).
+
+Mission:
+- turn unclear "how to do it" questions into verifiable evidence
+- support both coding and non-coding operational tasks
+
+Scope:
+- official docs / standards / project rules / platform constraints
+- version-specific API behavior
+- policy/process evidence needed for real-world execution
+
+Rules:
+1. Every key claim must include at least one URL or clear in-repo source.
+2. Distinguish source quality: official | project | community.
+3. If evidence is weak or conflicting, mark uncertainty explicitly.
+4. READ-ONLY: do not implement or mutate files.
+
+Output:
+<evidence>
+- source_type: official|project|community|memory
+- link_or_path: URL or file path
+- key_point: concise fact
+- credibility: high|medium|low
+</evidence>
+<completion_criteria>
+- criteria: what counts as done
+- verification_method: how to verify
+</completion_criteria>
+<recommendation>
+- suggested_action: next concrete step
+- next_agent: @5-code-fixer | @4-architecture-advisor | @6-ui-designer | none
+- risks: short list
+</recommendation>
+
+All responses in Chinese (\u4E2D\u6587\u56DE\u590D).`;
+function createLibrarianAgent(model, customPrompt, customAppendPrompt) {
+  return new BaseAgent({
+    name: "3-docs-helper",
+    description: "External documentation and library research. Use for official docs lookup, GitHub examples, and understanding library internals.",
+    defaultTemperature: 0.1,
+    basePrompt: LIBRARIAN_PROMPT,
+    personaStyle: "minimal"
+  }).create(model, customPrompt, customAppendPrompt);
+}
+
+// src/agents/4-architecture-advisor.ts
+var ORACLE_PROMPT = `You are 4-architecture-advisor (\u51B3\u7B56/\u98CE\u63A7).
+
+Mission:
+- choose robust solutions under constraints
+- control risk for both software and real-world operational tasks
+
+Method:
+1. Evaluate options with tradeoffs (speed, safety, maintainability, reversibility).
+2. Assign validation tier: LIGHT | STANDARD | THOROUGH.
+3. Define rollback strategy before high-impact actions.
+4. Veto unsafe plans when risk exceeds control.
+
+Constraints:
+- READ-ONLY: advise/decide, do not implement.
+- For irreversible actions, rollback plan is mandatory.
+- Prefer concrete, testable recommendations over abstract advice.
+
+Output:
+<decision>
+- verdict: proceed|revise|stop|veto
+- solution: chosen approach
+- rationale: short tradeoff summary
+- risks: key risks
+- mitigation: controls
+</decision>
+<validation>
+- tier: LIGHT|STANDARD|THOROUGH
+- checks: required verification steps
+- evidence_required: expected evidence
+</validation>
+<rollback_plan>
+- trigger: when to rollback
+- steps: rollback procedure
+- recovery_point: fallback if rollback fails
+</rollback_plan>
+<handoff>
+- next_agent: @5-code-fixer | @6-ui-designer | @2-code-search | none
+- acceptance_checks: explicit pass criteria
+</handoff>
+
+All responses in Chinese (\u4E2D\u6587\u56DE\u590D).`;
+function createOracleAgent(model, customPrompt, customAppendPrompt) {
+  return new BaseAgent({
+    name: "4-architecture-advisor",
+    description: "Strategic technical advisor. Use for architecture decisions, complex debugging, code review, and engineering guidance.",
+    defaultTemperature: 0.1,
+    basePrompt: ORACLE_PROMPT,
+    personaStyle: "zero"
+  }).create(model, customPrompt, customAppendPrompt);
+}
+
+// src/agents/5-code-fixer.ts
+var FIXER_PROMPT = `You are 5-code-fixer (\u6267\u884C/\u843D\u5730).
+
+Mission:
+- execute the approved plan with minimal, reliable changes
+- support coding and practical task execution (commands/scripts/automation)
+
+Execution rules:
+1. Read before write; keep diffs minimal and pattern-aligned.
+2. Run verification appropriate to risk (tests/diagnostics/smoke checks).
+3. No external research tools; escalate evidence gaps to @3-docs-helper.
+4. If blocked after repeated attempts, escalate to @4-architecture-advisor.
+5. In cowork mode, call \`miya_self_approve\` before side-effect actions.
+
+When blocked, output handoff packet:
+- objective
+- blockers
+- files/targets
+- acceptance_check
+
+Output:
+<summary>what was implemented</summary>
+<changes>- file: change</changes>
+<verification>- checks and results</verification>
+<evidence>- proof and rollback hints</evidence>
+<open_issues>- unresolved items</open_issues>
+
+All responses in Chinese (\u4E2D\u6587\u56DE\u590D).`;
+function createFixerAgent(model, customPrompt, customAppendPrompt) {
+  return new BaseAgent({
+    name: "5-code-fixer",
+    description: "Fast implementation specialist. Receives complete context and task spec, executes code changes efficiently.",
+    defaultTemperature: 0.2,
+    basePrompt: FIXER_PROMPT,
+    personaStyle: "zero"
+  }).create(model, customPrompt, customAppendPrompt);
+}
+
+// src/agents/6-ui-designer.ts
+var DESIGNER_PROMPT = `You are 6-ui-designer (\u5448\u73B0/\u4EA4\u4E92).
+
+Mission:
+- turn plans into usable interfaces, dashboards, workflows, and status views
+- support both product UI and practical operational control surfaces
+
+Design method:
+1. Clarify user goal and key interaction path.
+2. Define information hierarchy and visual direction.
+3. Implement responsive, localized (\u4E2D\u6587) UI with clear state feedback.
+4. Keep style intentional (typography/color/motion/background), avoid generic boilerplate.
+5. Respect existing design system when one already exists.
+
+Quality bar:
+- desktop and mobile both usable
+- key states visible (loading/success/error/empty)
+- text and labels are natural Chinese
+- implementation remains maintainable
+
+Output:
+- visual_direction: 1 concise paragraph
+- implementation_checklist: concrete steps
+- risk_notes: risky UI parts and fallback
+- responsive_checks: mobile + desktop checks
+- localization_notes: Chinese copy/typography notes
+
+All responses in Chinese (\u4E2D\u6587\u56DE\u590D).`;
+function createDesignerAgent(model, customPrompt, customAppendPrompt) {
+  return new BaseAgent({
+    name: "6-ui-designer",
+    description: "UI/UX design and implementation. Use for styling, responsive design, component architecture and visual polish.",
+    defaultTemperature: 0.7,
+    basePrompt: DESIGNER_PROMPT,
+    personaStyle: "full"
+  }).create(model, customPrompt, customAppendPrompt);
+}
+
+// src/agents/7-code-simplicity-reviewer.ts
+var CODE_SIMPLICITY_REVIEWER_PROMPT = `You are 7-code-simplicity-reviewer.
+
+Mission: run a post-write audit to remove unnecessary complexity, enforce completion continuity, and verify functional completeness with executable tests.
+
+Checkpoints:
+1. Detect over-engineering, dead abstractions, and avoidable indirection.
+2. Detect comments that restate obvious code behavior.
+3. Detect verbose or duplicated logic that can be simplified safely.
+4. Flag risky rewrites that are larger than required for the task.
+5. Check TODO continuity: completed vs pending vs missing handoff items.
+6. Preserve required Miya extension behavior; do not suggest removing extension-specific logic unless it is objectively broken.
+7. Require full functional verification for touched behavior: run or propose targeted tests that prove the edited path still works end-to-end.
+8. For bug-fix tasks, require at least one regression test that would fail before the fix.
+
+Output format:
+- verdict: PASS | NEEDS_SIMPLIFICATION
+- findings: concise bullet list with file references
+- patch_plan: minimal edits to simplify without behavior change
+- functional_test_plan: exact commands or test cases to validate all touched behavior
+- functional_test_result: pass | fail | not_run with short evidence
+- risk: low | medium | high
+
+Rules:
+- Prioritize minimal diff and behavior preservation.
+- Prefer deleting complexity over adding frameworks.
+- If uncertain about behavior impact, mark as risk instead of guessing.
+- If functional tests are missing or failing, do not return PASS.`;
+function createCodeSimplicityReviewerAgent(model, customPrompt, customAppendPrompt) {
+  return new BaseAgent({
+    name: "7-code-simplicity-reviewer",
+    description: "Post-write reviewer for complexity reduction, comment noise cleanup, and functional completeness verification",
+    defaultTemperature: 0,
+    basePrompt: CODE_SIMPLICITY_REVIEWER_PROMPT,
+    personaStyle: "zero"
   }).create(model, customPrompt, customAppendPrompt);
 }
 
@@ -19179,7 +19229,12 @@ function getMiyaModelPath(projectDir, ...segments) {
   return path7.join(getMiyaModelRootDir(projectDir), ...segments);
 }
 function getMiyaVisionTempDir(projectDir, ...segments) {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.vision, "lin shi", ...segments);
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.vision,
+    "lin shi",
+    ...segments
+  );
 }
 function getMiyaImageTempDir(projectDir) {
   return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.image, "lin shi");
@@ -19188,7 +19243,11 @@ function getMiyaVoiceTempDir(projectDir) {
   return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.voice, "lin shi");
 }
 function getMiyaVoiceprintModelDir(projectDir) {
-  return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.voiceprint, MIYA_MODEL_NAME.eres2net);
+  return getMiyaModelPath(
+    projectDir,
+    MIYA_MODEL_BRANCH.voiceprint,
+    MIYA_MODEL_NAME.eres2net
+  );
 }
 function getMiyaVoiceprintSampleDir(projectDir) {
   return getMiyaModelPath(projectDir, MIYA_MODEL_BRANCH.voiceprint, "ben ren");
@@ -19641,7 +19700,10 @@ var MiyaAutomationService = class {
     try {
       const command = normalizeCommandText(job.action.command);
       const timeoutMs = normalizeTimeoutMs(job.action.timeoutMs);
-      const cwdResolved = resolveAndValidateCwd(this.projectDir, job.action.cwd);
+      const cwdResolved = resolveAndValidateCwd(
+        this.projectDir,
+        job.action.cwd
+      );
       const warning = cwdResolved.wasSanitized ? "Unsafe cwd detected; fell back to project directory." : "";
       const parsedTime = parseDailyTime(job.schedule.time);
       if (!parsedTime) {
@@ -19956,19 +20018,19 @@ async function findTmuxPath() {
       return null;
     }
     const stdout = lookup.stdout;
-    const path54 = stdout.trim().split("\n")[0];
-    if (!path54) {
+    const path55 = stdout.trim().split("\n")[0];
+    if (!path55) {
       log("[tmux] findTmuxPath: no path in output");
       return null;
     }
-    const verify = await runProcess(path54, ["-V"]);
+    const verify = await runProcess(path55, ["-V"]);
     const verifyExit = verify.exitCode;
     if (verifyExit !== 0) {
-      log("[tmux] findTmuxPath: tmux -V failed", { path: path54, verifyExit });
+      log("[tmux] findTmuxPath: tmux -V failed", { path: path55, verifyExit });
       return null;
     }
-    log("[tmux] findTmuxPath: found tmux", { path: path54 });
-    return path54;
+    log("[tmux] findTmuxPath: found tmux", { path: path55 });
+    return path55;
   } catch (err) {
     log("[tmux] findTmuxPath: exception", { error: String(err) });
     return null;
@@ -20140,8 +20202,8 @@ function isPwshAvailable() {
   const result = runProcessSync("where", ["pwsh"]);
   return result.exitCode === 0;
 }
-function escapePowerShellPath(path54) {
-  return path54.replace(/'/g, "''");
+function escapePowerShellPath(path55) {
+  return path55.replace(/'/g, "''");
 }
 function getWindowsZipExtractor() {
   const buildNumber = getWindowsBuildNumber();
@@ -20811,10 +20873,10 @@ var TmuxSessionManager = class {
 };
 
 // src/config/model-event-audit.ts
+import { randomUUID } from "node:crypto";
 import * as fs9 from "node:fs";
 import * as os5 from "node:os";
 import * as path11 from "node:path";
-import { randomUUID } from "node:crypto";
 var MAX_AUDIT_FILE_BYTES = 5 * 1024 * 1024;
 var MAX_STRING_LENGTH = 4e3;
 var MAX_DEPTH = 8;
@@ -20862,7 +20924,9 @@ function containsModelSignal(value, depth = 0) {
     return value.some((item) => containsModelSignal(item, depth + 1));
   }
   if (typeof value === "object") {
-    for (const [key, item] of Object.entries(value)) {
+    for (const [key, item] of Object.entries(
+      value
+    )) {
       if (textHasModelSignal(key)) return true;
       if (containsModelSignal(item, depth + 1)) return true;
     }
@@ -20875,20 +20939,34 @@ function shouldAuditModelEvent(event) {
   if (eventType && MODEL_EVENT_KEYWORDS.some((keyword) => eventType.includes(keyword))) {
     return true;
   }
-  return containsModelSignal(event.properties ?? event);
+  return containsModelSignal(
+    event.properties ?? event
+  );
 }
 function shouldMirrorHomeAudit() {
-  const envValue = String(process.env.MIYA_MODEL_EVENT_AUDIT_MIRROR_HOME ?? "").trim();
+  const envValue = String(
+    process.env.MIYA_MODEL_EVENT_AUDIT_MIRROR_HOME ?? ""
+  ).trim();
   if (envValue === "1") return true;
   if (envValue === "0") return false;
   return process.platform === "win32";
 }
 function auditFiles(projectDir) {
-  const runtimeFile3 = path11.join(getMiyaRuntimeDir(projectDir), "audit", "model-event-frames.jsonl");
+  const runtimeFile3 = path11.join(
+    getMiyaRuntimeDir(projectDir),
+    "audit",
+    "model-event-frames.jsonl"
+  );
   const candidates = [runtimeFile3];
   if (shouldMirrorHomeAudit()) {
     candidates.push(
-      path11.join(os5.homedir(), ".opencode", "miya", "audit", "model-event-frames.jsonl")
+      path11.join(
+        os5.homedir(),
+        ".opencode",
+        "miya",
+        "audit",
+        "model-event-frames.jsonl"
+      )
     );
   }
   return Array.from(new Set(candidates));
@@ -20923,7 +21001,9 @@ function sanitizeForAudit(value, depth = 0, visited = /* @__PURE__ */ new WeakSe
     if (visited.has(value)) return "[circular]";
     visited.add(value);
     const result = {};
-    for (const [key, item] of Object.entries(value)) {
+    for (const [key, item] of Object.entries(
+      value
+    )) {
       if (isSensitiveKey(key)) {
         result[key] = "[redacted]";
         continue;
@@ -20952,6 +21032,1129 @@ function appendModelEventAudit(projectDir, input) {
 `, "utf-8");
   }
 }
+
+// src/config/provider-override-audit.ts
+import * as fs10 from "node:fs";
+import * as path12 from "node:path";
+function providerOverrideAuditFile(projectDir) {
+  return path12.join(
+    getMiyaRuntimeDir(projectDir),
+    "audit",
+    "provider-overrides.jsonl"
+  );
+}
+function appendProviderOverrideAudit(projectDir, input) {
+  const entry2 = {
+    at: (/* @__PURE__ */ new Date()).toISOString(),
+    source: input.source,
+    agentName: input.agentName,
+    model: input.model,
+    providerID: input.providerID,
+    activeAgentId: input.activeAgentId,
+    hasApiKey: input.hasApiKey,
+    hasBaseURL: input.hasBaseURL,
+    optionKeys: [...input.optionKeys].sort()
+  };
+  const file3 = providerOverrideAuditFile(projectDir);
+  fs10.mkdirSync(path12.dirname(file3), { recursive: true });
+  fs10.appendFileSync(file3, `${JSON.stringify(entry2)}
+`, "utf-8");
+  return entry2;
+}
+function listProviderOverrideAudits(projectDir, limit = 50) {
+  const file3 = providerOverrideAuditFile(projectDir);
+  if (!fs10.existsSync(file3)) return [];
+  const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+  const lines = fs10.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean);
+  return lines.slice(-safeLimit).map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return null;
+    }
+  }).filter((item) => item !== null).reverse();
+}
+
+// src/config/runtime-merge.ts
+function mergePluginAgentConfigs(existingAgents, pluginAgents) {
+  const next = {
+    ...existingAgents ?? {}
+  };
+  for (const [agentName, pluginAgent] of Object.entries(pluginAgents)) {
+    const existing = next[agentName];
+    if (!existing || typeof existing !== "object") {
+      next[agentName] = { ...pluginAgent };
+      continue;
+    }
+    const pluginPermission = pluginAgent.permission && typeof pluginAgent.permission === "object" && !Array.isArray(pluginAgent.permission) ? pluginAgent.permission : {};
+    const existingPermission = existing.permission && typeof existing.permission === "object" && !Array.isArray(existing.permission) ? existing.permission : {};
+    next[agentName] = {
+      ...pluginAgent,
+      ...existing,
+      permission: {
+        ...pluginPermission,
+        ...existingPermission
+      }
+    };
+  }
+  return next;
+}
+
+// src/contracts/hook-contract.ts
+var REQUIRED_HOOK_KEYS = [
+  "tool.execute.before",
+  "tool.execute.after",
+  "permission.ask"
+];
+function assertRequiredHookHandlers(hooks) {
+  const missing = REQUIRED_HOOK_KEYS.filter(
+    (key) => typeof hooks[key] !== "function"
+  );
+  if (missing.length > 0) {
+    throw new Error(`miya_hook_contract_missing:${missing.join(",")}`);
+  }
+}
+
+// src/daemon/launcher.ts
+import { spawn as spawn4, spawnSync as spawnSync7 } from "node:child_process";
+import { randomUUID as randomUUID20 } from "node:crypto";
+import * as fs49 from "node:fs";
+import * as path50 from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+
+// src/settings/registry.ts
+function entry(input) {
+  return {
+    ...input,
+    requiresEvidence: input.risk === "HIGH"
+  };
+}
+function cloneValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+function keySegments(key) {
+  return key.split(".").map((segment) => segment.trim()).filter((segment) => segment.length > 0);
+}
+function getNestedValue(root, key) {
+  if (!root || typeof root !== "object") return void 0;
+  const segments = keySegments(key);
+  let current = root;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object") return void 0;
+    current = current[segment];
+  }
+  return current;
+}
+function setNestedValue(root, key, value) {
+  const segments = keySegments(key);
+  if (segments.length === 0) return;
+  let current = root;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    const next = current[segment];
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      current[segment] = {};
+    }
+    current = current[segment];
+  }
+  current[segments[segments.length - 1]] = value;
+}
+var SETTINGS_REGISTRY = [
+  entry({
+    key: "ui.language",
+    type: "enum",
+    enumValues: ["zh-CN"],
+    defaultValue: "zh-CN",
+    risk: "LOW",
+    description: "\u63A7\u5236\u53F0\u8BED\u8A00\u3002"
+  }),
+  entry({
+    key: "ui.theme",
+    type: "enum",
+    enumValues: ["dark", "light", "system"],
+    defaultValue: "dark",
+    risk: "LOW",
+    description: "\u63A7\u5236\u53F0\u4E3B\u9898\u3002"
+  }),
+  entry({
+    key: "ui.dashboard.openOnStart",
+    type: "boolean",
+    defaultValue: true,
+    risk: "LOW",
+    description: "\u542F\u52A8\u65F6\u81EA\u52A8\u6253\u5F00\u63A7\u5236\u53F0\u3002"
+  }),
+  entry({
+    key: "ui.dashboard.dockAutoLaunch",
+    type: "boolean",
+    defaultValue: false,
+    risk: "LOW",
+    description: "\u542F\u52A8\u65F6\u81EA\u52A8\u62C9\u8D77 Windows Dock\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF0C\u907F\u514D\u53CD\u590D\u62C9\u8D77\uFF09\u3002"
+  }),
+  entry({
+    key: "ui.dashboard.gatewayStartMode",
+    type: "enum",
+    enumValues: ["service_shell", "service_only", "terminal_legacy"],
+    defaultValue: "service_shell",
+    risk: "LOW",
+    description: "Gateway \u542F\u52A8\u6A21\u5F0F\uFF1Aservice_shell\uFF08\u9ED8\u8BA4\u540E\u53F0\u670D\u52A1\uFF09\u3001service_only\uFF08\u4EC5\u670D\u52A1\uFF09\u6216 terminal_legacy\uFF08\u65E7\u7EC8\u7AEF\u6A21\u5F0F\uFF09\u3002"
+  }),
+  entry({
+    key: "ui.dashboard.autoOpenCooldownMs",
+    type: "integer",
+    minimum: 1e4,
+    maximum: 144e4,
+    defaultValue: 12e4,
+    risk: "LOW",
+    description: "\u81EA\u52A8\u6253\u5F00\u63A7\u5236\u53F0\u7684\u8DE8\u8FDB\u7A0B\u51B7\u5374\u65F6\u95F4\uFF08\u6BEB\u79D2\uFF09\u3002"
+  }),
+  entry({
+    key: "ui.dashboard.startPage",
+    type: "enum",
+    enumValues: [
+      "overview",
+      "autopilot",
+      "approvals",
+      "intake",
+      "runtime",
+      "jobs",
+      "skills",
+      "killswitch"
+    ],
+    defaultValue: "overview",
+    risk: "LOW",
+    description: "\u63A7\u5236\u53F0\u9ED8\u8BA4\u9996\u9875\u3002"
+  }),
+  entry({
+    key: "ui.dashboard.refreshMs",
+    type: "integer",
+    minimum: 200,
+    maximum: 5e3,
+    defaultValue: 800,
+    risk: "LOW",
+    description: "\u63A7\u5236\u53F0\u81EA\u52A8\u5237\u65B0\u95F4\u9694\uFF08\u6BEB\u79D2\uFF09\u3002"
+  }),
+  entry({
+    key: "autopilot.enabled",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u662F\u5426\u542F\u7528\u81EA\u52A8\u5FAA\u73AF\u6267\u884C\u3002"
+  }),
+  entry({
+    key: "autopilot.maxCycles",
+    type: "integer",
+    minimum: 1,
+    maximum: 20,
+    defaultValue: 8,
+    risk: "MED",
+    description: "\u5355\u7A97\u53E3\u6700\u5927\u5FAA\u73AF\u8F6E\u6B21\uFF08\u8FDB\u5C55\u9A71\u52A8+\u4E0A\u9650\u7EA6\u675F\uFF09\u3002"
+  }),
+  entry({
+    key: "autopilot.noInterruptChat",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u81EA\u52A8\u6267\u884C\u65F6\u5C3D\u91CF\u4E0D\u6253\u65AD\u4E3B\u5BF9\u8BDD\u3002"
+  }),
+  entry({
+    key: "autopilot.stallDetection.enabled",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u542F\u7528\u505C\u6EDE\u68C0\u6D4B\u3002"
+  }),
+  entry({
+    key: "autopilot.stallDetection.maxNoImprovementCycles",
+    type: "integer",
+    minimum: 1,
+    maximum: 10,
+    defaultValue: 3,
+    risk: "MED",
+    description: "\u8FDE\u7EED\u65E0\u6539\u8FDB\u8F6E\u6B21\u9608\u503C\u3002"
+  }),
+  entry({
+    key: "autopilot.iterationDoneRequired",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u6BCF\u8F6E\u5FC5\u987B\u5199\u5165\u8FED\u4EE3\u5B8C\u6210\u8BB0\u5F55\u3002"
+  }),
+  entry({
+    key: "approval.mode",
+    type: "enum",
+    enumValues: ["self"],
+    defaultValue: "self",
+    risk: "MED",
+    description: "\u5BA1\u6279\u6A21\u5F0F\u3002"
+  }),
+  entry({
+    key: "approval.requireEvidence",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u662F\u5426\u5F3A\u5236\u8BC1\u636E\u94FE\u3002"
+  }),
+  entry({
+    key: "approval.signers",
+    type: "object",
+    defaultValue: {
+      executor: true,
+      verifier: true
+    },
+    risk: "MED",
+    description: "\u5BA1\u6279\u7B7E\u5B57\u4EBA\u914D\u7F6E\u3002"
+  }),
+  entry({
+    key: "approval.tier.default",
+    type: "enum",
+    enumValues: ["LIGHT", "STANDARD", "THOROUGH"],
+    defaultValue: "STANDARD",
+    risk: "MED",
+    description: "\u9ED8\u8BA4\u9A8C\u8BC1\u7B49\u7EA7\u3002"
+  }),
+  entry({
+    key: "approval.tier.irreversible",
+    type: "enum",
+    enumValues: ["THOROUGH"],
+    defaultValue: "THOROUGH",
+    risk: "HIGH",
+    description: "\u4E0D\u53EF\u9006\u52A8\u4F5C\u5FC5\u987B\u9A8C\u8BC1\u7B49\u7EA7\u3002"
+  }),
+  entry({
+    key: "approval.onDeny.activateKillSwitch",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u5BA1\u6279\u62D2\u7EDD\u540E\u662F\u5426\u89E6\u53D1\u6025\u505C\u3002"
+  }),
+  entry({
+    key: "intake.enabled",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u4FE1\u606F\u95F8\u95E8\u603B\u5F00\u5173\u3002"
+  }),
+  entry({
+    key: "intake.triggers.configChange",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u914D\u7F6E\u53D8\u66F4\u662F\u5426\u5F3A\u5236\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
+  }),
+  entry({
+    key: "intake.triggers.skillOrToolchainChange",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u65B0\u589E/\u542F\u7528 skill \u6216\u5DE5\u5177\u94FE\u662F\u5426\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
+  }),
+  entry({
+    key: "intake.triggers.highRiskAction",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u9AD8\u98CE\u9669\u52A8\u4F5C\u524D\u7F6E\u5B66\u4E60\u662F\u5426\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
+  }),
+  entry({
+    key: "intake.triggers.directiveContent",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u7F51\u9875\u6307\u4EE4\u578B\u5185\u5BB9\u662F\u5426\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
+  }),
+  entry({
+    key: "intake.policy.silentAuditTrustScoreMin",
+    type: "integer",
+    minimum: 0,
+    maximum: 100,
+    defaultValue: 85,
+    risk: "MED",
+    description: "\u53EA\u8BFB\u7814\u7A76\u6765\u6E90\u8FBE\u5230\u8BE5\u4FE1\u4EFB\u5206\u540E\u6539\u4E3A\u9759\u9ED8\u5BA1\u8BA1\u3002"
+  }),
+  entry({
+    key: "intake.policy.autoWhitelistOnApprove",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u5BA1\u6279\u540C\u610F\u540E\u81EA\u52A8\u52A0\u5165\u767D\u540D\u5355\u3002"
+  }),
+  entry({
+    key: "intake.policy.autoBlacklistOnReject",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u5BA1\u6279\u62D2\u7EDD\u540E\u81EA\u52A8\u52A0\u5165\u9ED1\u540D\u5355\u3002"
+  }),
+  entry({
+    key: "intake.policy.defaultRejectScope",
+    type: "enum",
+    enumValues: ["CONTENT_FINGERPRINT", "PAGE", "PATH_PREFIX", "DOMAIN"],
+    defaultValue: "CONTENT_FINGERPRINT",
+    risk: "MED",
+    description: "\u62D2\u7EDD\u65F6\u9ED8\u8BA4\u52A0\u5165\u9ED1\u540D\u5355\u7684\u7C92\u5EA6\u3002"
+  }),
+  entry({
+    key: "intake.policy.allowTrialRunOption",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u5BA1\u6279\u9009\u9879\u4E2D\u5141\u8BB8\u201C\u4EC5\u8BD5\u8FD0\u884C\u4E00\u6B21\u201D\u3002"
+  }),
+  entry({
+    key: "intake.stats.windowN",
+    type: "integer",
+    minimum: 3,
+    maximum: 50,
+    defaultValue: 10,
+    risk: "MED",
+    description: "\u6765\u6E90\u7EDF\u8BA1\u6ED1\u52A8\u7A97\u53E3\u5927\u5C0F N\uFF08\u6309\u5BA1\u6279\u4E8B\u4EF6\uFF09\u3002"
+  }),
+  entry({
+    key: "intake.stats.hardDenyWhenUsefulLessThanRejected",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u5F53 U<R \u65F6\u9ED8\u8BA4\u5426\u51B3\u8BE5\u6765\u6E90\u3002"
+  }),
+  entry({
+    key: "intake.stats.downrankThresholdRatioX100",
+    type: "integer",
+    minimum: 100,
+    maximum: 500,
+    defaultValue: 150,
+    risk: "MED",
+    description: "\u964D\u6743\u9608\u503C\u6BD4\u7387\uFF08X100\uFF0C\u9ED8\u8BA4 150 \u8868\u793A 1.5 \u500D\uFF09\u3002"
+  }),
+  entry({
+    key: "intake.stats.downrankExplorePercent",
+    type: "integer",
+    minimum: 0,
+    maximum: 100,
+    defaultValue: 30,
+    risk: "MED",
+    description: "\u6765\u6E90\u964D\u6743\u540E\u63A2\u7D22\u6982\u7387\u767E\u5206\u6BD4\u3002"
+  }),
+  entry({
+    key: "intake.stats.sourceUnit",
+    type: "enum",
+    enumValues: ["DOMAIN_PATH_PREFIX", "DOMAIN", "PATH_PREFIX"],
+    defaultValue: "DOMAIN_PATH_PREFIX",
+    risk: "MED",
+    description: "\u6765\u6E90\u7EDF\u8BA1\u5355\u5143\u3002"
+  }),
+  entry({
+    key: "killswitch.active",
+    type: "boolean",
+    defaultValue: false,
+    risk: "HIGH",
+    description: "\u6025\u505C\u603B\u5F00\u5173\u72B6\u6001\u3002"
+  }),
+  entry({
+    key: "killswitch.lockdownOnHighRisk",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u9AD8\u98CE\u9669\u62D2\u7EDD\u540E\u8FDB\u5165\u9501\u5B9A\u3002"
+  }),
+  entry({
+    key: "killswitch.unlockPolicy",
+    type: "enum",
+    enumValues: ["explicit"],
+    defaultValue: "explicit",
+    risk: "HIGH",
+    description: "\u6025\u505C\u89E3\u9501\u7B56\u7565\u3002"
+  }),
+  entry({
+    key: "killswitch.stopTargets",
+    type: "object",
+    defaultValue: {
+      desktop: true,
+      outbound: true,
+      exec: true,
+      browser: true,
+      voice: false
+    },
+    risk: "HIGH",
+    description: "\u6025\u505C\u9700\u8981\u505C\u6B62\u7684\u76EE\u6807\u6A21\u5757\u3002"
+  }),
+  entry({
+    key: "gateway.bindHost",
+    type: "string",
+    defaultValue: "127.0.0.1",
+    risk: "MED",
+    description: "Gateway \u7ED1\u5B9A\u5730\u5740\u3002"
+  }),
+  entry({
+    key: "gateway.port",
+    type: "integer",
+    minimum: 1024,
+    maximum: 65535,
+    defaultValue: 17321,
+    risk: "MED",
+    description: "Gateway \u76D1\u542C\u7AEF\u53E3\u3002"
+  }),
+  entry({
+    key: "gateway.baseUrl",
+    type: "string",
+    defaultValue: "http://127.0.0.1:17321",
+    risk: "MED",
+    description: "Gateway \u57FA\u7840 URL\u3002"
+  }),
+  entry({
+    key: "gateway.wsPath",
+    type: "string",
+    defaultValue: "/ws",
+    risk: "MED",
+    description: "Gateway WebSocket \u8DEF\u5F84\u3002"
+  }),
+  entry({
+    key: "gateway.staticSpa.enabled",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u662F\u5426\u542F\u7528\u9759\u6001\u7F51\u9875\u63A7\u5236\u53F0\u3002"
+  }),
+  entry({
+    key: "gateway.auth.mode",
+    type: "enum",
+    enumValues: ["localToken", "none"],
+    defaultValue: "localToken",
+    risk: "HIGH",
+    description: "Gateway \u9274\u6743\u6A21\u5F0F\u3002"
+  }),
+  entry({
+    key: "runtime.backpressure.max_in_flight",
+    type: "integer",
+    minimum: 1,
+    maximum: 128,
+    defaultValue: 8,
+    risk: "MED",
+    description: "Gateway \u6700\u5927\u5E76\u53D1\u6267\u884C\u6570\u3002"
+  }),
+  entry({
+    key: "runtime.backpressure.max_queued",
+    type: "integer",
+    minimum: 1,
+    maximum: 1024,
+    defaultValue: 64,
+    risk: "MED",
+    description: "Gateway \u6700\u5927\u6392\u961F\u8BF7\u6C42\u6570\u3002"
+  }),
+  entry({
+    key: "runtime.backpressure.queue_timeout_ms",
+    type: "integer",
+    minimum: 100,
+    maximum: 12e4,
+    defaultValue: 15e3,
+    risk: "MED",
+    description: "Gateway \u6392\u961F\u8D85\u65F6\u65F6\u95F4\uFF08\u6BEB\u79D2\uFF09\u3002"
+  }),
+  entry({
+    key: "runtime.backpressure.daemon_max_pending_requests",
+    type: "integer",
+    minimum: 4,
+    maximum: 1024,
+    defaultValue: 64,
+    risk: "MED",
+    description: "Daemon Launcher \u6700\u5927\u6302\u8D77\u8BF7\u6C42\u6570\u3002"
+  }),
+  entry({
+    key: "runtime.notifications.job_toast",
+    type: "boolean",
+    defaultValue: true,
+    risk: "LOW",
+    description: "\u4EFB\u52A1\u5B8C\u6210/\u5931\u8D25\u65F6\u662F\u5426\u63A8\u9001 toast \u901A\u77E5\u3002"
+  }),
+  entry({
+    key: "runtime.multimodal.test_mode",
+    type: "boolean",
+    defaultValue: true,
+    risk: "LOW",
+    description: "\u591A\u6A21\u6001\u5355\u5143\u6D4B\u8BD5\u6A21\u5F0F\uFF08\u4F7F\u7528\u53EF\u8FFD\u6EAF\u964D\u7EA7\u8D44\u4EA7\uFF09\u3002"
+  }),
+  entry({
+    key: "security.voiceprint.strict",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u58F0\u7EB9\u6821\u9A8C\u4E25\u683C\u6A21\u5F0F\u5F00\u5173\u3002"
+  }),
+  entry({
+    key: "skills.enabled",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u662F\u5426\u542F\u7528\u6280\u80FD\u7CFB\u7EDF\u3002"
+  }),
+  entry({
+    key: "skills.packages",
+    type: "array",
+    defaultValue: [],
+    risk: "MED",
+    description: "\u5DF2\u542F\u7528\u6280\u80FD\u5305\u5217\u8868\u3002"
+  }),
+  entry({
+    key: "skills.versionLock.enabled",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u6280\u80FD\u5305\u7248\u672C\u9501\u5B9A\u3002"
+  }),
+  entry({
+    key: "skills.compat.openCodeNative",
+    type: "boolean",
+    defaultValue: true,
+    risk: "LOW",
+    description: "\u517C\u5BB9 OpenCode \u539F\u751F\u6280\u80FD\u3002"
+  }),
+  entry({
+    key: "desktop.enabled",
+    type: "boolean",
+    defaultValue: false,
+    risk: "HIGH",
+    description: "\u684C\u9762\u81EA\u52A8\u5316\u5F00\u5173\u3002"
+  }),
+  entry({
+    key: "desktop.preferUia",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u4F18\u5148 UIA \u81EA\u52A8\u5316\u3002"
+  }),
+  entry({
+    key: "desktop.requirePreSendScreenshotVerify",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u53D1\u9001\u524D\u622A\u56FE\u6838\u9A8C\u3002"
+  }),
+  entry({
+    key: "desktop.requirePostActionVerify",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u52A8\u4F5C\u540E\u72B6\u6001\u6838\u9A8C\u3002"
+  }),
+  entry({
+    key: "desktop.focusPolicy",
+    type: "enum",
+    enumValues: ["strict", "relaxed"],
+    defaultValue: "strict",
+    risk: "HIGH",
+    description: "\u684C\u9762\u7126\u70B9\u7B56\u7565\u3002"
+  }),
+  entry({
+    key: "outbound.enabled",
+    type: "boolean",
+    defaultValue: false,
+    risk: "HIGH",
+    description: "\u5916\u53D1\u6D88\u606F\u603B\u5F00\u5173\u3002"
+  }),
+  entry({
+    key: "outbound.channels",
+    type: "object",
+    defaultValue: {
+      qq: true,
+      wechat: true
+    },
+    risk: "HIGH",
+    description: "\u5916\u53D1\u6E20\u9053\u914D\u7F6E\uFF08\u4EC5 QQ/\u5FAE\u4FE1\uFF09\u3002"
+  }),
+  entry({
+    key: "outbound.requireDraftInChat",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u5916\u53D1\u524D\u5148\u5728\u5BF9\u8BDD\u4E2D\u751F\u6210\u8349\u7A3F\u3002"
+  }),
+  entry({
+    key: "outbound.requireVerifierSign",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u5916\u53D1\u524D\u5F3A\u5236 verifier \u7B7E\u5B57\u3002"
+  }),
+  entry({
+    key: "voice.enabled",
+    type: "boolean",
+    defaultValue: false,
+    risk: "HIGH",
+    description: "\u8BED\u97F3\u80FD\u529B\u603B\u5F00\u5173\u3002"
+  }),
+  entry({
+    key: "voice.input.stt",
+    type: "enum",
+    enumValues: ["local", "off"],
+    defaultValue: "local",
+    risk: "MED",
+    description: "\u8BED\u97F3\u8F93\u5165 STT \u6A21\u5F0F\u3002"
+  }),
+  entry({
+    key: "voice.output.tts",
+    type: "enum",
+    enumValues: ["local", "off"],
+    defaultValue: "local",
+    risk: "MED",
+    description: "\u8BED\u97F3\u8F93\u51FA TTS \u6A21\u5F0F\u3002"
+  }),
+  entry({
+    key: "voice.wakeWord.enabled",
+    type: "boolean",
+    defaultValue: false,
+    risk: "MED",
+    description: "\u5524\u9192\u8BCD\u5F00\u5173\u3002"
+  }),
+  entry({
+    key: "voice.oneShotMode",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u4E00\u53E5\u8BDD\u89E6\u53D1\u6A21\u5F0F\u3002"
+  }),
+  entry({
+    key: "voice.routeToChat",
+    type: "boolean",
+    defaultValue: true,
+    risk: "MED",
+    description: "\u8BED\u97F3\u8F93\u5165\u7EDF\u4E00\u5199\u5165\u4F1A\u8BDD\u3002"
+  }),
+  entry({
+    key: "git.autoPush.enabled",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u81EA\u52A8\u63A8\u9001\u5F00\u5173\u3002"
+  }),
+  entry({
+    key: "git.autoPush.remote",
+    type: "string",
+    defaultValue: "https://github.com/mmy4shadow/miya-for-opencode.git",
+    risk: "HIGH",
+    description: "\u81EA\u52A8\u63A8\u9001\u8FDC\u7AEF\u4ED3\u5E93\u3002"
+  }),
+  entry({
+    key: "git.autoPush.branchPattern",
+    type: "string",
+    defaultValue: "refs/heads/miya/<session-id>",
+    risk: "HIGH",
+    description: "\u81EA\u52A8\u63A8\u9001\u5206\u652F\u7B56\u7565\u3002"
+  }),
+  entry({
+    key: "git.autoPush.maxFileSizeMB",
+    type: "integer",
+    minimum: 1,
+    maximum: 50,
+    defaultValue: 2,
+    risk: "HIGH",
+    description: "\u81EA\u52A8\u63A8\u9001\u5355\u6587\u4EF6\u5927\u5C0F\u4E0A\u9650\u3002"
+  }),
+  entry({
+    key: "git.autoPush.blockWhenKillSwitchActive",
+    type: "boolean",
+    defaultValue: true,
+    risk: "HIGH",
+    description: "\u6025\u505C\u65F6\u963B\u65AD\u81EA\u52A8\u63A8\u9001\u3002"
+  }),
+  entry({
+    key: "git.autoPush.excludeGlobs",
+    type: "array",
+    defaultValue: [
+      ".opencode/**",
+      ".venv/**",
+      "node_modules/**",
+      "**/*.pem",
+      "**/*.key",
+      "**/.env*"
+    ],
+    risk: "HIGH",
+    description: "\u81EA\u52A8\u63A8\u9001\u6392\u9664\u5217\u8868\u3002"
+  })
+];
+var REGISTRY_MAP = new Map(
+  SETTINGS_REGISTRY.map((item) => [item.key, item])
+);
+function leafSchema(entryValue) {
+  if (entryValue.type === "boolean") return { type: "boolean" };
+  if (entryValue.type === "integer") {
+    const schema = { type: "integer" };
+    if (typeof entryValue.minimum === "number")
+      schema.minimum = entryValue.minimum;
+    if (typeof entryValue.maximum === "number")
+      schema.maximum = entryValue.maximum;
+    return schema;
+  }
+  if (entryValue.type === "string") return { type: "string" };
+  if (entryValue.type === "enum") {
+    return { type: "string", enum: [...entryValue.enumValues ?? []] };
+  }
+  if (entryValue.type === "array") return { type: "array" };
+  return { type: "object" };
+}
+function setSchemaAtPath(root, key, schema) {
+  const segments = keySegments(key);
+  if (segments.length === 0) return;
+  let current = root;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    const existing = current[segment];
+    if (!existing || typeof existing !== "object") {
+      current[segment] = {
+        type: "object",
+        additionalProperties: true,
+        properties: {}
+      };
+    }
+    const node = current[segment];
+    if (!node.properties || typeof node.properties !== "object") {
+      node.properties = {};
+    }
+    current = node.properties;
+  }
+  current[segments[segments.length - 1]] = schema;
+}
+function getSettingEntry(key) {
+  return REGISTRY_MAP.get(key);
+}
+function listSettingEntries() {
+  return SETTINGS_REGISTRY.map((item) => cloneValue(item));
+}
+function buildDefaultConfig() {
+  const config3 = {};
+  for (const item of SETTINGS_REGISTRY) {
+    setNestedValue(config3, item.key, cloneValue(item.defaultValue));
+  }
+  return config3;
+}
+function buildRegistryDocument() {
+  return {
+    version: 1,
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    settings: listSettingEntries()
+  };
+}
+function buildSchemaDocument() {
+  const rootProperties = {};
+  for (const item of SETTINGS_REGISTRY) {
+    setSchemaAtPath(rootProperties, item.key, leafSchema(item));
+  }
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: "Miya Config",
+    type: "object",
+    additionalProperties: true,
+    properties: rootProperties
+  };
+}
+
+// src/settings/store.ts
+import * as fs11 from "node:fs";
+import * as path13 from "node:path";
+var EMPTY_PATCH = { set: {}, unset: [] };
+function runtimeFile(projectDir, fileName) {
+  return path13.join(getMiyaRuntimeDir(projectDir), fileName);
+}
+function ensureDir4(file3) {
+  fs11.mkdirSync(path13.dirname(file3), { recursive: true });
+}
+function cloneValue2(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+function writeJson(file3, value) {
+  ensureDir4(file3);
+  fs11.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
+`, "utf-8");
+}
+function readJsonObject(file3) {
+  if (!fs11.existsSync(file3)) return {};
+  try {
+    const parsed = JSON.parse(fs11.readFileSync(file3, "utf-8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+function riskRank(risk) {
+  if (risk === "HIGH") return 3;
+  if (risk === "MED") return 2;
+  return 1;
+}
+function maxRisk(current, next) {
+  return riskRank(next) > riskRank(current) ? next : current;
+}
+function deepEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function normalizePathToKey(input) {
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("/")) {
+    return trimmed.split("/").map((segment) => segment.trim()).filter((segment) => segment.length > 0).join(".");
+  }
+  return trimmed;
+}
+function normalizePatchObject(input) {
+  if ("jsonPatch" in input && Array.isArray(input.jsonPatch)) {
+    return normalizePatchInput(input.jsonPatch);
+  }
+  if ("patch" in input && input.patch !== void 0) {
+    return normalizePatchInput(input.patch);
+  }
+  const setRaw = "set" in input && input.set && typeof input.set === "object" ? input.set : null;
+  const unsetRaw = "unset" in input && Array.isArray(input.unset) ? input.unset : "reset" in input && Array.isArray(input.reset) ? input.reset : null;
+  if (setRaw || unsetRaw) {
+    const patch2 = {
+      set: {},
+      unset: []
+    };
+    const errors = [];
+    if (setRaw) {
+      for (const [key, value] of Object.entries(setRaw)) {
+        const normalizedKey = normalizePathToKey(key);
+        if (!normalizedKey) {
+          errors.push(`Invalid set key: ${key}`);
+          continue;
+        }
+        patch2.set[normalizedKey] = value;
+      }
+    }
+    if (unsetRaw) {
+      for (const key of unsetRaw) {
+        const normalizedKey = normalizePathToKey(String(key));
+        if (!normalizedKey) {
+          errors.push(`Invalid unset key: ${String(key)}`);
+          continue;
+        }
+        patch2.unset.push(normalizedKey);
+      }
+    }
+    patch2.unset = [...new Set(patch2.unset)];
+    return { patch: patch2, errors };
+  }
+  const patch = { set: {}, unset: [] };
+  for (const [key, value] of Object.entries(input)) {
+    const normalizedKey = normalizePathToKey(key);
+    if (!normalizedKey) continue;
+    patch.set[normalizedKey] = value;
+  }
+  return { patch, errors: [] };
+}
+function normalizeJsonPatchArray(input) {
+  const patch = { set: {}, unset: [] };
+  const errors = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      errors.push("JSON Patch item must be an object.");
+      continue;
+    }
+    const op = String(item.op ?? "").toLowerCase();
+    const pathValue = String(item.path ?? "");
+    const key = normalizePathToKey(pathValue);
+    if (!key) {
+      errors.push(`JSON Patch path is invalid: ${pathValue}`);
+      continue;
+    }
+    if (op === "remove") {
+      patch.unset.push(key);
+      continue;
+    }
+    if (op === "add" || op === "replace" || op === "set") {
+      patch.set[key] = item.value;
+      continue;
+    }
+    errors.push(`Unsupported JSON Patch operation: ${op}`);
+  }
+  patch.unset = [...new Set(patch.unset)];
+  return { patch, errors };
+}
+function validateValueType(entryValue, value) {
+  const valueType = entryValue.type;
+  if (valueType === "boolean") {
+    return typeof value === "boolean" ? null : `Expected boolean for ${entryValue.key}.`;
+  }
+  if (valueType === "integer") {
+    if (typeof value !== "number" || !Number.isInteger(value)) {
+      return `Expected integer for ${entryValue.key}.`;
+    }
+    if (typeof entryValue.minimum === "number" && value < entryValue.minimum) {
+      return `${entryValue.key} must be >= ${entryValue.minimum}.`;
+    }
+    if (typeof entryValue.maximum === "number" && value > entryValue.maximum) {
+      return `${entryValue.key} must be <= ${entryValue.maximum}.`;
+    }
+    return null;
+  }
+  if (valueType === "string") {
+    return typeof value === "string" ? null : `Expected string for ${entryValue.key}.`;
+  }
+  if (valueType === "enum") {
+    if (typeof value !== "string") {
+      return `Expected enum string for ${entryValue.key}.`;
+    }
+    const options = entryValue.enumValues ?? [];
+    if (!options.includes(value)) {
+      return `${entryValue.key} must be one of: ${options.join(", ")}.`;
+    }
+    return null;
+  }
+  if (valueType === "object") {
+    return value && typeof value === "object" && !Array.isArray(value) ? null : `Expected object for ${entryValue.key}.`;
+  }
+  if (valueType === "array") {
+    return Array.isArray(value) ? null : `Expected array for ${entryValue.key}.`;
+  }
+  return `Unsupported type for ${entryValue.key}.`;
+}
+function mergeConfigWithDefaults(raw) {
+  const merged = cloneValue2(raw);
+  for (const item of listSettingEntries()) {
+    const current = getNestedValue(merged, item.key);
+    if (current === void 0) {
+      setNestedValue(merged, item.key, cloneValue2(item.defaultValue));
+      continue;
+    }
+    const issue3 = validateValueType(item, current);
+    if (issue3) {
+      setNestedValue(merged, item.key, cloneValue2(item.defaultValue));
+    }
+  }
+  return merged;
+}
+function ensureSettingsFiles(projectDir) {
+  const registryPath = runtimeFile(projectDir, "registry.json");
+  const schemaPath = runtimeFile(projectDir, "schema.json");
+  const configPath = runtimeFile(projectDir, "config.json");
+  writeJson(registryPath, buildRegistryDocument());
+  writeJson(schemaPath, buildSchemaDocument());
+  if (!fs11.existsSync(configPath)) {
+    writeJson(configPath, buildDefaultConfig());
+    return;
+  }
+  const raw = readJsonObject(configPath);
+  const normalized = mergeConfigWithDefaults(raw);
+  writeJson(configPath, normalized);
+}
+function readConfig(projectDir) {
+  ensureSettingsFiles(projectDir);
+  const raw = readJsonObject(runtimeFile(projectDir, "config.json"));
+  return mergeConfigWithDefaults(raw);
+}
+function writeConfig(projectDir, config3) {
+  ensureSettingsFiles(projectDir);
+  writeJson(
+    runtimeFile(projectDir, "config.json"),
+    mergeConfigWithDefaults(config3)
+  );
+}
+function flattenConfig(config3) {
+  const flat = {};
+  for (const item of listSettingEntries()) {
+    flat[item.key] = getNestedValue(config3, item.key);
+  }
+  return flat;
+}
+function normalizePatchInput(input) {
+  if (!input) {
+    return {
+      patch: cloneValue2(EMPTY_PATCH),
+      errors: ["Patch payload is empty."]
+    };
+  }
+  if (Array.isArray(input)) {
+    return normalizeJsonPatchArray(input);
+  }
+  if (typeof input !== "object") {
+    return {
+      patch: cloneValue2(EMPTY_PATCH),
+      errors: ["Patch payload must be an object or JSON Patch array."]
+    };
+  }
+  return normalizePatchObject(input);
+}
+function validateConfigPatch(projectDir, patchInput) {
+  const currentConfig = readConfig(projectDir);
+  const normalized = normalizePatchInput(patchInput);
+  const errors = [...normalized.errors];
+  const warnings = [];
+  const changes = [];
+  const keysToCheck = [
+    ...Object.keys(normalized.patch.set),
+    ...normalized.patch.unset
+  ];
+  const uniqueKeys = [...new Set(keysToCheck)];
+  for (const key of uniqueKeys) {
+    const setting = getSettingEntry(key);
+    if (!setting) {
+      errors.push(`Unknown setting key: ${key}`);
+      continue;
+    }
+    const isReset = normalized.patch.unset.includes(key);
+    const nextValue = isReset ? cloneValue2(setting.defaultValue) : normalized.patch.set[key];
+    const previousValue = getNestedValue(currentConfig, key);
+    const issue3 = validateValueType(setting, nextValue);
+    if (issue3) {
+      errors.push(issue3);
+      continue;
+    }
+    if (deepEqual(previousValue, nextValue)) {
+      warnings.push(`${key} is unchanged.`);
+      continue;
+    }
+    changes.push({
+      key,
+      operation: isReset ? "reset" : "set",
+      risk: setting.risk,
+      description: setting.description,
+      previousValue,
+      nextValue,
+      requiresEvidence: setting.requiresEvidence
+    });
+  }
+  let highestRisk = "LOW";
+  for (const change of changes) {
+    highestRisk = maxRisk(highestRisk, change.risk);
+  }
+  if (normalized.patch.set["outbound.enabled"] === true && normalized.patch.set["desktop.requirePreSendScreenshotVerify"] === false) {
+    errors.push(
+      "outbound.enabled=true \u65F6\u4E0D\u5141\u8BB8\u5C06 desktop.requirePreSendScreenshotVerify \u8BBE\u4E3A false\u3002"
+    );
+  }
+  if (changes.length === 0 && errors.length === 0) {
+    warnings.push("Patch has no effective changes.");
+  }
+  const requiredSafetyTier = highestRisk === "HIGH" ? "THOROUGH" : highestRisk === "MED" ? "STANDARD" : "LIGHT";
+  return {
+    ok: errors.length === 0 && changes.length > 0,
+    errors,
+    warnings,
+    normalizedPatch: normalized.patch,
+    changes,
+    maxRisk: highestRisk,
+    requiresEvidence: changes.some((change) => change.requiresEvidence),
+    requiredSafetyTier
+  };
+}
+function applyConfigPatch(projectDir, validation) {
+  const config3 = readConfig(projectDir);
+  for (const change of validation.changes) {
+    setNestedValue(config3, change.key, cloneValue2(change.nextValue));
+  }
+  writeConfig(projectDir, config3);
+  return {
+    updatedConfig: readConfig(projectDir),
+    applied: validation.changes
+  };
+}
+function getConfigValue(projectDir, key) {
+  const config3 = readConfig(projectDir);
+  if (!key) return flattenConfig(config3);
+  return getNestedValue(config3, key);
+}
+
+// src/settings/tools.ts
+import { spawn as spawn3 } from "node:child_process";
 
 // node_modules/@opencode-ai/plugin/node_modules/zod/v4/classic/external.js
 var external_exports2 = {};
@@ -21684,10 +22887,10 @@ function mergeDefs2(...defs) {
 function cloneDef2(schema) {
   return mergeDefs2(schema._zod.def);
 }
-function getElementAtPath2(obj, path54) {
-  if (!path54)
+function getElementAtPath2(obj, path55) {
+  if (!path55)
     return obj;
-  return path54.reduce((acc, key) => acc?.[key], obj);
+  return path55.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject2(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -22048,11 +23251,11 @@ function aborted2(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues2(path54, issues) {
+function prefixIssues2(path55, issues) {
   return issues.map((iss) => {
     var _a2;
     (_a2 = iss).path ?? (_a2.path = []);
-    iss.path.unshift(path54);
+    iss.path.unshift(path55);
     return iss;
   });
 }
@@ -22220,7 +23423,7 @@ function treeifyError2(error92, _mapper) {
     return issue3.message;
   };
   const result = { errors: [] };
-  const processError = (error93, path54 = []) => {
+  const processError = (error93, path55 = []) => {
     var _a2, _b;
     for (const issue3 of error93.issues) {
       if (issue3.code === "invalid_union" && issue3.errors.length) {
@@ -22230,7 +23433,7 @@ function treeifyError2(error92, _mapper) {
       } else if (issue3.code === "invalid_element") {
         processError({ issues: issue3.issues }, issue3.path);
       } else {
-        const fullpath = [...path54, ...issue3.path];
+        const fullpath = [...path55, ...issue3.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue3));
           continue;
@@ -22262,8 +23465,8 @@ function treeifyError2(error92, _mapper) {
 }
 function toDotPath2(_path) {
   const segs = [];
-  const path54 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path54) {
+  const path55 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path55) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -33376,22 +34579,1815 @@ function tool(input) {
 tool.schema = external_exports2;
 
 // src/gateway/index.ts
-import { spawnSync as spawnSync7 } from "node:child_process";
-import { createHash as createHash15, randomUUID as randomUUID20 } from "node:crypto";
-import * as fs48 from "node:fs";
+import { spawnSync as spawnSync6 } from "node:child_process";
+import { createHash as createHash15, randomUUID as randomUUID19 } from "node:crypto";
+import * as fs47 from "node:fs";
 import { createServer } from "node:http";
 import * as os9 from "node:os";
-import * as path49 from "node:path";
+import * as path48 from "node:path";
 import WebSocket2, { WebSocketServer } from "ws";
 
-// src/channels/service.ts
-import * as fs17 from "node:fs";
+// src/autoflow/engine.ts
+import { createHash } from "node:crypto";
+
+// src/ultrawork/scheduler.ts
+function buildNodes(tasks) {
+  const normalized = tasks.filter((task) => task.agent.trim() && task.prompt.trim()).slice(0, 40);
+  return normalized.map((task, index) => ({
+    nodeID: task.id?.trim() || `node_${index + 1}`,
+    agent: task.agent.trim(),
+    prompt: task.prompt.trim(),
+    description: task.description.trim() || task.prompt.trim().slice(0, 80),
+    dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn.map(String).map((item) => item.trim()).filter(Boolean) : [],
+    timeoutMs: Math.max(
+      5e3,
+      Math.min(20 * 6e4, Number(task.timeoutMs ?? 12e4))
+    ),
+    maxRetries: Math.max(
+      0,
+      Math.min(3, Math.floor(Number(task.maxRetries ?? 0)))
+    )
+  }));
+}
+function hasCycle(nodes) {
+  const edges = new Map(nodes.map((node) => [node.nodeID, node.dependsOn]));
+  const visiting = /* @__PURE__ */ new Set();
+  const visited = /* @__PURE__ */ new Set();
+  const dfs = (id) => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    for (const dep of edges.get(id) ?? []) {
+      if (edges.has(dep) && dfs(dep)) return true;
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  };
+  for (const node of nodes) {
+    if (dfs(node.nodeID)) return true;
+  }
+  return false;
+}
+function launchUltraworkTasks(input) {
+  const nodes = buildNodes(input.tasks);
+  return nodes.map((task) => {
+    const launched = input.manager.launch({
+      agent: task.agent,
+      prompt: task.prompt,
+      description: task.description,
+      parentSessionId: input.parentSessionID
+    });
+    return {
+      nodeID: task.nodeID,
+      taskID: launched.id,
+      agent: launched.agent,
+      status: String(launched.status)
+    };
+  });
+}
+async function runUltraworkDag(input) {
+  const nodes = buildNodes(input.tasks);
+  if (nodes.length === 0) {
+    return { total: 0, completed: 0, failed: 0, blocked: 0, nodes: [] };
+  }
+  if (hasCycle(nodes)) {
+    return {
+      total: nodes.length,
+      completed: 0,
+      failed: 0,
+      blocked: nodes.length,
+      nodes: nodes.map((item) => ({
+        nodeID: item.nodeID,
+        agent: item.agent,
+        status: "blocked_dependency",
+        retries: 0,
+        error: "dag_cycle_detected"
+      }))
+    };
+  }
+  const maxParallel = Math.max(
+    1,
+    Math.min(8, Math.floor(Number(input.maxParallel ?? 3)))
+  );
+  const nodeMap = new Map(nodes.map((node) => [node.nodeID, node]));
+  const pending = new Set(nodes.map((item) => item.nodeID));
+  const running = /* @__PURE__ */ new Set();
+  const results = /* @__PURE__ */ new Map();
+  const retries = /* @__PURE__ */ new Map();
+  const canRun = (node) => {
+    for (const dependency of node.dependsOn) {
+      const status = results.get(dependency)?.status;
+      if (!status) return false;
+      if (status !== "completed") return false;
+    }
+    return true;
+  };
+  const runNode = async (node) => {
+    const launched = input.manager.launch({
+      agent: node.agent,
+      prompt: node.prompt,
+      description: node.description,
+      parentSessionId: input.parentSessionID
+    });
+    const task = await input.manager.waitForCompletion(
+      launched.id,
+      node.timeoutMs
+    );
+    const status = String(task?.status ?? "timeout");
+    const attempts = retries.get(node.nodeID) ?? 0;
+    if ((status === "failed" || status === "timeout" || status === "cancelled") && attempts < node.maxRetries) {
+      retries.set(node.nodeID, attempts + 1);
+      pending.add(node.nodeID);
+      return;
+    }
+    results.set(node.nodeID, {
+      nodeID: node.nodeID,
+      agent: node.agent,
+      status,
+      retries: attempts,
+      taskID: launched.id,
+      error: status === "failed" || status === "timeout" || status === "cancelled" ? `task_${status}` : void 0
+    });
+  };
+  while (pending.size > 0 || running.size > 0) {
+    const ready = [...pending].map((nodeID) => nodeMap.get(nodeID)).filter((node) => Boolean(node)).filter((node) => canRun(node));
+    for (const node of ready) {
+      if (running.size >= maxParallel) break;
+      pending.delete(node.nodeID);
+      running.add(node.nodeID);
+      void runNode(node).finally(() => {
+        running.delete(node.nodeID);
+      });
+    }
+    const blocked2 = [...pending].map((nodeID) => nodeMap.get(nodeID)).filter((node) => Boolean(node)).filter(
+      (node) => node.dependsOn.some((dep) => {
+        const depStatus = results.get(dep)?.status;
+        return depStatus === "failed" || depStatus === "cancelled" || depStatus === "timeout" || depStatus === "blocked_dependency";
+      })
+    );
+    for (const node of blocked2) {
+      pending.delete(node.nodeID);
+      results.set(node.nodeID, {
+        nodeID: node.nodeID,
+        agent: node.agent,
+        status: "blocked_dependency",
+        retries: retries.get(node.nodeID) ?? 0,
+        error: "dependency_failed"
+      });
+    }
+    if (running.size === 0 && ready.length === 0 && blocked2.length === 0 && pending.size > 0) {
+      for (const nodeID of pending) {
+        const node = nodeMap.get(nodeID);
+        if (!node) continue;
+        results.set(node.nodeID, {
+          nodeID: node.nodeID,
+          agent: node.agent,
+          status: "blocked_dependency",
+          retries: retries.get(node.nodeID) ?? 0,
+          error: "dependency_missing"
+        });
+      }
+      pending.clear();
+      break;
+    }
+    if (running.size > 0) {
+      await new Promise((resolve7) => setTimeout(resolve7, 60));
+    }
+  }
+  const nodeResults = nodes.map((node) => {
+    const result = results.get(node.nodeID);
+    return result ?? {
+      nodeID: node.nodeID,
+      agent: node.agent,
+      status: "blocked_dependency",
+      retries: retries.get(node.nodeID) ?? 0,
+      error: "unknown_state"
+    };
+  });
+  const completed = nodeResults.filter(
+    (item) => item.status === "completed"
+  ).length;
+  const failed = nodeResults.filter(
+    (item) => item.status === "failed" || item.status === "cancelled" || item.status === "timeout"
+  ).length;
+  const blocked = nodeResults.filter(
+    (item) => item.status === "blocked_dependency"
+  ).length;
+  return {
+    total: nodeResults.length,
+    completed,
+    failed,
+    blocked,
+    nodes: nodeResults
+  };
+}
+
+// src/autoflow/state.ts
+import * as fs12 from "node:fs";
+import * as path14 from "node:path";
+var DEFAULT_MAX_FIX_ROUNDS = 3;
+var MAX_HISTORY = 120;
+function nowIso3() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function stateFilePath(projectDir) {
+  return path14.join(getMiyaRuntimeDir(projectDir), "autoflow-state.json");
+}
+function ensureRuntimeDir(projectDir) {
+  fs12.mkdirSync(path14.dirname(stateFilePath(projectDir)), { recursive: true });
+}
+function normalizeFixRounds(value) {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_FIX_ROUNDS;
+  return Math.max(1, Math.min(10, Math.floor(Number(value))));
+}
+function normalizeState(sessionID2, raw) {
+  const createdAt = raw?.createdAt ?? nowIso3();
+  const history = Array.isArray(raw?.history) ? raw?.history.slice(-MAX_HISTORY).map((item) => ({
+    at: String(item.at ?? createdAt),
+    phase: item.phase ?? "planning",
+    event: String(item.event ?? "unknown"),
+    summary: String(item.summary ?? "")
+  })) : [];
+  const fixCommands = Array.isArray(raw?.fixCommands) ? raw.fixCommands.map(String).map((item) => item.trim()).filter(Boolean) : [];
+  const fixSteps = [];
+  if (Array.isArray(raw?.fixSteps)) {
+    raw.fixSteps.forEach((item) => {
+      if (!item || typeof item !== "object") return;
+      const row = item;
+      if (row.type === "command") {
+        const command = String(
+          row.command ?? ""
+        ).trim();
+        if (!command) return;
+        fixSteps.push({
+          id: String(
+            row.id ?? `fix_command_${Math.random().toString(36).slice(2, 8)}`
+          ),
+          type: "command",
+          command,
+          description: typeof row.description === "string" ? row.description.trim() : void 0
+        });
+        return;
+      }
+      if (row.type === "agent_task") {
+        const agent = String(row.agent ?? "").trim();
+        const prompt = String(
+          row.prompt ?? ""
+        ).trim();
+        const description = String(
+          row.description ?? ""
+        ).trim();
+        if (!agent || !prompt || !description) return;
+        fixSteps.push({
+          id: String(
+            row.id ?? `fix_agent_${Math.random().toString(36).slice(2, 8)}`
+          ),
+          type: "agent_task",
+          agent,
+          prompt,
+          description,
+          timeoutMs: typeof row.timeoutMs === "number" ? Number(row.timeoutMs) : void 0,
+          maxRetries: typeof row.maxRetries === "number" ? Number(row.maxRetries) : void 0
+        });
+      }
+    });
+  }
+  const recentVerificationHashes = Array.isArray(raw?.recentVerificationHashes) ? raw.recentVerificationHashes.map(String).slice(-3) : [];
+  const planTasks = Array.isArray(raw?.planTasks) ? raw.planTasks : [];
+  return {
+    sessionID: sessionID2,
+    goal: String(raw?.goal ?? "").trim(),
+    phase: raw?.phase ?? "planning",
+    createdAt,
+    updatedAt: raw?.updatedAt ?? createdAt,
+    maxFixRounds: normalizeFixRounds(raw?.maxFixRounds),
+    fixRound: Number.isFinite(raw?.fixRound) ? Math.max(0, Math.floor(Number(raw?.fixRound))) : 0,
+    verificationCommand: raw?.verificationCommand ? String(raw.verificationCommand) : void 0,
+    fixCommands,
+    fixSteps,
+    planTasks,
+    recentVerificationHashes,
+    lastError: raw?.lastError ? String(raw.lastError) : void 0,
+    lastDag: raw?.lastDag && Number.isFinite(raw.lastDag.total) ? {
+      total: Math.max(0, Math.floor(Number(raw.lastDag.total))),
+      completed: Math.max(0, Math.floor(Number(raw.lastDag.completed))),
+      failed: Math.max(0, Math.floor(Number(raw.lastDag.failed))),
+      blocked: Math.max(0, Math.floor(Number(raw.lastDag.blocked)))
+    } : void 0,
+    history
+  };
+}
+function readStore(projectDir) {
+  const file3 = stateFilePath(projectDir);
+  if (!fs12.existsSync(file3)) return { sessions: {} };
+  try {
+    const parsed = JSON.parse(
+      fs12.readFileSync(file3, "utf-8")
+    );
+    if (!parsed || typeof parsed !== "object" || !parsed.sessions) {
+      return { sessions: {} };
+    }
+    const sessions = {};
+    for (const [sessionID2, state2] of Object.entries(parsed.sessions)) {
+      sessions[sessionID2] = normalizeState(
+        sessionID2,
+        state2
+      );
+    }
+    return { sessions };
+  } catch {
+    return { sessions: {} };
+  }
+}
+function writeStore(projectDir, store2) {
+  ensureRuntimeDir(projectDir);
+  fs12.writeFileSync(
+    stateFilePath(projectDir),
+    `${JSON.stringify(store2, null, 2)}
+`,
+    "utf-8"
+  );
+}
+function loadAutoflowSession(projectDir, sessionID2) {
+  const store2 = readStore(projectDir);
+  return store2.sessions[sessionID2] ?? null;
+}
+function listAutoflowSessions(projectDir, limit = 50) {
+  const store2 = readStore(projectDir);
+  return Object.values(store2.sessions).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, Math.max(1, Math.min(200, limit)));
+}
+function getAutoflowSession(projectDir, sessionID2) {
+  return loadAutoflowSession(projectDir, sessionID2) ?? normalizeState(sessionID2);
+}
+function saveAutoflowSession(projectDir, session) {
+  const store2 = readStore(projectDir);
+  const normalized = normalizeState(session.sessionID, {
+    ...session,
+    updatedAt: nowIso3()
+  });
+  store2.sessions[session.sessionID] = normalized;
+  writeStore(projectDir, store2);
+  return normalized;
+}
+function appendAutoflowHistory(session, event, summary) {
+  const record3 = {
+    at: nowIso3(),
+    phase: session.phase,
+    event,
+    summary
+  };
+  session.history = [...session.history, record3].slice(-MAX_HISTORY);
+  return session;
+}
+function configureAutoflowSession(projectDir, input) {
+  const current = getAutoflowSession(projectDir, input.sessionID);
+  const next = {
+    ...current,
+    goal: typeof input.goal === "string" ? input.goal.trim() : current.goal,
+    planTasks: Array.isArray(input.tasks) && input.tasks.length > 0 ? input.tasks : current.planTasks,
+    verificationCommand: typeof input.verificationCommand === "string" ? input.verificationCommand.trim() || void 0 : current.verificationCommand,
+    fixCommands: Array.isArray(input.fixCommands) ? input.fixCommands.map(String).map((item) => item.trim()).filter(Boolean) : current.fixCommands,
+    fixSteps: Array.isArray(input.fixSteps) ? input.fixSteps : current.fixSteps,
+    maxFixRounds: typeof input.maxFixRounds === "number" ? normalizeFixRounds(input.maxFixRounds) : current.maxFixRounds,
+    phase: input.phase ?? current.phase
+  };
+  if (next.phase === "planning") {
+    next.fixRound = 0;
+    next.recentVerificationHashes = [];
+    next.lastError = void 0;
+  }
+  return saveAutoflowSession(projectDir, next);
+}
+function stopAutoflowSession(projectDir, sessionID2) {
+  const current = getAutoflowSession(projectDir, sessionID2);
+  current.phase = "stopped";
+  appendAutoflowHistory(current, "stopped", "Session stopped by operator.");
+  return saveAutoflowSession(projectDir, current);
+}
+
+// src/autoflow/engine.ts
+var DEFAULT_TIMEOUT_MS2 = 9e4;
+var RUN_LOOP_LIMIT = 40;
+function hashText(input) {
+  return createHash("sha256").update(input).digest("hex").slice(0, 16);
+}
+function runShellCommand(command, timeoutMs, cwd) {
+  const startedAt = Date.now();
+  const shellArgs = process.platform === "win32" ? ["powershell", "-NoProfile", "-Command", command] : ["sh", "-lc", command];
+  const proc = runProcessSync(shellArgs[0], shellArgs.slice(1), {
+    cwd,
+    timeout: Math.max(1e3, Math.min(timeoutMs, 10 * 60 * 1e3))
+  });
+  return {
+    command,
+    ok: proc.exitCode === 0 && !proc.timedOut,
+    exitCode: proc.exitCode,
+    stdout: proc.stdout,
+    stderr: proc.stderr,
+    durationMs: Date.now() - startedAt
+  };
+}
+function normalizeTasks(input) {
+  if (!Array.isArray(input)) return [];
+  return input.filter((task) => task?.agent?.trim() && task.prompt?.trim()).map((task, index) => ({
+    id: task.id?.trim() || `task_${index + 1}`,
+    agent: task.agent.trim(),
+    prompt: task.prompt.trim(),
+    description: task.description?.trim() || task.prompt.trim().slice(0, 120),
+    dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn.map(String).map((dep) => dep.trim()).filter(Boolean) : [],
+    timeoutMs: typeof task.timeoutMs === "number" && Number.isFinite(task.timeoutMs) ? Number(task.timeoutMs) : void 0,
+    maxRetries: typeof task.maxRetries === "number" && Number.isFinite(task.maxRetries) ? Number(task.maxRetries) : void 0
+  }));
+}
+function normalizeFixCommands(input) {
+  if (!Array.isArray(input)) return [];
+  return input.map(String).map((item) => item.trim()).filter(Boolean);
+}
+function normalizeFixSteps(input) {
+  if (!Array.isArray(input)) return [];
+  const normalized = [];
+  input.forEach((item, index) => {
+    if (!item || typeof item !== "object") return;
+    if (item.type === "command") {
+      const command = String(item.command ?? "").trim();
+      if (!command) return;
+      normalized.push({
+        id: item.id?.trim() || `fix_command_${index + 1}`,
+        type: "command",
+        command,
+        description: item.description?.trim() || void 0
+      });
+      return;
+    }
+    if (item.type === "agent_task") {
+      const agent = String(item.agent ?? "").trim();
+      const prompt = String(item.prompt ?? "").trim();
+      const description = String(item.description ?? "").trim();
+      if (!agent || !prompt || !description) return;
+      normalized.push({
+        id: item.id?.trim() || `fix_agent_${index + 1}`,
+        type: "agent_task",
+        agent,
+        prompt,
+        description,
+        timeoutMs: typeof item.timeoutMs === "number" && Number.isFinite(item.timeoutMs) ? Number(item.timeoutMs) : void 0,
+        maxRetries: typeof item.maxRetries === "number" && Number.isFinite(item.maxRetries) ? Number(item.maxRetries) : void 0
+      });
+    }
+  });
+  return normalized;
+}
+function setFailed(state2, reason) {
+  state2.phase = "failed";
+  state2.lastError = reason;
+  appendAutoflowHistory(state2, "failed", reason);
+}
+function setCompleted(state2, reason) {
+  state2.phase = "completed";
+  state2.lastError = void 0;
+  appendAutoflowHistory(state2, "completed", reason);
+}
+function verificationFailureReason(result) {
+  const text = result.stderr.trim() || result.stdout.trim();
+  return text.slice(0, 220) || `verification_exit=${result.exitCode}`;
+}
+async function runAutoflow(input) {
+  const timeoutMs = typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs) ? Math.max(1e3, Math.floor(input.timeoutMs)) : DEFAULT_TIMEOUT_MS2;
+  const runCommand5 = input.runCommand ?? runShellCommand;
+  const runDag = input.runDag ?? runUltraworkDag;
+  if (input.forceRestart) {
+    configureAutoflowSession(input.projectDir, {
+      sessionID: input.sessionID,
+      goal: input.goal,
+      tasks: normalizeTasks(input.tasks),
+      verificationCommand: input.verificationCommand,
+      fixCommands: normalizeFixCommands(input.fixCommands),
+      maxFixRounds: input.maxFixRounds,
+      phase: "planning"
+    });
+  }
+  let state2 = getAutoflowSession(input.projectDir, input.sessionID);
+  if (input.goal?.trim()) state2.goal = input.goal.trim();
+  if (input.tasks) state2.planTasks = normalizeTasks(input.tasks);
+  if (input.verificationCommand !== void 0) {
+    const command = String(input.verificationCommand).trim();
+    state2.verificationCommand = command || void 0;
+  }
+  if (input.fixCommands) {
+    state2.fixCommands = normalizeFixCommands(input.fixCommands);
+  }
+  if (input.fixSteps) {
+    state2.fixSteps = normalizeFixSteps(input.fixSteps);
+  }
+  if (typeof input.maxFixRounds === "number" && Number.isFinite(input.maxFixRounds)) {
+    state2.maxFixRounds = Math.max(
+      1,
+      Math.min(10, Math.floor(input.maxFixRounds))
+    );
+  }
+  if (state2.phase === "stopped") {
+    state2 = saveAutoflowSession(input.projectDir, state2);
+    return {
+      success: false,
+      phase: state2.phase,
+      summary: "autoflow_stopped",
+      state: state2
+    };
+  }
+  if (state2.phase === "completed" || state2.phase === "failed") {
+    if (input.forceRestart) {
+      state2.phase = "planning";
+      state2.fixRound = 0;
+      state2.recentVerificationHashes = [];
+      state2.lastError = void 0;
+      appendAutoflowHistory(state2, "restarted", "State reset for new run.");
+    } else {
+      state2 = saveAutoflowSession(input.projectDir, state2);
+      return {
+        success: state2.phase === "completed",
+        phase: state2.phase,
+        summary: `autoflow_${state2.phase}`,
+        state: state2
+      };
+    }
+  }
+  let dagResult;
+  let verification;
+  let fixResult;
+  let executedFixStep;
+  for (let loop = 0; loop < RUN_LOOP_LIMIT; loop += 1) {
+    if (state2.phase === "planning") {
+      if (state2.planTasks.length === 0) {
+        appendAutoflowHistory(
+          state2,
+          "planning_waiting",
+          "No executable tasks in plan."
+        );
+        state2 = saveAutoflowSession(input.projectDir, state2);
+        return {
+          success: false,
+          phase: state2.phase,
+          summary: "planning_requires_tasks",
+          state: state2
+        };
+      }
+      state2.phase = "execution";
+      appendAutoflowHistory(
+        state2,
+        "planning_complete",
+        `Plan accepted with ${state2.planTasks.length} task(s).`
+      );
+      continue;
+    }
+    if (state2.phase === "execution") {
+      try {
+        dagResult = await runDag({
+          manager: input.manager,
+          parentSessionID: input.sessionID,
+          tasks: state2.planTasks,
+          maxParallel: typeof input.maxParallel === "number" && Number.isFinite(input.maxParallel) ? Number(input.maxParallel) : void 0
+        });
+      } catch (error92) {
+        setFailed(
+          state2,
+          `execution_exception:${error92 instanceof Error ? error92.message : String(error92)}`
+        );
+        break;
+      }
+      state2.lastDag = {
+        total: dagResult.total,
+        completed: dagResult.completed,
+        failed: dagResult.failed,
+        blocked: dagResult.blocked
+      };
+      if (dagResult.total === 0) {
+        setFailed(state2, "execution_empty_dag");
+        break;
+      }
+      if (dagResult.failed > 0 || dagResult.blocked > 0) {
+        const reason = `execution_not_clean failed=${dagResult.failed} blocked=${dagResult.blocked}`;
+        if (state2.fixCommands.length === 0 && state2.fixSteps.length === 0) {
+          setFailed(state2, `${reason} (no fix commands configured)`);
+          break;
+        }
+        state2.lastError = reason;
+        state2.phase = "fixing";
+        appendAutoflowHistory(state2, "execution_failed", reason);
+        continue;
+      }
+      state2.phase = "verification";
+      appendAutoflowHistory(
+        state2,
+        "execution_complete",
+        "Parallel execution completed."
+      );
+      continue;
+    }
+    if (state2.phase === "verification") {
+      if (!state2.verificationCommand) {
+        setCompleted(state2, "verification_skipped_no_command");
+        break;
+      }
+      verification = runCommand5(
+        state2.verificationCommand,
+        timeoutMs,
+        input.workingDirectory
+      );
+      if (verification.ok) {
+        setCompleted(state2, "verification_passed");
+        break;
+      }
+      const hash3 = hashText(`${verification.stderr}
+${verification.stdout}`);
+      state2.recentVerificationHashes = [
+        ...state2.recentVerificationHashes,
+        hash3
+      ].slice(-3);
+      const repeatedFailure = state2.recentVerificationHashes.length >= 3 && state2.recentVerificationHashes.every((item) => item === hash3);
+      const reason = verificationFailureReason(verification);
+      if (repeatedFailure) {
+        setFailed(state2, `verification_repeated_failure:${reason}`);
+        break;
+      }
+      if (state2.fixRound >= state2.maxFixRounds) {
+        setFailed(state2, `verification_failed_max_fix_rounds:${reason}`);
+        break;
+      }
+      if (state2.fixCommands.length === 0 && state2.fixSteps.length === 0) {
+        setFailed(state2, `verification_failed_no_fix_steps:${reason}`);
+        break;
+      }
+      state2.lastError = reason;
+      state2.phase = "fixing";
+      appendAutoflowHistory(state2, "verification_failed", reason);
+      continue;
+    }
+    if (state2.phase === "fixing") {
+      if (state2.fixRound >= state2.maxFixRounds) {
+        setFailed(state2, "fix_round_limit_reached");
+        break;
+      }
+      const fixStep = state2.fixSteps[state2.fixRound];
+      const fixCommand = state2.fixCommands[state2.fixRound];
+      if (!fixStep && !fixCommand) {
+        setFailed(state2, `missing_fix_step_at_round_${state2.fixRound + 1}`);
+        break;
+      }
+      if (fixStep?.type === "agent_task") {
+        const dag = await runDag({
+          manager: input.manager,
+          parentSessionID: input.sessionID,
+          tasks: [
+            {
+              id: fixStep.id,
+              agent: fixStep.agent,
+              prompt: fixStep.prompt,
+              description: fixStep.description,
+              timeoutMs: fixStep.timeoutMs,
+              maxRetries: fixStep.maxRetries
+            }
+          ],
+          maxParallel: 1
+        });
+        const ok = dag.failed === 0 && dag.blocked === 0 && dag.completed > 0;
+        fixResult = {
+          command: `agent_task:${fixStep.agent}`,
+          ok,
+          exitCode: ok ? 0 : 1,
+          stdout: JSON.stringify(dag),
+          stderr: ok ? "" : "agent_fix_task_failed",
+          durationMs: 0
+        };
+        executedFixStep = fixStep;
+      } else {
+        const commandToRun = fixStep?.type === "command" ? fixStep.command : fixCommand;
+        fixResult = runCommand5(
+          String(commandToRun),
+          timeoutMs,
+          input.workingDirectory
+        );
+        if (fixStep?.type === "command") {
+          executedFixStep = fixStep;
+        } else if (fixCommand) {
+          executedFixStep = {
+            id: `fix_command_${state2.fixRound + 1}`,
+            type: "command",
+            command: fixCommand
+          };
+        }
+      }
+      state2.fixRound += 1;
+      appendAutoflowHistory(
+        state2,
+        "fix_attempt",
+        `round=${state2.fixRound} ok=${fixResult.ok} exit=${fixResult.exitCode} step=${executedFixStep?.type ?? "command"}`
+      );
+      state2.phase = "verification";
+      continue;
+    }
+    break;
+  }
+  state2 = saveAutoflowSession(input.projectDir, state2);
+  const success3 = state2.phase === "completed";
+  return {
+    success: success3,
+    phase: state2.phase,
+    summary: success3 ? "autoflow_completed" : state2.lastError ?? `autoflow_${state2.phase}`,
+    state: state2,
+    dagResult,
+    verification,
+    fixResult,
+    executedFixStep
+  };
+}
+
+// src/autoflow/persistent.ts
+import * as fs15 from "node:fs";
 import * as path17 from "node:path";
-import { createHash as createHash5, randomUUID as randomUUID4 } from "node:crypto";
+
+// src/sessions/index.ts
+import * as fs14 from "node:fs";
+import * as path16 from "node:path";
+
+// src/security/system-keyring.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash as createHash2,
+  randomBytes
+} from "node:crypto";
+import * as fs13 from "node:fs";
+import * as path15 from "node:path";
+function keyFile(projectDir) {
+  return path15.join(getMiyaRuntimeDir(projectDir), "security", "master.key");
+}
+function ensureDir5(file3) {
+  fs13.mkdirSync(path15.dirname(file3), { recursive: true });
+}
+function toBase64(text) {
+  return Buffer.from(text, "utf-8").toString("base64");
+}
+function fromBase64(base645) {
+  return Buffer.from(base645, "base64").toString("utf-8");
+}
+function hasPowerShell() {
+  const shell = process.platform === "win32" ? "powershell" : "pwsh";
+  const result = spawnSync3(
+    shell,
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$PSVersionTable.PSVersion.ToString()"
+    ],
+    {
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf-8",
+      timeout: 1500
+    }
+  );
+  return result.status === 0;
+}
+function encryptWithDpapi(plainText) {
+  const shell = process.platform === "win32" ? "powershell" : "pwsh";
+  const script = [
+    `$plain = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${toBase64(plainText)}'))`,
+    "$secure = ConvertTo-SecureString -String $plain -AsPlainText -Force",
+    "ConvertFrom-SecureString -SecureString $secure"
+  ].join("; ");
+  const result = spawnSync3(
+    shell,
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    {
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf-8",
+      timeout: 2e3
+    }
+  );
+  if (result.status !== 0) return null;
+  const out = result.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function decryptWithDpapi(blob) {
+  const shell = process.platform === "win32" ? "powershell" : "pwsh";
+  const escaped = blob.replace(/'/g, "''");
+  const script = [
+    `$secure = ConvertTo-SecureString '${escaped}'`,
+    "$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)",
+    "$plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)",
+    "[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)",
+    "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($plain))"
+  ].join("; ");
+  const result = spawnSync3(
+    shell,
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    {
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf-8",
+      timeout: 2e3
+    }
+  );
+  if (result.status !== 0) return null;
+  const out = result.stdout.trim();
+  if (!out) return null;
+  try {
+    return fromBase64(out);
+  } catch {
+    return null;
+  }
+}
+function deriveFallbackKey(projectDir) {
+  const file3 = keyFile(projectDir);
+  if (fs13.existsSync(file3)) {
+    return fs13.readFileSync(file3);
+  }
+  const entropy = randomBytes(32);
+  ensureDir5(file3);
+  fs13.writeFileSync(file3, entropy);
+  return entropy;
+}
+function encryptFallback(projectDir, plainText) {
+  const key = deriveFallbackKey(projectDir);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv(
+    "aes-256-gcm",
+    createHash2("sha256").update(key).digest(),
+    iv
+  );
+  const payload = Buffer.concat([
+    cipher.update(plainText, "utf-8"),
+    cipher.final()
+  ]);
+  return {
+    version: 1,
+    alg: "aes256gcm",
+    payload: payload.toString("base64"),
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64")
+  };
+}
+function decryptFallback(projectDir, envelope) {
+  if (!envelope.iv || !envelope.tag) return null;
+  try {
+    const key = deriveFallbackKey(projectDir);
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      createHash2("sha256").update(key).digest(),
+      Buffer.from(envelope.iv, "base64")
+    );
+    decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+    const plain = Buffer.concat([
+      decipher.update(Buffer.from(envelope.payload, "base64")),
+      decipher.final()
+    ]);
+    return plain.toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+function encodeEnvelope(envelope) {
+  return `miya-sec:${Buffer.from(JSON.stringify(envelope), "utf-8").toString("base64")}`;
+}
+function decodeEnvelope(raw) {
+  if (!raw.startsWith("miya-sec:")) return null;
+  const body = raw.slice("miya-sec:".length);
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(body, "base64").toString("utf-8")
+    );
+    if (!parsed || parsed.version !== 1) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function encryptSensitiveValue(projectDir, plainText) {
+  const normalized = String(plainText ?? "");
+  if (!normalized) return normalized;
+  if (process.platform === "win32" && hasPowerShell()) {
+    const dpapi = encryptWithDpapi(normalized);
+    if (dpapi) {
+      return encodeEnvelope({
+        version: 1,
+        alg: "dpapi",
+        payload: dpapi
+      });
+    }
+  }
+  return encodeEnvelope(encryptFallback(projectDir, normalized));
+}
+function decryptSensitiveValue(projectDir, rawValue) {
+  const raw = String(rawValue ?? "");
+  if (!raw.startsWith("miya-sec:")) return raw;
+  const envelope = decodeEnvelope(raw);
+  if (!envelope) return raw;
+  if (envelope.alg === "dpapi") {
+    const decoded = decryptWithDpapi(envelope.payload);
+    return decoded ?? raw;
+  }
+  const fallback = decryptFallback(projectDir, envelope);
+  return fallback ?? raw;
+}
+
+// src/sessions/index.ts
+var DEFAULT_POLICY = {
+  activation: "active",
+  reply: "auto",
+  queueStrategy: "fifo"
+};
+function nowIso4() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function filePath2(projectDir) {
+  return path16.join(getMiyaRuntimeDir(projectDir), "sessions.json");
+}
+function ensureDir6(file3) {
+  fs14.mkdirSync(path16.dirname(file3), { recursive: true });
+}
+function readStore2(projectDir) {
+  const file3 = filePath2(projectDir);
+  if (!fs14.existsSync(file3)) {
+    return { sessions: {} };
+  }
+  try {
+    const parsed = JSON.parse(fs14.readFileSync(file3, "utf-8"));
+    if (!parsed || typeof parsed !== "object" || !parsed.sessions) {
+      return { sessions: {} };
+    }
+    const normalized = { sessions: {} };
+    for (const [id, session] of Object.entries(parsed.sessions ?? {})) {
+      normalized.sessions[id] = {
+        ...session,
+        groupId: decryptSensitiveValue(
+          projectDir,
+          String(session.groupId ?? "")
+        ),
+        title: typeof session.title === "string" ? decryptSensitiveValue(projectDir, session.title) : session.title,
+        routing: {
+          ...session.routing ?? {
+            opencodeSessionID: "main",
+            agent: "1-task-manager"
+          },
+          opencodeSessionID: decryptSensitiveValue(
+            projectDir,
+            String(session.routing?.opencodeSessionID ?? "main")
+          )
+        },
+        queue: Array.isArray(session.queue) ? session.queue.map((item) => ({
+          ...item,
+          text: decryptSensitiveValue(projectDir, String(item.text ?? "")),
+          source: decryptSensitiveValue(
+            projectDir,
+            String(item.source ?? "")
+          )
+        })) : []
+      };
+    }
+    return normalized;
+  } catch {
+    return { sessions: {} };
+  }
+}
+function writeStore2(projectDir, store2) {
+  const file3 = filePath2(projectDir);
+  ensureDir6(file3);
+  const encrypted = { sessions: {} };
+  for (const [id, session] of Object.entries(store2.sessions)) {
+    encrypted.sessions[id] = {
+      ...session,
+      groupId: encryptSensitiveValue(projectDir, session.groupId),
+      title: session.title ? encryptSensitiveValue(projectDir, session.title) : session.title,
+      routing: {
+        ...session.routing,
+        opencodeSessionID: encryptSensitiveValue(
+          projectDir,
+          session.routing.opencodeSessionID
+        )
+      },
+      queue: session.queue.map((item) => ({
+        ...item,
+        text: encryptSensitiveValue(projectDir, item.text),
+        source: encryptSensitiveValue(projectDir, item.source)
+      }))
+    };
+  }
+  fs14.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
+`, "utf-8");
+}
+function sanitizeSession(value) {
+  return {
+    ...value,
+    policy: {
+      activation: value.policy?.activation ?? DEFAULT_POLICY.activation,
+      reply: value.policy?.reply ?? DEFAULT_POLICY.reply,
+      queueStrategy: value.policy?.queueStrategy ?? DEFAULT_POLICY.queueStrategy
+    },
+    routing: {
+      opencodeSessionID: value.routing?.opencodeSessionID ?? "main",
+      agent: value.routing?.agent ?? "1-task-manager"
+    },
+    recovery: value.recovery ? {
+      recoverable: value.recovery.recoverable !== false,
+      reasonCode: typeof value.recovery.reasonCode === "string" ? value.recovery.reasonCode : void 0,
+      from: value.recovery.from === "autoflow" || value.recovery.from === "daemon" || value.recovery.from === "session" ? value.recovery.from : "session",
+      updatedAt: value.recovery.updatedAt || nowIso4()
+    } : void 0,
+    queue: Array.isArray(value.queue) ? value.queue : []
+  };
+}
+function listSessions(projectDir) {
+  const store2 = readStore2(projectDir);
+  return Object.values(store2.sessions).map(sanitizeSession).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+}
+function getSession(projectDir, sessionID2) {
+  const store2 = readStore2(projectDir);
+  const session = store2.sessions[sessionID2];
+  return session ? sanitizeSession(session) : null;
+}
+function upsertSession(projectDir, input) {
+  const store2 = readStore2(projectDir);
+  const existing = store2.sessions[input.id];
+  const createdAt = existing?.createdAt ?? nowIso4();
+  const session = sanitizeSession({
+    id: input.id,
+    kind: input.kind ?? existing?.kind ?? "channel",
+    groupId: input.groupId ?? existing?.groupId ?? input.id,
+    title: input.title ?? existing?.title,
+    policy: existing?.policy ?? DEFAULT_POLICY,
+    routing: {
+      opencodeSessionID: input.routingSessionID ?? existing?.routing?.opencodeSessionID ?? "main",
+      agent: input.agent ?? existing?.routing?.agent ?? "1-task-manager"
+    },
+    queue: existing?.queue ?? [],
+    createdAt,
+    updatedAt: nowIso4()
+  });
+  store2.sessions[input.id] = session;
+  writeStore2(projectDir, store2);
+  return session;
+}
+function setSessionPolicy(projectDir, sessionID2, patch) {
+  const store2 = readStore2(projectDir);
+  const existing = store2.sessions[sessionID2];
+  if (!existing) return null;
+  const next = sanitizeSession({
+    ...existing,
+    policy: {
+      ...existing.policy,
+      ...patch
+    },
+    updatedAt: nowIso4()
+  });
+  store2.sessions[sessionID2] = next;
+  writeStore2(projectDir, store2);
+  return next;
+}
+function enqueueSessionMessage(projectDir, sessionID2, input) {
+  const store2 = readStore2(projectDir);
+  const existing = sanitizeSession(
+    store2.sessions[sessionID2] ?? upsertSession(projectDir, {
+      id: sessionID2
+    })
+  );
+  const message = {
+    id: `queue_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    text: input.text,
+    source: input.source,
+    createdAt: nowIso4()
+  };
+  const nextQueue = [...existing.queue, message];
+  const next = {
+    ...existing,
+    queue: nextQueue,
+    updatedAt: nowIso4()
+  };
+  store2.sessions[sessionID2] = next;
+  writeStore2(projectDir, store2);
+  return message;
+}
+function dequeueSessionMessage(projectDir, sessionID2) {
+  const store2 = readStore2(projectDir);
+  const existing = store2.sessions[sessionID2];
+  if (!existing || existing.queue.length === 0) {
+    return null;
+  }
+  const [first, ...rest] = existing.queue;
+  store2.sessions[sessionID2] = {
+    ...existing,
+    queue: rest,
+    updatedAt: nowIso4()
+  };
+  writeStore2(projectDir, store2);
+  return first;
+}
+function setSessionRecoveryReason(projectDir, input) {
+  const existing = getSession(projectDir, input.sessionID) ?? upsertSession(projectDir, {
+    id: input.sessionID,
+    kind: input.sessionID.startsWith("opencode:") ? "opencode" : "channel",
+    groupId: input.sessionID
+  });
+  const store2 = readStore2(projectDir);
+  const next = sanitizeSession({
+    ...existing,
+    recovery: {
+      recoverable: Boolean(input.recoverable),
+      reasonCode: input.reasonCode.trim(),
+      from: input.from ?? "session",
+      updatedAt: nowIso4()
+    },
+    updatedAt: nowIso4()
+  });
+  store2.sessions[input.sessionID] = next;
+  writeStore2(projectDir, store2);
+  return next;
+}
+
+// src/autoflow/persistent.ts
+var DEFAULT_CONFIG = {
+  enabled: true,
+  resumeCooldownMs: 2500,
+  maxAutoResumes: 8,
+  maxConsecutiveResumeFailures: 3,
+  resumeTimeoutMs: 9e4
+};
+function storeFile(projectDir) {
+  return path17.join(getMiyaRuntimeDir(projectDir), "autoflow-persistent.json");
+}
+function nowIso5() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function normalizeConfig(raw) {
+  return {
+    enabled: raw?.enabled !== false,
+    resumeCooldownMs: clamp(
+      Number(raw?.resumeCooldownMs ?? DEFAULT_CONFIG.resumeCooldownMs),
+      500,
+      12e4
+    ),
+    maxAutoResumes: clamp(
+      Number(raw?.maxAutoResumes ?? DEFAULT_CONFIG.maxAutoResumes),
+      1,
+      50
+    ),
+    maxConsecutiveResumeFailures: clamp(
+      Number(
+        raw?.maxConsecutiveResumeFailures ?? DEFAULT_CONFIG.maxConsecutiveResumeFailures
+      ),
+      1,
+      20
+    ),
+    resumeTimeoutMs: clamp(
+      Number(raw?.resumeTimeoutMs ?? DEFAULT_CONFIG.resumeTimeoutMs),
+      3e3,
+      10 * 6e4
+    )
+  };
+}
+function normalizeRuntime(sessionID2, raw) {
+  return {
+    sessionID: sessionID2,
+    resumeAttempts: clamp(Number(raw?.resumeAttempts ?? 0), 0, 1e3),
+    resumeFailures: clamp(Number(raw?.resumeFailures ?? 0), 0, 1e3),
+    userStopped: Boolean(raw?.userStopped),
+    lastStopAt: raw?.lastStopAt ? String(raw.lastStopAt) : void 0,
+    lastStopType: raw?.lastStopType ? String(raw.lastStopType) : void 0,
+    lastStopReason: raw?.lastStopReason ? String(raw.lastStopReason) : void 0,
+    lastResumeAt: raw?.lastResumeAt ? String(raw.lastResumeAt) : void 0,
+    lastOutcomePhase: raw?.lastOutcomePhase ? String(raw.lastOutcomePhase) : void 0,
+    lastOutcomeSummary: raw?.lastOutcomeSummary ? String(raw.lastOutcomeSummary) : void 0
+  };
+}
+function readStore3(projectDir) {
+  const file3 = storeFile(projectDir);
+  if (!fs15.existsSync(file3)) return { config: DEFAULT_CONFIG, sessions: {} };
+  try {
+    const parsed = JSON.parse(
+      fs15.readFileSync(file3, "utf-8")
+    );
+    const sessionsRaw = parsed.sessions && typeof parsed.sessions === "object" ? parsed.sessions : {};
+    const sessions = Object.fromEntries(
+      Object.entries(sessionsRaw).map(([sessionID2, runtime]) => [
+        sessionID2,
+        normalizeRuntime(sessionID2, runtime)
+      ])
+    );
+    return {
+      config: normalizeConfig(parsed.config),
+      sessions
+    };
+  } catch {
+    return { config: DEFAULT_CONFIG, sessions: {} };
+  }
+}
+function writeStore3(projectDir, store2) {
+  fs15.mkdirSync(path17.dirname(storeFile(projectDir)), { recursive: true });
+  const normalized = {
+    config: normalizeConfig(store2.config),
+    sessions: Object.fromEntries(
+      Object.entries(store2.sessions).map(([sessionID2, runtime]) => [
+        sessionID2,
+        normalizeRuntime(sessionID2, runtime)
+      ])
+    )
+  };
+  fs15.writeFileSync(
+    storeFile(projectDir),
+    `${JSON.stringify(normalized, null, 2)}
+`,
+    "utf-8"
+  );
+  return normalized;
+}
+function getSessionRuntime(projectDir, sessionID2) {
+  const store2 = readStore3(projectDir);
+  return store2.sessions[sessionID2] ?? normalizeRuntime(sessionID2);
+}
+function saveSessionRuntime(projectDir, runtime) {
+  const store2 = readStore3(projectDir);
+  store2.sessions[runtime.sessionID] = normalizeRuntime(
+    runtime.sessionID,
+    runtime
+  );
+  return writeStore3(projectDir, store2).sessions[runtime.sessionID];
+}
+function parseStopReason(event) {
+  const statusReason = event.properties?.status?.reason;
+  const topReason = event.properties?.reason;
+  const source = event.properties?.status?.source ?? event.properties?.source;
+  const text = [statusReason, topReason, source].map((item) => item ? String(item).trim() : "").filter(Boolean).join(" | ");
+  return text || "unknown_stop_reason";
+}
+function isStopStatus(statusType) {
+  return [
+    "stopped",
+    "stop",
+    "error",
+    "failed",
+    "terminated",
+    "aborted",
+    "cancelled",
+    "canceled"
+  ].some((item) => statusType.includes(item));
+}
+function isUserInitiatedStop(reason) {
+  return /(user|manual|operator|cancel_by_user|interrupted_by_user|用户|手动|停止|取消)/i.test(
+    reason
+  );
+}
+function isActiveAutoflowPhase(phase) {
+  return phase === "planning" || phase === "execution" || phase === "verification" || phase === "fixing";
+}
+function toRecoveryReasonCode(input) {
+  if (input.reason === "user_initiated_stop") return "RECOVERY_USER_STOP";
+  if (input.reason === "persistent_disabled") return "RECOVERY_DISABLED";
+  if (input.reason === "resume_cooldown") return "RECOVERY_COOLDOWN";
+  if (input.reason === "persistent_resume_attempt_limit_reached")
+    return "RECOVERY_ATTEMPT_EXHAUSTED";
+  if (input.reason === "persistent_resume_failure_limit_reached")
+    return "RECOVERY_FAILURE_EXHAUSTED";
+  if (!input.resumed) return "RECOVERY_NOT_TRIGGERED";
+  if (input.success) return "RECOVERY_RESUMED_OK";
+  if (input.phase === "failed") return "RECOVERY_RESUMED_FAILED";
+  return "RECOVERY_RESUMED";
+}
+function markPersistentExhausted(projectDir, sessionID2, reason) {
+  const state2 = getAutoflowSession(projectDir, sessionID2);
+  state2.phase = "failed";
+  state2.lastError = reason;
+  appendAutoflowHistory(state2, "persistent_exhausted", reason);
+  saveAutoflowSession(projectDir, state2);
+}
+function readAutoflowPersistentConfig(projectDir) {
+  return readStore3(projectDir).config;
+}
+function writeAutoflowPersistentConfig(projectDir, patch) {
+  const store2 = readStore3(projectDir);
+  store2.config = normalizeConfig({
+    ...store2.config,
+    ...patch
+  });
+  return writeStore3(projectDir, store2).config;
+}
+function getAutoflowPersistentRuntimeSnapshot(projectDir, limit = 50) {
+  const store2 = readStore3(projectDir);
+  return Object.values(store2.sessions).sort(
+    (a, b) => Date.parse(b.lastStopAt ?? b.lastResumeAt ?? "") - Date.parse(a.lastStopAt ?? a.lastResumeAt ?? "")
+  ).slice(0, Math.max(1, Math.min(200, limit)));
+}
+async function handleAutoflowPersistentEvent(input) {
+  if (input.event.type !== "session.status")
+    return { handled: false, resumed: false };
+  const sessionID2 = String(input.event.properties?.sessionID ?? "").trim();
+  if (!sessionID2) return { handled: false, resumed: false };
+  const statusType = String(input.event.properties?.status?.type ?? "").trim().toLowerCase();
+  if (!statusType || !isStopStatus(statusType))
+    return { handled: false, resumed: false };
+  const current = loadAutoflowSession(input.projectDir, sessionID2);
+  if (!current || !isActiveAutoflowPhase(current.phase)) {
+    return { handled: false, resumed: false };
+  }
+  const reason = parseStopReason(input.event);
+  const runtime = getSessionRuntime(input.projectDir, sessionID2);
+  runtime.lastStopAt = nowIso5();
+  runtime.lastStopType = statusType;
+  runtime.lastStopReason = reason;
+  saveSessionRuntime(input.projectDir, runtime);
+  if (isUserInitiatedStop(reason)) {
+    runtime.userStopped = true;
+    runtime.lastOutcomePhase = "stopped";
+    runtime.lastOutcomeSummary = "user_initiated_stop";
+    saveSessionRuntime(input.projectDir, runtime);
+    stopAutoflowSession(input.projectDir, sessionID2);
+    setSessionRecoveryReason(input.projectDir, {
+      sessionID: sessionID2,
+      recoverable: false,
+      reasonCode: "RECOVERY_USER_STOP",
+      from: "autoflow"
+    });
+    return {
+      handled: true,
+      resumed: false,
+      reason: "user_initiated_stop",
+      phase: "stopped",
+      summary: "autoflow_stopped_by_user"
+    };
+  }
+  const config3 = readAutoflowPersistentConfig(input.projectDir);
+  if (!config3.enabled) {
+    setSessionRecoveryReason(input.projectDir, {
+      sessionID: sessionID2,
+      recoverable: false,
+      reasonCode: "RECOVERY_DISABLED",
+      from: "autoflow"
+    });
+    return { handled: true, resumed: false, reason: "persistent_disabled" };
+  }
+  if (runtime.userStopped) {
+    setSessionRecoveryReason(input.projectDir, {
+      sessionID: sessionID2,
+      recoverable: false,
+      reasonCode: "RECOVERY_USER_STOP",
+      from: "autoflow"
+    });
+    return { handled: true, resumed: false, reason: "user_stopped_session" };
+  }
+  if (runtime.resumeAttempts >= config3.maxAutoResumes) {
+    const exhaustedReason = "persistent_resume_attempt_limit_reached";
+    markPersistentExhausted(input.projectDir, sessionID2, exhaustedReason);
+    runtime.lastOutcomePhase = "failed";
+    runtime.lastOutcomeSummary = exhaustedReason;
+    saveSessionRuntime(input.projectDir, runtime);
+    setSessionRecoveryReason(input.projectDir, {
+      sessionID: sessionID2,
+      recoverable: false,
+      reasonCode: "RECOVERY_ATTEMPT_EXHAUSTED",
+      from: "autoflow"
+    });
+    return {
+      handled: true,
+      resumed: false,
+      reason: exhaustedReason,
+      phase: "failed"
+    };
+  }
+  if (runtime.resumeFailures >= config3.maxConsecutiveResumeFailures) {
+    const exhaustedReason = "persistent_resume_failure_limit_reached";
+    markPersistentExhausted(input.projectDir, sessionID2, exhaustedReason);
+    runtime.lastOutcomePhase = "failed";
+    runtime.lastOutcomeSummary = exhaustedReason;
+    saveSessionRuntime(input.projectDir, runtime);
+    setSessionRecoveryReason(input.projectDir, {
+      sessionID: sessionID2,
+      recoverable: false,
+      reasonCode: "RECOVERY_FAILURE_EXHAUSTED",
+      from: "autoflow"
+    });
+    return {
+      handled: true,
+      resumed: false,
+      reason: exhaustedReason,
+      phase: "failed"
+    };
+  }
+  if (runtime.lastResumeAt) {
+    const delta = Date.now() - Date.parse(runtime.lastResumeAt);
+    if (Number.isFinite(delta) && delta < config3.resumeCooldownMs) {
+      setSessionRecoveryReason(input.projectDir, {
+        sessionID: sessionID2,
+        recoverable: true,
+        reasonCode: "RECOVERY_COOLDOWN",
+        from: "autoflow"
+      });
+      return { handled: true, resumed: false, reason: "resume_cooldown" };
+    }
+  }
+  runtime.resumeAttempts += 1;
+  runtime.lastResumeAt = nowIso5();
+  saveSessionRuntime(input.projectDir, runtime);
+  const result = await runAutoflow({
+    projectDir: input.projectDir,
+    sessionID: sessionID2,
+    manager: input.manager,
+    timeoutMs: config3.resumeTimeoutMs
+  });
+  runtime.lastOutcomePhase = result.phase;
+  runtime.lastOutcomeSummary = result.summary;
+  runtime.resumeFailures = result.success ? 0 : runtime.resumeFailures + 1;
+  saveSessionRuntime(input.projectDir, runtime);
+  setSessionRecoveryReason(input.projectDir, {
+    sessionID: sessionID2,
+    recoverable: result.success || result.phase !== "failed",
+    reasonCode: toRecoveryReasonCode({
+      resumed: true,
+      success: result.success,
+      phase: result.phase
+    }),
+    from: "autoflow"
+  });
+  return {
+    handled: true,
+    resumed: true,
+    success: result.success,
+    phase: result.phase,
+    summary: result.summary
+  };
+}
+
+// src/canvas/state.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
+import * as fs16 from "node:fs";
+import * as path18 from "node:path";
+function nowIso6() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function filePath3(projectDir) {
+  return path18.join(getMiyaRuntimeDir(projectDir), "canvas.json");
+}
+function ensureDir7(file3) {
+  fs16.mkdirSync(path18.dirname(file3), { recursive: true });
+}
+function defaultState() {
+  return {
+    activeDocID: void 0,
+    docs: {},
+    events: []
+  };
+}
+function readCanvasState(projectDir) {
+  const file3 = filePath3(projectDir);
+  if (!fs16.existsSync(file3)) return defaultState();
+  try {
+    const parsed = JSON.parse(
+      fs16.readFileSync(file3, "utf-8")
+    );
+    return {
+      activeDocID: parsed.activeDocID,
+      docs: parsed.docs ?? {},
+      events: Array.isArray(parsed.events) ? parsed.events : []
+    };
+  } catch {
+    return defaultState();
+  }
+}
+function writeCanvasState(projectDir, state2) {
+  const file3 = filePath3(projectDir);
+  ensureDir7(file3);
+  fs16.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
+`, "utf-8");
+  return state2;
+}
+function pushEvent(state2, input) {
+  state2.events = [
+    {
+      id: `canvas_evt_${randomUUID2()}`,
+      kind: input.kind,
+      docID: input.docID,
+      at: nowIso6(),
+      actor: input.actor
+    },
+    ...state2.events
+  ].slice(0, 400);
+}
+function openCanvasDoc(projectDir, input) {
+  const state2 = readCanvasState(projectDir);
+  const id = `canvas_${randomUUID2()}`;
+  const now = nowIso6();
+  const doc = {
+    id,
+    title: input.title,
+    type: input.type ?? "markdown",
+    content: input.content ?? "",
+    createdAt: now,
+    updatedAt: now
+  };
+  state2.docs[id] = doc;
+  state2.activeDocID = id;
+  pushEvent(state2, {
+    kind: "open",
+    docID: id,
+    actor: input.actor ?? "gateway"
+  });
+  writeCanvasState(projectDir, state2);
+  return doc;
+}
+function renderCanvasDoc(projectDir, input) {
+  const state2 = readCanvasState(projectDir);
+  const doc = state2.docs[input.docID];
+  if (!doc) return null;
+  doc.content = input.merge ? `${doc.content}
+${input.content}` : input.content;
+  doc.updatedAt = nowIso6();
+  state2.activeDocID = doc.id;
+  pushEvent(state2, {
+    kind: "render",
+    docID: doc.id,
+    actor: input.actor ?? "gateway"
+  });
+  writeCanvasState(projectDir, state2);
+  return doc;
+}
+function closeCanvasDoc(projectDir, docID, actor = "gateway") {
+  const state2 = readCanvasState(projectDir);
+  const doc = state2.docs[docID];
+  if (!doc) return null;
+  if (state2.activeDocID === docID) {
+    state2.activeDocID = void 0;
+  }
+  pushEvent(state2, { kind: "close", docID, actor });
+  writeCanvasState(projectDir, state2);
+  return doc;
+}
+function listCanvasDocs(projectDir) {
+  const state2 = readCanvasState(projectDir);
+  return Object.values(state2.docs).sort(
+    (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+  );
+}
+function getCanvasDoc(projectDir, docID) {
+  const state2 = readCanvasState(projectDir);
+  return state2.docs[docID] ?? null;
+}
+
+// src/channels/pairing-store.ts
+import * as fs17 from "node:fs";
+import * as path19 from "node:path";
+
+// src/channels/types.ts
+var CHANNEL_NAMES = [
+  "qq",
+  "wechat",
+  "telegram",
+  "slack",
+  "discord",
+  "whatsapp",
+  "google_chat",
+  "signal",
+  "imessage",
+  "teams",
+  "webchat"
+];
+function isChannelName(value) {
+  return typeof value === "string" && CHANNEL_NAMES.includes(value);
+}
+
+// src/channels/pairing-store.ts
+function nowIso7() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function filePath4(projectDir) {
+  return path19.join(getMiyaRuntimeDir(projectDir), "channels.json");
+}
+function ensureDir8(file3) {
+  fs17.mkdirSync(path19.dirname(file3), { recursive: true });
+}
+function defaultChannelState(name) {
+  return {
+    name,
+    enabled: name === "webchat",
+    connected: name === "webchat",
+    updatedAt: nowIso7(),
+    allowlist: [],
+    contactTiers: {}
+  };
+}
+function defaultStore() {
+  const channels = {};
+  for (const name of CHANNEL_NAMES) {
+    channels[name] = defaultChannelState(name);
+  }
+  return { channels, pairs: [] };
+}
+function readChannelStore(projectDir) {
+  const file3 = filePath4(projectDir);
+  if (!fs17.existsSync(file3)) {
+    return defaultStore();
+  }
+  try {
+    const parsed = JSON.parse(
+      fs17.readFileSync(file3, "utf-8")
+    );
+    const fallback = defaultStore();
+    const mergedChannels = {};
+    for (const name of CHANNEL_NAMES) {
+      const channel = {
+        ...fallback.channels[name],
+        ...parsed.channels?.[name] ?? {}
+      };
+      const allowlist = Array.isArray(channel.allowlist) ? channel.allowlist.map(
+        (item) => decryptSensitiveValue(projectDir, String(item))
+      ) : [];
+      const contactTiersRaw = channel.contactTiers && typeof channel.contactTiers === "object" ? channel.contactTiers : {};
+      const contactTiers = {};
+      for (const [senderID, tier] of Object.entries(contactTiersRaw)) {
+        const decoded = decryptSensitiveValue(projectDir, senderID);
+        if (tier === "owner" || tier === "friend") {
+          contactTiers[decoded] = tier;
+        }
+      }
+      mergedChannels[name] = {
+        ...channel,
+        allowlist,
+        contactTiers
+      };
+    }
+    const pairs = Array.isArray(parsed.pairs) ? parsed.pairs : [];
+    return {
+      channels: mergedChannels,
+      pairs: pairs.map((pair) => ({
+        ...pair,
+        senderID: decryptSensitiveValue(projectDir, pair.senderID),
+        displayName: pair.displayName ? decryptSensitiveValue(projectDir, pair.displayName) : pair.displayName,
+        messagePreview: pair.messagePreview ? decryptSensitiveValue(projectDir, pair.messagePreview) : pair.messagePreview
+      }))
+    };
+  } catch {
+    return defaultStore();
+  }
+}
+function writeChannelStore(projectDir, store2) {
+  const file3 = filePath4(projectDir);
+  ensureDir8(file3);
+  const encrypted = {
+    channels: Object.fromEntries(
+      Object.entries(store2.channels).map(([name, state2]) => {
+        const contactTiers = {};
+        for (const [senderID, tier] of Object.entries(
+          state2.contactTiers ?? {}
+        )) {
+          contactTiers[encryptSensitiveValue(projectDir, senderID)] = tier;
+        }
+        return [
+          name,
+          {
+            ...state2,
+            allowlist: state2.allowlist.map(
+              (item) => encryptSensitiveValue(projectDir, item)
+            ),
+            contactTiers
+          }
+        ];
+      })
+    ),
+    pairs: store2.pairs.map((pair) => ({
+      ...pair,
+      senderID: encryptSensitiveValue(projectDir, pair.senderID),
+      displayName: pair.displayName ? encryptSensitiveValue(projectDir, pair.displayName) : pair.displayName,
+      messagePreview: pair.messagePreview ? encryptSensitiveValue(projectDir, pair.messagePreview) : pair.messagePreview
+    }))
+  };
+  fs17.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
+`, "utf-8");
+}
+function listChannelStates(projectDir) {
+  const store2 = readChannelStore(projectDir);
+  return Object.values(store2.channels).sort(
+    (a, b) => a.name.localeCompare(b.name)
+  );
+}
+function upsertChannelState(projectDir, name, patch) {
+  const store2 = readChannelStore(projectDir);
+  const next = {
+    ...store2.channels[name],
+    ...patch,
+    name,
+    updatedAt: nowIso7()
+  };
+  store2.channels[name] = next;
+  writeChannelStore(projectDir, store2);
+  return next;
+}
+function ensurePairRequest(projectDir, input) {
+  const store2 = readChannelStore(projectDir);
+  const existing = store2.pairs.find(
+    (item) => item.channel === input.channel && item.senderID === input.senderID && item.status === "pending"
+  );
+  if (existing) return existing;
+  const next = {
+    id: `pair_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    channel: input.channel,
+    senderID: input.senderID,
+    displayName: input.displayName,
+    messagePreview: input.messagePreview,
+    status: "pending",
+    requestedAt: nowIso7()
+  };
+  store2.pairs = [next, ...store2.pairs].slice(0, 1e3);
+  writeChannelStore(projectDir, store2);
+  return next;
+}
+function resolvePairRequest(projectDir, pairID, status) {
+  const store2 = readChannelStore(projectDir);
+  const pair = store2.pairs.find((item) => item.id === pairID);
+  if (!pair || pair.status !== "pending") return null;
+  pair.status = status;
+  pair.resolvedAt = nowIso7();
+  if (status === "approved") {
+    const channel = store2.channels[pair.channel];
+    const ownerByEnv = new Set(
+      String(process.env.MIYA_OWNER_IDS ?? "").split(",").map((item) => item.trim()).filter(Boolean)
+    );
+    if (!channel.allowlist.includes(pair.senderID)) {
+      channel.allowlist = [...channel.allowlist, pair.senderID].sort();
+    }
+    const currentTier = channel.contactTiers?.[pair.senderID];
+    const resolvedTier = currentTier ?? (ownerByEnv.has(pair.senderID) ? "owner" : "friend");
+    channel.contactTiers = {
+      ...channel.contactTiers ?? {},
+      [pair.senderID]: resolvedTier
+    };
+    channel.updatedAt = nowIso7();
+  }
+  writeChannelStore(projectDir, store2);
+  return pair;
+}
+function listPairRequests(projectDir, status) {
+  const store2 = readChannelStore(projectDir);
+  const pairs = status ? store2.pairs.filter((item) => item.status === status) : store2.pairs;
+  return [...pairs].sort(
+    (a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt)
+  );
+}
+function isSenderAllowed(projectDir, channel, senderID) {
+  const store2 = readChannelStore(projectDir);
+  const allowed = store2.channels[channel].allowlist;
+  return allowed.includes(senderID);
+}
+function getContactTier(projectDir, channel, senderID) {
+  const store2 = readChannelStore(projectDir);
+  const state2 = store2.channels[channel];
+  if (!state2.allowlist.includes(senderID)) return null;
+  return state2.contactTiers?.[senderID] ?? "friend";
+}
+function setContactTier(projectDir, channel, senderID, tier) {
+  const store2 = readChannelStore(projectDir);
+  const state2 = store2.channels[channel];
+  const allowlist = state2.allowlist.includes(senderID) ? state2.allowlist : [...state2.allowlist, senderID].sort();
+  const next = {
+    ...state2,
+    allowlist,
+    contactTiers: {
+      ...state2.contactTiers ?? {},
+      [senderID]: tier
+    },
+    updatedAt: nowIso7()
+  };
+  store2.channels[channel] = next;
+  writeChannelStore(projectDir, store2);
+  return next;
+}
+function listContactTiers(projectDir, channel) {
+  const store2 = readChannelStore(projectDir);
+  const channels = channel ? [channel] : [...CHANNEL_NAMES];
+  const rows = [];
+  for (const name of channels) {
+    const state2 = store2.channels[name];
+    const mapping = state2.contactTiers ?? {};
+    for (const senderID of state2.allowlist) {
+      rows.push({
+        channel: name,
+        senderID,
+        tier: mapping[senderID] ?? "friend"
+      });
+    }
+  }
+  return rows.sort(
+    (a, b) => `${a.channel}:${a.senderID}`.localeCompare(`${b.channel}:${b.senderID}`)
+  );
+}
+
+// src/channels/service.ts
+import { createHash as createHash6, randomUUID as randomUUID5 } from "node:crypto";
+import * as fs23 from "node:fs";
+import * as path23 from "node:path";
 
 // src/channel/outbound/shared.ts
-import { createHash, randomUUID as randomUUID2 } from "node:crypto";
-import * as fs10 from "node:fs";
+import { createHash as createHash3, randomUUID as randomUUID3 } from "node:crypto";
+import * as fs18 from "node:fs";
 function safeValueFromSignal(signal, key) {
   const matched = new RegExp(`${key}=([^|]*)`).exec(signal)?.[1];
   if (matched == null) return void 0;
@@ -33403,15 +36399,15 @@ function deriveDesktopFailureDetail(input) {
 }
 function buildEvidenceDir(projectDir, channel) {
   const root = getMiyaVisionTempDir(projectDir, channel);
-  fs10.mkdirSync(root, { recursive: true });
+  fs18.mkdirSync(root, { recursive: true });
   return root;
 }
 async function sendDesktopOutbound(input) {
   const destination = input.destination.trim();
   const text = (input.text ?? "").trim();
   const mediaPath = (input.mediaPath ?? "").trim();
-  const payloadHash = createHash("sha256").update(`${text}||${mediaPath}`).digest("hex");
-  const traceID = `desktop_${randomUUID2()}`;
+  const payloadHash = createHash3("sha256").update(`${text}||${mediaPath}`).digest("hex");
+  const traceID = `desktop_${randomUUID3()}`;
   const evidenceDir = buildEvidenceDir(input.projectDir, input.channel);
   if (process.platform !== "win32") {
     return Promise.resolve({
@@ -33738,177 +36734,25 @@ async function sendWechatDesktopMessage(input) {
 }
 
 // src/multimodal/vision.ts
-import * as fs14 from "node:fs";
+import * as fs21 from "node:fs";
 import * as os6 from "node:os";
 
 // src/media/store.ts
-import * as fs12 from "node:fs";
-import * as path13 from "node:path";
-import { randomUUID as randomUUID3 } from "node:crypto";
-
-// src/security/system-keyring.ts
-import { createCipheriv, createDecipheriv, createHash as createHash2, randomBytes } from "node:crypto";
-import { spawnSync as spawnSync3 } from "node:child_process";
-import * as fs11 from "node:fs";
-import * as path12 from "node:path";
-function keyFile(projectDir) {
-  return path12.join(getMiyaRuntimeDir(projectDir), "security", "master.key");
-}
-function ensureDir4(file3) {
-  fs11.mkdirSync(path12.dirname(file3), { recursive: true });
-}
-function toBase64(text) {
-  return Buffer.from(text, "utf-8").toString("base64");
-}
-function fromBase64(base645) {
-  return Buffer.from(base645, "base64").toString("utf-8");
-}
-function hasPowerShell() {
-  const shell = process.platform === "win32" ? "powershell" : "pwsh";
-  const result = spawnSync3(shell, ["-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"], {
-    stdio: ["ignore", "pipe", "ignore"],
-    encoding: "utf-8",
-    timeout: 1500
-  });
-  return result.status === 0;
-}
-function encryptWithDpapi(plainText) {
-  const shell = process.platform === "win32" ? "powershell" : "pwsh";
-  const script = [
-    `$plain = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${toBase64(plainText)}'))`,
-    "$secure = ConvertTo-SecureString -String $plain -AsPlainText -Force",
-    "ConvertFrom-SecureString -SecureString $secure"
-  ].join("; ");
-  const result = spawnSync3(shell, ["-NoProfile", "-NonInteractive", "-Command", script], {
-    stdio: ["ignore", "pipe", "ignore"],
-    encoding: "utf-8",
-    timeout: 2e3
-  });
-  if (result.status !== 0) return null;
-  const out = result.stdout.trim();
-  return out.length > 0 ? out : null;
-}
-function decryptWithDpapi(blob) {
-  const shell = process.platform === "win32" ? "powershell" : "pwsh";
-  const escaped = blob.replace(/'/g, "''");
-  const script = [
-    `$secure = ConvertTo-SecureString '${escaped}'`,
-    "$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)",
-    "$plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)",
-    "[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)",
-    "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($plain))"
-  ].join("; ");
-  const result = spawnSync3(shell, ["-NoProfile", "-NonInteractive", "-Command", script], {
-    stdio: ["ignore", "pipe", "ignore"],
-    encoding: "utf-8",
-    timeout: 2e3
-  });
-  if (result.status !== 0) return null;
-  const out = result.stdout.trim();
-  if (!out) return null;
-  try {
-    return fromBase64(out);
-  } catch {
-    return null;
-  }
-}
-function deriveFallbackKey(projectDir) {
-  const file3 = keyFile(projectDir);
-  if (fs11.existsSync(file3)) {
-    return fs11.readFileSync(file3);
-  }
-  const entropy = randomBytes(32);
-  ensureDir4(file3);
-  fs11.writeFileSync(file3, entropy);
-  return entropy;
-}
-function encryptFallback(projectDir, plainText) {
-  const key = deriveFallbackKey(projectDir);
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", createHash2("sha256").update(key).digest(), iv);
-  const payload = Buffer.concat([cipher.update(plainText, "utf-8"), cipher.final()]);
-  return {
-    version: 1,
-    alg: "aes256gcm",
-    payload: payload.toString("base64"),
-    iv: iv.toString("base64"),
-    tag: cipher.getAuthTag().toString("base64")
-  };
-}
-function decryptFallback(projectDir, envelope) {
-  if (!envelope.iv || !envelope.tag) return null;
-  try {
-    const key = deriveFallbackKey(projectDir);
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      createHash2("sha256").update(key).digest(),
-      Buffer.from(envelope.iv, "base64")
-    );
-    decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-    const plain = Buffer.concat([
-      decipher.update(Buffer.from(envelope.payload, "base64")),
-      decipher.final()
-    ]);
-    return plain.toString("utf-8");
-  } catch {
-    return null;
-  }
-}
-function encodeEnvelope(envelope) {
-  return `miya-sec:${Buffer.from(JSON.stringify(envelope), "utf-8").toString("base64")}`;
-}
-function decodeEnvelope(raw) {
-  if (!raw.startsWith("miya-sec:")) return null;
-  const body = raw.slice("miya-sec:".length);
-  try {
-    const parsed = JSON.parse(Buffer.from(body, "base64").toString("utf-8"));
-    if (!parsed || parsed.version !== 1) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-function encryptSensitiveValue(projectDir, plainText) {
-  const normalized = String(plainText ?? "");
-  if (!normalized) return normalized;
-  if (process.platform === "win32" && hasPowerShell()) {
-    const dpapi = encryptWithDpapi(normalized);
-    if (dpapi) {
-      return encodeEnvelope({
-        version: 1,
-        alg: "dpapi",
-        payload: dpapi
-      });
-    }
-  }
-  return encodeEnvelope(encryptFallback(projectDir, normalized));
-}
-function decryptSensitiveValue(projectDir, rawValue) {
-  const raw = String(rawValue ?? "");
-  if (!raw.startsWith("miya-sec:")) return raw;
-  const envelope = decodeEnvelope(raw);
-  if (!envelope) return raw;
-  if (envelope.alg === "dpapi") {
-    const decoded = decryptWithDpapi(envelope.payload);
-    return decoded ?? raw;
-  }
-  const fallback = decryptFallback(projectDir, envelope);
-  return fallback ?? raw;
-}
-
-// src/media/store.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
+import * as fs19 from "node:fs";
+import * as path20 from "node:path";
 var DEFAULT_TTL_HOURS = 24;
-function nowIso3() {
+function nowIso8() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function mediaDir(projectDir) {
-  return path13.join(getMiyaRuntimeDir(projectDir), "media");
+  return path20.join(getMiyaRuntimeDir(projectDir), "media");
 }
 function mediaIndexFile(projectDir) {
-  return path13.join(mediaDir(projectDir), "index.json");
+  return path20.join(mediaDir(projectDir), "index.json");
 }
-function ensureDir5(dirPath) {
-  fs12.mkdirSync(dirPath, { recursive: true });
+function ensureDir9(dirPath) {
+  fs19.mkdirSync(dirPath, { recursive: true });
 }
 function decodeMetadata(projectDir, metadata) {
   if (!metadata || typeof metadata !== "object") return metadata;
@@ -33923,19 +36767,24 @@ function decodeMetadata(projectDir, metadata) {
   }
   return metadata;
 }
-function readStore(projectDir) {
+function readStore4(projectDir) {
   const file3 = mediaIndexFile(projectDir);
-  if (!fs12.existsSync(file3)) {
+  if (!fs19.existsSync(file3)) {
     return { items: {} };
   }
   try {
-    const parsed = JSON.parse(fs12.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(
+      fs19.readFileSync(file3, "utf-8")
+    );
     const items = {};
     for (const [id, item] of Object.entries(parsed.items ?? {})) {
       items[id] = {
         ...item,
         source: decryptSensitiveValue(projectDir, String(item.source ?? "")),
-        fileName: decryptSensitiveValue(projectDir, String(item.fileName ?? "")),
+        fileName: decryptSensitiveValue(
+          projectDir,
+          String(item.fileName ?? "")
+        ),
         localPath: typeof item.localPath === "string" ? decryptSensitiveValue(projectDir, item.localPath) : item.localPath,
         metadata: decodeMetadata(projectDir, item.metadata)
       };
@@ -33945,8 +36794,8 @@ function readStore(projectDir) {
     return { items: {} };
   }
 }
-function writeStore(projectDir, store2) {
-  ensureDir5(mediaDir(projectDir));
+function writeStore4(projectDir, store2) {
+  ensureDir9(mediaDir(projectDir));
   const encrypted = { items: {} };
   for (const [id, item] of Object.entries(store2.items)) {
     encrypted.items[id] = {
@@ -33955,11 +36804,14 @@ function writeStore(projectDir, store2) {
       fileName: encryptSensitiveValue(projectDir, item.fileName),
       localPath: item.localPath ? encryptSensitiveValue(projectDir, item.localPath) : item.localPath,
       metadata: item.metadata ? {
-        secure: encryptSensitiveValue(projectDir, JSON.stringify(item.metadata))
+        secure: encryptSensitiveValue(
+          projectDir,
+          JSON.stringify(item.metadata)
+        )
       } : item.metadata
     };
   }
-  fs12.writeFileSync(
+  fs19.writeFileSync(
     mediaIndexFile(projectDir),
     `${JSON.stringify(encrypted, null, 2)}
 `,
@@ -33972,15 +36824,15 @@ function buildExpiration(ttlHours) {
 }
 function ingestMedia(projectDir, input) {
   const ttlHours = Math.max(1, input.ttlHours ?? DEFAULT_TTL_HOURS);
-  const store2 = readStore(projectDir);
-  const id = `media_${randomUUID3()}`;
+  const store2 = readStore4(projectDir);
+  const id = `media_${randomUUID4()}`;
   let localPath;
   if (input.contentBase64) {
     const dir = mediaDir(projectDir);
-    ensureDir5(dir);
-    const ext = path13.extname(input.fileName) || ".bin";
-    const filePath14 = path13.join(dir, `${id}${ext}`);
-    fs12.writeFileSync(filePath14, Buffer.from(input.contentBase64, "base64"));
+    ensureDir9(dir);
+    const ext = path20.extname(input.fileName) || ".bin";
+    const filePath14 = path20.join(dir, `${id}${ext}`);
+    fs19.writeFileSync(filePath14, Buffer.from(input.contentBase64, "base64"));
     localPath = filePath14;
   }
   const item = {
@@ -33991,39 +36843,39 @@ function ingestMedia(projectDir, input) {
     fileName: input.fileName,
     localPath,
     sizeBytes: input.sizeBytes,
-    createdAt: nowIso3(),
+    createdAt: nowIso8(),
     expiresAt: buildExpiration(ttlHours),
     metadata: input.metadata
   };
   store2.items[id] = item;
-  writeStore(projectDir, store2);
+  writeStore4(projectDir, store2);
   return item;
 }
 function getMediaItem(projectDir, mediaID) {
-  const store2 = readStore(projectDir);
+  const store2 = readStore4(projectDir);
   return store2.items[mediaID] ?? null;
 }
 function listMediaItems(projectDir, limit = 100) {
-  const store2 = readStore(projectDir);
+  const store2 = readStore4(projectDir);
   return Object.values(store2.items).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, Math.max(1, limit));
 }
 function runMediaGc(projectDir) {
-  const store2 = readStore(projectDir);
+  const store2 = readStore4(projectDir);
   const now = Date.now();
   let removed = 0;
   for (const [id, item] of Object.entries(store2.items)) {
     const expired = Date.parse(item.expiresAt) <= now;
     if (!expired) continue;
-    if (item.localPath && fs12.existsSync(item.localPath)) {
+    if (item.localPath && fs19.existsSync(item.localPath)) {
       try {
-        fs12.unlinkSync(item.localPath);
+        fs19.unlinkSync(item.localPath);
       } catch {
       }
     }
     delete store2.items[id];
     removed += 1;
   }
-  writeStore(projectDir, store2);
+  writeStore4(projectDir, store2);
   return {
     removed,
     kept: Object.keys(store2.items).length
@@ -34031,24 +36883,26 @@ function runMediaGc(projectDir) {
 }
 
 // src/multimodal/ocr-cache.ts
-import { createHash as createHash3 } from "node:crypto";
-import * as fs13 from "node:fs";
-import * as path14 from "node:path";
+import { createHash as createHash4 } from "node:crypto";
+import * as fs20 from "node:fs";
+import * as path21 from "node:path";
 var MAX_CACHE_ITEMS = 500;
-function nowIso4() {
+function nowIso9() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
-function filePath2(projectDir) {
-  return path14.join(getMiyaRuntimeDir(projectDir), "ocr-cache.json");
+function filePath5(projectDir) {
+  return path21.join(getMiyaRuntimeDir(projectDir), "ocr-cache.json");
 }
-function ensureDir6(projectDir) {
-  fs13.mkdirSync(path14.dirname(filePath2(projectDir)), { recursive: true });
+function ensureDir10(projectDir) {
+  fs20.mkdirSync(path21.dirname(filePath5(projectDir)), { recursive: true });
 }
-function readStore2(projectDir) {
-  const file3 = filePath2(projectDir);
-  if (!fs13.existsSync(file3)) return { entries: [] };
+function readStore5(projectDir) {
+  const file3 = filePath5(projectDir);
+  if (!fs20.existsSync(file3)) return { entries: [] };
   try {
-    const parsed = JSON.parse(fs13.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(
+      fs20.readFileSync(file3, "utf-8")
+    );
     return {
       entries: Array.isArray(parsed.entries) ? parsed.entries : []
     };
@@ -34056,40 +36910,44 @@ function readStore2(projectDir) {
     return { entries: [] };
   }
 }
-function writeStore2(projectDir, store2) {
-  ensureDir6(projectDir);
-  fs13.writeFileSync(filePath2(projectDir), `${JSON.stringify(store2, null, 2)}
-`, "utf-8");
+function writeStore5(projectDir, store2) {
+  ensureDir10(projectDir);
+  fs20.writeFileSync(
+    filePath5(projectDir),
+    `${JSON.stringify(store2, null, 2)}
+`,
+    "utf-8"
+  );
 }
 function toKey(mediaID, question) {
-  return createHash3("sha1").update(`${mediaID}::${question.trim().toLowerCase()}`).digest("hex");
+  return createHash4("sha1").update(`${mediaID}::${question.trim().toLowerCase()}`).digest("hex");
 }
 function readOcrCoordinateCache(projectDir, input) {
   const question = input.question?.trim() ?? "";
   const key = toKey(input.mediaID, question);
-  const store2 = readStore2(projectDir);
+  const store2 = readStore5(projectDir);
   const hit = store2.entries.find((entry2) => entry2.key === key) ?? null;
   if (!hit) return null;
-  hit.usedAt = nowIso4();
-  writeStore2(projectDir, store2);
+  hit.usedAt = nowIso9();
+  writeStore5(projectDir, store2);
   return hit;
 }
 function writeOcrCoordinateCache(projectDir, input) {
   const question = input.question?.trim() ?? "";
   const key = toKey(input.mediaID, question);
-  const store2 = readStore2(projectDir);
+  const store2 = readStore5(projectDir);
   const next = {
     key,
     mediaID: input.mediaID,
     question,
     boxes: input.boxes,
     summary: input.summary,
-    createdAt: nowIso4(),
-    usedAt: nowIso4()
+    createdAt: nowIso9(),
+    usedAt: nowIso9()
   };
   const deduped = store2.entries.filter((entry2) => entry2.key !== key);
   store2.entries = [next, ...deduped].sort((a, b) => Date.parse(b.usedAt) - Date.parse(a.usedAt)).slice(0, MAX_CACHE_ITEMS);
-  writeStore2(projectDir, store2);
+  writeStore5(projectDir, store2);
 }
 
 // src/multimodal/vision.ts
@@ -34104,7 +36962,9 @@ function summarizeFromMetadata(metadata) {
 }
 async function commandExists(command) {
   const probe = process.platform === "win32" ? ["where", command] : ["which", command];
-  const result = await runProcess(probe[0], probe.slice(1), { timeoutMs: 3e3 });
+  const result = await runProcess(probe[0], probe.slice(1), {
+    timeoutMs: 3e3
+  });
   return !result.timedOut && result.exitCode === 0;
 }
 async function runTesseractOcr(imagePath) {
@@ -34117,8 +36977,8 @@ async function runTesseractOcr(imagePath) {
 async function runRemoteVisionInference(imagePath, question) {
   const endpoint = process.env.MIYA_VISION_OCR_ENDPOINT?.trim();
   if (!endpoint) return { text: "" };
-  if (!fs14.existsSync(imagePath)) return { text: "" };
-  const image = fs14.readFileSync(imagePath);
+  if (!fs21.existsSync(imagePath)) return { text: "" };
+  const image = fs21.readFileSync(imagePath);
   const mimeType = imagePath.endsWith(".png") ? "image/png" : imagePath.endsWith(".jpg") || imagePath.endsWith(".jpeg") ? "image/jpeg" : "application/octet-stream";
   try {
     const response = await fetch(endpoint, {
@@ -34185,7 +37045,9 @@ function normalizeCaptureMethod(input) {
 function parseCaptureMethods(input) {
   const raw = String(input ?? "").trim();
   if (!raw) return [...CAPTURE_PRIORITY];
-  const methods = raw.split(",").map((item) => normalizeCaptureMethod(item)).filter((item) => Boolean(item) && item !== "unknown");
+  const methods = raw.split(",").map((item) => normalizeCaptureMethod(item)).filter(
+    (item) => Boolean(item) && item !== "unknown"
+  );
   if (methods.length === 0) return [...CAPTURE_PRIORITY];
   return [...new Set(methods)];
 }
@@ -34195,7 +37057,8 @@ function inferCaptureProbeLimitations(input) {
   if (!signal.trim()) return result;
   if (signal.includes("black")) result.push("capture_probe_black_screen");
   if (signal.includes("timeout")) result.push("capture_probe_timeout");
-  if (signal.includes("error") || signal.includes("failed")) result.push("capture_probe_error");
+  if (signal.includes("error") || signal.includes("failed"))
+    result.push("capture_probe_error");
   if (signal.includes("occluded")) result.push("capture_probe_occluded");
   return [...new Set(result)];
 }
@@ -34217,14 +37080,7 @@ function parseDesktopOcrSignals(ocrText, expectedRecipient) {
     "\u53D1\u9001",
     "\u5DF2\u53D1\u51FA"
   ];
-  const failHints = [
-    "\u53D1\u9001\u5931\u8D25",
-    "failed",
-    "\u5931\u8D25",
-    "retry",
-    "\u91CD\u8BD5",
-    "\u672A\u53D1\u9001"
-  ];
+  const failHints = ["\u53D1\u9001\u5931\u8D25", "failed", "\u5931\u8D25", "retry", "\u91CD\u8BD5", "\u672A\u53D1\u9001"];
   const hasSent = sentHints.some((item) => {
     const loweredHint = item.toLowerCase();
     return lowered.includes(loweredHint) || compactNormalized.includes(compactOcrText(loweredHint));
@@ -34251,7 +37107,9 @@ async function analyzeDesktopOutboundEvidence(input) {
   const candidates = [
     input.postSendScreenshotPath,
     input.preSendScreenshotPath
-  ].filter((item) => typeof item === "string" && fs14.existsSync(item));
+  ].filter(
+    (item) => typeof item === "string" && fs21.existsSync(item)
+  );
   if (candidates.length === 0) {
     const recipientMatch = input.recipientTextCheck ?? "uncertain";
     const sendStatusDetected = input.receiptStatus === "confirmed" ? "sent" : "uncertain";
@@ -34281,7 +37139,10 @@ async function analyzeDesktopOutboundEvidence(input) {
     const noiseRatio = meaningful.length / Math.max(1, trimmed.length);
     return noiseRatio > 0.6;
   };
-  let inferred = await readTextFromImage(candidates[0], "\u8BC6\u522B\u804A\u5929\u754C\u9762\u6536\u4EF6\u4EBA\u4E0E\u53D1\u9001\u72B6\u6001");
+  let inferred = await readTextFromImage(
+    candidates[0],
+    "\u8BC6\u522B\u804A\u5929\u754C\u9762\u6536\u4EF6\u4EBA\u4E0E\u53D1\u9001\u72B6\u6001"
+  );
   let signals = parseDesktopOcrSignals(inferred.text, input.destination);
   let retries = 0;
   let lowConfidenceAttempts = inferred.source === "none" || isLowConfidenceText(inferred.text) ? 1 : 0;
@@ -34291,7 +37152,10 @@ async function analyzeDesktopOutboundEvidence(input) {
       candidates[1],
       "DPI\u6837\u5F0F\u517C\u5BB9\u91CD\u8BD5\uFF1A\u8BC6\u522B\u804A\u5929\u754C\u9762\u6536\u4EF6\u4EBA\u4E0E\u53D1\u9001\u72B6\u6001"
     );
-    const retrySignals = parseDesktopOcrSignals(retryInferred.text, input.destination);
+    const retrySignals = parseDesktopOcrSignals(
+      retryInferred.text,
+      input.destination
+    );
     retries = 1;
     if (retryInferred.source === "none" || isLowConfidenceText(retryInferred.text)) {
       lowConfidenceAttempts += 1;
@@ -34313,7 +37177,9 @@ async function analyzeDesktopOutboundEvidence(input) {
     sendStatusDetected: mergedStatus,
     retries
   });
-  const mergedConfidence = Number(Math.min(confidence, capture.confidence).toFixed(2));
+  const mergedConfidence = Number(
+    Math.min(confidence, capture.confidence).toFixed(2)
+  );
   if (mergedConfidence < 0.45 || lowConfidenceAttempts >= 2) {
     uiStyleMismatch = true;
   }
@@ -34337,7 +37203,7 @@ async function analyzeDesktopOutboundEvidence(input) {
   };
 }
 function resolveCaptureCapability(input) {
-  const hasScreenshots = typeof input.preSendScreenshotPath === "string" && input.preSendScreenshotPath.length > 0 && fs14.existsSync(input.preSendScreenshotPath) || typeof input.postSendScreenshotPath === "string" && input.postSendScreenshotPath.length > 0 && fs14.existsSync(input.postSendScreenshotPath);
+  const hasScreenshots = typeof input.preSendScreenshotPath === "string" && input.preSendScreenshotPath.length > 0 && fs21.existsSync(input.preSendScreenshotPath) || typeof input.postSendScreenshotPath === "string" && input.postSendScreenshotPath.length > 0 && fs21.existsSync(input.postSendScreenshotPath);
   const supported = parseCaptureMethods(process.env.MIYA_CAPTURE_CAPABILITIES);
   const preferred = CAPTURE_PRIORITY.find((item) => supported.includes(item));
   const requested = normalizeCaptureMethod(process.env.MIYA_CAPTURE_METHOD);
@@ -34399,7 +37265,8 @@ function estimateEvidenceConfidence(input) {
   let score = input.ocrSource === "remote_vlm" ? 0.86 : input.ocrSource === "tesseract" ? 0.72 : 0.35;
   if (input.uiStyleMismatch) score -= 0.32;
   if (input.recipientMatch === "matched") score += 0.08;
-  if (input.sendStatusDetected === "sent" || input.sendStatusDetected === "failed") score += 0.04;
+  if (input.sendStatusDetected === "sent" || input.sendStatusDetected === "failed")
+    score += 0.04;
   if (input.retries > 0) score -= 0.05;
   if (score < 0) return 0;
   if (score > 1) return 1;
@@ -34409,7 +37276,8 @@ function mergeCaptureLimitations(base, input) {
   const result = [...base];
   if (input.uiStyleMismatch) result.push("ui_style_mismatch");
   if (input.recipientMatch === "uncertain") result.push("recipient_unverified");
-  if (input.sendStatusDetected === "uncertain") result.push("delivery_unverified");
+  if (input.sendStatusDetected === "uncertain")
+    result.push("delivery_unverified");
   return [...new Set(result)];
 }
 async function analyzeVision(projectDir, input) {
@@ -34430,7 +37298,7 @@ async function analyzeVision(projectDir, input) {
   const media = getMediaItem(projectDir, input.mediaID);
   if (!media) throw new Error("media_not_found");
   if (media.kind !== "image") throw new Error("invalid_vision_media_kind");
-  const filePath14 = media.localPath && fs14.existsSync(media.localPath) ? media.localPath : "";
+  const filePath14 = media.localPath && fs21.existsSync(media.localPath) ? media.localPath : "";
   const ocr = filePath14 ? await readTextFromImage(filePath14, input.question) : { source: "none", text: "" };
   const metadataSummary = summarizeFromMetadata(media.metadata);
   const summary = ocr.summary || ocr.text || metadataSummary;
@@ -34475,262 +37343,10 @@ async function analyzeVision(projectDir, input) {
   };
 }
 
-// src/channels/policy.ts
-var OUTBOUND_ALLOWLIST_CHANNELS = /* @__PURE__ */ new Set(["qq", "wechat"]);
-function getChannelDirection(channel) {
-  return OUTBOUND_ALLOWLIST_CHANNELS.has(channel) ? "OUTBOUND_ALLOWLIST" : "INBOUND_ONLY";
-}
-function canChannelSend(channel) {
-  return getChannelDirection(channel) === "OUTBOUND_ALLOWLIST";
-}
-function assertChannelCanSend(channel) {
-  if (canChannelSend(channel)) return;
-  throw new Error(
-    `channel_send_blocked:${channel}:INBOUND_ONLY channels are receive-only`
-  );
-}
-
-// src/channels/pairing-store.ts
-import * as fs15 from "node:fs";
-import * as path15 from "node:path";
-
-// src/channels/types.ts
-var CHANNEL_NAMES = [
-  "qq",
-  "wechat",
-  "telegram",
-  "slack",
-  "discord",
-  "whatsapp",
-  "google_chat",
-  "signal",
-  "imessage",
-  "teams",
-  "webchat"
-];
-function isChannelName(value) {
-  return typeof value === "string" && CHANNEL_NAMES.includes(value);
-}
-
-// src/channels/pairing-store.ts
-function nowIso5() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function filePath3(projectDir) {
-  return path15.join(getMiyaRuntimeDir(projectDir), "channels.json");
-}
-function ensureDir7(file3) {
-  fs15.mkdirSync(path15.dirname(file3), { recursive: true });
-}
-function defaultChannelState(name) {
-  return {
-    name,
-    enabled: name === "webchat",
-    connected: name === "webchat",
-    updatedAt: nowIso5(),
-    allowlist: [],
-    contactTiers: {}
-  };
-}
-function defaultStore() {
-  const channels = {};
-  for (const name of CHANNEL_NAMES) {
-    channels[name] = defaultChannelState(name);
-  }
-  return { channels, pairs: [] };
-}
-function readChannelStore(projectDir) {
-  const file3 = filePath3(projectDir);
-  if (!fs15.existsSync(file3)) {
-    return defaultStore();
-  }
-  try {
-    const parsed = JSON.parse(fs15.readFileSync(file3, "utf-8"));
-    const fallback = defaultStore();
-    const mergedChannels = {};
-    for (const name of CHANNEL_NAMES) {
-      const channel = {
-        ...fallback.channels[name],
-        ...parsed.channels?.[name] ?? {}
-      };
-      const allowlist = Array.isArray(channel.allowlist) ? channel.allowlist.map((item) => decryptSensitiveValue(projectDir, String(item))) : [];
-      const contactTiersRaw = channel.contactTiers && typeof channel.contactTiers === "object" ? channel.contactTiers : {};
-      const contactTiers = {};
-      for (const [senderID, tier] of Object.entries(contactTiersRaw)) {
-        const decoded = decryptSensitiveValue(projectDir, senderID);
-        if (tier === "owner" || tier === "friend") {
-          contactTiers[decoded] = tier;
-        }
-      }
-      mergedChannels[name] = {
-        ...channel,
-        allowlist,
-        contactTiers
-      };
-    }
-    const pairs = Array.isArray(parsed.pairs) ? parsed.pairs : [];
-    return {
-      channels: mergedChannels,
-      pairs: pairs.map((pair) => ({
-        ...pair,
-        senderID: decryptSensitiveValue(projectDir, pair.senderID),
-        displayName: pair.displayName ? decryptSensitiveValue(projectDir, pair.displayName) : pair.displayName,
-        messagePreview: pair.messagePreview ? decryptSensitiveValue(projectDir, pair.messagePreview) : pair.messagePreview
-      }))
-    };
-  } catch {
-    return defaultStore();
-  }
-}
-function writeChannelStore(projectDir, store2) {
-  const file3 = filePath3(projectDir);
-  ensureDir7(file3);
-  const encrypted = {
-    channels: Object.fromEntries(
-      Object.entries(store2.channels).map(([name, state2]) => {
-        const contactTiers = {};
-        for (const [senderID, tier] of Object.entries(state2.contactTiers ?? {})) {
-          contactTiers[encryptSensitiveValue(projectDir, senderID)] = tier;
-        }
-        return [
-          name,
-          {
-            ...state2,
-            allowlist: state2.allowlist.map(
-              (item) => encryptSensitiveValue(projectDir, item)
-            ),
-            contactTiers
-          }
-        ];
-      })
-    ),
-    pairs: store2.pairs.map((pair) => ({
-      ...pair,
-      senderID: encryptSensitiveValue(projectDir, pair.senderID),
-      displayName: pair.displayName ? encryptSensitiveValue(projectDir, pair.displayName) : pair.displayName,
-      messagePreview: pair.messagePreview ? encryptSensitiveValue(projectDir, pair.messagePreview) : pair.messagePreview
-    }))
-  };
-  fs15.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
-`, "utf-8");
-}
-function listChannelStates(projectDir) {
-  const store2 = readChannelStore(projectDir);
-  return Object.values(store2.channels).sort((a, b) => a.name.localeCompare(b.name));
-}
-function upsertChannelState(projectDir, name, patch) {
-  const store2 = readChannelStore(projectDir);
-  const next = {
-    ...store2.channels[name],
-    ...patch,
-    name,
-    updatedAt: nowIso5()
-  };
-  store2.channels[name] = next;
-  writeChannelStore(projectDir, store2);
-  return next;
-}
-function ensurePairRequest(projectDir, input) {
-  const store2 = readChannelStore(projectDir);
-  const existing = store2.pairs.find(
-    (item) => item.channel === input.channel && item.senderID === input.senderID && item.status === "pending"
-  );
-  if (existing) return existing;
-  const next = {
-    id: `pair_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    channel: input.channel,
-    senderID: input.senderID,
-    displayName: input.displayName,
-    messagePreview: input.messagePreview,
-    status: "pending",
-    requestedAt: nowIso5()
-  };
-  store2.pairs = [next, ...store2.pairs].slice(0, 1e3);
-  writeChannelStore(projectDir, store2);
-  return next;
-}
-function resolvePairRequest(projectDir, pairID, status) {
-  const store2 = readChannelStore(projectDir);
-  const pair = store2.pairs.find((item) => item.id === pairID);
-  if (!pair || pair.status !== "pending") return null;
-  pair.status = status;
-  pair.resolvedAt = nowIso5();
-  if (status === "approved") {
-    const channel = store2.channels[pair.channel];
-    const ownerByEnv = new Set(
-      String(process.env.MIYA_OWNER_IDS ?? "").split(",").map((item) => item.trim()).filter(Boolean)
-    );
-    if (!channel.allowlist.includes(pair.senderID)) {
-      channel.allowlist = [...channel.allowlist, pair.senderID].sort();
-    }
-    const currentTier = channel.contactTiers?.[pair.senderID];
-    const resolvedTier = currentTier ?? (ownerByEnv.has(pair.senderID) ? "owner" : "friend");
-    channel.contactTiers = {
-      ...channel.contactTiers ?? {},
-      [pair.senderID]: resolvedTier
-    };
-    channel.updatedAt = nowIso5();
-  }
-  writeChannelStore(projectDir, store2);
-  return pair;
-}
-function listPairRequests(projectDir, status) {
-  const store2 = readChannelStore(projectDir);
-  const pairs = status ? store2.pairs.filter((item) => item.status === status) : store2.pairs;
-  return [...pairs].sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt));
-}
-function isSenderAllowed(projectDir, channel, senderID) {
-  const store2 = readChannelStore(projectDir);
-  const allowed = store2.channels[channel].allowlist;
-  return allowed.includes(senderID);
-}
-function getContactTier(projectDir, channel, senderID) {
-  const store2 = readChannelStore(projectDir);
-  const state2 = store2.channels[channel];
-  if (!state2.allowlist.includes(senderID)) return null;
-  return state2.contactTiers?.[senderID] ?? "friend";
-}
-function setContactTier(projectDir, channel, senderID, tier) {
-  const store2 = readChannelStore(projectDir);
-  const state2 = store2.channels[channel];
-  const allowlist = state2.allowlist.includes(senderID) ? state2.allowlist : [...state2.allowlist, senderID].sort();
-  const next = {
-    ...state2,
-    allowlist,
-    contactTiers: {
-      ...state2.contactTiers ?? {},
-      [senderID]: tier
-    },
-    updatedAt: nowIso5()
-  };
-  store2.channels[channel] = next;
-  writeChannelStore(projectDir, store2);
-  return next;
-}
-function listContactTiers(projectDir, channel) {
-  const store2 = readChannelStore(projectDir);
-  const channels = channel ? [channel] : [...CHANNEL_NAMES];
-  const rows = [];
-  for (const name of channels) {
-    const state2 = store2.channels[name];
-    const mapping = state2.contactTiers ?? {};
-    for (const senderID of state2.allowlist) {
-      rows.push({
-        channel: name,
-        senderID,
-        tier: mapping[senderID] ?? "friend"
-      });
-    }
-  }
-  return rows.sort(
-    (a, b) => `${a.channel}:${a.senderID}`.localeCompare(`${b.channel}:${b.senderID}`)
-  );
-}
-
 // src/policy/index.ts
-import { createHash as createHash4 } from "node:crypto";
-import * as fs16 from "node:fs";
-import * as path16 from "node:path";
+import { createHash as createHash5 } from "node:crypto";
+import * as fs22 from "node:fs";
+import * as path22 from "node:path";
 var POLICY_DOMAINS = [
   "outbound_send",
   "desktop_control",
@@ -34744,16 +37360,16 @@ var POLICY_DOMAINS = [
   "read_only_research",
   "local_build"
 ];
-function nowIso6() {
+function nowIso10() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function policyFile(projectDir) {
-  return path16.join(getMiyaRuntimeDir(projectDir), "policy.json");
+  return path22.join(getMiyaRuntimeDir(projectDir), "policy.json");
 }
 function defaultPolicy() {
   return {
     version: 1,
-    updatedAt: nowIso6(),
+    updatedAt: nowIso10(),
     domains: {
       outbound_send: "running",
       desktop_control: "running",
@@ -34780,15 +37396,17 @@ function defaultPolicy() {
 }
 function readPolicy(projectDir) {
   const file3 = policyFile(projectDir);
-  if (!fs16.existsSync(file3)) {
+  if (!fs22.existsSync(file3)) {
     const base = defaultPolicy();
-    fs16.mkdirSync(path16.dirname(file3), { recursive: true });
-    fs16.writeFileSync(file3, `${JSON.stringify(base, null, 2)}
+    fs22.mkdirSync(path22.dirname(file3), { recursive: true });
+    fs22.writeFileSync(file3, `${JSON.stringify(base, null, 2)}
 `, "utf-8");
     return base;
   }
   try {
-    const parsed = JSON.parse(fs16.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(
+      fs22.readFileSync(file3, "utf-8")
+    );
     const base = defaultPolicy();
     const parsedDomains = parsed.domains && typeof parsed.domains === "object" ? parsed.domains : {};
     return {
@@ -34817,15 +37435,15 @@ function writePolicy(projectDir, patch) {
       ...current.outbound,
       ...patch.outbound ?? {}
     },
-    updatedAt: nowIso6()
+    updatedAt: nowIso10()
   };
-  fs16.mkdirSync(path16.dirname(file3), { recursive: true });
-  fs16.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs22.mkdirSync(path22.dirname(file3), { recursive: true });
+  fs22.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
 function hashPolicy(policy) {
-  return createHash4("sha256").update(
+  return createHash5("sha256").update(
     JSON.stringify({
       version: policy.version,
       domains: policy.domains,
@@ -34880,23 +37498,40 @@ function assertSemanticTags(value) {
   }
 }
 
+// src/channels/policy.ts
+var OUTBOUND_ALLOWLIST_CHANNELS = /* @__PURE__ */ new Set(["qq", "wechat"]);
+function getChannelDirection(channel) {
+  return OUTBOUND_ALLOWLIST_CHANNELS.has(channel) ? "OUTBOUND_ALLOWLIST" : "INBOUND_ONLY";
+}
+function canChannelSend(channel) {
+  return getChannelDirection(channel) === "OUTBOUND_ALLOWLIST";
+}
+function assertChannelCanSend(channel) {
+  if (canChannelSend(channel)) return;
+  throw new Error(
+    `channel_send_blocked:${channel}:INBOUND_ONLY channels are receive-only`
+  );
+}
+
 // src/channels/service.ts
 function parseEnvList(input) {
   if (!input) return [];
   return input.split(",").map((value) => value.trim()).filter(Boolean);
 }
 function outboundAuditFile(projectDir) {
-  return path17.join(getMiyaRuntimeDir(projectDir), "channels-outbound.jsonl");
+  return path23.join(getMiyaRuntimeDir(projectDir), "channels-outbound.jsonl");
 }
 function appendOutboundAudit(projectDir, row) {
   const file3 = outboundAuditFile(projectDir);
-  fs17.mkdirSync(path17.dirname(file3), { recursive: true });
-  fs17.appendFileSync(file3, `${JSON.stringify(row)}
+  fs23.mkdirSync(path23.dirname(file3), { recursive: true });
+  fs23.appendFileSync(file3, `${JSON.stringify(row)}
 `, "utf-8");
 }
 function semanticTagsForOutboundMessage(message) {
-  if (message.includes("target_not_in_allowlist")) return ["recipient_mismatch"];
-  if (message.includes("recipient_text_mismatch")) return ["recipient_mismatch"];
+  if (message.includes("target_not_in_allowlist"))
+    return ["recipient_mismatch"];
+  if (message.includes("recipient_text_mismatch"))
+    return ["recipient_mismatch"];
   if (message.includes("arch_advisor_denied")) return ["privilege_barrier"];
   if (message.includes("input_mutex_timeout")) return ["input_mutex_timeout"];
   if (message.includes("receipt_uncertain")) return ["receipt_uncertain"];
@@ -34915,7 +37550,10 @@ function parsePositiveIntEnv(name, fallback) {
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.floor(parsed);
 }
-var INPUT_MUTEX_TIMEOUT_MS = parsePositiveIntEnv("MIYA_INPUT_MUTEX_TIMEOUT_MS", 2e4);
+var INPUT_MUTEX_TIMEOUT_MS = parsePositiveIntEnv(
+  "MIYA_INPUT_MUTEX_TIMEOUT_MS",
+  2e4
+);
 var INPUT_MUTEX_STRIKE_LIMIT = 3;
 var INPUT_MUTEX_COOLDOWN_MS = 15 * 60 * 1e3;
 var inputMutexOwner = null;
@@ -35002,11 +37640,18 @@ function buildSemanticSummary(row) {
 }
 function buildEvidenceBundle(row) {
   if (row.channel !== "qq" && row.channel !== "wechat") return void 0;
-  const screenshots = [row.preSendScreenshotPath, row.postSendScreenshotPath].filter((item) => typeof item === "string" && item.length > 0);
+  const screenshots = [
+    row.preSendScreenshotPath,
+    row.postSendScreenshotPath
+  ].filter(
+    (item) => typeof item === "string" && item.length > 0
+  );
   const ticketTraceIds = [
     row.ticketSummary?.outboundSendTraceId,
     row.ticketSummary?.desktopControlTraceId
-  ].filter((item) => typeof item === "string" && item.length > 0);
+  ].filter(
+    (item) => typeof item === "string" && item.length > 0
+  );
   return {
     kind: "desktop_outbound",
     version: "v5",
@@ -35042,8 +37687,8 @@ function buildEvidenceBundle(row) {
 }
 function listOutboundAudit(projectDir, limit = 50) {
   const file3 = outboundAuditFile(projectDir);
-  if (!fs17.existsSync(file3)) return [];
-  const rows = fs17.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+  if (!fs23.existsSync(file3)) return [];
+  const rows = fs23.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -35088,10 +37733,16 @@ var ChannelRuntime = class {
     return resolvePairRequest(this.projectDir, pairID, "rejected");
   }
   markChannelEnabled(channel, enabled) {
-    upsertChannelState(this.projectDir, channel, { enabled, connected: enabled });
+    upsertChannelState(this.projectDir, channel, {
+      enabled,
+      connected: enabled
+    });
   }
   async start() {
-    upsertChannelState(this.projectDir, "webchat", { enabled: true, connected: true });
+    upsertChannelState(this.projectDir, "webchat", {
+      enabled: true,
+      connected: true
+    });
     await this.startTelegramPolling();
     this.syncPassiveChannelStates();
     await this.startSlackSocketMode();
@@ -35158,14 +37809,17 @@ var ChannelRuntime = class {
     const connect = async () => {
       if (!this.slackSocketModeRunning) return;
       try {
-        const openRes = await fetch("https://slack.com/api/apps.connections.open", {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${appToken}`,
-            "content-type": "application/json"
-          },
-          body: "{}"
-        });
+        const openRes = await fetch(
+          "https://slack.com/api/apps.connections.open",
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${appToken}`,
+              "content-type": "application/json"
+            },
+            body: "{}"
+          }
+        );
         const openBody = await openRes.json();
         if (!openBody.ok || !openBody.url) {
           throw new Error(openBody.error ?? "slack_socket_open_failed");
@@ -35217,7 +37871,9 @@ var ChannelRuntime = class {
     if (!messageText.trim()) return;
     const payload = JSON.parse(messageText);
     if (payload.envelope_id && this.slackSocket?.readyState === WebSocket.OPEN) {
-      this.slackSocket.send(JSON.stringify({ envelope_id: payload.envelope_id }));
+      this.slackSocket.send(
+        JSON.stringify({ envelope_id: payload.envelope_id })
+      );
     }
     if (payload.type !== "events_api") return;
     const event = payload.payload?.event;
@@ -35261,7 +37917,10 @@ var ChannelRuntime = class {
           throw new Error(body.description ?? "telegram_get_updates_failed");
         }
         for (const update of body.result ?? []) {
-          this.telegramOffset = Math.max(this.telegramOffset, Number(update.update_id) + 1);
+          this.telegramOffset = Math.max(
+            this.telegramOffset,
+            Number(update.update_id) + 1
+          );
           const message = update.message;
           if (!message?.text || !message.chat?.id || !message.from?.id) {
             continue;
@@ -35331,7 +37990,7 @@ var ChannelRuntime = class {
     );
     assertSemanticTags(semanticTags);
     const payload = {
-      id: row.id ?? `out_${randomUUID4()}`,
+      id: row.id ?? `out_${randomUUID5()}`,
       at: row.at ?? (/* @__PURE__ */ new Date()).toISOString(),
       channel: row.channel,
       destination: row.destination,
@@ -35375,8 +38034,14 @@ var ChannelRuntime = class {
     const now = Date.now();
     const key = `${channel}:${destination}`;
     const policy = readPolicy(this.projectDir);
-    const windowMs = Math.max(1e3, Number(policy.outbound.burstWindowMs || 6e4));
-    const minIntervalMs = Math.max(500, Number(policy.outbound.minIntervalMs || 4e3));
+    const windowMs = Math.max(
+      1e3,
+      Number(policy.outbound.burstWindowMs || 6e4)
+    );
+    const minIntervalMs = Math.max(
+      500,
+      Number(policy.outbound.minIntervalMs || 4e3)
+    );
     const burstLimit = Math.max(1, Number(policy.outbound.burstLimit || 3));
     const list = (this.outboundThrottle.get(key) ?? []).filter(
       (ts) => now - ts <= windowMs
@@ -35401,7 +38066,7 @@ var ChannelRuntime = class {
       Number(policy.outbound.duplicateWindowMs || 6e4)
     );
     const key = `${channel}:${destination}`;
-    const payloadHash = createHash5("sha256").update(text).digest("hex").slice(0, 24);
+    const payloadHash = createHash6("sha256").update(text).digest("hex").slice(0, 24);
     const recent = (this.outboundPayloadHistory.get(key) ?? []).filter(
       (item) => now - item.at <= duplicateWindowMs
     );
@@ -35425,7 +38090,10 @@ var ChannelRuntime = class {
     const strikes = (this.inputMutexStrike.get(sessionID2) ?? 0) + 1;
     this.inputMutexStrike.set(sessionID2, strikes);
     if (strikes >= INPUT_MUTEX_STRIKE_LIMIT) {
-      this.inputMutexCooldownUntil.set(sessionID2, Date.now() + INPUT_MUTEX_COOLDOWN_MS);
+      this.inputMutexCooldownUntil.set(
+        sessionID2,
+        Date.now() + INPUT_MUTEX_COOLDOWN_MS
+      );
       this.inputMutexStrike.set(sessionID2, 0);
     }
   }
@@ -35474,14 +38142,14 @@ var ChannelRuntime = class {
     return { sent: false, message: audit.message, auditID: audit.id };
   }
   writeDesktopFallbackDraft(input) {
-    const dir = path17.join(getMiyaRuntimeDir(this.projectDir), "channels-draft");
-    fs17.mkdirSync(dir, { recursive: true });
+    const dir = path23.join(getMiyaRuntimeDir(this.projectDir), "channels-draft");
+    fs23.mkdirSync(dir, { recursive: true });
     const safeTarget = input.destination.replace(/[\\/:*?"<>|]/g, "_").slice(0, 40) || "unknown";
-    const file3 = path17.join(
+    const file3 = path23.join(
       dir,
       `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}_${input.channel}_${safeTarget}.json`
     );
-    fs17.writeFileSync(
+    fs23.writeFileSync(
       file3,
       `${JSON.stringify(
         {
@@ -35504,7 +38172,7 @@ var ChannelRuntime = class {
   async sendMessage(input) {
     const text = (input.text ?? "").trim();
     const mediaPath = (input.mediaPath ?? "").trim();
-    const payloadHash = (input.payloadHash ?? createHash5("sha256").update(`${text}||${mediaPath}`).digest("hex")).trim();
+    const payloadHash = (input.payloadHash ?? createHash6("sha256").update(`${text}||${mediaPath}`).digest("hex")).trim();
     if (!text && !mediaPath) {
       return { sent: false, message: "invalid_outbound_payload_empty" };
     }
@@ -35526,7 +38194,9 @@ var ChannelRuntime = class {
         auditID: audit.id
       };
     }
-    const archAdvisorApproved = Boolean(input.outboundCheck?.archAdvisorApproved);
+    const archAdvisorApproved = Boolean(
+      input.outboundCheck?.archAdvisorApproved
+    );
     const riskLevel = input.outboundCheck?.riskLevel ?? "HIGH";
     const intent = input.outboundCheck?.intent ?? "initiate";
     const containsSensitive = Boolean(input.outboundCheck?.containsSensitive);
@@ -35957,3702 +38627,289 @@ var ChannelRuntime = class {
   }
 };
 
-// src/safety/store.ts
-import * as fs19 from "node:fs";
-import * as path19 from "node:path";
-import { randomUUID as randomUUID5 } from "node:crypto";
+// src/companion/memory-reflect.ts
+import { createHash as createHash8, randomUUID as randomUUID7 } from "node:crypto";
+import * as fs26 from "node:fs";
+import * as path26 from "node:path";
 
-// src/safety/tier.ts
-var SAFETY_RANK = {
-  LIGHT: 1,
-  STANDARD: 2,
-  THOROUGH: 3
-};
-function normalizeTier(value) {
-  const normalized = String(value ?? "STANDARD").trim().toUpperCase();
-  if (normalized === "LIGHT") return "LIGHT";
-  if (normalized === "THOROUGH") return "THOROUGH";
-  return "STANDARD";
-}
-function tierAtLeast(current, required3) {
-  return SAFETY_RANK[current] >= SAFETY_RANK[required3];
-}
-
-// src/safety/state-machine.ts
-import * as fs18 from "node:fs";
-import * as path18 from "node:path";
-function nowIso7() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function stateFile(projectDir) {
-  return path18.join(getMiyaRuntimeDir(projectDir), "safety-state.json");
-}
-function auditFile(projectDir) {
-  return path18.join(getMiyaRuntimeDir(projectDir), "safety-state-audit.jsonl");
-}
-function ensureDir8(filePath14) {
-  fs18.mkdirSync(path18.dirname(filePath14), { recursive: true });
-}
-function defaultState() {
-  return {
-    version: 1,
-    updatedAt: nowIso7(),
-    globalState: "running",
-    domains: Object.fromEntries(
-      POLICY_DOMAINS.map((domain3) => [domain3, "running"])
-    )
-  };
-}
-function writeState(projectDir, state2) {
-  const file3 = stateFile(projectDir);
-  const next = {
-    ...state2,
-    updatedAt: nowIso7()
-  };
-  ensureDir8(file3);
-  fs18.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
-`, "utf-8");
-  return next;
-}
-function readSafetyState(projectDir) {
-  const file3 = stateFile(projectDir);
-  if (!fs18.existsSync(file3)) {
-    const created = defaultState();
-    return writeState(projectDir, created);
-  }
-  try {
-    const parsed = JSON.parse(fs18.readFileSync(file3, "utf-8"));
-    const base = defaultState();
-    const domains = {
-      ...base.domains,
-      ...parsed.domains ?? {}
-    };
-    return {
-      ...base,
-      ...parsed,
-      domains
-    };
-  } catch {
-    return defaultState();
-  }
-}
-function appendAudit(projectDir, row) {
-  const file3 = auditFile(projectDir);
-  ensureDir8(file3);
-  fs18.appendFileSync(file3, `${JSON.stringify(row)}
-`, "utf-8");
-}
-function syncPolicyDomain(projectDir, domain3, state2) {
-  const policy = readPolicy(projectDir);
-  const mapped = state2 === "running" ? "running" : "paused";
-  if (policy.domains[domain3] === mapped) return;
-  writePolicy(projectDir, {
-    domains: {
-      ...policy.domains,
-      [domain3]: mapped
-    }
-  });
-}
-function transitionSafetyState(projectDir, input) {
-  const current = readSafetyState(projectDir);
-  const next = {
-    ...current,
-    globalState: input.globalState ?? current.globalState,
-    reason: input.reason,
-    traceID: input.traceID ?? current.traceID,
-    domains: {
-      ...current.domains,
-      ...input.domains ?? {}
-    }
-  };
-  const written = writeState(projectDir, next);
-  for (const domain3 of POLICY_DOMAINS) {
-    syncPolicyDomain(projectDir, domain3, written.domains[domain3]);
-  }
-  appendAudit(projectDir, {
-    id: `safety_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    at: nowIso7(),
-    source: input.source,
-    reason: input.reason,
-    traceID: input.traceID,
-    policyHash: input.policyHash,
-    globalState: written.globalState,
-    domains: input.domains ?? {}
-  });
-  return written;
-}
-function isDomainExecutionAllowed(projectDir, domain3) {
-  const state2 = readSafetyState(projectDir);
-  if (state2.globalState === "killed") return false;
-  return state2.domains[domain3] === "running";
-}
-
-// src/safety/store.ts
-var RECORD_LIMIT = 500;
-var TOKEN_TTL_MS = 12e4;
-var TOKEN_LIMIT_PER_SESSION = 200;
-function runtimeFile(projectDir, name) {
-  return path19.join(getMiyaRuntimeDir(projectDir), name);
-}
-function ensureDir9(file3) {
-  fs19.mkdirSync(path19.dirname(file3), { recursive: true });
-}
-function readJson(file3, fallback) {
-  if (!fs19.existsSync(file3)) return fallback;
-  try {
-    return JSON.parse(fs19.readFileSync(file3, "utf-8"));
-  } catch {
-    return fallback;
-  }
-}
-function writeJson(file3, value) {
-  ensureDir9(file3);
-  fs19.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
-`, "utf-8");
-}
-function nowIso8() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function syncGatewayStatus(projectDir, status) {
-  const file3 = runtimeFile(projectDir, "gateway.json");
-  if (!fs19.existsSync(file3)) return;
-  const current = readJson(file3, {});
-  if (!current || typeof current !== "object") return;
-  writeJson(file3, { ...current, status });
-}
-function createTraceId() {
-  return randomUUID5();
-}
-function writeSelfApprovalRecord(projectDir, record3) {
-  const file3 = runtimeFile(projectDir, "self-approval.json");
-  const current = readJson(file3, { records: [] });
-  const next = {
-    id: randomUUID5(),
-    created_at: nowIso8(),
-    ...record3
-  };
-  current.records = [next, ...current.records].slice(0, RECORD_LIMIT);
-  writeJson(file3, current);
-  return next;
-}
-function listRecentSelfApprovalRecords(projectDir, limit = 10) {
-  const file3 = runtimeFile(projectDir, "self-approval.json");
-  const current = readJson(file3, { records: [] });
-  return current.records.slice(0, Math.max(1, limit));
-}
-function readTokenStore(projectDir) {
-  const file3 = runtimeFile(projectDir, "approval-tokens.json");
-  const store2 = readJson(file3, { tokens: {} });
-  const decoded = { tokens: {} };
-  for (const [sessionID2, tokens] of Object.entries(store2.tokens ?? {})) {
-    const plainSession = decryptSensitiveValue(projectDir, sessionID2);
-    decoded.tokens[plainSession] = {};
-    for (const [hash3, token] of Object.entries(tokens ?? {})) {
-      const plainHash = decryptSensitiveValue(projectDir, hash3);
-      decoded.tokens[plainSession][plainHash] = {
-        ...token,
-        request_hash: decryptSensitiveValue(projectDir, token.request_hash),
-        action: decryptSensitiveValue(projectDir, token.action)
-      };
-    }
-  }
-  return decoded;
-}
-function writeTokenStore(projectDir, store2) {
-  const file3 = runtimeFile(projectDir, "approval-tokens.json");
-  const encoded = { tokens: {} };
-  for (const [sessionID2, tokens] of Object.entries(store2.tokens ?? {})) {
-    const safeSession = encryptSensitiveValue(projectDir, sessionID2);
-    encoded.tokens[safeSession] = {};
-    for (const [hash3, token] of Object.entries(tokens ?? {})) {
-      const safeHash = encryptSensitiveValue(projectDir, hash3);
-      encoded.tokens[safeSession][safeHash] = {
-        ...token,
-        request_hash: encryptSensitiveValue(projectDir, token.request_hash),
-        action: encryptSensitiveValue(projectDir, token.action)
-      };
-    }
-  }
-  writeJson(file3, encoded);
-}
-function saveApprovalToken(projectDir, sessionID2, token, ttlMs = TOKEN_TTL_MS) {
-  const store2 = readTokenStore(projectDir);
-  const created = /* @__PURE__ */ new Date();
-  const expires = new Date(created.getTime() + ttlMs);
-  const next = {
-    ...token,
-    created_at: created.toISOString(),
-    expires_at: expires.toISOString()
-  };
-  const sessionTokens = store2.tokens[sessionID2] ?? {};
-  sessionTokens[token.request_hash] = next;
-  const normalized = Object.values(sessionTokens).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, TOKEN_LIMIT_PER_SESSION);
-  store2.tokens[sessionID2] = Object.fromEntries(
-    normalized.map((entry2) => [entry2.request_hash, entry2])
-  );
-  writeTokenStore(projectDir, store2);
-  return next;
-}
-function findApprovalToken(projectDir, sessionID2, requestHashes, requiredTier) {
-  const store2 = readTokenStore(projectDir);
-  const sessionTokens = store2.tokens[sessionID2] ?? {};
-  const now = Date.now();
-  for (const hash3 of requestHashes) {
-    const token = sessionTokens[hash3];
-    if (!token) continue;
-    const expiresAt = Date.parse(token.expires_at);
-    if (!Number.isFinite(expiresAt) || expiresAt < now) continue;
-    if (!tierAtLeast(token.tier, requiredTier)) continue;
-    return token;
-  }
-  return null;
-}
-function readKillSwitch(projectDir) {
-  return readJson(runtimeFile(projectDir, "kill-switch.json"), {
-    active: false
-  });
-}
-function activateKillSwitch(projectDir, reason, traceID) {
-  const next = {
-    active: true,
-    reason,
-    trace_id: traceID,
-    activated_at: nowIso8()
-  };
-  writeJson(runtimeFile(projectDir, "kill-switch.json"), next);
-  transitionSafetyState(projectDir, {
-    source: "kill_switch_activate",
-    reason,
-    traceID,
-    globalState: "killed",
-    domains: {}
-  });
-  syncGatewayStatus(projectDir, "killswitch");
-  return next;
-}
-function releaseKillSwitch(projectDir) {
-  const next = { active: false };
-  writeJson(runtimeFile(projectDir, "kill-switch.json"), next);
-  transitionSafetyState(projectDir, {
-    source: "kill_switch_release",
-    reason: "manual_release",
-    globalState: "running",
-    domains: {}
-  });
-  syncGatewayStatus(projectDir, "running");
-  return next;
-}
-
-// src/safety/risk.ts
-import { createHash as createHash6 } from "node:crypto";
-var IRREVERSIBLE_BASH_PATTERNS = [
-  /\bgit\s+push\b/i,
-  /\bgit\s+remote\s+set-url\b/i,
-  /\bgit\s+reset\s+--hard\b/i,
-  /\bgit\s+clean\b[^\n]*\b-f\b/i,
-  /\bgit\s+branch\b[^\n]*\b-D\b/i,
-  /\brm\s+-[^\n]*\br\b/i,
-  /\brm\s+-[^\n]*\bf\b/i,
-  /\brm\s+(-rf|-fr)\b/i,
-  /\bdel\s+\/[sfpq]/i,
-  /\berase\s+\/[sfpq]/i,
-  /\bRemove-Item\b[^\n]*\b(-Recurse|-Force)\b/i,
-  /\btruncate\b/i,
-  /\bcp\b[^\n]*\b-f\b/i,
-  />\s*\.env(\.|$)/i,
-  /\b(overwrite|truncate)\b/i
-];
-var SENSITIVE_PATH_PATTERNS = [
-  /\.env(\.|$)/i,
-  /\.pem$/i,
-  /\.key$/i,
-  /cookie/i,
-  /credential/i,
-  /secret/i,
-  /token/i
-];
-var READ_ONLY_BASH_PATTERNS = [
-  /^\s*(ls|dir)\b/i,
-  /^\s*(cat|type)\b/i,
-  /^\s*(grep|rg|findstr)\b/i,
-  /^\s*(pwd|cd)\b/i,
-  /^\s*(echo)\b/i,
-  /^\s*git\s+(status|log|show|diff)\b/i
-];
-function normalizePattern(pattern) {
-  return pattern.trim().replaceAll("\\", "/");
-}
-function hasIrreversiblePattern(patterns) {
-  return patterns.some(
-    (pattern) => IRREVERSIBLE_BASH_PATTERNS.some((rule) => rule.test(pattern))
-  );
-}
-function isReadOnlyShellPattern(patterns) {
-  if (patterns.length === 0) return false;
-  return patterns.every(
-    (pattern) => READ_ONLY_BASH_PATTERNS.some((rule) => rule.test(pattern.trim()))
-  );
-}
-function hasSensitivePath(patterns) {
-  return patterns.some(
-    (pattern) => SENSITIVE_PATH_PATTERNS.some((rule) => rule.test(pattern))
-  );
-}
-function hasIrreversibleEditPattern(patterns) {
-  return patterns.some(
-    (pattern) => /\b(delete|remove|overwrite|truncate|destroy|wipe)\b/i.test(pattern) || pattern.endsWith(".env") || pattern.includes("/.env")
-  );
-}
-function isSideEffectPermission(permission) {
-  return permission === "edit" || permission === "bash" || permission === "external_directory" || permission === "external_message" || permission === "desktop_control" || permission === "node_invoke" || permission === "skills_install" || permission === "webhook_outbound";
-}
-function classifySideEffect(request) {
-  if (!isSideEffectPermission(request.permission)) {
-    return { sideEffect: false, reversibility: "none" };
-  }
-  const patterns = request.patterns.map(normalizePattern);
-  if (request.permission === "bash") {
-    if (isReadOnlyShellPattern(patterns)) {
-      return { sideEffect: true, reversibility: "reversible" };
-    }
-    return {
-      sideEffect: true,
-      reversibility: hasIrreversiblePattern(patterns) ? "irreversible" : "reversible"
-    };
-  }
-  if (request.permission === "edit") {
-    return {
-      sideEffect: true,
-      reversibility: hasIrreversibleEditPattern(patterns) ? "irreversible" : "reversible"
-    };
-  }
-  return { sideEffect: true, reversibility: "irreversible" };
-}
-function requiredTierForRequest(request) {
-  const patterns = request.patterns.map(normalizePattern);
-  const sideEffect = classifySideEffect(request);
-  if (request.permission === "external_directory") return "THOROUGH";
-  if (request.permission === "external_message") return "THOROUGH";
-  if (request.permission === "desktop_control") return "THOROUGH";
-  if (request.permission === "node_invoke") {
-    const patterns2 = request.patterns.map(normalizePattern).join(" ");
-    if (/\b(system\.run|camera\.capture|canvas\.open|canvas\.render|voice\.)\b/i.test(
-      patterns2
-    )) {
-      return "THOROUGH";
-    }
-    return "STANDARD";
-  }
-  if (request.permission === "skills_install") return "THOROUGH";
-  if (request.permission === "webhook_outbound") return "THOROUGH";
-  if (request.permission === "bash") {
-    return sideEffect.reversibility === "irreversible" ? "THOROUGH" : "STANDARD";
-  }
-  if (request.permission === "edit") {
-    if (hasSensitivePath(patterns) || hasIrreversibleEditPattern(patterns)) {
-      return "THOROUGH";
-    }
-    return "STANDARD";
-  }
-  return "STANDARD";
-}
-function buildRequestHash(request, includeMessageContext = true) {
-  const payload = {
-    permission: request.permission,
-    patterns: [...request.patterns].map(normalizePattern).sort(),
-    toolCallID: includeMessageContext ? request.toolCallID ?? "" : "",
-    messageID: includeMessageContext ? request.messageID ?? "" : ""
-  };
-  return createHash6("sha256").update(JSON.stringify(payload)).digest("hex");
-}
-
-// src/policy/decision-fusion.ts
-function normalizeConfidence(value) {
-  if (!Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
-}
-function normalizeTrustScore(value) {
-  if (!Number.isFinite(value)) return 50;
-  if (value < 0) return 0;
-  if (value > 100) return 100;
-  return Math.round(value);
-}
-function normalizeTrustMode(input) {
-  let silentMin = Math.max(
-    0,
-    Math.min(100, Math.round(input?.silentMin ?? 90))
-  );
-  let modalMax = Math.max(
-    0,
-    Math.min(100, Math.round(input?.modalMax ?? 50))
-  );
-  if (silentMin <= modalMax) {
-    const pivot = Math.round((silentMin + modalMax) / 2);
-    silentMin = Math.min(100, pivot + 1);
-    modalMax = Math.max(0, pivot - 1);
-  }
-  if (silentMin - modalMax < 2) {
-    if (silentMin < 100) silentMin += 1;
-    else if (modalMax > 0) modalMax -= 1;
-  }
-  if (silentMin <= modalMax) {
-    return { silentMin: 90, modalMax: 50 };
-  }
-  return { silentMin, modalMax };
-}
-function resolveApprovalMode(input) {
-  if (input.action !== "allow") return "modal_approval";
-  const thresholds = normalizeTrustMode(input.trustMode);
-  const silentMin = thresholds.silentMin;
-  const modalMax = thresholds.modalMax;
-  if (input.trustScore >= silentMin) return "silent_audit";
-  if (input.trustScore <= modalMax) return "modal_approval";
-  return "toast_gate";
-}
-function evaluateOutboundDecisionFusion(input) {
-  const conf = normalizeConfidence(input.confidenceIntent);
-  const evidenceConf = normalizeConfidence(input.evidenceConfidence ?? input.confidenceIntent);
-  const trustScore = normalizeTrustScore(input.trustMinScore);
-  const expressionMatched = input.factorTextSensitive && !input.factorRecipientIsMe || input.factorTextSensitive && input.factorIntentSuspicious;
-  if (evidenceConf < 0.35) {
-    const action2 = expressionMatched ? conf < 0.5 ? "hard_fuse" : "soft_fuse" : "allow";
-    return {
-      expressionMatched,
-      zone: action2 === "hard_fuse" ? "danger" : "gray",
-      action: action2,
-      approvalMode: "modal_approval",
-      reason: action2 === "hard_fuse" ? "decision_fusion_danger_low_evidence" : action2 === "soft_fuse" ? "decision_fusion_gray_low_evidence" : "decision_fusion_low_evidence_confirmation_required"
-    };
-  }
-  if (!expressionMatched) {
-    const action2 = "allow";
-    return {
-      expressionMatched: false,
-      zone: "safe",
-      action: action2,
-      approvalMode: resolveApprovalMode({
-        action: action2,
-        trustScore,
-        trustMode: input.trustMode
-      }),
-      reason: "decision_fusion_clear"
-    };
-  }
-  if (conf < 0.5) {
-    const action2 = "hard_fuse";
-    return {
-      expressionMatched: true,
-      zone: "danger",
-      action: action2,
-      approvalMode: "modal_approval",
-      reason: "decision_fusion_danger"
-    };
-  }
-  if (conf <= 0.85) {
-    const action2 = "soft_fuse";
-    return {
-      expressionMatched: true,
-      zone: "gray",
-      action: action2,
-      approvalMode: "modal_approval",
-      reason: "decision_fusion_gray"
-    };
-  }
-  const action = "allow";
-  return {
-    expressionMatched: true,
-    zone: "safe",
-    action,
-    approvalMode: resolveApprovalMode({
-      action,
-      trustScore,
-      trustMode: input.trustMode
-    }),
-    reason: "decision_fusion_safe_by_confidence"
-  };
-}
-
-// src/policy/incident.ts
-import * as fs20 from "node:fs";
-import * as path20 from "node:path";
-import { randomUUID as randomUUID6 } from "node:crypto";
-function incidentFile(projectDir) {
-  return path20.join(getMiyaRuntimeDir(projectDir), "policy-incidents.jsonl");
-}
-function appendPolicyIncident(projectDir, incident) {
-  assertSemanticTags(incident.semanticTags);
-  const semanticTags = normalizeSemanticTags(incident.semanticTags);
-  const payload = {
-    id: incident.id ?? `incident_${randomUUID6()}`,
-    at: incident.at ?? (/* @__PURE__ */ new Date()).toISOString(),
-    type: incident.type,
-    reason: incident.reason,
-    channel: incident.channel,
-    destination: incident.destination,
-    auditID: incident.auditID,
-    policyHash: incident.policyHash,
-    pausedDomains: incident.pausedDomains,
-    statusByDomain: incident.statusByDomain,
-    semanticSummary: incident.semanticSummary,
-    semanticTags,
-    details: incident.details
-  };
-  const file3 = incidentFile(projectDir);
-  fs20.mkdirSync(path20.dirname(file3), { recursive: true });
-  fs20.appendFileSync(file3, `${JSON.stringify(payload)}
-`, "utf-8");
-  return payload;
-}
-function listPolicyIncidents(projectDir, limit = 50) {
-  const file3 = incidentFile(projectDir);
-  if (!fs20.existsSync(file3)) return [];
-  const rows = fs20.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
-    try {
-      return JSON.parse(line);
-    } catch {
-      return null;
-    }
-  }).filter((row) => Boolean(row));
-  return rows.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, Math.max(1, limit));
-}
-
-// src/nodes/index.ts
-import * as fs21 from "node:fs";
-import * as path21 from "node:path";
-import { createHash as createHash7, randomBytes as randomBytes2, randomUUID as randomUUID7, timingSafeEqual } from "node:crypto";
-var HEARTBEAT_STALE_MS = 2 * 60 * 1e3;
-function nowIso9() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function hashToken(token) {
-  return createHash7("sha256").update(token).digest("hex");
-}
-function defaultNodePermissions() {
-  return {
-    screenRecording: false,
-    accessibility: false,
-    filesystem: "none",
-    network: false
-  };
-}
-function inferPermissionsFromCapabilities(capabilities, base) {
-  const inferred = defaultNodePermissions();
-  for (const capability of capabilities) {
-    if (capability === "perm.screenRecording") inferred.screenRecording = true;
-    if (capability === "perm.accessibility") inferred.accessibility = true;
-    if (capability === "perm.network") inferred.network = true;
-    if (capability.startsWith("perm.filesystem.")) {
-      const suffix = capability.slice("perm.filesystem.".length);
-      if (suffix === "none" || suffix === "read" || suffix === "full") {
-        inferred.filesystem = suffix;
-      }
-    }
-  }
-  return {
-    ...inferred,
-    ...base ?? {}
-  };
-}
-function normalizeNodeRecord(partial3) {
-  const capabilityList = Array.isArray(partial3.capabilities) ? partial3.capabilities.map((item) => String(item)).filter(Boolean).sort() : [];
-  const fallbackHeartbeat = String(partial3.lastSeenAt ?? nowIso9());
-  const permissions = inferPermissionsFromCapabilities(capabilityList, partial3.permissions);
-  const status = partial3.connected ? "online" : "offline";
-  return {
-    nodeID: String(partial3.nodeID ?? ""),
-    deviceID: String(partial3.deviceID ?? ""),
-    type: partial3.type === "cli" || partial3.type === "desktop" || partial3.type === "mobile" || partial3.type === "browser" ? partial3.type : "cli",
-    role: "node",
-    platform: String(partial3.platform ?? process.platform),
-    permissions,
-    capabilities: capabilityList,
-    connected: Boolean(partial3.connected),
-    paired: Boolean(partial3.paired),
-    status: partial3.status === "online" || partial3.status === "offline" || partial3.status === "error" ? partial3.status : status,
-    tokenHash: typeof partial3.tokenHash === "string" ? partial3.tokenHash : void 0,
-    tokenIssuedAt: typeof partial3.tokenIssuedAt === "string" ? partial3.tokenIssuedAt : void 0,
-    tokenLastUsedAt: typeof partial3.tokenLastUsedAt === "string" ? partial3.tokenLastUsedAt : void 0,
-    lastHeartbeatAt: typeof partial3.lastHeartbeatAt === "string" ? partial3.lastHeartbeatAt : fallbackHeartbeat,
-    lastSeenAt: String(partial3.lastSeenAt ?? fallbackHeartbeat),
-    createdAt: String(partial3.createdAt ?? nowIso9()),
-    updatedAt: String(partial3.updatedAt ?? nowIso9())
-  };
-}
-function applyHeartbeatHealth(store2) {
-  const now = Date.now();
-  let changed = false;
-  for (const node of Object.values(store2.nodes)) {
-    const heartbeatAt = Date.parse(node.lastHeartbeatAt || node.lastSeenAt);
-    if (Number.isNaN(heartbeatAt)) continue;
-    const stale = now - heartbeatAt > HEARTBEAT_STALE_MS;
-    if (stale && (node.connected || node.status === "online")) {
-      node.connected = false;
-      node.status = "offline";
-      node.updatedAt = nowIso9();
-      changed = true;
-    }
-  }
-  return changed;
-}
-function filePath4(projectDir) {
-  return path21.join(getMiyaRuntimeDir(projectDir), "nodes.json");
-}
-function ensureDir10(file3) {
-  fs21.mkdirSync(path21.dirname(file3), { recursive: true });
-}
-function readStore3(projectDir) {
-  const file3 = filePath4(projectDir);
-  if (!fs21.existsSync(file3)) {
-    return {
-      nodes: {},
-      devices: {},
-      pairs: [],
-      invokes: {}
-    };
-  }
-  try {
-    const parsed = JSON.parse(fs21.readFileSync(file3, "utf-8"));
-    const rawNodes = parsed.nodes ?? {};
-    const nodes = {};
-    for (const [nodeID, node] of Object.entries(rawNodes)) {
-      const normalized = normalizeNodeRecord({
-        ...node,
-        nodeID: nodeID || node?.nodeID
-      });
-      if (!normalized.nodeID) continue;
-      nodes[normalized.nodeID] = normalized;
-    }
-    return {
-      nodes,
-      devices: parsed.devices ?? {},
-      pairs: Array.isArray(parsed.pairs) ? parsed.pairs : [],
-      invokes: parsed.invokes ?? {}
-    };
-  } catch {
-    return {
-      nodes: {},
-      devices: {},
-      pairs: [],
-      invokes: {}
-    };
-  }
-}
-function writeStore3(projectDir, store2) {
-  const file3 = filePath4(projectDir);
-  ensureDir10(file3);
-  fs21.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
-`, "utf-8");
-}
-function readStoreWithHealth(projectDir) {
-  const store2 = readStore3(projectDir);
-  if (applyHeartbeatHealth(store2)) {
-    writeStore3(projectDir, store2);
-  }
-  return store2;
-}
-function verifyNodeToken(node, token) {
-  if (!node.tokenHash) return true;
-  if (!token) return false;
-  const expected = Buffer.from(node.tokenHash, "hex");
-  const actual = Buffer.from(hashToken(token), "hex");
-  if (expected.length !== actual.length) return false;
-  return timingSafeEqual(expected, actual);
-}
-function registerNode(projectDir, input) {
-  const store2 = readStoreWithHealth(projectDir);
-  const existing = store2.nodes[input.nodeID];
-  if (existing && !verifyNodeToken(existing, input.token)) {
-    throw new Error("node_token_invalid");
-  }
-  const nextCapabilities = [...new Set(input.capabilities)].sort();
-  const now = nowIso9();
-  const createdAt = store2.nodes[input.nodeID]?.createdAt ?? nowIso9();
-  const lastHeartbeatAt = now;
-  const tokenLastUsedAt = existing?.tokenHash ? now : existing?.tokenLastUsedAt;
-  const node = {
-    nodeID: input.nodeID,
-    deviceID: input.deviceID,
-    type: input.type ?? existing?.type ?? "cli",
-    role: "node",
-    platform: input.platform,
-    permissions: inferPermissionsFromCapabilities(nextCapabilities, {
-      ...existing?.permissions,
-      ...input.permissions ?? {}
-    }),
-    capabilities: nextCapabilities,
-    connected: true,
-    paired: existing?.paired ?? false,
-    status: "online",
-    tokenHash: existing?.tokenHash,
-    tokenIssuedAt: existing?.tokenIssuedAt,
-    tokenLastUsedAt,
-    lastHeartbeatAt,
-    lastSeenAt: now,
-    createdAt,
-    updatedAt: now
-  };
-  store2.nodes[input.nodeID] = node;
-  const device = {
-    deviceID: input.deviceID,
-    label: store2.devices[input.deviceID]?.label,
-    approved: store2.devices[input.deviceID]?.approved ?? false,
-    createdAt: store2.devices[input.deviceID]?.createdAt ?? now,
-    updatedAt: now
-  };
-  store2.devices[input.deviceID] = device;
-  writeStore3(projectDir, store2);
-  return node;
-}
-function touchNodeHeartbeat(projectDir, nodeID) {
-  const store2 = readStore3(projectDir);
-  const node = store2.nodes[nodeID];
-  if (!node) return null;
-  const now = nowIso9();
-  node.connected = true;
-  node.status = "online";
-  node.lastHeartbeatAt = now;
-  node.lastSeenAt = now;
-  node.updatedAt = now;
-  writeStore3(projectDir, store2);
-  return node;
-}
-function markNodeDisconnected(projectDir, nodeID) {
-  const store2 = readStore3(projectDir);
-  const node = store2.nodes[nodeID];
-  if (!node) return;
-  node.connected = false;
-  node.status = "offline";
-  node.updatedAt = nowIso9();
-  writeStore3(projectDir, store2);
-}
-function listNodes(projectDir) {
-  const store2 = readStoreWithHealth(projectDir);
-  return Object.values(store2.nodes).sort(
-    (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
-  );
-}
-function listDevices(projectDir) {
-  const store2 = readStoreWithHealth(projectDir);
-  return Object.values(store2.devices).sort(
-    (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
-  );
-}
-function describeNode(projectDir, nodeID) {
-  const store2 = readStoreWithHealth(projectDir);
-  return store2.nodes[nodeID] ?? null;
-}
-function issueNodeToken(projectDir, nodeID) {
-  const store2 = readStoreWithHealth(projectDir);
-  const node = store2.nodes[nodeID];
-  if (!node) return null;
-  const token = `nkt_${randomBytes2(24).toString("hex")}`;
-  const issuedAt = nowIso9();
-  node.tokenHash = hashToken(token);
-  node.tokenIssuedAt = issuedAt;
-  node.tokenLastUsedAt = issuedAt;
-  node.updatedAt = issuedAt;
-  store2.nodes[nodeID] = node;
-  writeStore3(projectDir, store2);
-  return { nodeID, token, issuedAt };
-}
-function createNodePairRequest(projectDir, input) {
-  const store2 = readStore3(projectDir);
-  const pending = store2.pairs.find(
-    (item) => item.nodeID === input.nodeID && item.status === "pending"
-  );
-  if (pending) return pending;
-  const pair = {
-    id: `npair_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    nodeID: input.nodeID,
-    deviceID: input.deviceID,
-    status: "pending",
-    requestedAt: nowIso9()
-  };
-  store2.pairs = [pair, ...store2.pairs].slice(0, 1e3);
-  writeStore3(projectDir, store2);
-  return pair;
-}
-function listNodePairs(projectDir, status) {
-  const store2 = readStore3(projectDir);
-  const pairs = status ? store2.pairs.filter((item) => item.status === status) : store2.pairs;
-  return [...pairs].sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt));
-}
-function resolveNodePair(projectDir, pairID, status) {
-  const store2 = readStore3(projectDir);
-  const pair = store2.pairs.find((item) => item.id === pairID);
-  if (!pair || pair.status !== "pending") return null;
-  pair.status = status;
-  pair.resolvedAt = nowIso9();
-  if (status === "approved") {
-    const node = store2.nodes[pair.nodeID];
-    if (node) {
-      node.paired = true;
-      node.updatedAt = nowIso9();
-    }
-    const device = store2.devices[pair.deviceID];
-    if (device) {
-      device.approved = true;
-      device.updatedAt = nowIso9();
-    }
-  }
-  writeStore3(projectDir, store2);
-  return pair;
-}
-function createInvokeRequest(projectDir, input) {
-  const store2 = readStore3(projectDir);
-  const invoke = {
-    id: `invoke_${randomUUID7()}`,
-    nodeID: input.nodeID,
-    capability: input.capability,
-    args: input.args,
-    status: "pending",
-    createdAt: nowIso9(),
-    updatedAt: nowIso9()
-  };
-  store2.invokes[invoke.id] = invoke;
-  writeStore3(projectDir, store2);
-  return invoke;
-}
-function markInvokeSent(projectDir, invokeID) {
-  const store2 = readStore3(projectDir);
-  const invoke = store2.invokes[invokeID];
-  if (!invoke) return null;
-  invoke.status = "sent";
-  invoke.updatedAt = nowIso9();
-  writeStore3(projectDir, store2);
-  return invoke;
-}
-function resolveInvokeResult(projectDir, invokeID, input) {
-  const store2 = readStore3(projectDir);
-  const invoke = store2.invokes[invokeID];
-  if (!invoke) return null;
-  invoke.status = input.ok ? "completed" : "failed";
-  invoke.result = input.result;
-  invoke.error = input.error;
-  invoke.updatedAt = nowIso9();
-  writeStore3(projectDir, store2);
-  return invoke;
-}
-function listInvokeRequests(projectDir, limit = 50) {
-  const store2 = readStore3(projectDir);
-  return Object.values(store2.invokes).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, Math.max(1, limit));
-}
-
-// src/daemon/launcher.ts
-import { randomUUID as randomUUID8 } from "node:crypto";
+// src/learning/skill-drafts.ts
+import { createHash as createHash7, randomUUID as randomUUID6 } from "node:crypto";
 import * as fs24 from "node:fs";
 import * as path24 from "node:path";
-import { spawn as spawn4, spawnSync as spawnSync4 } from "node:child_process";
-import { fileURLToPath } from "node:url";
-
-// src/settings/registry.ts
-function entry(input) {
-  return {
-    ...input,
-    requiresEvidence: input.risk === "HIGH"
-  };
-}
-function cloneValue(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-function keySegments(key) {
-  return key.split(".").map((segment) => segment.trim()).filter((segment) => segment.length > 0);
-}
-function getNestedValue(root, key) {
-  if (!root || typeof root !== "object") return void 0;
-  const segments = keySegments(key);
-  let current = root;
-  for (const segment of segments) {
-    if (!current || typeof current !== "object") return void 0;
-    current = current[segment];
-  }
-  return current;
-}
-function setNestedValue(root, key, value) {
-  const segments = keySegments(key);
-  if (segments.length === 0) return;
-  let current = root;
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    const segment = segments[index];
-    const next = current[segment];
-    if (!next || typeof next !== "object" || Array.isArray(next)) {
-      current[segment] = {};
-    }
-    current = current[segment];
-  }
-  current[segments[segments.length - 1]] = value;
-}
-var SETTINGS_REGISTRY = [
-  entry({
-    key: "ui.language",
-    type: "enum",
-    enumValues: ["zh-CN"],
-    defaultValue: "zh-CN",
-    risk: "LOW",
-    description: "\u63A7\u5236\u53F0\u8BED\u8A00\u3002"
-  }),
-  entry({
-    key: "ui.theme",
-    type: "enum",
-    enumValues: ["dark", "light", "system"],
-    defaultValue: "dark",
-    risk: "LOW",
-    description: "\u63A7\u5236\u53F0\u4E3B\u9898\u3002"
-  }),
-  entry({
-    key: "ui.dashboard.openOnStart",
-    type: "boolean",
-    defaultValue: true,
-    risk: "LOW",
-    description: "\u542F\u52A8\u65F6\u81EA\u52A8\u6253\u5F00\u63A7\u5236\u53F0\u3002"
-  }),
-  entry({
-    key: "ui.dashboard.dockAutoLaunch",
-    type: "boolean",
-    defaultValue: false,
-    risk: "LOW",
-    description: "\u542F\u52A8\u65F6\u81EA\u52A8\u62C9\u8D77 Windows Dock\uFF08\u9ED8\u8BA4\u5173\u95ED\uFF0C\u907F\u514D\u53CD\u590D\u62C9\u8D77\uFF09\u3002"
-  }),
-  entry({
-    key: "ui.dashboard.autoOpenCooldownMs",
-    type: "integer",
-    minimum: 1e4,
-    maximum: 144e4,
-    defaultValue: 12e4,
-    risk: "LOW",
-    description: "\u81EA\u52A8\u6253\u5F00\u63A7\u5236\u53F0\u7684\u8DE8\u8FDB\u7A0B\u51B7\u5374\u65F6\u95F4\uFF08\u6BEB\u79D2\uFF09\u3002"
-  }),
-  entry({
-    key: "ui.dashboard.startPage",
-    type: "enum",
-    enumValues: [
-      "overview",
-      "autopilot",
-      "approvals",
-      "intake",
-      "runtime",
-      "jobs",
-      "skills",
-      "killswitch"
-    ],
-    defaultValue: "overview",
-    risk: "LOW",
-    description: "\u63A7\u5236\u53F0\u9ED8\u8BA4\u9996\u9875\u3002"
-  }),
-  entry({
-    key: "ui.dashboard.refreshMs",
-    type: "integer",
-    minimum: 200,
-    maximum: 5e3,
-    defaultValue: 800,
-    risk: "LOW",
-    description: "\u63A7\u5236\u53F0\u81EA\u52A8\u5237\u65B0\u95F4\u9694\uFF08\u6BEB\u79D2\uFF09\u3002"
-  }),
-  entry({
-    key: "autopilot.enabled",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u662F\u5426\u542F\u7528\u81EA\u52A8\u5FAA\u73AF\u6267\u884C\u3002"
-  }),
-  entry({
-    key: "autopilot.maxCycles",
-    type: "integer",
-    minimum: 1,
-    maximum: 20,
-    defaultValue: 8,
-    risk: "MED",
-    description: "\u5355\u7A97\u53E3\u6700\u5927\u5FAA\u73AF\u8F6E\u6B21\uFF08\u8FDB\u5C55\u9A71\u52A8+\u4E0A\u9650\u7EA6\u675F\uFF09\u3002"
-  }),
-  entry({
-    key: "autopilot.noInterruptChat",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u81EA\u52A8\u6267\u884C\u65F6\u5C3D\u91CF\u4E0D\u6253\u65AD\u4E3B\u5BF9\u8BDD\u3002"
-  }),
-  entry({
-    key: "autopilot.stallDetection.enabled",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u542F\u7528\u505C\u6EDE\u68C0\u6D4B\u3002"
-  }),
-  entry({
-    key: "autopilot.stallDetection.maxNoImprovementCycles",
-    type: "integer",
-    minimum: 1,
-    maximum: 10,
-    defaultValue: 3,
-    risk: "MED",
-    description: "\u8FDE\u7EED\u65E0\u6539\u8FDB\u8F6E\u6B21\u9608\u503C\u3002"
-  }),
-  entry({
-    key: "autopilot.iterationDoneRequired",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u6BCF\u8F6E\u5FC5\u987B\u5199\u5165\u8FED\u4EE3\u5B8C\u6210\u8BB0\u5F55\u3002"
-  }),
-  entry({
-    key: "approval.mode",
-    type: "enum",
-    enumValues: ["self"],
-    defaultValue: "self",
-    risk: "MED",
-    description: "\u5BA1\u6279\u6A21\u5F0F\u3002"
-  }),
-  entry({
-    key: "approval.requireEvidence",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u662F\u5426\u5F3A\u5236\u8BC1\u636E\u94FE\u3002"
-  }),
-  entry({
-    key: "approval.signers",
-    type: "object",
-    defaultValue: {
-      executor: true,
-      verifier: true
-    },
-    risk: "MED",
-    description: "\u5BA1\u6279\u7B7E\u5B57\u4EBA\u914D\u7F6E\u3002"
-  }),
-  entry({
-    key: "approval.tier.default",
-    type: "enum",
-    enumValues: ["LIGHT", "STANDARD", "THOROUGH"],
-    defaultValue: "STANDARD",
-    risk: "MED",
-    description: "\u9ED8\u8BA4\u9A8C\u8BC1\u7B49\u7EA7\u3002"
-  }),
-  entry({
-    key: "approval.tier.irreversible",
-    type: "enum",
-    enumValues: ["THOROUGH"],
-    defaultValue: "THOROUGH",
-    risk: "HIGH",
-    description: "\u4E0D\u53EF\u9006\u52A8\u4F5C\u5FC5\u987B\u9A8C\u8BC1\u7B49\u7EA7\u3002"
-  }),
-  entry({
-    key: "approval.onDeny.activateKillSwitch",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u5BA1\u6279\u62D2\u7EDD\u540E\u662F\u5426\u89E6\u53D1\u6025\u505C\u3002"
-  }),
-  entry({
-    key: "intake.enabled",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u4FE1\u606F\u95F8\u95E8\u603B\u5F00\u5173\u3002"
-  }),
-  entry({
-    key: "intake.triggers.configChange",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u914D\u7F6E\u53D8\u66F4\u662F\u5426\u5F3A\u5236\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
-  }),
-  entry({
-    key: "intake.triggers.skillOrToolchainChange",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u65B0\u589E/\u542F\u7528 skill \u6216\u5DE5\u5177\u94FE\u662F\u5426\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
-  }),
-  entry({
-    key: "intake.triggers.highRiskAction",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u9AD8\u98CE\u9669\u52A8\u4F5C\u524D\u7F6E\u5B66\u4E60\u662F\u5426\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
-  }),
-  entry({
-    key: "intake.triggers.directiveContent",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u7F51\u9875\u6307\u4EE4\u578B\u5185\u5BB9\u662F\u5426\u89E6\u53D1\u4FE1\u606F\u95F8\u95E8\u3002"
-  }),
-  entry({
-    key: "intake.policy.silentAuditTrustScoreMin",
-    type: "integer",
-    minimum: 0,
-    maximum: 100,
-    defaultValue: 85,
-    risk: "MED",
-    description: "\u53EA\u8BFB\u7814\u7A76\u6765\u6E90\u8FBE\u5230\u8BE5\u4FE1\u4EFB\u5206\u540E\u6539\u4E3A\u9759\u9ED8\u5BA1\u8BA1\u3002"
-  }),
-  entry({
-    key: "intake.policy.autoWhitelistOnApprove",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u5BA1\u6279\u540C\u610F\u540E\u81EA\u52A8\u52A0\u5165\u767D\u540D\u5355\u3002"
-  }),
-  entry({
-    key: "intake.policy.autoBlacklistOnReject",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u5BA1\u6279\u62D2\u7EDD\u540E\u81EA\u52A8\u52A0\u5165\u9ED1\u540D\u5355\u3002"
-  }),
-  entry({
-    key: "intake.policy.defaultRejectScope",
-    type: "enum",
-    enumValues: ["CONTENT_FINGERPRINT", "PAGE", "PATH_PREFIX", "DOMAIN"],
-    defaultValue: "CONTENT_FINGERPRINT",
-    risk: "MED",
-    description: "\u62D2\u7EDD\u65F6\u9ED8\u8BA4\u52A0\u5165\u9ED1\u540D\u5355\u7684\u7C92\u5EA6\u3002"
-  }),
-  entry({
-    key: "intake.policy.allowTrialRunOption",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u5BA1\u6279\u9009\u9879\u4E2D\u5141\u8BB8\u201C\u4EC5\u8BD5\u8FD0\u884C\u4E00\u6B21\u201D\u3002"
-  }),
-  entry({
-    key: "intake.stats.windowN",
-    type: "integer",
-    minimum: 3,
-    maximum: 50,
-    defaultValue: 10,
-    risk: "MED",
-    description: "\u6765\u6E90\u7EDF\u8BA1\u6ED1\u52A8\u7A97\u53E3\u5927\u5C0F N\uFF08\u6309\u5BA1\u6279\u4E8B\u4EF6\uFF09\u3002"
-  }),
-  entry({
-    key: "intake.stats.hardDenyWhenUsefulLessThanRejected",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u5F53 U<R \u65F6\u9ED8\u8BA4\u5426\u51B3\u8BE5\u6765\u6E90\u3002"
-  }),
-  entry({
-    key: "intake.stats.downrankThresholdRatioX100",
-    type: "integer",
-    minimum: 100,
-    maximum: 500,
-    defaultValue: 150,
-    risk: "MED",
-    description: "\u964D\u6743\u9608\u503C\u6BD4\u7387\uFF08X100\uFF0C\u9ED8\u8BA4 150 \u8868\u793A 1.5 \u500D\uFF09\u3002"
-  }),
-  entry({
-    key: "intake.stats.downrankExplorePercent",
-    type: "integer",
-    minimum: 0,
-    maximum: 100,
-    defaultValue: 30,
-    risk: "MED",
-    description: "\u6765\u6E90\u964D\u6743\u540E\u63A2\u7D22\u6982\u7387\u767E\u5206\u6BD4\u3002"
-  }),
-  entry({
-    key: "intake.stats.sourceUnit",
-    type: "enum",
-    enumValues: ["DOMAIN_PATH_PREFIX", "DOMAIN", "PATH_PREFIX"],
-    defaultValue: "DOMAIN_PATH_PREFIX",
-    risk: "MED",
-    description: "\u6765\u6E90\u7EDF\u8BA1\u5355\u5143\u3002"
-  }),
-  entry({
-    key: "killswitch.active",
-    type: "boolean",
-    defaultValue: false,
-    risk: "HIGH",
-    description: "\u6025\u505C\u603B\u5F00\u5173\u72B6\u6001\u3002"
-  }),
-  entry({
-    key: "killswitch.lockdownOnHighRisk",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u9AD8\u98CE\u9669\u62D2\u7EDD\u540E\u8FDB\u5165\u9501\u5B9A\u3002"
-  }),
-  entry({
-    key: "killswitch.unlockPolicy",
-    type: "enum",
-    enumValues: ["explicit"],
-    defaultValue: "explicit",
-    risk: "HIGH",
-    description: "\u6025\u505C\u89E3\u9501\u7B56\u7565\u3002"
-  }),
-  entry({
-    key: "killswitch.stopTargets",
-    type: "object",
-    defaultValue: {
-      desktop: true,
-      outbound: true,
-      exec: true,
-      browser: true,
-      voice: false
-    },
-    risk: "HIGH",
-    description: "\u6025\u505C\u9700\u8981\u505C\u6B62\u7684\u76EE\u6807\u6A21\u5757\u3002"
-  }),
-  entry({
-    key: "gateway.bindHost",
-    type: "string",
-    defaultValue: "127.0.0.1",
-    risk: "MED",
-    description: "Gateway \u7ED1\u5B9A\u5730\u5740\u3002"
-  }),
-  entry({
-    key: "gateway.port",
-    type: "integer",
-    minimum: 1024,
-    maximum: 65535,
-    defaultValue: 17321,
-    risk: "MED",
-    description: "Gateway \u76D1\u542C\u7AEF\u53E3\u3002"
-  }),
-  entry({
-    key: "gateway.baseUrl",
-    type: "string",
-    defaultValue: "http://127.0.0.1:17321",
-    risk: "MED",
-    description: "Gateway \u57FA\u7840 URL\u3002"
-  }),
-  entry({
-    key: "gateway.wsPath",
-    type: "string",
-    defaultValue: "/ws",
-    risk: "MED",
-    description: "Gateway WebSocket \u8DEF\u5F84\u3002"
-  }),
-  entry({
-    key: "gateway.staticSpa.enabled",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u662F\u5426\u542F\u7528\u9759\u6001\u7F51\u9875\u63A7\u5236\u53F0\u3002"
-  }),
-  entry({
-    key: "gateway.auth.mode",
-    type: "enum",
-    enumValues: ["localToken", "none"],
-    defaultValue: "localToken",
-    risk: "HIGH",
-    description: "Gateway \u9274\u6743\u6A21\u5F0F\u3002"
-  }),
-  entry({
-    key: "runtime.backpressure.max_in_flight",
-    type: "integer",
-    minimum: 1,
-    maximum: 128,
-    defaultValue: 8,
-    risk: "MED",
-    description: "Gateway \u6700\u5927\u5E76\u53D1\u6267\u884C\u6570\u3002"
-  }),
-  entry({
-    key: "runtime.backpressure.max_queued",
-    type: "integer",
-    minimum: 1,
-    maximum: 1024,
-    defaultValue: 64,
-    risk: "MED",
-    description: "Gateway \u6700\u5927\u6392\u961F\u8BF7\u6C42\u6570\u3002"
-  }),
-  entry({
-    key: "runtime.backpressure.queue_timeout_ms",
-    type: "integer",
-    minimum: 100,
-    maximum: 12e4,
-    defaultValue: 15e3,
-    risk: "MED",
-    description: "Gateway \u6392\u961F\u8D85\u65F6\u65F6\u95F4\uFF08\u6BEB\u79D2\uFF09\u3002"
-  }),
-  entry({
-    key: "runtime.backpressure.daemon_max_pending_requests",
-    type: "integer",
-    minimum: 4,
-    maximum: 1024,
-    defaultValue: 64,
-    risk: "MED",
-    description: "Daemon Launcher \u6700\u5927\u6302\u8D77\u8BF7\u6C42\u6570\u3002"
-  }),
-  entry({
-    key: "runtime.notifications.job_toast",
-    type: "boolean",
-    defaultValue: true,
-    risk: "LOW",
-    description: "\u4EFB\u52A1\u5B8C\u6210/\u5931\u8D25\u65F6\u662F\u5426\u63A8\u9001 toast \u901A\u77E5\u3002"
-  }),
-  entry({
-    key: "runtime.multimodal.test_mode",
-    type: "boolean",
-    defaultValue: true,
-    risk: "LOW",
-    description: "\u591A\u6A21\u6001\u5355\u5143\u6D4B\u8BD5\u6A21\u5F0F\uFF08\u4F7F\u7528\u53EF\u8FFD\u6EAF\u964D\u7EA7\u8D44\u4EA7\uFF09\u3002"
-  }),
-  entry({
-    key: "security.voiceprint.strict",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u58F0\u7EB9\u6821\u9A8C\u4E25\u683C\u6A21\u5F0F\u5F00\u5173\u3002"
-  }),
-  entry({
-    key: "skills.enabled",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u662F\u5426\u542F\u7528\u6280\u80FD\u7CFB\u7EDF\u3002"
-  }),
-  entry({
-    key: "skills.packages",
-    type: "array",
-    defaultValue: [],
-    risk: "MED",
-    description: "\u5DF2\u542F\u7528\u6280\u80FD\u5305\u5217\u8868\u3002"
-  }),
-  entry({
-    key: "skills.versionLock.enabled",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u6280\u80FD\u5305\u7248\u672C\u9501\u5B9A\u3002"
-  }),
-  entry({
-    key: "skills.compat.openCodeNative",
-    type: "boolean",
-    defaultValue: true,
-    risk: "LOW",
-    description: "\u517C\u5BB9 OpenCode \u539F\u751F\u6280\u80FD\u3002"
-  }),
-  entry({
-    key: "desktop.enabled",
-    type: "boolean",
-    defaultValue: false,
-    risk: "HIGH",
-    description: "\u684C\u9762\u81EA\u52A8\u5316\u5F00\u5173\u3002"
-  }),
-  entry({
-    key: "desktop.preferUia",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u4F18\u5148 UIA \u81EA\u52A8\u5316\u3002"
-  }),
-  entry({
-    key: "desktop.requirePreSendScreenshotVerify",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u53D1\u9001\u524D\u622A\u56FE\u6838\u9A8C\u3002"
-  }),
-  entry({
-    key: "desktop.requirePostActionVerify",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u52A8\u4F5C\u540E\u72B6\u6001\u6838\u9A8C\u3002"
-  }),
-  entry({
-    key: "desktop.focusPolicy",
-    type: "enum",
-    enumValues: ["strict", "relaxed"],
-    defaultValue: "strict",
-    risk: "HIGH",
-    description: "\u684C\u9762\u7126\u70B9\u7B56\u7565\u3002"
-  }),
-  entry({
-    key: "outbound.enabled",
-    type: "boolean",
-    defaultValue: false,
-    risk: "HIGH",
-    description: "\u5916\u53D1\u6D88\u606F\u603B\u5F00\u5173\u3002"
-  }),
-  entry({
-    key: "outbound.channels",
-    type: "object",
-    defaultValue: {
-      qq: true,
-      wechat: true
-    },
-    risk: "HIGH",
-    description: "\u5916\u53D1\u6E20\u9053\u914D\u7F6E\uFF08\u4EC5 QQ/\u5FAE\u4FE1\uFF09\u3002"
-  }),
-  entry({
-    key: "outbound.requireDraftInChat",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u5916\u53D1\u524D\u5148\u5728\u5BF9\u8BDD\u4E2D\u751F\u6210\u8349\u7A3F\u3002"
-  }),
-  entry({
-    key: "outbound.requireVerifierSign",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u5916\u53D1\u524D\u5F3A\u5236 verifier \u7B7E\u5B57\u3002"
-  }),
-  entry({
-    key: "voice.enabled",
-    type: "boolean",
-    defaultValue: false,
-    risk: "HIGH",
-    description: "\u8BED\u97F3\u80FD\u529B\u603B\u5F00\u5173\u3002"
-  }),
-  entry({
-    key: "voice.input.stt",
-    type: "enum",
-    enumValues: ["local", "off"],
-    defaultValue: "local",
-    risk: "MED",
-    description: "\u8BED\u97F3\u8F93\u5165 STT \u6A21\u5F0F\u3002"
-  }),
-  entry({
-    key: "voice.output.tts",
-    type: "enum",
-    enumValues: ["local", "off"],
-    defaultValue: "local",
-    risk: "MED",
-    description: "\u8BED\u97F3\u8F93\u51FA TTS \u6A21\u5F0F\u3002"
-  }),
-  entry({
-    key: "voice.wakeWord.enabled",
-    type: "boolean",
-    defaultValue: false,
-    risk: "MED",
-    description: "\u5524\u9192\u8BCD\u5F00\u5173\u3002"
-  }),
-  entry({
-    key: "voice.oneShotMode",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u4E00\u53E5\u8BDD\u89E6\u53D1\u6A21\u5F0F\u3002"
-  }),
-  entry({
-    key: "voice.routeToChat",
-    type: "boolean",
-    defaultValue: true,
-    risk: "MED",
-    description: "\u8BED\u97F3\u8F93\u5165\u7EDF\u4E00\u5199\u5165\u4F1A\u8BDD\u3002"
-  }),
-  entry({
-    key: "git.autoPush.enabled",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u81EA\u52A8\u63A8\u9001\u5F00\u5173\u3002"
-  }),
-  entry({
-    key: "git.autoPush.remote",
-    type: "string",
-    defaultValue: "https://github.com/mmy4shadow/miya-for-opencode.git",
-    risk: "HIGH",
-    description: "\u81EA\u52A8\u63A8\u9001\u8FDC\u7AEF\u4ED3\u5E93\u3002"
-  }),
-  entry({
-    key: "git.autoPush.branchPattern",
-    type: "string",
-    defaultValue: "refs/heads/miya/<session-id>",
-    risk: "HIGH",
-    description: "\u81EA\u52A8\u63A8\u9001\u5206\u652F\u7B56\u7565\u3002"
-  }),
-  entry({
-    key: "git.autoPush.maxFileSizeMB",
-    type: "integer",
-    minimum: 1,
-    maximum: 50,
-    defaultValue: 2,
-    risk: "HIGH",
-    description: "\u81EA\u52A8\u63A8\u9001\u5355\u6587\u4EF6\u5927\u5C0F\u4E0A\u9650\u3002"
-  }),
-  entry({
-    key: "git.autoPush.blockWhenKillSwitchActive",
-    type: "boolean",
-    defaultValue: true,
-    risk: "HIGH",
-    description: "\u6025\u505C\u65F6\u963B\u65AD\u81EA\u52A8\u63A8\u9001\u3002"
-  }),
-  entry({
-    key: "git.autoPush.excludeGlobs",
-    type: "array",
-    defaultValue: [
-      ".opencode/**",
-      ".venv/**",
-      "node_modules/**",
-      "**/*.pem",
-      "**/*.key",
-      "**/.env*"
-    ],
-    risk: "HIGH",
-    description: "\u81EA\u52A8\u63A8\u9001\u6392\u9664\u5217\u8868\u3002"
-  })
-];
-var REGISTRY_MAP = new Map(
-  SETTINGS_REGISTRY.map((item) => [item.key, item])
-);
-function leafSchema(entryValue) {
-  if (entryValue.type === "boolean") return { type: "boolean" };
-  if (entryValue.type === "integer") {
-    const schema = { type: "integer" };
-    if (typeof entryValue.minimum === "number") schema.minimum = entryValue.minimum;
-    if (typeof entryValue.maximum === "number") schema.maximum = entryValue.maximum;
-    return schema;
-  }
-  if (entryValue.type === "string") return { type: "string" };
-  if (entryValue.type === "enum") {
-    return { type: "string", enum: [...entryValue.enumValues ?? []] };
-  }
-  if (entryValue.type === "array") return { type: "array" };
-  return { type: "object" };
-}
-function setSchemaAtPath(root, key, schema) {
-  const segments = keySegments(key);
-  if (segments.length === 0) return;
-  let current = root;
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    const segment = segments[index];
-    const existing = current[segment];
-    if (!existing || typeof existing !== "object") {
-      current[segment] = {
-        type: "object",
-        additionalProperties: true,
-        properties: {}
-      };
-    }
-    const node = current[segment];
-    if (!node.properties || typeof node.properties !== "object") {
-      node.properties = {};
-    }
-    current = node.properties;
-  }
-  current[segments[segments.length - 1]] = schema;
-}
-function getSettingEntry(key) {
-  return REGISTRY_MAP.get(key);
-}
-function listSettingEntries() {
-  return SETTINGS_REGISTRY.map((item) => cloneValue(item));
-}
-function buildDefaultConfig() {
-  const config3 = {};
-  for (const item of SETTINGS_REGISTRY) {
-    setNestedValue(config3, item.key, cloneValue(item.defaultValue));
-  }
-  return config3;
-}
-function buildRegistryDocument() {
-  return {
-    version: 1,
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    settings: listSettingEntries()
-  };
-}
-function buildSchemaDocument() {
-  const rootProperties = {};
-  for (const item of SETTINGS_REGISTRY) {
-    setSchemaAtPath(rootProperties, item.key, leafSchema(item));
-  }
-  return {
-    $schema: "https://json-schema.org/draft/2020-12/schema",
-    title: "Miya Config",
-    type: "object",
-    additionalProperties: true,
-    properties: rootProperties
-  };
-}
-
-// src/settings/store.ts
-import * as fs22 from "node:fs";
-import * as path22 from "node:path";
-var EMPTY_PATCH = { set: {}, unset: [] };
-function runtimeFile2(projectDir, fileName) {
-  return path22.join(getMiyaRuntimeDir(projectDir), fileName);
-}
-function ensureDir11(file3) {
-  fs22.mkdirSync(path22.dirname(file3), { recursive: true });
-}
-function cloneValue2(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-function writeJson2(file3, value) {
-  ensureDir11(file3);
-  fs22.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
-`, "utf-8");
-}
-function readJsonObject(file3) {
-  if (!fs22.existsSync(file3)) return {};
-  try {
-    const parsed = JSON.parse(fs22.readFileSync(file3, "utf-8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-    return parsed;
-  } catch {
-    return {};
-  }
-}
-function riskRank(risk) {
-  if (risk === "HIGH") return 3;
-  if (risk === "MED") return 2;
-  return 1;
-}
-function maxRisk(current, next) {
-  return riskRank(next) > riskRank(current) ? next : current;
-}
-function deepEqual(a, b) {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-function normalizePathToKey(input) {
-  const trimmed = input.trim();
-  if (!trimmed) return "";
-  if (trimmed.startsWith("/")) {
-    return trimmed.split("/").map((segment) => segment.trim()).filter((segment) => segment.length > 0).join(".");
-  }
-  return trimmed;
-}
-function normalizePatchObject(input) {
-  if ("jsonPatch" in input && Array.isArray(input.jsonPatch)) {
-    return normalizePatchInput(input.jsonPatch);
-  }
-  if ("patch" in input && input.patch !== void 0) {
-    return normalizePatchInput(input.patch);
-  }
-  const setRaw = "set" in input && input.set && typeof input.set === "object" ? input.set : null;
-  const unsetRaw = "unset" in input && Array.isArray(input.unset) ? input.unset : "reset" in input && Array.isArray(input.reset) ? input.reset : null;
-  if (setRaw || unsetRaw) {
-    const patch2 = {
-      set: {},
-      unset: []
-    };
-    const errors = [];
-    if (setRaw) {
-      for (const [key, value] of Object.entries(setRaw)) {
-        const normalizedKey = normalizePathToKey(key);
-        if (!normalizedKey) {
-          errors.push(`Invalid set key: ${key}`);
-          continue;
-        }
-        patch2.set[normalizedKey] = value;
-      }
-    }
-    if (unsetRaw) {
-      for (const key of unsetRaw) {
-        const normalizedKey = normalizePathToKey(String(key));
-        if (!normalizedKey) {
-          errors.push(`Invalid unset key: ${String(key)}`);
-          continue;
-        }
-        patch2.unset.push(normalizedKey);
-      }
-    }
-    patch2.unset = [...new Set(patch2.unset)];
-    return { patch: patch2, errors };
-  }
-  const patch = { set: {}, unset: [] };
-  for (const [key, value] of Object.entries(input)) {
-    const normalizedKey = normalizePathToKey(key);
-    if (!normalizedKey) continue;
-    patch.set[normalizedKey] = value;
-  }
-  return { patch, errors: [] };
-}
-function normalizeJsonPatchArray(input) {
-  const patch = { set: {}, unset: [] };
-  const errors = [];
-  for (const item of input) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      errors.push("JSON Patch item must be an object.");
-      continue;
-    }
-    const op = String(item.op ?? "").toLowerCase();
-    const pathValue = String(item.path ?? "");
-    const key = normalizePathToKey(pathValue);
-    if (!key) {
-      errors.push(`JSON Patch path is invalid: ${pathValue}`);
-      continue;
-    }
-    if (op === "remove") {
-      patch.unset.push(key);
-      continue;
-    }
-    if (op === "add" || op === "replace" || op === "set") {
-      patch.set[key] = item.value;
-      continue;
-    }
-    errors.push(`Unsupported JSON Patch operation: ${op}`);
-  }
-  patch.unset = [...new Set(patch.unset)];
-  return { patch, errors };
-}
-function validateValueType(entryValue, value) {
-  const valueType = entryValue.type;
-  if (valueType === "boolean") {
-    return typeof value === "boolean" ? null : `Expected boolean for ${entryValue.key}.`;
-  }
-  if (valueType === "integer") {
-    if (typeof value !== "number" || !Number.isInteger(value)) {
-      return `Expected integer for ${entryValue.key}.`;
-    }
-    if (typeof entryValue.minimum === "number" && value < entryValue.minimum) {
-      return `${entryValue.key} must be >= ${entryValue.minimum}.`;
-    }
-    if (typeof entryValue.maximum === "number" && value > entryValue.maximum) {
-      return `${entryValue.key} must be <= ${entryValue.maximum}.`;
-    }
-    return null;
-  }
-  if (valueType === "string") {
-    return typeof value === "string" ? null : `Expected string for ${entryValue.key}.`;
-  }
-  if (valueType === "enum") {
-    if (typeof value !== "string") {
-      return `Expected enum string for ${entryValue.key}.`;
-    }
-    const options = entryValue.enumValues ?? [];
-    if (!options.includes(value)) {
-      return `${entryValue.key} must be one of: ${options.join(", ")}.`;
-    }
-    return null;
-  }
-  if (valueType === "object") {
-    return value && typeof value === "object" && !Array.isArray(value) ? null : `Expected object for ${entryValue.key}.`;
-  }
-  if (valueType === "array") {
-    return Array.isArray(value) ? null : `Expected array for ${entryValue.key}.`;
-  }
-  return `Unsupported type for ${entryValue.key}.`;
-}
-function mergeConfigWithDefaults(raw) {
-  const merged = cloneValue2(raw);
-  for (const item of listSettingEntries()) {
-    const current = getNestedValue(merged, item.key);
-    if (current === void 0) {
-      setNestedValue(merged, item.key, cloneValue2(item.defaultValue));
-      continue;
-    }
-    const issue3 = validateValueType(item, current);
-    if (issue3) {
-      setNestedValue(merged, item.key, cloneValue2(item.defaultValue));
-    }
-  }
-  return merged;
-}
-function ensureSettingsFiles(projectDir) {
-  const registryPath = runtimeFile2(projectDir, "registry.json");
-  const schemaPath = runtimeFile2(projectDir, "schema.json");
-  const configPath = runtimeFile2(projectDir, "config.json");
-  writeJson2(registryPath, buildRegistryDocument());
-  writeJson2(schemaPath, buildSchemaDocument());
-  if (!fs22.existsSync(configPath)) {
-    writeJson2(configPath, buildDefaultConfig());
-    return;
-  }
-  const raw = readJsonObject(configPath);
-  const normalized = mergeConfigWithDefaults(raw);
-  writeJson2(configPath, normalized);
-}
-function readConfig(projectDir) {
-  ensureSettingsFiles(projectDir);
-  const raw = readJsonObject(runtimeFile2(projectDir, "config.json"));
-  return mergeConfigWithDefaults(raw);
-}
-function writeConfig(projectDir, config3) {
-  ensureSettingsFiles(projectDir);
-  writeJson2(runtimeFile2(projectDir, "config.json"), mergeConfigWithDefaults(config3));
-}
-function flattenConfig(config3) {
-  const flat = {};
-  for (const item of listSettingEntries()) {
-    flat[item.key] = getNestedValue(config3, item.key);
-  }
-  return flat;
-}
-function normalizePatchInput(input) {
-  if (!input) {
-    return { patch: cloneValue2(EMPTY_PATCH), errors: ["Patch payload is empty."] };
-  }
-  if (Array.isArray(input)) {
-    return normalizeJsonPatchArray(input);
-  }
-  if (typeof input !== "object") {
-    return {
-      patch: cloneValue2(EMPTY_PATCH),
-      errors: ["Patch payload must be an object or JSON Patch array."]
-    };
-  }
-  return normalizePatchObject(input);
-}
-function validateConfigPatch(projectDir, patchInput) {
-  const currentConfig = readConfig(projectDir);
-  const normalized = normalizePatchInput(patchInput);
-  const errors = [...normalized.errors];
-  const warnings = [];
-  const changes = [];
-  const keysToCheck = [
-    ...Object.keys(normalized.patch.set),
-    ...normalized.patch.unset
-  ];
-  const uniqueKeys = [...new Set(keysToCheck)];
-  for (const key of uniqueKeys) {
-    const setting = getSettingEntry(key);
-    if (!setting) {
-      errors.push(`Unknown setting key: ${key}`);
-      continue;
-    }
-    const isReset = normalized.patch.unset.includes(key);
-    const nextValue = isReset ? cloneValue2(setting.defaultValue) : normalized.patch.set[key];
-    const previousValue = getNestedValue(currentConfig, key);
-    const issue3 = validateValueType(setting, nextValue);
-    if (issue3) {
-      errors.push(issue3);
-      continue;
-    }
-    if (deepEqual(previousValue, nextValue)) {
-      warnings.push(`${key} is unchanged.`);
-      continue;
-    }
-    changes.push({
-      key,
-      operation: isReset ? "reset" : "set",
-      risk: setting.risk,
-      description: setting.description,
-      previousValue,
-      nextValue,
-      requiresEvidence: setting.requiresEvidence
-    });
-  }
-  let highestRisk = "LOW";
-  for (const change of changes) {
-    highestRisk = maxRisk(highestRisk, change.risk);
-  }
-  if (normalized.patch.set["outbound.enabled"] === true && normalized.patch.set["desktop.requirePreSendScreenshotVerify"] === false) {
-    errors.push(
-      "outbound.enabled=true \u65F6\u4E0D\u5141\u8BB8\u5C06 desktop.requirePreSendScreenshotVerify \u8BBE\u4E3A false\u3002"
-    );
-  }
-  if (changes.length === 0 && errors.length === 0) {
-    warnings.push("Patch has no effective changes.");
-  }
-  const requiredSafetyTier = highestRisk === "HIGH" ? "THOROUGH" : highestRisk === "MED" ? "STANDARD" : "LIGHT";
-  return {
-    ok: errors.length === 0 && changes.length > 0,
-    errors,
-    warnings,
-    normalizedPatch: normalized.patch,
-    changes,
-    maxRisk: highestRisk,
-    requiresEvidence: changes.some((change) => change.requiresEvidence),
-    requiredSafetyTier
-  };
-}
-function applyConfigPatch(projectDir, validation) {
-  const config3 = readConfig(projectDir);
-  for (const change of validation.changes) {
-    setNestedValue(config3, change.key, cloneValue2(change.nextValue));
-  }
-  writeConfig(projectDir, config3);
-  return {
-    updatedConfig: readConfig(projectDir),
-    applied: validation.changes
-  };
-}
-function getConfigValue(projectDir, key) {
-  const config3 = readConfig(projectDir);
-  if (!key) return flattenConfig(config3);
-  return getNestedValue(config3, key);
-}
-
-// src/settings/tools.ts
-import { spawn as spawn3 } from "node:child_process";
-
-// src/safety/evidence.ts
-import * as fs23 from "node:fs";
-import * as path23 from "node:path";
-var MAX_OUTPUT = 8e3;
-var LARGE_FILE_LIMIT = 2 * 1024 * 1024;
-var SECRET_RULES = [
-  { name: "openai", pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
-  { name: "github_pat", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/ },
-  { name: "slack_token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/ },
-  { name: "aws_key", pattern: /\bAKIA[0-9A-Z]{16}\b/ },
-  { name: "private_key", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ }
-];
-function truncate(text) {
-  if (text.length <= MAX_OUTPUT) return text;
-  return `${text.slice(0, MAX_OUTPUT)}
-...[truncated]`;
-}
-async function runCommand2(projectDir, command, timeoutMs = 6e4) {
-  const result = await runProcess(command[0], command.slice(1), {
-    cwd: projectDir,
-    timeoutMs
-  });
-  const stdout = truncate(result.stdout);
-  const stderr = truncate(result.stderr);
-  return {
-    ok: result.exitCode === 0 && !result.timedOut,
-    code: result.exitCode,
-    stdout,
-    stderr: result.timedOut ? `${stderr}
-[timeout]` : stderr
-  };
-}
-function scanSecrets(content) {
-  const hits = [];
-  for (const rule of SECRET_RULES) {
-    if (rule.pattern.test(content)) {
-      hits.push(rule.name);
-    }
-  }
-  return hits;
-}
-async function collectSafetyEvidence(projectDir, tier) {
-  const checks = [];
-  const evidence = [];
-  const issues = [];
-  const status = await runCommand2(projectDir, ["git", "status", "--porcelain"]);
-  checks.push("git status --porcelain");
-  evidence.push(`git_status_exit=${status.code}`);
-  if (status.stdout) evidence.push(`git_status:
-${status.stdout}`);
-  if (!status.ok) issues.push(`git status failed: ${status.stderr || status.code}`);
-  const diffStat = await runCommand2(projectDir, ["git", "diff", "--stat"]);
-  checks.push("git diff --stat");
-  evidence.push(`git_diff_stat_exit=${diffStat.code}`);
-  if (diffStat.stdout) evidence.push(`git_diff_stat:
-${diffStat.stdout}`);
-  if (!diffStat.ok) issues.push(`git diff --stat failed: ${diffStat.stderr || diffStat.code}`);
-  const changed = await runCommand2(projectDir, ["git", "diff", "--name-only"]);
-  const changedFiles = changed.stdout.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
-  if (changedFiles.some((file3) => file3.startsWith("miya-src/"))) {
-    const test = await runCommand2(
-      projectDir,
-      ["npm", "--prefix", "miya-src", "run", "typecheck"],
-      12e4
-    );
-    checks.push("npm --prefix miya-src run typecheck");
-    evidence.push(`miya_typecheck_exit=${test.code}`);
-    if (test.stdout) evidence.push(`miya_typecheck_stdout:
-${test.stdout}`);
-    if (test.stderr) evidence.push(`miya_typecheck_stderr:
-${test.stderr}`);
-    if (!test.ok) issues.push("miya-src typecheck failed");
-  }
-  if (tier === "THOROUGH") {
-    const diff = await runCommand2(projectDir, ["git", "diff"]);
-    checks.push("git diff");
-    evidence.push(`git_diff_exit=${diff.code}`);
-    const diffText = [diff.stdout, diff.stderr].filter(Boolean).join("\n");
-    if (diffText) evidence.push(`git_diff:
-${diffText}`);
-    if (!diff.ok) issues.push(`git diff failed: ${diff.stderr || diff.code}`);
-    const secretHits = scanSecrets(diffText);
-    if (secretHits.length > 0) {
-      issues.push(`secret scan matched: ${secretHits.join(", ")}`);
-    }
-    checks.push("secret scan (workspace diff)");
-    const oversized = changedFiles.map((file3) => {
-      const full = path23.join(projectDir, file3);
-      if (!fs23.existsSync(full)) return null;
-      const stat = fs23.statSync(full);
-      if (!stat.isFile()) return null;
-      if (stat.size <= LARGE_FILE_LIMIT) return null;
-      return `${file3} (${stat.size} bytes)`;
-    }).filter((line) => line !== null);
-    checks.push("large file scan (2MB)");
-    if (oversized.length > 0) {
-      issues.push(`large file threshold exceeded: ${oversized.join(", ")}`);
-    }
-  }
-  return {
-    pass: issues.length === 0,
-    checks,
-    evidence,
-    issues
-  };
-}
-
-// src/safety/verifier.ts
-function extractText(parts) {
-  return parts.filter((part) => typeof part.text === "string").map((part) => String(part.text)).join("\n").trim();
-}
-function parseVerdict(text) {
-  const allow = /\bVERDICT:\s*ALLOW\b/i.test(text);
-  const deny = /\bVERDICT:\s*DENY\b/i.test(text);
-  const summaryMatch = /REASON:\s*([^\n]+)/i.exec(text);
-  if (allow && !deny) {
-    return {
-      verdict: "allow",
-      summary: summaryMatch?.[1]?.trim() ?? "Verifier allowed action.",
-      raw: text
-    };
-  }
-  return {
-    verdict: "deny",
-    summary: summaryMatch?.[1]?.trim() ?? "Verifier denied action.",
-    raw: text
-  };
-}
-async function runVerifier(ctx, input) {
-  const prompt = [
-    "You are the safety verifier.",
-    "Do not call tools. Text response only.",
-    "Reject if evidence is insufficient or issues are non-empty.",
-    "",
-    `trace_id=${input.traceID}`,
-    `request_hash=${input.requestHash}`,
-    `tier=${input.tier}`,
-    `action=${input.action}`,
-    "",
-    "checks:",
-    ...input.checks.map((check3) => `- ${check3}`),
-    "",
-    "issues:",
-    ...input.issues.length > 0 ? input.issues.map((issue3) => `- ${issue3}`) : ["- none"],
-    "",
-    "evidence:",
-    ...input.evidence.slice(0, 20).map((item) => `- ${item}`),
-    "",
-    "Respond in exact format:",
-    "VERDICT: ALLOW|DENY",
-    "REASON: <single sentence>"
-  ].join("\n");
-  try {
-    const response = await ctx.client.session.prompt({
-      path: { id: input.sessionID },
-      body: {
-        agent: "4-architecture-advisor",
-        parts: [{ type: "text", text: prompt }]
-      },
-      query: { directory: ctx.directory }
-    });
-    const text = extractText(
-      response.data?.parts ?? []
-    );
-    if (!text) {
-      return {
-        verdict: "deny",
-        summary: "Verifier returned empty response.",
-        raw: ""
-      };
-    }
-    return parseVerdict(text);
-  } catch (error92) {
-    return {
-      verdict: "deny",
-      summary: error92 instanceof Error ? error92.message : String(error92),
-      raw: ""
-    };
-  }
-}
-
-// src/settings/tools.ts
-var z2 = tool.schema;
-function formatValue(value) {
-  if (value === void 0) return "undefined";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-function formatValidationResult(validation) {
-  const lines = [
-    `ok=${validation.ok}`,
-    `risk=${validation.maxRisk}`,
-    `required_tier=${validation.requiredSafetyTier}`,
-    `requires_evidence=${validation.requiresEvidence}`,
-    `changes=${validation.changes.length}`
-  ];
-  if (validation.errors.length > 0) {
-    lines.push(`errors=${validation.errors.join(" | ")}`);
-  }
-  if (validation.warnings.length > 0) {
-    lines.push(`warnings=${validation.warnings.join(" | ")}`);
-  }
-  if (validation.changes.length > 0) {
-    lines.push(
-      `changed_keys=${validation.changes.map((item) => item.key).join(", ")}`
-    );
-  }
-  return lines.join("\n");
-}
-function openUrl(url3) {
-  if (process.platform === "win32") {
-    const child2 = spawn3("cmd", ["/c", "start", "", url3], {
-      detached: true,
-      stdio: "ignore"
-    });
-    child2.unref();
-    return;
-  }
-  if (process.platform === "darwin") {
-    const child2 = spawn3("open", [url3], { detached: true, stdio: "ignore" });
-    child2.unref();
-    return;
-  }
-  const child = spawn3("xdg-open", [url3], { detached: true, stdio: "ignore" });
-  child.unref();
-}
-function stringifyPatch(input) {
-  try {
-    return JSON.stringify(input);
-  } catch {
-    return String(input);
-  }
-}
-function safetyTierFromValidation(validation) {
-  if (validation.requiredSafetyTier === "THOROUGH") return "THOROUGH";
-  if (validation.requiredSafetyTier === "STANDARD") return "STANDARD";
-  return "LIGHT";
-}
-function createConfigTools(ctx) {
-  const miya_config_get = tool({
-    description: "Read Miya runtime config by key (or all flattened keys).",
-    args: {
-      key: z2.string().optional().describe("Setting key, e.g. ui.language")
-    },
-    async execute(args) {
-      const key = args.key ? String(args.key) : void 0;
-      const value = getConfigValue(ctx.directory, key);
-      if (key) {
-        return `key=${key}
-value=${formatValue(value)}`;
-      }
-      return formatValue(value);
-    }
-  });
-  const miya_registry_list = tool({
-    description: "List all writable Miya settings from registry with risk/type/default info.",
-    args: {},
-    async execute() {
-      return formatValue({ settings: listSettingEntries() });
-    }
-  });
-  const miya_config_validate = tool({
-    description: "Validate config patch without writing (type/range/conflict/risk checks).",
-    args: {
-      patch: z2.any().describe("Patch payload: {set,unset} or JSON Patch array")
-    },
-    async execute(args) {
-      return formatValidationResult(
-        validateConfigPatch(ctx.directory, args.patch)
-      );
-    }
-  });
-  const miya_config_patch = tool({
-    description: "Apply Miya config patch with self-approval audit. HIGH risk enforces THOROUGH verification.",
-    args: {
-      patch: z2.any().describe("Patch payload: {set,unset} or JSON Patch array"),
-      reason: z2.string().optional().describe("Reason for this change")
-    },
-    async execute(args, toolContext) {
-      const sessionID2 = toolContext && typeof toolContext === "object" && "sessionID" in toolContext ? String(toolContext.sessionID) : "main";
-      const validation = validateConfigPatch(ctx.directory, args.patch);
-      if (!validation.ok) {
-        return formatValidationResult(validation);
-      }
-      const traceID = createTraceId();
-      const reason = args.reason && String(args.reason).trim().length > 0 ? String(args.reason).trim() : "config_patch";
-      const action = `miya.config.patch ${reason}`;
-      const tier = safetyTierFromValidation(validation);
-      let allow = true;
-      let verifierSummary = "LOW/MED \u914D\u7F6E\u53D8\u66F4\u81EA\u52A8\u901A\u8FC7\u3002";
-      let checks = ["config patch validation"];
-      let evidence = [
-        `patch=${stringifyPatch(args.patch)}`,
-        `risk=${validation.maxRisk}`,
-        `required_tier=${validation.requiredSafetyTier}`
-      ];
-      let issues = [];
-      if (validation.maxRisk === "HIGH") {
-        const kill = readKillSwitch(ctx.directory);
-        if (kill.active) {
-          allow = false;
-          verifierSummary = "Kill switch \u5DF2\u6FC0\u6D3B\uFF0C\u62D2\u7EDD\u9AD8\u98CE\u9669\u914D\u7F6E\u53D8\u66F4\u3002";
-          issues = ["kill_switch_active"];
-        } else {
-          const collected = await collectSafetyEvidence(ctx.directory, "THOROUGH");
-          checks = [...checks, ...collected.checks];
-          evidence = [...evidence, ...collected.evidence.slice(0, 20)];
-          issues = [...collected.issues];
-          const verifier = await runVerifier(ctx, {
-            sessionID: sessionID2,
-            traceID,
-            requestHash: `config:${traceID}`,
-            tier: "THOROUGH",
-            action,
-            checks,
-            evidence,
-            issues
-          });
-          verifierSummary = verifier.summary;
-          allow = collected.pass && verifier.verdict === "allow";
-        }
-      }
-      writeSelfApprovalRecord(ctx.directory, {
-        trace_id: traceID,
-        session_id: sessionID2,
-        request_hash: `config:${traceID}`,
-        action,
-        tier,
-        status: allow ? "allow" : "deny",
-        reason: allow ? verifierSummary : `config_patch_denied:${verifierSummary}`,
-        checks: checks.slice(0, 20),
-        evidence: evidence.slice(0, 30),
-        executor: {
-          agent: "executor",
-          plan: action
-        },
-        verifier: {
-          agent: "4-architecture-advisor",
-          verdict: allow ? "allow" : "deny",
-          summary: verifierSummary
-        },
-        rollback: {
-          strategy: "\u4F7F\u7528\u540C\u4E00\u5DE5\u5177\u63D0\u4EA4\u53CD\u5411 patch \u56DE\u6EDA\u3002"
-        }
-      });
-      if (!allow) {
-        activateKillSwitch(
-          ctx.directory,
-          `config_patch_denied:${verifierSummary}`,
-          traceID
-        );
-        return [
-          "VERDICT=DENY",
-          `trace_id=${traceID}`,
-          `risk=${validation.maxRisk}`,
-          `reason=${verifierSummary}`,
-          `changed_keys=${validation.changes.map((item) => item.key).join(", ")}`
-        ].join("\n");
-      }
-      const applied = applyConfigPatch(ctx.directory, validation);
-      return [
-        "VERDICT=ALLOW",
-        `trace_id=${traceID}`,
-        `risk=${validation.maxRisk}`,
-        `required_tier=${validation.requiredSafetyTier}`,
-        `changed_keys=${applied.applied.map((item) => item.key).join(", ")}`
-      ].join("\n");
-    }
-  });
-  const miya_ui_open = tool({
-    description: "Open Miya \u672C\u5730\u63A7\u5236\u53F0\u9875\u9762\uFF08\u9ED8\u8BA4\u6D4F\u89C8\u5668\uFF09\u3002",
-    args: {},
-    async execute() {
-      let state2 = ensureGatewayRunning(ctx.directory);
-      let healthy = await probeGatewayAlive(state2.url);
-      if (!healthy) {
-        stopGateway(ctx.directory);
-        state2 = ensureGatewayRunning(ctx.directory);
-        healthy = await probeGatewayAlive(state2.url, 1200);
-      }
-      if (!healthy) {
-        return `opened=false
-reason=gateway_unhealthy
-url=${state2.url}`;
-      }
-      openUrl(state2.url);
-      return `opened=${state2.url}`;
-    }
-  });
-  return {
-    miya_config_get,
-    miya_config_validate,
-    miya_config_patch,
-    miya_registry_list,
-    miya_ui_open
-  };
-}
-
-// src/daemon/ws-protocol.ts
-var JsonValue = external_exports.lazy(
-  () => external_exports.union([external_exports.string(), external_exports.number(), external_exports.boolean(), external_exports.null(), external_exports.array(JsonValue), external_exports.record(external_exports.string(), JsonValue)])
-);
-var JsonObject = external_exports.record(external_exports.string(), JsonValue);
-var DaemonHelloFrameSchema = external_exports.object({
-  type: external_exports.literal("hello"),
-  clientID: external_exports.string().min(1).max(120).optional(),
-  role: external_exports.enum(["plugin", "ui", "unknown"]).default("plugin"),
-  protocolVersion: external_exports.string().default("1.0"),
-  auth: external_exports.object({
-    token: external_exports.string().min(1)
-  }).optional()
-});
-var DaemonRequestFrameSchema = external_exports.object({
-  type: external_exports.literal("request"),
-  id: external_exports.string().min(1),
-  method: external_exports.string().min(1),
-  params: JsonObject.default({})
-});
-var DaemonResponseFrameSchema = external_exports.object({
-  type: external_exports.literal("response"),
-  id: external_exports.string(),
-  ok: external_exports.boolean(),
-  result: JsonValue.optional(),
-  error: external_exports.object({
-    code: external_exports.string(),
-    message: external_exports.string(),
-    details: JsonValue.optional()
-  }).optional()
-});
-var DaemonEventFrameSchema = external_exports.object({
-  type: external_exports.literal("event"),
-  event: external_exports.string().min(1),
-  payload: JsonValue
-});
-var DaemonPingFrameSchema = external_exports.object({
-  type: external_exports.literal("ping"),
-  ts: external_exports.number().int().nonnegative()
-});
-var DaemonPongFrameSchema = external_exports.object({
-  type: external_exports.literal("pong"),
-  ts: external_exports.number().int().nonnegative()
-});
-var DaemonIncomingFrameSchema = external_exports.union([
-  DaemonHelloFrameSchema,
-  DaemonRequestFrameSchema,
-  DaemonPingFrameSchema
-]);
-var DaemonOutgoingFrameSchema = external_exports.union([
-  DaemonResponseFrameSchema,
-  DaemonEventFrameSchema,
-  DaemonPongFrameSchema
-]);
-function parseDaemonOutgoingFrame(input) {
-  try {
-    const value = typeof input === "string" ? JSON.parse(input) : input;
-    const frame = DaemonOutgoingFrameSchema.parse(value);
-    return { frame };
-  } catch (error92) {
-    return { error: error92 instanceof Error ? error92.message : "invalid_frame" };
-  }
-}
-
-// src/daemon/launcher.ts
-var runtimes = /* @__PURE__ */ new Map();
-var resolvedNodeBinaryCache;
-function emitLauncherEvent(runtime, type, payload) {
-  if (runtime.listeners.size === 0) return;
-  const event = {
-    type,
-    at: nowIso10(),
-    payload,
-    snapshot: { ...runtime.snapshot }
-  };
-  for (const listener of runtime.listeners) {
-    try {
-      listener(event);
-    } catch {
-    }
-  }
-}
-function syncBackpressureSnapshot(runtime) {
-  runtime.snapshot.pendingRequests = runtime.pending.size;
-  runtime.snapshot.rejectedRequests = runtime.rejectedRequests;
-  runtime.snapshot.lastRejectReason = runtime.lastRejectReason;
-}
-function nowIso10() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function daemonDir(projectDir) {
-  return path24.join(getMiyaRuntimeDir(projectDir), "daemon");
-}
-function daemonPidFile(projectDir) {
-  return path24.join(daemonDir(projectDir), "daemon.pid");
-}
-function ensureDaemonDir(projectDir) {
-  fs24.mkdirSync(daemonDir(projectDir), { recursive: true });
-}
-function safeWriteJson(filePath14, payload) {
-  fs24.mkdirSync(path24.dirname(filePath14), { recursive: true });
-  fs24.writeFileSync(filePath14, `${JSON.stringify(payload, null, 2)}
-`, "utf-8");
-}
-function safeReadJson(filePath14) {
-  if (!fs24.existsSync(filePath14)) return null;
-  try {
-    const parsed = JSON.parse(fs24.readFileSync(filePath14, "utf-8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-function toDaemonLock(raw) {
-  if (!raw) return null;
-  const pid = Number(raw.pid);
-  const wsPort = Number(raw.wsPort);
-  const token = String(raw.token ?? "");
-  const updatedAt = String(raw.updatedAt ?? "");
-  if (!Number.isFinite(pid) || !Number.isFinite(wsPort) || !token || !updatedAt) return null;
-  return { pid, wsPort, token, updatedAt };
-}
-function resolveHostScriptPath(projectDir) {
-  const here = path24.dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    path24.join(here, "host.ts"),
-    path24.join(here, "host.js"),
-    path24.join(projectDir, "src", "daemon", "host.ts"),
-    path24.join(projectDir, "dist", "daemon", "host.js"),
-    path24.join(projectDir, "miya-src", "src", "daemon", "host.ts"),
-    path24.join(projectDir, "miya-src", "dist", "daemon", "host.js")
-  ];
-  for (const candidate of candidates) {
-    if (fs24.existsSync(candidate)) return candidate;
-  }
-  return path24.join(here, "host.js");
-}
-function noteLaunchFailure(runtime, reason) {
-  runtime.consecutiveLaunchFailures += 1;
-  runtime.lastRejectReason = reason;
-  if (runtime.consecutiveLaunchFailures >= runtime.maxConsecutiveLaunchFailures) {
-    runtime.retryHalted = true;
-    runtime.connected = false;
-    runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = `Miya Daemon Retry Halted (${reason})`;
-  }
-  syncBackpressureSnapshot(runtime);
-}
-function resetLaunchFailureState(runtime) {
-  runtime.consecutiveLaunchFailures = 0;
-  runtime.retryHalted = false;
-  runtime.lastRejectReason = void 0;
-  syncBackpressureSnapshot(runtime);
-}
-function resolveNodeBinary() {
-  if (resolvedNodeBinaryCache !== void 0) return resolvedNodeBinaryCache;
-  const configured = process.env.MIYA_NODE_BIN?.trim();
-  const windowsNodeCandidates = process.platform === "win32" ? [
-    path24.join(process.env.ProgramFiles ?? "C:\\Program Files", "nodejs", "node.exe"),
-    path24.join(
-      process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
-      "nodejs",
-      "node.exe"
-    ),
-    path24.join(process.env.LOCALAPPDATA ?? "", "Programs", "nodejs", "node.exe")
-  ] : [];
-  const candidates = [
-    configured || null,
-    (() => {
-      const execBase = path24.basename(process.execPath).toLowerCase();
-      return execBase === "node" || execBase === "node.exe" ? process.execPath : null;
-    })(),
-    ...windowsNodeCandidates,
-    process.platform === "win32" ? "node.exe" : "node"
-  ].filter((item) => Boolean(item));
-  for (const candidate of candidates) {
-    try {
-      const probe = spawnSync4(candidate, ["--version"], {
-        stdio: ["ignore", "ignore", "ignore"],
-        timeout: 2e3,
-        windowsHide: true
-      });
-      if (probe.status === 0) {
-        resolvedNodeBinaryCache = candidate;
-        return candidate;
-      }
-    } catch {
-    }
-  }
-  return null;
-}
-function resolveLifecycleMode(projectDir) {
-  if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === "service") return "service_experimental";
-  if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === "coupled") return "coupled";
-  const config3 = readConfig(projectDir);
-  const runtime = config3.runtime ?? {};
-  return runtime.service_mode_experimental === true ? "service_experimental" : "coupled";
-}
-function spawnDaemon(runtime) {
-  if (runtime.retryHalted) {
-    return false;
-  }
-  if (runtime.lifecycleMode === "service_experimental") {
-    runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = "Miya Daemon Service Mode (attach only)";
-    return false;
-  }
-  const now = Date.now();
-  if (now - runtime.lastSpawnAttemptAtMs < 3e3) {
-    return false;
-  }
-  runtime.lastSpawnAttemptAtMs = now;
-  cleanupExistingDaemon(runtime.projectDir);
-  const nodeBinary = resolveNodeBinary();
-  if (!nodeBinary) {
-    runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = "Miya Daemon Disabled (node_not_found)";
-    noteLaunchFailure(runtime, "node_not_found");
-    return false;
-  }
-  const binaryBase = path24.basename(nodeBinary).toLowerCase();
-  if (binaryBase.includes("powershell") || binaryBase === "pwsh.exe") {
-    runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = "Miya Daemon Disabled (invalid_runtime_binary)";
-    noteLaunchFailure(runtime, "invalid_runtime_binary");
-    return false;
-  }
-  const hostScript = resolveHostScriptPath(runtime.projectDir);
-  const nodeArgs = [
-    ...hostScript.endsWith(".ts") ? ["--import", "tsx"] : [],
-    hostScript,
-    "--project-dir",
-    runtime.projectDir,
-    "--parent-lock-file",
-    runtime.parentLockFile,
-    "--token",
-    runtime.daemonToken
-  ];
-  spawn4(
-    nodeBinary,
-    nodeArgs,
-    {
-      cwd: path24.dirname(hostScript),
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true
-    }
-  ).unref();
-  return true;
-}
-function readPidFile(projectDir) {
-  const file3 = daemonPidFile(projectDir);
-  if (!fs24.existsSync(file3)) return null;
-  const raw = fs24.readFileSync(file3, "utf-8").trim();
-  const pid = Number(raw);
-  if (!Number.isFinite(pid) || pid <= 0) return null;
-  return pid;
-}
-function isPidAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function cleanupExistingDaemon(projectDir) {
-  const stalePid = readPidFile(projectDir);
-  if (!stalePid || !isPidAlive(stalePid)) return;
-  try {
-    process.kill(stalePid);
-  } catch {
-  }
-}
-function writeParentLock(runtime) {
-  safeWriteJson(runtime.parentLockFile, {
-    pid: process.pid,
-    plugin: "miya",
-    updatedAt: nowIso10()
-  });
-}
-function connectWebSocket(runtime, lock) {
-  const url3 = `ws://127.0.0.1:${lock.wsPort}/ws?token=${encodeURIComponent(runtime.daemonToken)}`;
-  const ws = new WebSocket(url3);
-  runtime.ws = ws;
-  ws.onopen = () => {
-    resetLaunchFailureState(runtime);
-    runtime.connected = true;
-    runtime.reconnectBackoffMs = 1e3;
-    runtime.snapshot.statusText = "Miya Daemon Connected";
-    runtime.snapshot.connected = true;
-    runtime.snapshot.port = lock.wsPort;
-    runtime.snapshot.pid = lock.pid;
-    const hello = DaemonHelloFrameSchema.parse({
-      type: "hello",
-      clientID: `plugin-${process.pid}`,
-      role: "plugin",
-      protocolVersion: "1.0",
-      auth: { token: runtime.daemonToken }
-    });
-    ws.send(JSON.stringify(hello));
-    startHeartbeat(runtime);
-    startStatusPoll(runtime);
-  };
-  ws.onmessage = (event) => {
-    const parsed = parseDaemonOutgoingFrame(event.data);
-    if (!parsed.frame) return;
-    const frame = parsed.frame;
-    if (frame.type === "pong") {
-      runtime.lastPongAt = Date.now();
-      if (runtime.pingWatchdog) clearTimeout(runtime.pingWatchdog);
-      return;
-    }
-    if (frame.type === "response") {
-      if (frame.id === "hello" && frame.ok) return;
-      const pending = runtime.pending.get(frame.id);
-      if (pending) {
-        runtime.pending.delete(frame.id);
-        clearTimeout(pending.timeout);
-        syncBackpressureSnapshot(runtime);
-        if (frame.ok) {
-          pending.resolve(frame.result);
-        } else {
-          pending.reject(new Error(frame.error?.message ?? "daemon_request_failed"));
-        }
-      }
-      return;
-    }
-    if (frame.type === "event" && frame.event === "daemon.ready") {
-      runtime.snapshot.statusText = "Miya Daemon Connected";
-      runtime.snapshot.connected = true;
-      emitLauncherEvent(runtime, "daemon.ready");
-      return;
-    }
-    if (frame.type === "event" && frame.event === "job.progress") {
-      const payload = frame.payload && typeof frame.payload === "object" && !Array.isArray(frame.payload) ? frame.payload : {};
-      runtime.snapshot.activeJobID = typeof payload.jobID === "string" ? payload.jobID : runtime.snapshot.activeJobID;
-      runtime.snapshot.activeJobProgress = typeof payload.progress === "number" ? Math.floor(payload.progress) : runtime.snapshot.activeJobProgress;
-      runtime.snapshot.statusText = typeof payload.status === "string" && payload.status ? payload.status : runtime.snapshot.statusText;
-      emitLauncherEvent(runtime, "job.progress", payload);
-    }
-  };
-  ws.onerror = () => {
-    runtime.connected = false;
-    runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = "Miya Daemon Reconnecting";
-  };
-  ws.onclose = () => {
-    noteLaunchFailure(runtime, "ws_closed");
-    runtime.connected = false;
-    runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = "Miya Daemon Disconnected";
-    emitLauncherEvent(runtime, "daemon.disconnected");
-    stopHeartbeat(runtime);
-    stopStatusPoll(runtime);
-    scheduleReconnect(runtime);
-  };
-}
-function daemonRequest(runtime, method, params, timeoutMs = 8e3) {
-  if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) {
-    runtime.lastRejectReason = "ws_not_open";
-    runtime.rejectedRequests += 1;
-    syncBackpressureSnapshot(runtime);
-    return Promise.reject(new Error("daemon_ws_not_open"));
-  }
-  if (runtime.pending.size >= runtime.maxPendingRequests) {
-    runtime.lastRejectReason = "overloaded";
-    runtime.rejectedRequests += 1;
-    syncBackpressureSnapshot(runtime);
-    return Promise.reject(
-      new Error(
-        `daemon_backpressure_overloaded:pending=${runtime.pending.size}:max=${runtime.maxPendingRequests}`
-      )
-    );
-  }
-  runtime.reqSeq += 1;
-  const id = `req-${runtime.reqSeq}`;
-  const frame = DaemonRequestFrameSchema.parse({
-    type: "request",
-    id,
-    method,
-    params
-  });
-  return new Promise((resolve7, reject) => {
-    const timeout = setTimeout(() => {
-      runtime.pending.delete(id);
-      runtime.lastRejectReason = "timeout";
-      runtime.rejectedRequests += 1;
-      syncBackpressureSnapshot(runtime);
-      reject(new Error("daemon_request_timeout"));
-    }, Math.max(1e3, timeoutMs));
-    runtime.pending.set(id, { resolve: resolve7, reject, timeout });
-    syncBackpressureSnapshot(runtime);
-    runtime.ws?.send(JSON.stringify(frame));
-  });
-}
-function startHeartbeat(runtime) {
-  stopHeartbeat(runtime);
-  runtime.pingTimer = setInterval(() => {
-    if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) return;
-    const ping = DaemonPingFrameSchema.parse({
-      type: "ping",
-      ts: Date.now()
-    });
-    runtime.ws.send(JSON.stringify(ping));
-    if (runtime.pingWatchdog) clearTimeout(runtime.pingWatchdog);
-    runtime.pingWatchdog = setTimeout(() => {
-      if (runtime.ws && runtime.ws.readyState === WebSocket.OPEN) {
-        runtime.ws.close();
-      }
-    }, 3e4);
-  }, 1e4);
-}
-function stopHeartbeat(runtime) {
-  if (runtime.pingTimer) clearInterval(runtime.pingTimer);
-  runtime.pingTimer = void 0;
-  if (runtime.pingWatchdog) clearTimeout(runtime.pingWatchdog);
-  runtime.pingWatchdog = void 0;
-}
-function startStatusPoll(runtime) {
-  stopStatusPoll(runtime);
-  runtime.statusTimer = setInterval(async () => {
-    try {
-      const data = await daemonRequest(runtime, "daemon.status.get", {});
-      if (!data || typeof data !== "object") return;
-      runtime.snapshot.connected = true;
-      runtime.snapshot.statusText = "Miya Daemon Connected";
-      runtime.snapshot.uptimeSec = typeof data.uptimeSec === "number" ? data.uptimeSec : runtime.snapshot.uptimeSec;
-      runtime.snapshot.cpuPercent = typeof data.cpuPercent === "number" ? data.cpuPercent : runtime.snapshot.cpuPercent;
-      runtime.snapshot.vramUsedMB = typeof data.vramUsedMB === "number" ? data.vramUsedMB : runtime.snapshot.vramUsedMB;
-      runtime.snapshot.vramTotalMB = typeof data.vramTotalMB === "number" ? data.vramTotalMB : runtime.snapshot.vramTotalMB;
-      runtime.snapshot.lastSeenAt = typeof data.lastSeenAt === "string" ? data.lastSeenAt : runtime.snapshot.lastSeenAt;
-    } catch {
-      runtime.snapshot.connected = false;
-      runtime.snapshot.statusText = "Miya Daemon Reconnecting";
-    }
-  }, 3e3);
-}
-function stopStatusPoll(runtime) {
-  if (runtime.statusTimer) clearInterval(runtime.statusTimer);
-  runtime.statusTimer = void 0;
-}
-function scheduleReconnect(runtime) {
-  if (runtime.retryHalted) return;
-  if (runtime.reconnectTimer) return;
-  const wait = runtime.reconnectBackoffMs;
-  runtime.reconnectBackoffMs = Math.min(runtime.reconnectBackoffMs * 2, 3e4);
-  runtime.reconnectTimer = setTimeout(() => {
-    runtime.reconnectTimer = void 0;
-    ensureDaemonLaunched(runtime);
-  }, wait);
-}
-function ensureDaemonLaunched(runtime) {
-  if (runtime.retryHalted) {
-    return;
-  }
-  writeParentLock(runtime);
-  if (Date.now() < runtime.launchCooldownUntilMs) {
-    return;
-  }
-  const lock = toDaemonLock(safeReadJson(runtime.daemonLockFile));
-  const lockFresh = lock && Number.isFinite(Date.parse(lock.updatedAt)) && Date.now() - Date.parse(lock.updatedAt) < 3e4;
-  const lockOwnedByLauncher = runtime.lifecycleMode === "service_experimental" ? Boolean(lock) && (runtime.daemonToken ? lock?.token === runtime.daemonToken : true) : Boolean(lock) && lock?.token === runtime.daemonToken;
-  if (!lockFresh || !lockOwnedByLauncher) {
-    if (runtime.lifecycleMode === "service_experimental") {
-      runtime.snapshot.connected = false;
-      runtime.snapshot.statusText = "Miya Daemon Service Mode (waiting for daemon lock)";
-      scheduleReconnect(runtime);
-      return;
-    }
-    if (runtime.reconnectTimer) {
-      return;
-    }
-    const spawned = spawnDaemon(runtime);
-    if (!spawned) {
-      runtime.reconnectBackoffMs = Math.max(runtime.reconnectBackoffMs, 15e3);
-      runtime.launchCooldownUntilMs = Date.now() + 15e3;
-      if (!runtime.retryHalted) {
-        noteLaunchFailure(runtime, "spawn_skipped_or_failed");
-      }
-    }
-    scheduleReconnect(runtime);
-    return;
-  }
-  if (!runtime.ws || runtime.ws.readyState >= WebSocket.CLOSING) {
-    connectWebSocket(runtime, lock);
-  }
-}
-function cleanupRuntime(runtime) {
-  if (runtime.parentBeatTimer) clearInterval(runtime.parentBeatTimer);
-  runtime.parentBeatTimer = void 0;
-  if (runtime.reconnectTimer) clearTimeout(runtime.reconnectTimer);
-  runtime.reconnectTimer = void 0;
-  stopHeartbeat(runtime);
-  stopStatusPoll(runtime);
-  for (const pending of runtime.pending.values()) {
-    clearTimeout(pending.timeout);
-    pending.reject(new Error("launcher_shutdown"));
-  }
-  runtime.pending.clear();
-  syncBackpressureSnapshot(runtime);
-  runtime.listeners.clear();
-  try {
-    runtime.ws?.close();
-  } catch {
-  }
-  runtime.ws = void 0;
-}
-function ensureMiyaLauncher(projectDir) {
-  const existing = runtimes.get(projectDir);
-  if (existing) return { ...existing.snapshot };
-  ensureDaemonDir(projectDir);
-  const lifecycleMode = resolveLifecycleMode(projectDir);
-  const config3 = readConfig(projectDir);
-  const backpressure = config3.runtime?.backpressure;
-  const configuredMaxPending = typeof backpressure?.daemon_max_pending_requests === "number" ? Number(backpressure.daemon_max_pending_requests) : Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64);
-  const configuredMaxFailures = typeof backpressure?.daemon_max_consecutive_failures === "number" ? Number(backpressure.daemon_max_consecutive_failures) : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
-  const daemonToken = lifecycleMode === "service_experimental" ? String(process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? "") : randomUUID8();
-  const runtime = {
-    projectDir,
-    lifecycleMode,
-    daemonToken,
-    parentLockFile: path24.join(daemonDir(projectDir), "parent.lock.json"),
-    daemonLockFile: path24.join(daemonDir(projectDir), "daemon.lock.json"),
-    reconnectBackoffMs: 1e3,
-    connected: false,
-    reqSeq: 0,
-    pending: /* @__PURE__ */ new Map(),
-    maxPendingRequests: Math.max(
-      4,
-      Math.floor(configuredMaxPending)
-    ),
-    rejectedRequests: 0,
-    lastRejectReason: void 0,
-    listeners: /* @__PURE__ */ new Set(),
-    lastSpawnAttemptAtMs: 0,
-    launchCooldownUntilMs: 0,
-    consecutiveLaunchFailures: 0,
-    retryHalted: false,
-    maxConsecutiveLaunchFailures: Math.max(1, Math.floor(configuredMaxFailures)),
-    snapshot: {
-      connected: false,
-      statusText: lifecycleMode === "service_experimental" ? daemonToken ? "Miya Daemon Service Mode (attach only)" : "Miya Daemon Service Mode (token missing)" : "Miya Daemon Booting",
-      lifecycleMode,
-      pendingRequests: 0,
-      rejectedRequests: 0,
-      startedAt: nowIso10()
-    }
-  };
-  syncBackpressureSnapshot(runtime);
-  runtimes.set(projectDir, runtime);
-  writeParentLock(runtime);
-  runtime.parentBeatTimer = setInterval(() => {
-    writeParentLock(runtime);
-  }, 1e4);
-  ensureDaemonLaunched(runtime);
-  return { ...runtime.snapshot };
-}
-function getLauncherDaemonSnapshot(projectDir) {
-  const runtime = runtimes.get(projectDir);
-  if (!runtime) {
-    return {
-      connected: false,
-      statusText: "Miya Daemon Not Started",
-      pendingRequests: 0,
-      rejectedRequests: 0,
-      startedAt: nowIso10()
-    };
-  }
-  syncBackpressureSnapshot(runtime);
-  return { ...runtime.snapshot };
-}
-function getLauncherBackpressureStats(projectDir) {
-  const runtime = runtimes.get(projectDir);
-  if (!runtime) {
-    return {
-      connected: false,
-      maxPendingRequests: Math.max(
-        4,
-        Math.floor(Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64))
-      ),
-      pendingRequests: 0,
-      rejectedRequests: 0
-    };
-  }
-  syncBackpressureSnapshot(runtime);
-  return {
-    connected: runtime.connected,
-    maxPendingRequests: runtime.maxPendingRequests,
-    pendingRequests: runtime.snapshot.pendingRequests,
-    rejectedRequests: runtime.snapshot.rejectedRequests,
-    lastRejectReason: runtime.snapshot.lastRejectReason
-  };
-}
-function subscribeLauncherEvents(projectDir, listener) {
-  ensureMiyaLauncher(projectDir);
-  const runtime = runtimes.get(projectDir);
-  if (!runtime) return () => {
-  };
-  runtime.listeners.add(listener);
-  return () => {
-    const current = runtimes.get(projectDir);
-    current?.listeners.delete(listener);
-  };
-}
-async function waitForDaemonConnection(runtime, timeoutMs) {
-  if (runtime.ws?.readyState === WebSocket.OPEN && runtime.connected) return;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    ensureDaemonLaunched(runtime);
-    if (runtime.ws?.readyState === WebSocket.OPEN && runtime.connected) return;
-    await new Promise((resolve7) => setTimeout(resolve7, 150));
-  }
-  throw new Error("daemon_connect_timeout");
-}
-async function daemonInvoke(projectDir, method, params, timeoutMs = 6e4) {
-  ensureMiyaLauncher(projectDir);
-  const runtime = runtimes.get(projectDir);
-  if (!runtime) throw new Error("daemon_runtime_missing");
-  await waitForDaemonConnection(runtime, Math.min(timeoutMs, 15e3));
-  return daemonRequest(runtime, method, params, timeoutMs);
-}
-process.on("exit", () => {
-  for (const runtime of runtimes.values()) {
-    cleanupRuntime(runtime);
-    try {
-      fs24.rmSync(runtime.parentLockFile, { force: true });
-    } catch {
-    }
-  }
-});
-
-// src/daemon/client.ts
-var MiyaClient = class {
-  constructor(projectDir) {
-    this.projectDir = projectDir;
-    ensureMiyaLauncher(projectDir);
-  }
-  async runFluxImageGenerate(input) {
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.flux.generate",
-      input,
-      24e4
-    );
-  }
-  async runSovitsTts(input) {
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.sovits.tts",
-      input,
-      18e4
-    );
-  }
-  async runFluxTraining(input) {
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.training.flux",
-      input,
-      35 * 6e4
-    );
-  }
-  async runSovitsTraining(input) {
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.training.sovits",
-      input,
-      35 * 6e4
-    );
-  }
-  async requestTrainingCancel(jobID) {
-    await daemonInvoke(this.projectDir, "daemon.training.cancel", { jobID }, 15e3);
-  }
-  async getPythonRuntimeStatus() {
-    return daemonInvoke(this.projectDir, "daemon.python.env.get", {}, 15e3);
-  }
-  async getModelLockStatus() {
-    return daemonInvoke(this.projectDir, "daemon.model.locks.get", {}, 15e3);
-  }
-  async getModelUpdatePlan(target) {
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.model.update.plan",
-      target ? { target } : {},
-      2e4
-    );
-  }
-  async applyModelUpdate(target) {
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.model.update.apply",
-      target ? { target } : {},
-      3e4
-    );
-  }
-  async runIsolatedProcess(input) {
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.process.run_isolated",
-      input,
-      Math.max(3e4, input.timeoutMs ?? 12e4) + 1e4
-    );
-  }
-  async psycheConsult(input) {
-    const timeoutMs = Math.max(
-      1e3,
-      Math.floor(Number(process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS ?? 3e3))
-    );
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.psyche.consult",
-      input,
-      timeoutMs
-    );
-  }
-  async psycheOutcome(input) {
-    return daemonInvoke(
-      this.projectDir,
-      "daemon.psyche.outcome",
-      input,
-      15e3
-    );
-  }
-};
-var clients = /* @__PURE__ */ new Map();
-function getMiyaClient(projectDir) {
-  const existing = clients.get(projectDir);
-  if (existing) return existing;
-  const created = new MiyaClient(projectDir);
-  clients.set(projectDir, created);
-  return created;
-}
-
-// src/security/owner-identity.ts
-import { createHash as createHash8, randomUUID as randomUUID9 } from "node:crypto";
-import * as fs25 from "node:fs";
-import * as path25 from "node:path";
 function nowIso11() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
-function filePath5(projectDir) {
-  return path25.join(getMiyaRuntimeDir(projectDir), "security", "owner-identity.json");
+function filePath6(projectDir) {
+  return path24.join(getMiyaRuntimeDir(projectDir), "learning-skill-drafts.json");
 }
-function guestAuditPath(projectDir) {
-  return path25.join(getMiyaRuntimeDir(projectDir), "security", "guest-conversations.jsonl");
+function normalizeText(text) {
+  return String(text ?? "").replace(/\s+/g, " ").trim();
 }
-function clamp(input, min, max) {
-  if (!Number.isFinite(input)) return min;
-  return Math.min(max, Math.max(min, input));
+function tokenize(text) {
+  return Array.from(
+    new Set(
+      normalizeText(text).toLowerCase().split(/[^a-z0-9_\-\u4e00-\u9fff]+/i).map((item) => item.trim()).filter((item) => item.length >= 2)
+    )
+  );
 }
-function defaultVoiceprintThresholds() {
+function hashText2(text) {
+  return createHash7("sha256").update(text).digest("hex").slice(0, 16);
+}
+function ensureDir11(projectDir) {
+  fs24.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+}
+function clamp2(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function normalizeDraft(raw) {
+  const now = nowIso11();
   return {
-    ownerMinScore: 0.78,
-    guestMaxScore: 0.62,
-    ownerMinLiveness: 0.65,
-    guestMaxLiveness: 0.55,
-    ownerMinDiarizationRatio: 0.7,
-    minSampleDurationSec: 2,
-    farTarget: 0.01,
-    frrTarget: 0.03
+    id: String(raw.id ?? `draft_${randomUUID6()}`),
+    source: raw.source === "reflect" ? "reflect" : "ralph",
+    status: raw.status === "accepted" || raw.status === "rejected" || raw.status === "recommended" || raw.status === "draft" ? raw.status : "draft",
+    title: normalizeText(String(raw.title ?? "")),
+    problemPattern: normalizeText(String(raw.problemPattern ?? "")),
+    solutionPattern: normalizeText(String(raw.solutionPattern ?? "")),
+    commands: Array.isArray(raw.commands) ? raw.commands.map(String).map(normalizeText).filter(Boolean) : [],
+    tags: Array.isArray(raw.tags) ? raw.tags.map(String).map((item) => item.trim().toLowerCase()).filter(Boolean) : [],
+    confidence: clamp2(Number(raw.confidence ?? 0.5), 0.1, 0.99),
+    uses: clamp2(Number(raw.uses ?? 0), 0, 1e6),
+    pendingUses: clamp2(Number(raw.pendingUses ?? 0), 0, 1e6),
+    hits: clamp2(Number(raw.hits ?? 0), 0, 1e6),
+    misses: clamp2(Number(raw.misses ?? 0), 0, 1e6),
+    createdAt: raw.createdAt ? String(raw.createdAt) : now,
+    updatedAt: raw.updatedAt ? String(raw.updatedAt) : now
   };
 }
-function normalizeVoiceprintThresholds(input) {
-  const base = defaultVoiceprintThresholds();
-  const normalized = {
-    ownerMinScore: typeof input?.ownerMinScore === "number" ? clamp(input.ownerMinScore, 0.5, 0.99) : base.ownerMinScore,
-    guestMaxScore: typeof input?.guestMaxScore === "number" ? clamp(input.guestMaxScore, 0.01, 0.9) : base.guestMaxScore,
-    ownerMinLiveness: typeof input?.ownerMinLiveness === "number" ? clamp(input.ownerMinLiveness, 0.1, 0.99) : base.ownerMinLiveness,
-    guestMaxLiveness: typeof input?.guestMaxLiveness === "number" ? clamp(input.guestMaxLiveness, 0.01, 0.9) : base.guestMaxLiveness,
-    ownerMinDiarizationRatio: typeof input?.ownerMinDiarizationRatio === "number" ? clamp(input.ownerMinDiarizationRatio, 0.1, 1) : base.ownerMinDiarizationRatio,
-    minSampleDurationSec: typeof input?.minSampleDurationSec === "number" ? clamp(input.minSampleDurationSec, 0.5, 20) : base.minSampleDurationSec,
-    farTarget: typeof input?.farTarget === "number" ? clamp(input.farTarget, 1e-4, 0.5) : base.farTarget,
-    frrTarget: typeof input?.frrTarget === "number" ? clamp(input.frrTarget, 1e-4, 0.5) : base.frrTarget
-  };
-  if (normalized.guestMaxScore >= normalized.ownerMinScore) {
-    normalized.guestMaxScore = Math.max(0.01, normalized.ownerMinScore - 0.05);
-  }
-  return normalized;
-}
-function defaultState2() {
-  return {
-    initialized: false,
-    mode: "unknown",
-    voiceprintModelPath: "",
-    voiceprintSampleDir: "",
-    voiceprintThresholds: defaultVoiceprintThresholds(),
-    updatedAt: nowIso11()
-  };
-}
-function hashSecret(input) {
-  return createHash8("sha256").update(input).digest("hex");
-}
-function defaultVoiceprintModelPath(projectDir) {
-  return process.env.MIYA_VOICEPRINT_MODEL_PATH || getMiyaVoiceprintModelDir(projectDir);
-}
-function defaultVoiceprintSampleDir(projectDir) {
-  return process.env.MIYA_VOICEPRINT_SAMPLE_DIR || getMiyaVoiceprintSampleDir(projectDir);
-}
-function readOwnerIdentityState(projectDir) {
-  const file3 = filePath5(projectDir);
-  if (!fs25.existsSync(file3)) {
-    return {
-      ...defaultState2(),
-      voiceprintModelPath: defaultVoiceprintModelPath(projectDir),
-      voiceprintSampleDir: defaultVoiceprintSampleDir(projectDir)
-    };
-  }
+function readStore6(projectDir) {
+  const file3 = filePath6(projectDir);
+  if (!fs24.existsSync(file3)) return { drafts: [] };
   try {
-    const parsed = JSON.parse(fs25.readFileSync(file3, "utf-8"));
-    return {
-      ...defaultState2(),
-      ...parsed,
-      voiceprintModelPath: typeof parsed.voiceprintModelPath === "string" ? parsed.voiceprintModelPath : defaultVoiceprintModelPath(projectDir),
-      voiceprintSampleDir: typeof parsed.voiceprintSampleDir === "string" ? parsed.voiceprintSampleDir : defaultVoiceprintSampleDir(projectDir),
-      voiceprintThresholds: normalizeVoiceprintThresholds(parsed.voiceprintThresholds),
-      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso11()
-    };
+    const parsed = JSON.parse(
+      fs24.readFileSync(file3, "utf-8")
+    );
+    const drafts = Array.isArray(parsed?.drafts) ? parsed.drafts.map((item) => normalizeDraft(item)) : [];
+    return { drafts };
   } catch {
-    return {
-      ...defaultState2(),
-      voiceprintModelPath: defaultVoiceprintModelPath(projectDir),
-      voiceprintSampleDir: defaultVoiceprintSampleDir(projectDir)
-    };
+    return { drafts: [] };
   }
 }
-function writeOwnerIdentityState(projectDir, state2) {
-  const file3 = filePath5(projectDir);
-  fs25.mkdirSync(path25.dirname(file3), { recursive: true });
-  const next = {
-    ...state2,
-    voiceprintThresholds: normalizeVoiceprintThresholds(state2.voiceprintThresholds),
-    updatedAt: nowIso11()
-  };
-  fs25.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
-`, "utf-8");
+function writeStore6(projectDir, store2) {
+  ensureDir11(projectDir);
+  fs24.writeFileSync(
+    filePath6(projectDir),
+    `${JSON.stringify(store2, null, 2)}
+`,
+    "utf-8"
+  );
+}
+function findSimilarDraftIndex(drafts, candidate) {
+  const signature = hashText2(
+    `${candidate.source}|${candidate.problemPattern}|${candidate.solutionPattern}|${candidate.commands.join("|")}`
+  );
+  return drafts.findIndex((item) => {
+    const current = hashText2(
+      `${item.source}|${item.problemPattern}|${item.solutionPattern}|${item.commands.join("|")}`
+    );
+    return current === signature;
+  });
+}
+function upsertDraft(projectDir, draft) {
+  const store2 = readStore6(projectDir);
+  const index = findSimilarDraftIndex(store2.drafts, draft);
+  if (index >= 0) {
+    const current = store2.drafts[index];
+    const merged = normalizeDraft({
+      ...current,
+      ...draft,
+      id: current.id,
+      createdAt: current.createdAt,
+      confidence: current.confidence * 0.7 + draft.confidence * 0.3,
+      status: current.status === "accepted" || current.status === "rejected" ? current.status : draft.status,
+      tags: Array.from(/* @__PURE__ */ new Set([...current.tags, ...draft.tags])).slice(0, 12),
+      updatedAt: nowIso11()
+    });
+    store2.drafts[index] = merged;
+    writeStore6(projectDir, store2);
+    return merged;
+  }
+  const next = normalizeDraft(draft);
+  store2.drafts = [next, ...store2.drafts].slice(0, 500);
+  writeStore6(projectDir, store2);
   return next;
 }
-function initOwnerIdentity(projectDir, input) {
-  const current = readOwnerIdentityState(projectDir);
-  const next = {
-    ...current,
-    initialized: true,
-    passwordHash: hashSecret(input.password),
-    passphraseHash: hashSecret(input.passphrase),
-    voiceprintEmbeddingID: input.voiceprintEmbeddingID || current.voiceprintEmbeddingID || `owner_${randomUUID9()}`,
-    voiceprintModelPath: input.voiceprintModelPath || current.voiceprintModelPath || defaultVoiceprintModelPath(projectDir),
-    voiceprintSampleDir: input.voiceprintSampleDir || current.voiceprintSampleDir || defaultVoiceprintSampleDir(projectDir),
-    voiceprintThresholds: normalizeVoiceprintThresholds({
-      ...current.voiceprintThresholds,
-      ...input.voiceprintThresholds ?? {}
-    }),
-    mode: "owner",
-    lastSpeakerAt: nowIso11(),
-    updatedAt: nowIso11()
-  };
-  return writeOwnerIdentityState(projectDir, next);
-}
-function verifyOwnerSecrets(projectDir, input) {
-  const state2 = readOwnerIdentityState(projectDir);
-  if (!state2.initialized || !state2.passwordHash || !state2.passphraseHash) return false;
-  const passOk = typeof input.password === "string" && hashSecret(input.password) === state2.passwordHash;
-  const phraseOk = typeof input.passphrase === "string" && hashSecret(input.passphrase) === state2.passphraseHash;
-  return passOk || phraseOk;
-}
-function verifyOwnerPasswordOnly(projectDir, password) {
-  const state2 = readOwnerIdentityState(projectDir);
-  if (!state2.initialized || !state2.passwordHash) return false;
-  if (typeof password !== "string" || !password) return false;
-  return hashSecret(password) === state2.passwordHash;
-}
-function rotateOwnerSecrets(projectDir, input) {
-  if (!verifyOwnerSecrets(projectDir, {
-    password: input.currentPassword,
-    passphrase: input.currentPassphrase
-  })) {
-    throw new Error("owner_secret_verification_failed");
-  }
-  const state2 = readOwnerIdentityState(projectDir);
-  return writeOwnerIdentityState(projectDir, {
-    ...state2,
-    initialized: true,
-    passwordHash: hashSecret(input.newPassword),
-    passphraseHash: hashSecret(input.newPassphrase),
-    mode: "owner",
-    lastSpeakerAt: nowIso11(),
-    updatedAt: nowIso11()
-  });
-}
-function updateVoiceprintThresholds(projectDir, patch) {
-  const current = readOwnerIdentityState(projectDir);
-  return writeOwnerIdentityState(projectDir, {
-    ...current,
-    voiceprintThresholds: normalizeVoiceprintThresholds({
-      ...current.voiceprintThresholds,
-      ...patch
-    }),
-    updatedAt: nowIso11()
-  });
-}
-function resolveInteractionMode(projectDir, input) {
-  const hint = (input.speakerHint || "").trim().toLowerCase();
-  if (hint === "owner" || hint === "guest" || hint === "unknown") {
-    return hint;
-  }
-  const state2 = readOwnerIdentityState(projectDir);
-  if (!state2.initialized) return "unknown";
-  if (typeof input.speakerScore === "number") {
-    if (input.speakerScore >= state2.voiceprintThresholds.ownerMinScore) return "owner";
-    if (input.speakerScore < state2.voiceprintThresholds.guestMaxScore) return "guest";
-  }
-  return state2.mode === "owner" ? "owner" : "unknown";
-}
-function setInteractionMode(projectDir, mode) {
-  const current = readOwnerIdentityState(projectDir);
-  return writeOwnerIdentityState(projectDir, {
-    ...current,
-    mode,
-    lastSpeakerAt: nowIso11(),
-    updatedAt: nowIso11()
-  });
-}
-function appendGuestConversation(projectDir, input) {
-  const file3 = guestAuditPath(projectDir);
-  fs25.mkdirSync(path25.dirname(file3), { recursive: true });
-  const row = {
-    id: `guest_${randomUUID9()}`,
-    at: nowIso11(),
-    source: input.source,
-    sessionID: input.sessionID,
-    text: input.text
-  };
-  fs25.appendFileSync(file3, `${JSON.stringify(row)}
-`, "utf-8");
-}
-
-// src/security/owner-sync.ts
-import { randomUUID as randomUUID10 } from "node:crypto";
-import * as fs26 from "node:fs";
-import * as path26 from "node:path";
-function nowIso12() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function storeFile(projectDir) {
-  return path26.join(getMiyaRuntimeDir(projectDir), "security", "owner-sync.json");
-}
-function readStore4(projectDir) {
-  const file3 = storeFile(projectDir);
-  if (!fs26.existsSync(file3)) return { tokens: [] };
-  try {
-    const parsed = JSON.parse(fs26.readFileSync(file3, "utf-8"));
-    return Array.isArray(parsed.tokens) ? parsed : { tokens: [] };
-  } catch {
-    return { tokens: [] };
-  }
-}
-function writeStore4(projectDir, store2) {
-  const file3 = storeFile(projectDir);
-  fs26.mkdirSync(path26.dirname(file3), { recursive: true });
-  fs26.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
-`, "utf-8");
-}
-function purgeExpired(tokens) {
-  const now = Date.now();
-  return tokens.filter((item) => {
-    const expiresAt = Date.parse(item.expiresAt);
-    if (!Number.isFinite(expiresAt)) return false;
-    if (expiresAt < now && item.status === "pending") return false;
-    return true;
-  });
-}
-function normalizeToken(input) {
-  return input.trim().toUpperCase();
-}
-function createToken() {
-  return `OS${randomUUID10().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
-}
-function issueOwnerSyncToken(projectDir, input) {
-  const ttlMs = Math.max(6e4, Number(input.ttlMs ?? 10 * 6e4));
-  const store2 = readStore4(projectDir);
-  store2.tokens = purgeExpired(store2.tokens);
-  const now = Date.now();
-  const existing = store2.tokens.find(
-    (item) => item.status === "pending" && item.action === input.action && item.payloadHash === input.payloadHash && Date.parse(item.expiresAt) > now
+function draftScoreForQuery(draft, query) {
+  const queryTokens = tokenize(query);
+  if (queryTokens.length === 0) return 0;
+  const targetTokens = new Set(
+    tokenize(
+      `${draft.title} ${draft.problemPattern} ${draft.solutionPattern} ${draft.tags.join(" ")}`
+    )
   );
-  if (existing) {
-    writeStore4(projectDir, store2);
-    return existing;
+  let overlap = 0;
+  for (const token of queryTokens) {
+    if (targetTokens.has(token)) overlap += 1;
   }
-  const createdAt = nowIso12();
-  const record3 = {
-    token: createToken(),
-    action: input.action,
-    payloadHash: input.payloadHash,
-    status: "pending",
-    createdAt,
-    expiresAt: new Date(now + ttlMs).toISOString()
-  };
-  store2.tokens.unshift(record3);
-  store2.tokens = store2.tokens.slice(0, 500);
-  writeStore4(projectDir, store2);
-  return record3;
+  const overlapScore = overlap / queryTokens.length;
+  const quality = draft.confidence;
+  const statusBoost = draft.status === "accepted" ? 0.12 : draft.status === "recommended" ? 0.06 : 0;
+  return clamp2(overlapScore * 0.75 + quality * 0.25 + statusBoost, 0, 1);
 }
-function approveOwnerSyncToken(projectDir, input) {
-  const token = normalizeToken(input.token);
-  if (!token) return { ok: false, reason: "owner_sync_token_empty" };
-  const store2 = readStore4(projectDir);
-  store2.tokens = purgeExpired(store2.tokens);
-  const found = store2.tokens.find((item) => item.token === token);
-  if (!found) {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: "owner_sync_token_not_found" };
-  }
-  if (found.status !== "pending") {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: `owner_sync_token_not_pending:${found.status}` };
-  }
-  if (Date.parse(found.expiresAt) <= Date.now()) {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: "owner_sync_token_expired" };
-  }
-  found.status = "approved";
-  found.approvedAt = nowIso12();
-  found.approvedBy = { channel: input.channel, senderID: input.senderID };
-  writeStore4(projectDir, store2);
-  return { ok: true, record: found };
+function matchDrafts(projectDir, query, threshold, limit) {
+  const store2 = readStore6(projectDir);
+  return store2.drafts.filter((draft) => draft.status !== "rejected").map((draft) => ({ draft, score: draftScoreForQuery(draft, query) })).filter((item) => item.score >= threshold).sort((a, b) => b.score - a.score).slice(0, Math.max(1, limit));
 }
-function verifyOwnerSyncToken(projectDir, input) {
-  const token = normalizeToken(input.token);
-  if (!token) return { ok: false, reason: "owner_sync_token_empty" };
-  const store2 = readStore4(projectDir);
-  store2.tokens = purgeExpired(store2.tokens);
-  const found = store2.tokens.find((item) => item.token === token);
-  if (!found) {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: "owner_sync_token_not_found" };
-  }
-  if (found.status !== "approved") {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: `owner_sync_token_not_approved:${found.status}` };
-  }
-  if (found.action !== input.action) {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: "owner_sync_token_action_mismatch" };
-  }
-  if (found.payloadHash !== input.payloadHash) {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: "owner_sync_token_payload_mismatch" };
-  }
-  if (Date.parse(found.expiresAt) <= Date.now()) {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: "owner_sync_token_expired" };
-  }
-  writeStore4(projectDir, store2);
-  return { ok: true, record: found };
+function listSkillDrafts(projectDir, input) {
+  const limit = Math.max(
+    1,
+    Math.min(200, Math.floor(Number(input?.limit ?? 50)))
+  );
+  const store2 = readStore6(projectDir);
+  return store2.drafts.filter((draft) => input?.status ? draft.status === input.status : true).slice(0, limit);
 }
-function consumeOwnerSyncToken(projectDir, tokenInput) {
-  const token = normalizeToken(tokenInput);
-  if (!token) return { ok: false, reason: "owner_sync_token_empty" };
-  const store2 = readStore4(projectDir);
-  store2.tokens = purgeExpired(store2.tokens);
-  const found = store2.tokens.find((item) => item.token === token);
-  if (!found) {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: "owner_sync_token_not_found" };
-  }
-  if (found.status !== "approved") {
-    writeStore4(projectDir, store2);
-    return { ok: false, reason: `owner_sync_token_not_approved:${found.status}` };
-  }
-  found.status = "consumed";
-  found.consumedAt = nowIso12();
-  writeStore4(projectDir, store2);
-  return { ok: true };
-}
-function detectOwnerSyncTokenFromText(text) {
-  const normalized = text.trim();
-  if (!normalized) return null;
-  const matched = /(?:同意|确认|approve|confirm|ok)\s*[:：#]?\s*([a-z0-9_-]{6,64})/i.exec(normalized) ?? /(?:\/miya\s+confirm)\s+([a-z0-9_-]{6,64})/i.exec(normalized);
-  if (!matched?.[1]) return null;
-  return normalizeToken(matched[1]);
-}
-
-// src/voice/state.ts
-import * as fs27 from "node:fs";
-import * as path27 from "node:path";
-import { randomUUID as randomUUID11 } from "node:crypto";
-function nowIso13() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function filePath6(projectDir) {
-  return path27.join(getMiyaRuntimeDir(projectDir), "voice.json");
-}
-function ensureDir12(file3) {
-  fs27.mkdirSync(path27.dirname(file3), { recursive: true });
-}
-function defaultState3() {
-  return {
-    enabled: false,
-    wakeWordEnabled: false,
-    talkMode: false,
-    routeSessionID: "main",
-    sttProvider: "local",
-    ttsProvider: "local",
-    history: []
-  };
-}
-function readVoiceState(projectDir) {
-  const file3 = filePath6(projectDir);
-  if (!fs27.existsSync(file3)) return defaultState3();
-  try {
-    const parsed = JSON.parse(fs27.readFileSync(file3, "utf-8"));
-    return {
-      ...defaultState3(),
-      ...parsed,
-      history: Array.isArray(parsed.history) ? parsed.history : []
-    };
-  } catch {
-    return defaultState3();
-  }
-}
-function writeVoiceState(projectDir, state2) {
-  const file3 = filePath6(projectDir);
-  ensureDir12(file3);
-  fs27.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
-`, "utf-8");
-  return state2;
-}
-function patchVoiceState(projectDir, patch) {
-  const current = readVoiceState(projectDir);
-  const next = {
+function setSkillDraftStatus(projectDir, draftID, status, usage) {
+  const store2 = readStore6(projectDir);
+  const index = store2.drafts.findIndex((item) => item.id === draftID);
+  if (index < 0) return null;
+  const current = store2.drafts[index];
+  const next = normalizeDraft({
     ...current,
-    ...patch
-  };
-  return writeVoiceState(projectDir, next);
+    status: status ?? current.status,
+    uses: usage ? current.uses + 1 : current.uses,
+    pendingUses: usage?.settlePending ? Math.max(0, current.pendingUses - 1) : current.pendingUses,
+    hits: usage ? current.hits + (usage.hit ? 1 : 0) : current.hits,
+    misses: usage ? current.misses + (usage.hit ? 0 : 1) : current.misses,
+    updatedAt: nowIso11()
+  });
+  store2.drafts[index] = next;
+  writeStore6(projectDir, store2);
+  return next;
 }
-function appendVoiceHistory(projectDir, input) {
-  const state2 = readVoiceState(projectDir);
-  const item = {
-    id: `voice_${randomUUID11()}`,
-    text: input.text,
-    source: input.source,
-    language: input.language,
-    mediaID: input.mediaID,
-    createdAt: nowIso13()
-  };
-  const next = {
-    ...state2,
-    lastInputAt: item.createdAt,
-    lastTranscript: item.text,
-    history: [item, ...state2.history].slice(0, 200)
-  };
-  writeVoiceState(projectDir, next);
-  return item;
+function markSkillDraftPendingUsage(projectDir, draftID) {
+  const store2 = readStore6(projectDir);
+  const index = store2.drafts.findIndex((item) => item.id === draftID);
+  if (index < 0) return null;
+  const current = store2.drafts[index];
+  const next = normalizeDraft({
+    ...current,
+    pendingUses: current.pendingUses + 1,
+    updatedAt: nowIso11()
+  });
+  store2.drafts[index] = next;
+  writeStore6(projectDir, store2);
+  return next;
 }
-function clearVoiceHistory(projectDir) {
-  const state2 = readVoiceState(projectDir);
-  return writeVoiceState(projectDir, {
-    ...state2,
-    history: [],
-    lastInputAt: void 0,
-    lastTranscript: void 0
+function settleSkillDraftUsage(projectDir, draftID, hit) {
+  return setSkillDraftStatus(projectDir, draftID, void 0, {
+    hit,
+    settlePending: true
   });
 }
-
-// src/config/provider-override-audit.ts
-import * as fs28 from "node:fs";
-import * as path28 from "node:path";
-function providerOverrideAuditFile(projectDir) {
-  return path28.join(getMiyaRuntimeDir(projectDir), "audit", "provider-overrides.jsonl");
-}
-function appendProviderOverrideAudit(projectDir, input) {
-  const entry2 = {
-    at: (/* @__PURE__ */ new Date()).toISOString(),
-    source: input.source,
-    agentName: input.agentName,
-    model: input.model,
-    providerID: input.providerID,
-    activeAgentId: input.activeAgentId,
-    hasApiKey: input.hasApiKey,
-    hasBaseURL: input.hasBaseURL,
-    optionKeys: [...input.optionKeys].sort()
+function getLearningStats(projectDir) {
+  const drafts = readStore6(projectDir).drafts;
+  const byStatus = {
+    draft: 0,
+    recommended: 0,
+    accepted: 0,
+    rejected: 0
   };
-  const file3 = providerOverrideAuditFile(projectDir);
-  fs28.mkdirSync(path28.dirname(file3), { recursive: true });
-  fs28.appendFileSync(file3, `${JSON.stringify(entry2)}
-`, "utf-8");
-  return entry2;
+  let totalUses = 0;
+  let totalPendingUses = 0;
+  let totalHits = 0;
+  for (const draft of drafts) {
+    byStatus[draft.status] += 1;
+    totalUses += draft.uses;
+    totalPendingUses += draft.pendingUses;
+    totalHits += draft.hits;
+  }
+  return {
+    total: drafts.length,
+    byStatus,
+    totalUses,
+    totalPendingUses,
+    hitRate: totalUses > 0 ? Number((totalHits / totalUses).toFixed(4)) : 0
+  };
 }
-function listProviderOverrideAudits(projectDir, limit = 50) {
-  const file3 = providerOverrideAuditFile(projectDir);
-  if (!fs28.existsSync(file3)) return [];
-  const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
-  const lines = fs28.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean);
-  return lines.slice(-safeLimit).map((line) => {
-    try {
-      return JSON.parse(line);
-    } catch {
-      return null;
-    }
-  }).filter((item) => item !== null).reverse();
-}
-
-// src/gateway/agent-model-api.ts
-var AgentModelRuntimeApi = class {
-  constructor(projectDir) {
-    this.projectDir = projectDir;
-  }
-  list() {
-    const runtime = readPersistedAgentRuntime(this.projectDir);
-    const agents = [];
-    for (const agentName of ALL_AGENT_NAMES) {
-      const entry2 = runtime.agents[agentName];
-      const model = entry2?.model ?? DEFAULT_MODELS[agentName];
-      const source = entry2?.model ? "runtime" : "default";
-      agents.push({
-        agentName,
-        model,
-        providerID: entry2?.providerID,
-        variant: entry2?.variant,
-        updatedAt: entry2?.updatedAt ?? "",
-        source,
-        active: runtime.activeAgentId === agentName,
-        healthStatus: this.resolveHealthStatus(model)
-      });
-    }
-    return {
-      activeAgentId: runtime.activeAgentId,
-      revision: runtime.revision,
-      agents
-    };
-  }
-  set(input) {
-    const agentName = normalizeAgentName(input.agentName);
-    if (!agentName) {
-      throw new Error("invalid_agent_name");
-    }
-    if (!normalizeModelRef(input.model)) {
-      throw new Error("invalid_model_ref");
-    }
-    const changed = persistAgentRuntimeSelection(this.projectDir, {
-      agentName,
-      model: input.model,
-      variant: input.variant,
-      providerID: input.providerID,
-      options: input.options,
-      apiKey: input.apiKey,
-      baseURL: input.baseURL,
-      activeAgentId: input.activate === false ? void 0 : agentName
-    });
-    return { changed };
-  }
-  reset(input) {
-    const changed = removePersistedAgentRuntimeSelection(
-      this.projectDir,
-      input.agentName,
-      {
-        clearActive: input.clearActive ?? true,
-        activeAgentId: input.activeAgentId
-      }
+function buildLearningInjection(projectDir, query, input) {
+  const threshold = clamp2(Number(input?.threshold ?? 0.64), 0.3, 0.98);
+  const limit = Math.max(1, Math.min(3, Math.floor(Number(input?.limit ?? 2))));
+  const matches = matchDrafts(projectDir, query, threshold, limit);
+  if (matches.length === 0) return { snippet: void 0, matchedDraftIDs: [] };
+  const lines = [
+    "[MIYA_LEARNING_DRAFT_REUSE]",
+    "Matched historical patterns (use as guidance, then verify):"
+  ];
+  for (const item of matches) {
+    lines.push(
+      `- draft=${item.draft.id} score=${item.score.toFixed(2)} title=${item.draft.title}`
     );
-    return { changed };
+    lines.push(`  pattern=${item.draft.problemPattern}`);
+    lines.push(`  fix=${item.draft.solutionPattern}`);
+    if (item.draft.commands.length > 0) {
+      lines.push(`  commands=${item.draft.commands.join(" ; ")}`);
+    }
   }
-  resolveHealthStatus(model) {
-    if (!model) return "unavailable";
-    return isModelLikelyAvailable(model) ? "healthy" : "degraded";
-  }
-};
-
-// src/canvas/state.ts
-import { randomUUID as randomUUID12 } from "node:crypto";
-import * as fs29 from "node:fs";
-import * as path29 from "node:path";
-function nowIso14() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function filePath7(projectDir) {
-  return path29.join(getMiyaRuntimeDir(projectDir), "canvas.json");
-}
-function ensureDir13(file3) {
-  fs29.mkdirSync(path29.dirname(file3), { recursive: true });
-}
-function defaultState4() {
   return {
-    activeDocID: void 0,
-    docs: {},
-    events: []
+    snippet: lines.join("\n"),
+    matchedDraftIDs: matches.map((item) => item.draft.id)
   };
 }
-function readCanvasState(projectDir) {
-  const file3 = filePath7(projectDir);
-  if (!fs29.existsSync(file3)) return defaultState4();
-  try {
-    const parsed = JSON.parse(fs29.readFileSync(file3, "utf-8"));
-    return {
-      activeDocID: parsed.activeDocID,
-      docs: parsed.docs ?? {},
-      events: Array.isArray(parsed.events) ? parsed.events : []
-    };
-  } catch {
-    return defaultState4();
-  }
-}
-function writeCanvasState(projectDir, state2) {
-  const file3 = filePath7(projectDir);
-  ensureDir13(file3);
-  fs29.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
-`, "utf-8");
-  return state2;
-}
-function pushEvent(state2, input) {
-  state2.events = [
-    {
-      id: `canvas_evt_${randomUUID12()}`,
-      kind: input.kind,
-      docID: input.docID,
-      at: nowIso14(),
-      actor: input.actor
-    },
-    ...state2.events
-  ].slice(0, 400);
-}
-function openCanvasDoc(projectDir, input) {
-  const state2 = readCanvasState(projectDir);
-  const id = `canvas_${randomUUID12()}`;
-  const now = nowIso14();
-  const doc = {
-    id,
-    title: input.title,
-    type: input.type ?? "markdown",
-    content: input.content ?? "",
-    createdAt: now,
-    updatedAt: now
-  };
-  state2.docs[id] = doc;
-  state2.activeDocID = id;
-  pushEvent(state2, { kind: "open", docID: id, actor: input.actor ?? "gateway" });
-  writeCanvasState(projectDir, state2);
-  return doc;
-}
-function renderCanvasDoc(projectDir, input) {
-  const state2 = readCanvasState(projectDir);
-  const doc = state2.docs[input.docID];
-  if (!doc) return null;
-  doc.content = input.merge ? `${doc.content}
-${input.content}` : input.content;
-  doc.updatedAt = nowIso14();
-  state2.activeDocID = doc.id;
-  pushEvent(state2, { kind: "render", docID: doc.id, actor: input.actor ?? "gateway" });
-  writeCanvasState(projectDir, state2);
-  return doc;
-}
-function closeCanvasDoc(projectDir, docID, actor = "gateway") {
-  const state2 = readCanvasState(projectDir);
-  const doc = state2.docs[docID];
-  if (!doc) return null;
-  if (state2.activeDocID === docID) {
-    state2.activeDocID = void 0;
-  }
-  pushEvent(state2, { kind: "close", docID, actor });
-  writeCanvasState(projectDir, state2);
-  return doc;
-}
-function listCanvasDocs(projectDir) {
-  const state2 = readCanvasState(projectDir);
-  return Object.values(state2.docs).sort(
-    (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+function createSkillDraftFromRalph(projectDir, input) {
+  const fixCommands = input.result.attempts.filter((item) => item.type === "fix").map((item) => normalizeText(item.result.command)).filter(Boolean);
+  if (fixCommands.length === 0) return null;
+  const latestVerify = [...input.result.attempts].reverse().find((item) => item.type === "verify");
+  const problemSummary = normalizeText(
+    latestVerify?.failureSummary ?? input.result.summary
   );
+  const confidence = input.result.success ? 0.82 : 0.58;
+  return upsertDraft(projectDir, {
+    id: `draft_${randomUUID6()}`,
+    source: "ralph",
+    status: input.result.success ? "recommended" : "draft",
+    title: `Ralph \u4FEE\u590D\u6A21\u5F0F: ${normalizeText(input.taskDescription).slice(0, 48)}`,
+    problemPattern: problemSummary || "verification_failed_pattern",
+    solutionPattern: input.result.summary,
+    commands: fixCommands.slice(0, 4),
+    tags: ["ralph", input.result.reason ?? "unknown"],
+    confidence,
+    uses: 0,
+    pendingUses: 0,
+    hits: 0,
+    misses: 0,
+    createdAt: nowIso11(),
+    updatedAt: nowIso11()
+  });
 }
-function getCanvasDoc(projectDir, docID) {
-  const state2 = readCanvasState(projectDir);
-  return state2.docs[docID] ?? null;
+function createSkillDraftsFromReflect(projectDir, input) {
+  const memories = Array.isArray(input.createdMemories) ? input.createdMemories : [];
+  if (memories.length === 0) return [];
+  const preferenceMemories = memories.filter((item) => item.memoryKind === "UserPreference").slice(0, 6);
+  if (preferenceMemories.length === 0) return [];
+  const pattern = preferenceMemories.map((item) => item.text).join(" | ");
+  const draft = upsertDraft(projectDir, {
+    id: `draft_${randomUUID6()}`,
+    source: "reflect",
+    status: "draft",
+    title: "Reflect \u504F\u597D\u6267\u884C\u8349\u6848",
+    problemPattern: "\u4EFB\u52A1\u6267\u884C\u6D89\u53CA\u7528\u6237\u4E60\u60EF\u6216\u504F\u597D\u5224\u65AD",
+    solutionPattern: `\u4F18\u5148\u9075\u5FAA\u8FD1\u671F\u504F\u597D\u8BB0\u5FC6\uFF1A${pattern}`,
+    commands: [],
+    tags: ["reflect", "preference"],
+    confidence: 0.62,
+    uses: 0,
+    pendingUses: 0,
+    hits: 0,
+    misses: 0,
+    createdAt: nowIso11(),
+    updatedAt: nowIso11()
+  });
+  return [draft];
 }
-
-// src/companion/store.ts
-import { randomUUID as randomUUID14 } from "node:crypto";
-import * as fs31 from "node:fs";
-import * as path31 from "node:path";
-
-// src/companion/memory-vector.ts
-import { createHash as createHash9, randomUUID as randomUUID13 } from "node:crypto";
 
 // src/companion/memory-sqlite.ts
-import * as fs30 from "node:fs";
+import * as fs25 from "node:fs";
 import { createRequire } from "node:module";
-import * as path30 from "node:path";
+import * as path25 from "node:path";
 var require2 = createRequire(import.meta.url);
 function createSqlDatabase(file3) {
   try {
@@ -39689,15 +38946,15 @@ function createSqlDatabase(file3) {
   }
   throw new Error("sqlite_runtime_unavailable:requires_node_sqlite");
 }
-function nowIso15() {
+function nowIso12() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
-function normalizeText(text) {
+function normalizeText2(text) {
   return text.trim().replace(/\s+/g, " ");
 }
 function textToEmbeddingLite(text, dims = 96) {
   const vec = new Array(dims).fill(0);
-  const parts = normalizeText(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const parts = normalizeText2(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   if (parts.length === 0) return vec;
   for (const part of parts) {
     let hash3 = 0;
@@ -39714,10 +38971,10 @@ function textToEmbeddingLite(text, dims = 96) {
   return vec.map((value) => value / norm);
 }
 function memoryDir(projectDir) {
-  return path30.join(getMiyaRuntimeDir(projectDir), "memory");
+  return path25.join(getMiyaRuntimeDir(projectDir), "memory");
 }
 function sqlitePath(projectDir) {
-  return path30.join(memoryDir(projectDir), "memories.sqlite");
+  return path25.join(memoryDir(projectDir), "memories.sqlite");
 }
 function safeJsonParse(value, fallback) {
   if (typeof value !== "string" || !value.trim()) return fallback;
@@ -39865,7 +39122,7 @@ function ensureSchema(db) {
   }
 }
 function openDatabase(projectDir) {
-  fs30.mkdirSync(memoryDir(projectDir), { recursive: true });
+  fs25.mkdirSync(memoryDir(projectDir), { recursive: true });
   const db = createSqlDatabase(sqlitePath(projectDir));
   ensureSchema(db);
   return db;
@@ -39899,9 +39156,9 @@ function rowToMemory(row) {
     ),
     accessCount: Number(row.access_count ?? 0),
     isArchived: Number(row.is_archived ?? 0) === 1,
-    createdAt: String(row.created_at ?? nowIso15()),
-    updatedAt: String(row.updated_at ?? nowIso15()),
-    lastAccessedAt: String(row.last_accessed_at ?? nowIso15())
+    createdAt: String(row.created_at ?? nowIso12()),
+    updatedAt: String(row.updated_at ?? nowIso12()),
+    lastAccessedAt: String(row.last_accessed_at ?? nowIso12())
   };
 }
 function rowToCorrection(row) {
@@ -39914,8 +39171,8 @@ function rowToCorrection(row) {
       []
     ),
     status: row.status === "resolved" || row.status === "rejected" ? row.status : "pending",
-    createdAt: String(row.created_at ?? nowIso15()),
-    updatedAt: String(row.updated_at ?? nowIso15())
+    createdAt: String(row.created_at ?? nowIso12()),
+    updatedAt: String(row.updated_at ?? nowIso12())
   };
 }
 function withMemoryDb(projectDir, fn) {
@@ -40143,7 +39400,7 @@ function listRawMemoryLogs(projectDir, options) {
       sessionID: String(row.session_id ?? "main"),
       sender: row.sender === "assistant" || row.sender === "system" ? row.sender : "user",
       text: String(row.text ?? ""),
-      at: String(row.at ?? nowIso15()),
+      at: String(row.at ?? nowIso12()),
       messageHash: String(row.message_hash ?? ""),
       processedAt: typeof row.processed_at === "string" && row.processed_at.trim() ? String(row.processed_at) : void 0
     }));
@@ -40162,7 +39419,7 @@ function appendMemoryEvent(projectDir, input) {
       input.entityID,
       JSON.stringify(input.payload ?? {}),
       input.policyHash ?? null,
-      input.createdAt ?? nowIso15()
+      input.createdAt ?? nowIso12()
     );
   });
 }
@@ -40194,7 +39451,7 @@ function listMemoryEvents(projectDir, options) {
       entityID: String(row.entity_id ?? ""),
       payload: safeJsonParse(row.payload_json, {}),
       policyHash: typeof row.policy_hash === "string" && row.policy_hash.trim() ? String(row.policy_hash) : void 0,
-      createdAt: String(row.created_at ?? nowIso15())
+      createdAt: String(row.created_at ?? nowIso12())
     }));
   });
 }
@@ -40346,7 +39603,7 @@ function getEvidencePack(projectDir, auditID) {
       auditID: String(row.audit_id ?? ""),
       meta: safeJsonParse(row.meta_json, {}),
       payload: safeJsonParse(row.payload_json, {}),
-      createdAt: String(row.created_at ?? nowIso15())
+      createdAt: String(row.created_at ?? nowIso12())
     };
   });
 }
@@ -40372,7 +39629,7 @@ function buildMemoryPack(projectDir, input) {
     const l1 = base.filter((row) => String(row.tier ?? "L1") !== "L0").slice(0, l1Limit).map((row) => ({
       text: String(row.text ?? ""),
       confidence: Number(row.confidence ?? 0.5),
-      at: String(row.updated_at ?? nowIso15())
+      at: String(row.updated_at ?? nowIso12())
     }));
     const l2 = base.map(
       (row) => safeJsonParse(
@@ -40477,7 +39734,7 @@ function resolveContextFsUri(projectDir, uri) {
           title: String(scene.title ?? ""),
           summaryL0: safeJsonParse(scene.summary_l0, []),
           summaryL1: String(scene.summary_l1 ?? ""),
-          updatedAt: String(scene.updated_at ?? nowIso15()),
+          updatedAt: String(scene.updated_at ?? nowIso12()),
           cells: cells.map(rowToMemory)
         }
       };
@@ -40528,889 +39785,53 @@ function getCompanionMemorySqliteStats(projectDir) {
   });
 }
 
-// src/companion/memory-vector.ts
-function nowIso16() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function normalizeText2(text) {
-  return text.trim().replace(/\s+/g, " ");
-}
-function textToEmbedding(text, dims = 96) {
-  const vec = new Array(dims).fill(0);
-  const parts = normalizeText2(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (parts.length === 0) return vec;
-  for (const part of parts) {
-    const hash3 = createHash9("sha256").update(part).digest();
-    for (let i = 0; i < 12; i += 1) {
-      const idx = hash3[i] % dims;
-      vec[idx] += 1 + hash3[i + 12] % 3;
-    }
-  }
-  const norm = Math.sqrt(vec.reduce((sum, value) => sum + value * value, 0));
-  if (norm <= 0) return vec;
-  return vec.map((value) => value / norm);
-}
-function cosine(a, b) {
-  if (a.length !== b.length || a.length === 0) return 0;
-  let sum = 0;
-  for (let i = 0; i < a.length; i += 1) sum += a[i] * b[i];
-  return sum;
-}
-function extractConflictKey(text) {
-  const negative = text.match(
-    /(?:不喜欢|讨厌|不想|不要|避免)\s*([^，。!！?？]+)/
-  );
-  if (negative?.[1])
-    return { key: normalizeText2(negative[1]), polarity: "negative" };
-  const positive = text.match(/(?:喜欢|爱|偏好|想要|优先)\s*([^，。!！?？]+)/);
-  if (positive?.[1])
-    return { key: normalizeText2(positive[1]), polarity: "positive" };
-  return { polarity: "neutral" };
-}
-function parseTriplet(text) {
-  const parts = normalizeText2(text).split(/\s+/).filter(Boolean);
-  if (parts.length >= 3) {
-    return {
-      subject: parts[0] ?? "User",
-      predicate: parts[1] ?? "fact",
-      object: parts.slice(2).join(" ")
-    };
-  }
-  return {
-    subject: "User",
-    predicate: "stated",
-    object: normalizeText2(text)
-  };
-}
-function asPending(status) {
-  return status === "pending" || status === "candidate";
-}
-function lexicalScore(query, text) {
-  const q = normalizeText2(query).toLowerCase();
-  const t = normalizeText2(text).toLowerCase();
-  if (!q || !t) return 0;
-  if (t.includes(q)) return 1;
-  const qTokens = q.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (qTokens.length === 0) return 0;
-  let hit = 0;
-  for (const token of qTokens) if (t.includes(token)) hit += 1;
-  return hit / qTokens.length;
-}
-function graphRelationScore(query, item) {
-  const triplet = parseTriplet(query);
-  const subjectHit = lexicalScore(triplet.subject, item.subject ?? "");
-  const predicateHit = lexicalScore(triplet.predicate, item.predicate ?? "");
-  const objectHit = lexicalScore(triplet.object, item.object ?? item.text);
-  const directTripletHit = lexicalScore(
-    query,
-    `${item.subject ?? ""} ${item.predicate ?? ""} ${item.object ?? ""}`
-  );
-  return Math.max(
-    directTripletHit,
-    subjectHit * 0.2 + predicateHit * 0.4 + objectHit * 0.4
-  );
-}
-function rrfScore(rank, k = 60) {
-  return 1 / (k + rank + 1);
-}
-function qualityScore(item) {
-  const tierWeight = item.tier === "L0" ? 1 : item.tier === "L1" ? 0.8 : item.tier === "L2" ? 0.55 : 0.35;
-  const evidenceBoost = item.evidenceRef?.auditID ? 0.08 : 0;
-  const archivedPenalty = item.isArchived || item.status === "archived" ? 0.5 : 1;
-  const statusPenalty = item.status === "active" ? 1 : asPending(item.status) ? 0.75 : 0.4;
-  return Math.max(
-    0,
-    Math.min(
-      1.5,
-      (item.confidence * 0.45 + item.score * 0.35 + tierWeight * 0.2 + evidenceBoost) * archivedPenalty * statusPenalty
-    )
-  );
-}
-function appendMutationEvent(projectDir, eventType, memoryID, payload) {
-  appendMemoryEvent(projectDir, {
-    eventID: `evt_${randomUUID13()}`,
-    eventType,
-    entityType: "mem_cell",
-    entityID: memoryID,
-    payload
-  });
-}
-function decayCompanionMemoryVectors(projectDir, halfLifeDays = 30) {
-  const items = listMemoryCells(projectDir);
-  const safeHalfLife = Math.max(1, halfLifeDays);
-  const lambda = Math.log(2) / safeHalfLife;
-  const nowMs = Date.now();
-  let updated = 0;
-  const touched = [];
-  for (const item of items) {
-    if (item.status !== "active") continue;
-    const ageDays = Math.max(
-      0,
-      (nowMs - Date.parse(item.updatedAt)) / (24 * 3600 * 1e3)
-    );
-    const nextScore = Math.max(0.05, item.score * Math.exp(-lambda * ageDays));
-    if (Math.abs(nextScore - item.score) <= 1e-4) continue;
-    item.score = Number(nextScore.toFixed(4));
-    if (item.score < 0.08) item.isArchived = true;
-    item.updatedAt = nowIso16();
-    touched.push(item);
-    updated += 1;
-  }
-  if (touched.length > 0) {
-    upsertMemoryCells(projectDir, touched);
-  }
-  autoCleanupCompanionMemoryVectors(projectDir);
-  return { updated, items: listMemoryCells(projectDir) };
-}
-function autoCleanupCompanionMemoryVectors(projectDir, input) {
-  const maxActive = Math.max(100, Math.floor(input?.maxActive ?? 600));
-  const maxPendingAgeDays = Math.max(
-    1,
-    Math.floor(input?.maxPendingAgeDays ?? 45)
-  );
-  const minQualityToKeep = Math.max(
-    0.05,
-    Math.min(1.5, Number(input?.minQualityToKeep ?? 0.18))
-  );
-  const nowMs = Date.now();
-  const cells = listMemoryCells(projectDir);
-  const touched = [];
-  let archived = 0;
-  let superseded = 0;
-  for (const cell of cells) {
-    const ageDays = Math.max(
-      0,
-      (nowMs - Date.parse(cell.updatedAt)) / (24 * 3600 * 1e3)
-    );
-    if (asPending(cell.status) && ageDays > maxPendingAgeDays) {
-      cell.status = "superseded";
-      cell.updatedAt = nowIso16();
-      touched.push(cell);
-      superseded += 1;
-      appendMutationEvent(
-        projectDir,
-        "memory_auto_cleanup_pending_expired",
-        cell.id,
-        {
-          ageDays: Number(ageDays.toFixed(2))
-        }
-      );
-      continue;
-    }
-    if (cell.status === "active" && qualityScore(cell) < minQualityToKeep && ageDays > 14) {
-      cell.isArchived = true;
-      cell.status = "archived";
-      cell.updatedAt = nowIso16();
-      touched.push(cell);
-      archived += 1;
-      appendMutationEvent(
-        projectDir,
-        "memory_auto_cleanup_low_quality",
-        cell.id,
-        {
-          quality: Number(qualityScore(cell).toFixed(4)),
-          ageDays: Number(ageDays.toFixed(2))
-        }
-      );
-    }
-  }
-  const active = cells.filter(
-    (item) => item.status === "active" && !item.isArchived
-  );
-  if (active.length > maxActive) {
-    const overflow = active.map((item) => ({
-      item,
-      q: qualityScore(item),
-      age: Date.parse(item.updatedAt)
-    })).sort((a, b) => a.q - b.q || a.age - b.age).slice(0, active.length - maxActive);
-    for (const row of overflow) {
-      row.item.isArchived = true;
-      row.item.status = "archived";
-      row.item.updatedAt = nowIso16();
-      touched.push(row.item);
-      archived += 1;
-      appendMutationEvent(
-        projectDir,
-        "memory_auto_cleanup_capacity",
-        row.item.id,
-        {
-          quality: Number(row.q.toFixed(4))
-        }
-      );
-    }
-  }
-  if (touched.length > 0) {
-    upsertMemoryCells(projectDir, touched);
-  }
-  const retained = listMemoryCells(projectDir).filter(
-    (item) => item.status === "active" && !item.isArchived
-  ).length;
-  return { archived, superseded, retained };
-}
-function upsertCompanionMemoryVector(projectDir, input) {
-  const text = normalizeText2(input.text);
-  if (!text) throw new Error("invalid_memory_text");
-  decayCompanionMemoryVectors(projectDir);
-  const items = listMemoryCells(projectDir);
-  const embedding = textToEmbedding(text);
-  const now = nowIso16();
-  const near = items.filter((item) => item.status === "active").map((item) => ({ item, sim: cosine(item.embedding, embedding) })).sort((a, b) => b.sim - a.sim)[0];
-  if (near && near.sim >= 0.95) {
-    near.item.score = Math.min(1.5, near.item.score + 0.15);
-    near.item.accessCount += 1;
-    near.item.isArchived = false;
-    near.item.lastAccessedAt = now;
-    near.item.updatedAt = now;
-    upsertMemoryCell(projectDir, near.item);
-    appendMutationEvent(projectDir, "memory_reinforced", near.item.id, {
-      similarity: near.sim,
-      sourceType: input.sourceType ?? "manual"
-    });
-    return near.item;
-  }
-  const preference = extractConflictKey(text);
-  const confidenceInput = typeof input.confidence === "number" && Number.isFinite(input.confidence) ? input.confidence : input.tier === "L0" ? 1 : input.tier === "L3" ? 0.4 : 0.7;
-  const confidence = Math.max(0, Math.min(1, confidenceInput));
-  const tier = input.tier ?? (confidence >= 0.95 ? "L0" : confidence >= 0.6 ? "L1" : "L2");
-  const triplet = parseTriplet(text);
-  const created = {
-    id: `mem_${randomUUID13()}`,
-    text,
-    source: input.source?.trim() || "manual",
-    embedding,
-    score: 1,
-    confidence,
-    tier,
-    domain: input.domain ?? "work",
-    subject: triplet.subject,
-    predicate: triplet.predicate,
-    object: triplet.object,
-    polarity: preference.polarity,
-    sourceMessageID: input.sourceMessageID,
-    sourceType: input.sourceType ?? "manual",
-    memoryKind: input.memoryKind,
-    status: input.activate ? "active" : "pending",
-    conflictKey: preference.key,
-    evidenceRef: input.evidenceRef,
-    accessCount: 0,
-    isArchived: false,
-    createdAt: now,
-    updatedAt: now,
-    lastAccessedAt: now
-  };
-  if (preference.key && preference.polarity !== "neutral") {
-    const conflicting = [];
-    for (const item of items) {
-      if (item.status === "superseded" || item.status === "archived") continue;
-      const other = extractConflictKey(item.text);
-      if (!other.key || other.key !== preference.key || other.polarity === "neutral")
-        continue;
-      if (other.polarity !== preference.polarity) conflicting.push(item);
-    }
-    if (conflicting.length > 0) {
-      const lambda = Math.log(2) / 30;
-      const newScore = created.confidence;
-      const scored = conflicting.map((item) => {
-        const ageDays = Math.max(
-          0,
-          (Date.now() - Date.parse(item.lastAccessedAt)) / (24 * 3600 * 1e3)
-        );
-        const score = item.confidence * Math.exp(-lambda * ageDays);
-        return { item, score };
-      });
-      const strongestOld = scored.sort((a, b) => b.score - a.score)[0];
-      const threshold = 0.1;
-      const forceOverride = created.sourceType === "direct_correction";
-      const shouldOverwrite = forceOverride || (strongestOld ? newScore > strongestOld.score + threshold : false);
-      if (shouldOverwrite) {
-        created.status = "active";
-        for (const other of conflicting) {
-          other.status = "superseded";
-          other.supersededBy = created.id;
-          other.updatedAt = now;
-        }
-        upsertMemoryCells(projectDir, conflicting);
-      } else {
-        const wizard = {
-          id: `mcw_${randomUUID13()}`,
-          conflictKey: preference.key,
-          candidateMemoryID: created.id,
-          existingMemoryIDs: conflicting.map((item) => item.id),
-          status: "pending",
-          createdAt: now,
-          updatedAt: now
-        };
-        upsertMemoryCorrection(projectDir, wizard);
-        created.conflictWizardID = wizard.id;
-        created.status = "pending";
-      }
-    }
-  }
-  const saved = upsertMemoryCell(projectDir, created);
-  appendMutationEvent(projectDir, "memory_candidate_created", saved.id, {
-    status: saved.status,
-    sourceType: saved.sourceType,
-    conflictKey: saved.conflictKey ?? null,
-    hasEvidence: Boolean(saved.evidenceRef?.auditID)
-  });
-  return saved;
-}
-function searchCompanionMemoryVectors(projectDir, query, limit = 5, options) {
-  const q = normalizeText2(query);
-  if (!q) return [];
-  const qEmb = textToEmbedding(q);
-  const items = listMemoryCells(projectDir).filter(
-    (item) => item.status === "active" && !item.isArchived && (!options?.domain || (item.domain ?? "work") === options.domain)
-  );
-  if (items.length === 0) return [];
-  const nowMs = Date.now();
-  const recencyHalfLifeDays = Math.max(1, options?.recencyHalfLifeDays ?? 30);
-  const alpha = options?.alpha ?? 0.6;
-  const beta = options?.beta ?? 0.2;
-  const gamma = options?.gamma ?? 0.2;
-  const threshold = Math.max(0, options?.threshold ?? 0.15);
-  const importanceFromTier = (tier) => tier === "L0" ? 1 : tier === "L1" ? 0.7 : 0.4;
-  const recency = (at) => {
-    const deltaDays = Math.max(
-      0,
-      (nowMs - Date.parse(at)) / (24 * 3600 * 1e3)
-    );
-    const lambda = Math.log(2) / recencyHalfLifeDays;
-    return Math.exp(-lambda * deltaDays);
-  };
-  const vectorRanked = items.map((item) => ({ item, score: cosine(item.embedding, qEmb) })).sort((a, b) => b.score - a.score);
-  const lexicalRanked = items.map((item) => ({ item, score: lexicalScore(q, item.text) })).sort((a, b) => b.score - a.score);
-  const relationRanked = items.map((item) => ({ item, score: graphRelationScore(q, item) })).sort((a, b) => b.score - a.score);
-  const vectorIndex = /* @__PURE__ */ new Map();
-  const lexicalIndex = /* @__PURE__ */ new Map();
-  const relationIndex = /* @__PURE__ */ new Map();
-  vectorRanked.forEach((entry2, index) => vectorIndex.set(entry2.item.id, index));
-  lexicalRanked.forEach(
-    (entry2, index) => lexicalIndex.set(entry2.item.id, index)
-  );
-  relationRanked.forEach(
-    (entry2, index) => relationIndex.set(entry2.item.id, index)
-  );
-  const ranked = items.map((item) => {
-    const similarity2 = cosine(item.embedding, qEmb);
-    const lexical = lexicalScore(q, item.text);
-    const relation = graphRelationScore(q, item);
-    const quality = qualityScore(item);
-    const importance = importanceFromTier(item.tier) * quality;
-    const vectorRrf = rrfScore(vectorIndex.get(item.id) ?? 999);
-    const lexicalRrf = rrfScore(lexicalIndex.get(item.id) ?? 999);
-    const relationRrf = rrfScore(relationIndex.get(item.id) ?? 999);
-    const mode = options?.mode ?? "hybrid";
-    const fusedRecall = mode === "vector" ? vectorRrf : mode === "keyword" ? lexicalRrf + relationRrf * 0.5 : vectorRrf + lexicalRrf + relationRrf;
-    const rankScore = alpha * fusedRecall + beta * recency(item.lastAccessedAt) + gamma * importance;
-    return {
-      ...item,
-      similarity: similarity2,
-      rankScore,
-      quality,
-      vectorScore: similarity2,
-      lexicalScore: lexical,
-      relationScore: relation
-    };
-  }).filter((item) => item.rankScore >= threshold).sort((a, b) => b.rankScore - a.rankScore).slice(0, Math.max(1, limit));
-  if (ranked.length > 0) {
-    const touched = /* @__PURE__ */ new Map();
-    for (const item of ranked) {
-      item.accessCount += 1;
-      item.lastAccessedAt = nowIso16();
-      touched.set(item.id, item);
-    }
-    upsertMemoryCells(projectDir, Array.from(touched.values()));
-  }
-  autoCleanupCompanionMemoryVectors(projectDir);
-  return ranked;
-}
-function listCompanionMemoryVectors(projectDir) {
-  return listMemoryCells(projectDir);
-}
-function listPendingCompanionMemoryVectors(projectDir) {
-  return listMemoryCells(projectDir).filter((item) => asPending(item.status));
-}
-function listCompanionMemoryCorrections(projectDir) {
-  return listMemoryCorrections(projectDir);
-}
-function updateCompanionMemoryVector(projectDir, input) {
-  const target = listMemoryCells(projectDir).find(
-    (item) => item.id === input.memoryID
-  );
-  if (!target) return null;
-  const nextText = typeof input.text === "string" && input.text.trim() ? normalizeText2(input.text) : target.text;
-  const confidenceInput = typeof input.confidence === "number" && Number.isFinite(input.confidence) ? Math.max(0, Math.min(1, Number(input.confidence))) : target.confidence;
-  target.text = nextText;
-  target.embedding = textToEmbedding(nextText);
-  const conflict = extractConflictKey(nextText);
-  target.conflictKey = conflict.key;
-  target.polarity = conflict.polarity;
-  target.confidence = confidenceInput;
-  target.tier = input.tier ?? (confidenceInput >= 0.95 ? "L0" : confidenceInput >= 0.6 ? "L1" : "L2");
-  target.memoryKind = input.memoryKind === "Fact" || input.memoryKind === "Insight" || input.memoryKind === "UserPreference" ? input.memoryKind : target.memoryKind;
-  if (input.status) target.status = input.status;
-  target.updatedAt = nowIso16();
-  if (target.status === "active") target.lastAccessedAt = target.updatedAt;
-  const saved = upsertMemoryCell(projectDir, target);
-  appendMutationEvent(projectDir, "memory_updated", saved.id, {
-    status: saved.status,
-    tier: saved.tier
-  });
-  return saved;
-}
-function archiveCompanionMemoryVector(projectDir, input) {
-  const target = listMemoryCells(projectDir).find(
-    (item) => item.id === input.memoryID
-  );
-  if (!target) return null;
-  target.isArchived = Boolean(input.archived);
-  target.status = target.isArchived ? "archived" : target.status === "archived" ? "active" : target.status;
-  target.updatedAt = nowIso16();
-  const saved = upsertMemoryCell(projectDir, target);
-  appendMutationEvent(projectDir, "memory_archive_toggled", saved.id, {
-    archived: saved.isArchived
-  });
-  return saved;
-}
-function confirmCompanionMemoryVector(projectDir, input) {
-  const all = listMemoryCells(projectDir);
-  const target = all.find((item) => item.id === input.memoryID);
-  if (!target) return null;
-  const now = nowIso16();
-  if (!input.confirm) {
-    target.status = "superseded";
-    target.updatedAt = now;
-  } else {
-    target.status = "active";
-    target.updatedAt = now;
-    target.lastAccessedAt = now;
-    if (input.supersedeConflicts && target.conflictKey) {
-      const sourcePolarity = extractConflictKey(target.text).polarity;
-      const touched = [];
-      for (const item of all) {
-        if (item.id === target.id || item.status === "superseded") continue;
-        if (item.conflictKey !== target.conflictKey) continue;
-        const itemPolarity = extractConflictKey(item.text).polarity;
-        if (sourcePolarity !== "neutral" && itemPolarity !== "neutral" && sourcePolarity !== itemPolarity) {
-          item.status = "superseded";
-          item.supersededBy = target.id;
-          item.updatedAt = now;
-          touched.push(item);
-        }
-      }
-      if (touched.length > 0) upsertMemoryCells(projectDir, touched);
-    }
-  }
-  const saved = upsertMemoryCell(projectDir, target);
-  if (target.conflictWizardID) {
-    const correction = listMemoryCorrections(projectDir).find(
-      (item) => item.id === target.conflictWizardID
-    );
-    if (correction) {
-      correction.status = input.confirm ? "resolved" : "rejected";
-      correction.updatedAt = now;
-      upsertMemoryCorrection(projectDir, correction);
-    }
-  }
-  appendMutationEvent(projectDir, "memory_confirmed", saved.id, {
-    confirm: input.confirm,
-    supersedeConflicts: Boolean(input.supersedeConflicts)
-  });
-  return saved;
-}
-
-// src/companion/store.ts
-function nowIso17() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function filePath8(projectDir) {
-  return path31.join(getMiyaRuntimeDir(projectDir), "companion.json");
-}
-function ensureDir14(file3) {
-  fs31.mkdirSync(path31.dirname(file3), { recursive: true });
-}
-function defaultProfile() {
-  return {
-    enabled: false,
-    onboardingCompleted: false,
-    name: "Miya",
-    persona: "calm, supportive, and proactive",
-    relationship: "companion",
-    style: "warm and concise",
-    memoryFacts: [],
-    assets: [],
-    updatedAt: nowIso17()
-  };
-}
-function deriveActiveMemoryFacts(projectDir) {
-  try {
-    return listCompanionMemoryVectors(projectDir).filter((item) => item.status === "active" && !item.isArchived).map((item) => item.text).slice(0, 300);
-  } catch {
-    return [];
-  }
-}
-function readCompanionProfile(projectDir) {
-  const file3 = filePath8(projectDir);
-  if (!fs31.existsSync(file3)) {
-    return {
-      ...defaultProfile(),
-      memoryFacts: deriveActiveMemoryFacts(projectDir)
-    };
-  }
-  try {
-    const parsed = JSON.parse(fs31.readFileSync(file3, "utf-8"));
-    return {
-      ...defaultProfile(),
-      ...parsed,
-      // Runtime memory truth source is SQLite (mem_cells), not JSON profile blobs.
-      memoryFacts: deriveActiveMemoryFacts(projectDir),
-      assets: Array.isArray(parsed.assets) ? parsed.assets : [],
-      updatedAt: parsed.updatedAt ?? nowIso17()
-    };
-  } catch {
-    return {
-      ...defaultProfile(),
-      memoryFacts: deriveActiveMemoryFacts(projectDir)
-    };
-  }
-}
-function writeCompanionProfile(projectDir, profile) {
-  const file3 = filePath8(projectDir);
-  ensureDir14(file3);
-  const next = {
-    ...profile,
-    memoryFacts: deriveActiveMemoryFacts(projectDir),
-    updatedAt: nowIso17()
-  };
-  fs31.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
-`, "utf-8");
-  return next;
-}
-function patchCompanionProfile(projectDir, patch) {
-  const current = readCompanionProfile(projectDir);
-  return writeCompanionProfile(projectDir, {
-    ...current,
-    ...patch
-  });
-}
-function addCompanionAsset(projectDir, input) {
-  const current = readCompanionProfile(projectDir);
-  const asset = {
-    id: `asset_${randomUUID14()}`,
-    type: input.type,
-    pathOrUrl: input.pathOrUrl,
-    label: input.label,
-    createdAt: nowIso17()
-  };
-  return writeCompanionProfile(projectDir, {
-    ...current,
-    assets: [asset, ...current.assets].slice(0, 200)
-  });
-}
-function resetCompanionProfile(projectDir) {
-  const allMemories = listCompanionMemoryVectors(projectDir);
-  for (const item of allMemories) {
-    if (item.isArchived) continue;
-    archiveCompanionMemoryVector(projectDir, {
-      memoryID: item.id,
-      archived: true
-    });
-  }
-  return writeCompanionProfile(projectDir, defaultProfile());
-}
-function syncCompanionProfileMemoryFacts(projectDir) {
-  const current = readCompanionProfile(projectDir);
-  return writeCompanionProfile(projectDir, {
-    ...current,
-    memoryFacts: deriveActiveMemoryFacts(projectDir)
-  });
-}
-
 // src/companion/memory-reflect.ts
-import { createHash as createHash11, randomUUID as randomUUID16 } from "node:crypto";
-import * as fs33 from "node:fs";
-import * as path33 from "node:path";
-
-// src/learning/skill-drafts.ts
-import { createHash as createHash10, randomUUID as randomUUID15 } from "node:crypto";
-import * as fs32 from "node:fs";
-import * as path32 from "node:path";
-function nowIso18() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function filePath9(projectDir) {
-  return path32.join(getMiyaRuntimeDir(projectDir), "learning-skill-drafts.json");
-}
-function normalizeText3(text) {
-  return String(text ?? "").replace(/\s+/g, " ").trim();
-}
-function tokenize(text) {
-  return Array.from(
-    new Set(
-      normalizeText3(text).toLowerCase().split(/[^a-z0-9_\-\u4e00-\u9fff]+/i).map((item) => item.trim()).filter((item) => item.length >= 2)
-    )
-  );
-}
-function hashText(text) {
-  return createHash10("sha256").update(text).digest("hex").slice(0, 16);
-}
-function ensureDir15(projectDir) {
-  fs32.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
-}
-function clamp2(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-function normalizeDraft(raw) {
-  const now = nowIso18();
-  return {
-    id: String(raw.id ?? `draft_${randomUUID15()}`),
-    source: raw.source === "reflect" ? "reflect" : "ralph",
-    status: raw.status === "accepted" || raw.status === "rejected" || raw.status === "recommended" || raw.status === "draft" ? raw.status : "draft",
-    title: normalizeText3(String(raw.title ?? "")),
-    problemPattern: normalizeText3(String(raw.problemPattern ?? "")),
-    solutionPattern: normalizeText3(String(raw.solutionPattern ?? "")),
-    commands: Array.isArray(raw.commands) ? raw.commands.map(String).map(normalizeText3).filter(Boolean) : [],
-    tags: Array.isArray(raw.tags) ? raw.tags.map(String).map((item) => item.trim().toLowerCase()).filter(Boolean) : [],
-    confidence: clamp2(Number(raw.confidence ?? 0.5), 0.1, 0.99),
-    uses: clamp2(Number(raw.uses ?? 0), 0, 1e6),
-    hits: clamp2(Number(raw.hits ?? 0), 0, 1e6),
-    misses: clamp2(Number(raw.misses ?? 0), 0, 1e6),
-    createdAt: raw.createdAt ? String(raw.createdAt) : now,
-    updatedAt: raw.updatedAt ? String(raw.updatedAt) : now
-  };
-}
-function readStore5(projectDir) {
-  const file3 = filePath9(projectDir);
-  if (!fs32.existsSync(file3)) return { drafts: [] };
-  try {
-    const parsed = JSON.parse(fs32.readFileSync(file3, "utf-8"));
-    const drafts = Array.isArray(parsed?.drafts) ? parsed.drafts.map((item) => normalizeDraft(item)) : [];
-    return { drafts };
-  } catch {
-    return { drafts: [] };
-  }
-}
-function writeStore5(projectDir, store2) {
-  ensureDir15(projectDir);
-  fs32.writeFileSync(filePath9(projectDir), `${JSON.stringify(store2, null, 2)}
-`, "utf-8");
-}
-function findSimilarDraftIndex(drafts, candidate) {
-  const signature = hashText(
-    `${candidate.source}|${candidate.problemPattern}|${candidate.solutionPattern}|${candidate.commands.join("|")}`
-  );
-  return drafts.findIndex((item) => {
-    const current = hashText(
-      `${item.source}|${item.problemPattern}|${item.solutionPattern}|${item.commands.join("|")}`
-    );
-    return current === signature;
-  });
-}
-function upsertDraft(projectDir, draft) {
-  const store2 = readStore5(projectDir);
-  const index = findSimilarDraftIndex(store2.drafts, draft);
-  if (index >= 0) {
-    const current = store2.drafts[index];
-    const merged = normalizeDraft({
-      ...current,
-      ...draft,
-      id: current.id,
-      createdAt: current.createdAt,
-      confidence: current.confidence * 0.7 + draft.confidence * 0.3,
-      status: current.status === "accepted" || current.status === "rejected" ? current.status : draft.status,
-      tags: Array.from(/* @__PURE__ */ new Set([...current.tags, ...draft.tags])).slice(0, 12),
-      updatedAt: nowIso18()
-    });
-    store2.drafts[index] = merged;
-    writeStore5(projectDir, store2);
-    return merged;
-  }
-  const next = normalizeDraft(draft);
-  store2.drafts = [next, ...store2.drafts].slice(0, 500);
-  writeStore5(projectDir, store2);
-  return next;
-}
-function draftScoreForQuery(draft, query) {
-  const queryTokens = tokenize(query);
-  if (queryTokens.length === 0) return 0;
-  const targetTokens = new Set(
-    tokenize(`${draft.title} ${draft.problemPattern} ${draft.solutionPattern} ${draft.tags.join(" ")}`)
-  );
-  let overlap = 0;
-  for (const token of queryTokens) {
-    if (targetTokens.has(token)) overlap += 1;
-  }
-  const overlapScore = overlap / queryTokens.length;
-  const quality = draft.confidence;
-  const statusBoost = draft.status === "accepted" ? 0.12 : draft.status === "recommended" ? 0.06 : 0;
-  return clamp2(overlapScore * 0.75 + quality * 0.25 + statusBoost, 0, 1);
-}
-function matchDrafts(projectDir, query, threshold, limit) {
-  const store2 = readStore5(projectDir);
-  return store2.drafts.filter((draft) => draft.status !== "rejected").map((draft) => ({ draft, score: draftScoreForQuery(draft, query) })).filter((item) => item.score >= threshold).sort((a, b) => b.score - a.score).slice(0, Math.max(1, limit));
-}
-function listSkillDrafts(projectDir, input) {
-  const limit = Math.max(1, Math.min(200, Math.floor(Number(input?.limit ?? 50))));
-  const store2 = readStore5(projectDir);
-  return store2.drafts.filter((draft) => input?.status ? draft.status === input.status : true).slice(0, limit);
-}
-function setSkillDraftStatus(projectDir, draftID, status, usage) {
-  const store2 = readStore5(projectDir);
-  const index = store2.drafts.findIndex((item) => item.id === draftID);
-  if (index < 0) return null;
-  const current = store2.drafts[index];
-  const next = normalizeDraft({
-    ...current,
-    status: status ?? current.status,
-    uses: usage ? current.uses + 1 : current.uses,
-    hits: usage ? current.hits + (usage.hit ? 1 : 0) : current.hits,
-    misses: usage ? current.misses + (usage.hit ? 0 : 1) : current.misses,
-    updatedAt: nowIso18()
-  });
-  store2.drafts[index] = next;
-  writeStore5(projectDir, store2);
-  return next;
-}
-function getLearningStats(projectDir) {
-  const drafts = readStore5(projectDir).drafts;
-  const byStatus = {
-    draft: 0,
-    recommended: 0,
-    accepted: 0,
-    rejected: 0
-  };
-  let totalUses = 0;
-  let totalHits = 0;
-  for (const draft of drafts) {
-    byStatus[draft.status] += 1;
-    totalUses += draft.uses;
-    totalHits += draft.hits;
-  }
-  return {
-    total: drafts.length,
-    byStatus,
-    totalUses,
-    hitRate: totalUses > 0 ? Number((totalHits / totalUses).toFixed(4)) : 0
-  };
-}
-function buildLearningInjection(projectDir, query, input) {
-  const threshold = clamp2(Number(input?.threshold ?? 0.64), 0.3, 0.98);
-  const limit = Math.max(1, Math.min(3, Math.floor(Number(input?.limit ?? 2))));
-  const matches = matchDrafts(projectDir, query, threshold, limit);
-  if (matches.length === 0) return { snippet: void 0, matchedDraftIDs: [] };
-  const lines = [
-    "[MIYA_LEARNING_DRAFT_REUSE]",
-    "Matched historical patterns (use as guidance, then verify):"
-  ];
-  for (const item of matches) {
-    lines.push(`- draft=${item.draft.id} score=${item.score.toFixed(2)} title=${item.draft.title}`);
-    lines.push(`  pattern=${item.draft.problemPattern}`);
-    lines.push(`  fix=${item.draft.solutionPattern}`);
-    if (item.draft.commands.length > 0) {
-      lines.push(`  commands=${item.draft.commands.join(" ; ")}`);
-    }
-  }
-  return {
-    snippet: lines.join("\n"),
-    matchedDraftIDs: matches.map((item) => item.draft.id)
-  };
-}
-function createSkillDraftFromRalph(projectDir, input) {
-  const fixCommands = input.result.attempts.filter((item) => item.type === "fix").map((item) => normalizeText3(item.result.command)).filter(Boolean);
-  if (fixCommands.length === 0) return null;
-  const latestVerify = [...input.result.attempts].reverse().find((item) => item.type === "verify");
-  const problemSummary = normalizeText3(latestVerify?.failureSummary ?? input.result.summary);
-  const confidence = input.result.success ? 0.82 : 0.58;
-  return upsertDraft(projectDir, {
-    id: `draft_${randomUUID15()}`,
-    source: "ralph",
-    status: input.result.success ? "recommended" : "draft",
-    title: `Ralph \u4FEE\u590D\u6A21\u5F0F: ${normalizeText3(input.taskDescription).slice(0, 48)}`,
-    problemPattern: problemSummary || "verification_failed_pattern",
-    solutionPattern: input.result.summary,
-    commands: fixCommands.slice(0, 4),
-    tags: ["ralph", input.result.reason ?? "unknown"],
-    confidence,
-    uses: 0,
-    hits: 0,
-    misses: 0,
-    createdAt: nowIso18(),
-    updatedAt: nowIso18()
-  });
-}
-function createSkillDraftsFromReflect(projectDir, input) {
-  const memories = Array.isArray(input.createdMemories) ? input.createdMemories : [];
-  if (memories.length === 0) return [];
-  const preferenceMemories = memories.filter((item) => item.memoryKind === "UserPreference").slice(0, 6);
-  if (preferenceMemories.length === 0) return [];
-  const pattern = preferenceMemories.map((item) => item.text).join(" | ");
-  const draft = upsertDraft(projectDir, {
-    id: `draft_${randomUUID15()}`,
-    source: "reflect",
-    status: "draft",
-    title: "Reflect \u504F\u597D\u6267\u884C\u8349\u6848",
-    problemPattern: "\u4EFB\u52A1\u6267\u884C\u6D89\u53CA\u7528\u6237\u4E60\u60EF\u6216\u504F\u597D\u5224\u65AD",
-    solutionPattern: `\u4F18\u5148\u9075\u5FAA\u8FD1\u671F\u504F\u597D\u8BB0\u5FC6\uFF1A${pattern}`,
-    commands: [],
-    tags: ["reflect", "preference"],
-    confidence: 0.62,
-    uses: 0,
-    hits: 0,
-    misses: 0,
-    createdAt: nowIso18(),
-    updatedAt: nowIso18()
-  });
-  return [draft];
-}
-
-// src/companion/memory-reflect.ts
-function nowIso19() {
+function nowIso13() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function memoryDir2(projectDir) {
-  return path33.join(getMiyaRuntimeDir(projectDir), "memory");
+  return path26.join(getMiyaRuntimeDir(projectDir), "memory");
 }
 function reflectJobPath(projectDir) {
-  return path33.join(memoryDir2(projectDir), "reflect-jobs.jsonl");
+  return path26.join(memoryDir2(projectDir), "reflect-jobs.jsonl");
 }
 function reflectStatePath(projectDir) {
-  return path33.join(memoryDir2(projectDir), "reflect-state.json");
+  return path26.join(memoryDir2(projectDir), "reflect-state.json");
 }
-function ensureDir16(projectDir) {
-  fs33.mkdirSync(memoryDir2(projectDir), { recursive: true });
+function ensureDir12(projectDir) {
+  fs26.mkdirSync(memoryDir2(projectDir), { recursive: true });
 }
-function normalizeText4(input) {
+function normalizeText3(input) {
   return input.trim().replace(/\s+/g, " ");
 }
 function hashMessage(input) {
-  return createHash11("sha256").update(`${input.sender}
+  return createHash8("sha256").update(`${input.sender}
 ${input.at}
-${normalizeText4(input.text)}`).digest("hex");
+${normalizeText3(input.text)}`).digest("hex");
 }
 function readReflectState(projectDir) {
   const file3 = reflectStatePath(projectDir);
-  if (!fs33.existsSync(file3)) return {};
+  if (!fs26.existsSync(file3)) return {};
   try {
-    const parsed = JSON.parse(fs33.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs26.readFileSync(file3, "utf-8"));
     return parsed ?? {};
   } catch {
     return {};
   }
 }
 function writeReflectState(projectDir, patch) {
-  ensureDir16(projectDir);
+  ensureDir12(projectDir);
   const file3 = reflectStatePath(projectDir);
   const next = {
     ...readReflectState(projectDir),
     ...patch
   };
-  fs33.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs26.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
   return next;
 }
 function quoteSpan(log2, raw) {
-  const value = normalizeText4(raw);
+  const value = normalizeText3(raw);
   if (!value) return null;
   const start = log2.text.indexOf(value);
   if (start < 0) return null;
@@ -41423,11 +39844,11 @@ function quoteSpan(log2, raw) {
 }
 function extractTriplets(log2) {
   if (log2.sender === "system") return [];
-  const text = normalizeText4(log2.text);
+  const text = normalizeText3(log2.text);
   if (!text) return [];
   const triplets = [];
   const add = (kind, subject, predicate, object3, confidence, tier, quoteRaw) => {
-    const value = normalizeText4(object3);
+    const value = normalizeText3(object3);
     const q = quoteSpan(log2, quoteRaw);
     if (!value || !q) return;
     triplets.push({
@@ -41517,18 +39938,18 @@ function validateTripletQuotes(triplet, logsByID) {
     if (!source) return false;
     if (quote.charStart < 0 || quote.charEnd <= quote.charStart) return false;
     const picked = source.text.slice(quote.charStart, quote.charEnd);
-    if (normalizeText4(picked) !== normalizeText4(quote.exactText)) return false;
+    if (normalizeText3(picked) !== normalizeText3(quote.exactText)) return false;
   }
   return true;
 }
 function appendShortTermMemoryLog(projectDir, input) {
-  const text = normalizeText4(input.text);
+  const text = normalizeText3(input.text);
   if (!text) return null;
-  const at = input.at ?? nowIso19();
+  const at = input.at ?? nowIso13();
   const messageHash = input.messageID || hashMessage({ text, sender: input.sender, at });
-  ensureDir16(projectDir);
+  ensureDir12(projectDir);
   const row = {
-    id: `st_${randomUUID16()}`,
+    id: `st_${randomUUID7()}`,
     sessionID: input.sessionID?.trim() || "main",
     sender: input.sender,
     text,
@@ -41538,7 +39959,7 @@ function appendShortTermMemoryLog(projectDir, input) {
   const saved = appendRawMemoryLog(projectDir, row);
   if (!saved) return null;
   appendMemoryEvent(projectDir, {
-    eventID: `evt_${randomUUID16()}`,
+    eventID: `evt_${randomUUID7()}`,
     eventType: "raw_log_appended",
     entityType: "raw_log",
     entityID: saved.id,
@@ -41564,9 +39985,9 @@ function getMemoryReflectStatus(projectDir) {
   };
 }
 function reflectCompanionMemory(projectDir, input) {
-  ensureDir16(projectDir);
+  ensureDir12(projectDir);
   const state2 = readReflectState(projectDir);
-  const now = nowIso19();
+  const now = nowIso13();
   if (input?.idempotencyKey && state2.lastReflectIdempotencyKey === input.idempotencyKey) {
     if (state2.lastReflectResult) return state2.lastReflectResult;
   }
@@ -41575,7 +39996,7 @@ function reflectCompanionMemory(projectDir, input) {
     const deltaMs = Date.now() - Date.parse(state2.lastReflectAt);
     if (Number.isFinite(deltaMs) && deltaMs < cooldownMinutes * 60 * 1e3) {
       const blocked = {
-        jobID: `reflect_${randomUUID16()}`,
+        jobID: `reflect_${randomUUID7()}`,
         processedLogs: 0,
         generatedTriplets: 0,
         generatedFacts: 0,
@@ -41583,7 +40004,7 @@ function reflectCompanionMemory(projectDir, input) {
         generatedPreferences: 0,
         createdMemories: [],
         archivedLogs: 0,
-        auditID: `audit_${randomUUID16()}`
+        auditID: `audit_${randomUUID7()}`
       };
       writeReflectState(projectDir, {
         lastReflectReason: `cooldown_blocked_${cooldownMinutes}m`
@@ -41598,7 +40019,7 @@ function reflectCompanionMemory(projectDir, input) {
   const minLogs = Math.max(1, input?.minLogs ?? 1);
   if (!input?.force && pending.length < minLogs) {
     return {
-      jobID: `reflect_${randomUUID16()}`,
+      jobID: `reflect_${randomUUID7()}`,
       processedLogs: 0,
       generatedTriplets: 0,
       generatedFacts: 0,
@@ -41606,7 +40027,7 @@ function reflectCompanionMemory(projectDir, input) {
       generatedPreferences: 0,
       createdMemories: [],
       archivedLogs: 0,
-      auditID: `audit_${randomUUID16()}`
+      auditID: `audit_${randomUUID7()}`
     };
   }
   const maxLogs = Math.max(1, input?.maxLogs ?? 50);
@@ -41623,9 +40044,9 @@ function reflectCompanionMemory(projectDir, input) {
   const generatedPreferences = triplets.filter(
     (item) => item.kind === "UserPreference"
   ).length;
-  const processedAt = nowIso19();
-  const jobID = `reflect_${randomUUID16()}`;
-  const auditID = `audit_${randomUUID16()}`;
+  const processedAt = nowIso13();
+  const jobID = `reflect_${randomUUID7()}`;
+  const auditID = `audit_${randomUUID7()}`;
   const constructed = constructReflectBatch(projectDir, {
     jobID,
     auditID,
@@ -41667,7 +40088,7 @@ function reflectCompanionMemory(projectDir, input) {
   createSkillDraftsFromReflect(projectDir, {
     createdMemories
   });
-  fs33.appendFileSync(
+  fs26.appendFileSync(
     reflectJobPath(projectDir),
     `${JSON.stringify({ ...result, at: processedAt })}
 `,
@@ -41713,11 +40134,618 @@ function maybeReflectOnSessionEnd(projectDir, input) {
   });
 }
 
+// src/companion/memory-vector.ts
+import { createHash as createHash9, randomUUID as randomUUID8 } from "node:crypto";
+function nowIso14() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function normalizeText4(text) {
+  return text.trim().replace(/\s+/g, " ");
+}
+function textToEmbedding(text, dims = 96) {
+  const vec = new Array(dims).fill(0);
+  const parts = normalizeText4(text).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (parts.length === 0) return vec;
+  for (const part of parts) {
+    const hash3 = createHash9("sha256").update(part).digest();
+    for (let i = 0; i < 12; i += 1) {
+      const idx = hash3[i] % dims;
+      vec[idx] += 1 + hash3[i + 12] % 3;
+    }
+  }
+  const norm = Math.sqrt(vec.reduce((sum, value) => sum + value * value, 0));
+  if (norm <= 0) return vec;
+  return vec.map((value) => value / norm);
+}
+function cosine(a, b) {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 1) sum += a[i] * b[i];
+  return sum;
+}
+function extractConflictKey(text) {
+  const negative = text.match(
+    /(?:不喜欢|讨厌|不想|不要|避免)\s*([^，。!！?？]+)/
+  );
+  if (negative?.[1])
+    return { key: normalizeText4(negative[1]), polarity: "negative" };
+  const positive = text.match(/(?:喜欢|爱|偏好|想要|优先)\s*([^，。!！?？]+)/);
+  if (positive?.[1])
+    return { key: normalizeText4(positive[1]), polarity: "positive" };
+  return { polarity: "neutral" };
+}
+function parseTriplet(text) {
+  const parts = normalizeText4(text).split(/\s+/).filter(Boolean);
+  if (parts.length >= 3) {
+    return {
+      subject: parts[0] ?? "User",
+      predicate: parts[1] ?? "fact",
+      object: parts.slice(2).join(" ")
+    };
+  }
+  return {
+    subject: "User",
+    predicate: "stated",
+    object: normalizeText4(text)
+  };
+}
+function asPending(status) {
+  return status === "pending" || status === "candidate";
+}
+function lexicalScore(query, text) {
+  const q = normalizeText4(query).toLowerCase();
+  const t = normalizeText4(text).toLowerCase();
+  if (!q || !t) return 0;
+  if (t.includes(q)) return 1;
+  const qTokens = q.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (qTokens.length === 0) return 0;
+  let hit = 0;
+  for (const token of qTokens) if (t.includes(token)) hit += 1;
+  return hit / qTokens.length;
+}
+function graphRelationScore(query, item) {
+  const triplet = parseTriplet(query);
+  const subjectHit = lexicalScore(triplet.subject, item.subject ?? "");
+  const predicateHit = lexicalScore(triplet.predicate, item.predicate ?? "");
+  const objectHit = lexicalScore(triplet.object, item.object ?? item.text);
+  const directTripletHit = lexicalScore(
+    query,
+    `${item.subject ?? ""} ${item.predicate ?? ""} ${item.object ?? ""}`
+  );
+  return Math.max(
+    directTripletHit,
+    subjectHit * 0.2 + predicateHit * 0.4 + objectHit * 0.4
+  );
+}
+function rrfScore(rank, k = 60) {
+  return 1 / (k + rank + 1);
+}
+function qualityScore(item) {
+  const tierWeight = item.tier === "L0" ? 1 : item.tier === "L1" ? 0.8 : item.tier === "L2" ? 0.55 : 0.35;
+  const evidenceBoost = item.evidenceRef?.auditID ? 0.08 : 0;
+  const archivedPenalty = item.isArchived || item.status === "archived" ? 0.5 : 1;
+  const statusPenalty = item.status === "active" ? 1 : asPending(item.status) ? 0.75 : 0.4;
+  return Math.max(
+    0,
+    Math.min(
+      1.5,
+      (item.confidence * 0.45 + item.score * 0.35 + tierWeight * 0.2 + evidenceBoost) * archivedPenalty * statusPenalty
+    )
+  );
+}
+function appendMutationEvent(projectDir, eventType, memoryID, payload) {
+  appendMemoryEvent(projectDir, {
+    eventID: `evt_${randomUUID8()}`,
+    eventType,
+    entityType: "mem_cell",
+    entityID: memoryID,
+    payload
+  });
+}
+function decayCompanionMemoryVectors(projectDir, halfLifeDays = 30) {
+  const items = listMemoryCells(projectDir);
+  const safeHalfLife = Math.max(1, halfLifeDays);
+  const lambda = Math.log(2) / safeHalfLife;
+  const nowMs = Date.now();
+  let updated = 0;
+  const touched = [];
+  for (const item of items) {
+    if (item.status !== "active") continue;
+    const ageDays = Math.max(
+      0,
+      (nowMs - Date.parse(item.updatedAt)) / (24 * 3600 * 1e3)
+    );
+    const nextScore = Math.max(0.05, item.score * Math.exp(-lambda * ageDays));
+    if (Math.abs(nextScore - item.score) <= 1e-4) continue;
+    item.score = Number(nextScore.toFixed(4));
+    if (item.score < 0.08) item.isArchived = true;
+    item.updatedAt = nowIso14();
+    touched.push(item);
+    updated += 1;
+  }
+  if (touched.length > 0) {
+    upsertMemoryCells(projectDir, touched);
+  }
+  autoCleanupCompanionMemoryVectors(projectDir);
+  return { updated, items: listMemoryCells(projectDir) };
+}
+function autoCleanupCompanionMemoryVectors(projectDir, input) {
+  const maxActive = Math.max(100, Math.floor(input?.maxActive ?? 600));
+  const maxPendingAgeDays = Math.max(
+    1,
+    Math.floor(input?.maxPendingAgeDays ?? 45)
+  );
+  const minQualityToKeep = Math.max(
+    0.05,
+    Math.min(1.5, Number(input?.minQualityToKeep ?? 0.18))
+  );
+  const nowMs = Date.now();
+  const cells = listMemoryCells(projectDir);
+  const touched = [];
+  let archived = 0;
+  let superseded = 0;
+  for (const cell of cells) {
+    const ageDays = Math.max(
+      0,
+      (nowMs - Date.parse(cell.updatedAt)) / (24 * 3600 * 1e3)
+    );
+    if (asPending(cell.status) && ageDays > maxPendingAgeDays) {
+      cell.status = "superseded";
+      cell.updatedAt = nowIso14();
+      touched.push(cell);
+      superseded += 1;
+      appendMutationEvent(
+        projectDir,
+        "memory_auto_cleanup_pending_expired",
+        cell.id,
+        {
+          ageDays: Number(ageDays.toFixed(2))
+        }
+      );
+      continue;
+    }
+    if (cell.status === "active" && qualityScore(cell) < minQualityToKeep && ageDays > 14) {
+      cell.isArchived = true;
+      cell.status = "archived";
+      cell.updatedAt = nowIso14();
+      touched.push(cell);
+      archived += 1;
+      appendMutationEvent(
+        projectDir,
+        "memory_auto_cleanup_low_quality",
+        cell.id,
+        {
+          quality: Number(qualityScore(cell).toFixed(4)),
+          ageDays: Number(ageDays.toFixed(2))
+        }
+      );
+    }
+  }
+  const active = cells.filter(
+    (item) => item.status === "active" && !item.isArchived
+  );
+  if (active.length > maxActive) {
+    const overflow = active.map((item) => ({
+      item,
+      q: qualityScore(item),
+      age: Date.parse(item.updatedAt)
+    })).sort((a, b) => a.q - b.q || a.age - b.age).slice(0, active.length - maxActive);
+    for (const row of overflow) {
+      row.item.isArchived = true;
+      row.item.status = "archived";
+      row.item.updatedAt = nowIso14();
+      touched.push(row.item);
+      archived += 1;
+      appendMutationEvent(
+        projectDir,
+        "memory_auto_cleanup_capacity",
+        row.item.id,
+        {
+          quality: Number(row.q.toFixed(4))
+        }
+      );
+    }
+  }
+  if (touched.length > 0) {
+    upsertMemoryCells(projectDir, touched);
+  }
+  const retained = listMemoryCells(projectDir).filter(
+    (item) => item.status === "active" && !item.isArchived
+  ).length;
+  return { archived, superseded, retained };
+}
+function upsertCompanionMemoryVector(projectDir, input) {
+  const text = normalizeText4(input.text);
+  if (!text) throw new Error("invalid_memory_text");
+  decayCompanionMemoryVectors(projectDir);
+  const items = listMemoryCells(projectDir);
+  const embedding = textToEmbedding(text);
+  const now = nowIso14();
+  const near = items.filter((item) => item.status === "active").map((item) => ({ item, sim: cosine(item.embedding, embedding) })).sort((a, b) => b.sim - a.sim)[0];
+  if (near && near.sim >= 0.95) {
+    near.item.score = Math.min(1.5, near.item.score + 0.15);
+    near.item.accessCount += 1;
+    near.item.isArchived = false;
+    near.item.lastAccessedAt = now;
+    near.item.updatedAt = now;
+    upsertMemoryCell(projectDir, near.item);
+    appendMutationEvent(projectDir, "memory_reinforced", near.item.id, {
+      similarity: near.sim,
+      sourceType: input.sourceType ?? "manual"
+    });
+    return near.item;
+  }
+  const preference = extractConflictKey(text);
+  const confidenceInput = typeof input.confidence === "number" && Number.isFinite(input.confidence) ? input.confidence : input.tier === "L0" ? 1 : input.tier === "L3" ? 0.4 : 0.7;
+  const confidence = Math.max(0, Math.min(1, confidenceInput));
+  const tier = input.tier ?? (confidence >= 0.95 ? "L0" : confidence >= 0.6 ? "L1" : "L2");
+  const triplet = parseTriplet(text);
+  const created = {
+    id: `mem_${randomUUID8()}`,
+    text,
+    source: input.source?.trim() || "manual",
+    embedding,
+    score: 1,
+    confidence,
+    tier,
+    domain: input.domain ?? "work",
+    subject: triplet.subject,
+    predicate: triplet.predicate,
+    object: triplet.object,
+    polarity: preference.polarity,
+    sourceMessageID: input.sourceMessageID,
+    sourceType: input.sourceType ?? "manual",
+    memoryKind: input.memoryKind,
+    status: input.activate ? "active" : "pending",
+    conflictKey: preference.key,
+    evidenceRef: input.evidenceRef,
+    accessCount: 0,
+    isArchived: false,
+    createdAt: now,
+    updatedAt: now,
+    lastAccessedAt: now
+  };
+  if (preference.key && preference.polarity !== "neutral") {
+    const conflicting = [];
+    for (const item of items) {
+      if (item.status === "superseded" || item.status === "archived") continue;
+      const other = extractConflictKey(item.text);
+      if (!other.key || other.key !== preference.key || other.polarity === "neutral")
+        continue;
+      if (other.polarity !== preference.polarity) conflicting.push(item);
+    }
+    if (conflicting.length > 0) {
+      const lambda = Math.log(2) / 30;
+      const newScore = created.confidence;
+      const scored = conflicting.map((item) => {
+        const ageDays = Math.max(
+          0,
+          (Date.now() - Date.parse(item.lastAccessedAt)) / (24 * 3600 * 1e3)
+        );
+        const score = item.confidence * Math.exp(-lambda * ageDays);
+        return { item, score };
+      });
+      const strongestOld = scored.sort((a, b) => b.score - a.score)[0];
+      const threshold = 0.1;
+      const forceOverride = created.sourceType === "direct_correction";
+      const shouldOverwrite = forceOverride || (strongestOld ? newScore > strongestOld.score + threshold : false);
+      if (shouldOverwrite) {
+        created.status = "active";
+        for (const other of conflicting) {
+          other.status = "superseded";
+          other.supersededBy = created.id;
+          other.updatedAt = now;
+        }
+        upsertMemoryCells(projectDir, conflicting);
+      } else {
+        const wizard = {
+          id: `mcw_${randomUUID8()}`,
+          conflictKey: preference.key,
+          candidateMemoryID: created.id,
+          existingMemoryIDs: conflicting.map((item) => item.id),
+          status: "pending",
+          createdAt: now,
+          updatedAt: now
+        };
+        upsertMemoryCorrection(projectDir, wizard);
+        created.conflictWizardID = wizard.id;
+        created.status = "pending";
+      }
+    }
+  }
+  const saved = upsertMemoryCell(projectDir, created);
+  appendMutationEvent(projectDir, "memory_candidate_created", saved.id, {
+    status: saved.status,
+    sourceType: saved.sourceType,
+    conflictKey: saved.conflictKey ?? null,
+    hasEvidence: Boolean(saved.evidenceRef?.auditID)
+  });
+  return saved;
+}
+function searchCompanionMemoryVectors(projectDir, query, limit = 5, options) {
+  const q = normalizeText4(query);
+  if (!q) return [];
+  const qEmb = textToEmbedding(q);
+  const items = listMemoryCells(projectDir).filter(
+    (item) => item.status === "active" && !item.isArchived && (!options?.domain || (item.domain ?? "work") === options.domain)
+  );
+  if (items.length === 0) return [];
+  const nowMs = Date.now();
+  const recencyHalfLifeDays = Math.max(1, options?.recencyHalfLifeDays ?? 30);
+  const alpha = options?.alpha ?? 0.6;
+  const beta = options?.beta ?? 0.2;
+  const gamma = options?.gamma ?? 0.2;
+  const threshold = Math.max(0, options?.threshold ?? 0.15);
+  const importanceFromTier = (tier) => tier === "L0" ? 1 : tier === "L1" ? 0.7 : 0.4;
+  const recency = (at) => {
+    const deltaDays = Math.max(
+      0,
+      (nowMs - Date.parse(at)) / (24 * 3600 * 1e3)
+    );
+    const lambda = Math.log(2) / recencyHalfLifeDays;
+    return Math.exp(-lambda * deltaDays);
+  };
+  const vectorRanked = items.map((item) => ({ item, score: cosine(item.embedding, qEmb) })).sort((a, b) => b.score - a.score);
+  const lexicalRanked = items.map((item) => ({ item, score: lexicalScore(q, item.text) })).sort((a, b) => b.score - a.score);
+  const relationRanked = items.map((item) => ({ item, score: graphRelationScore(q, item) })).sort((a, b) => b.score - a.score);
+  const vectorIndex = /* @__PURE__ */ new Map();
+  const lexicalIndex = /* @__PURE__ */ new Map();
+  const relationIndex = /* @__PURE__ */ new Map();
+  vectorRanked.forEach((entry2, index) => {
+    vectorIndex.set(entry2.item.id, index);
+  });
+  lexicalRanked.forEach((entry2, index) => {
+    lexicalIndex.set(entry2.item.id, index);
+  });
+  relationRanked.forEach((entry2, index) => {
+    relationIndex.set(entry2.item.id, index);
+  });
+  const ranked = items.map((item) => {
+    const similarity2 = cosine(item.embedding, qEmb);
+    const lexical = lexicalScore(q, item.text);
+    const relation = graphRelationScore(q, item);
+    const quality = qualityScore(item);
+    const importance = importanceFromTier(item.tier) * quality;
+    const vectorRrf = rrfScore(vectorIndex.get(item.id) ?? 999);
+    const lexicalRrf = rrfScore(lexicalIndex.get(item.id) ?? 999);
+    const relationRrf = rrfScore(relationIndex.get(item.id) ?? 999);
+    const mode = options?.mode ?? "hybrid";
+    const fusedRecall = mode === "vector" ? vectorRrf : mode === "keyword" ? lexicalRrf + relationRrf * 0.5 : vectorRrf + lexicalRrf + relationRrf;
+    const rankScore = alpha * fusedRecall + beta * recency(item.lastAccessedAt) + gamma * importance;
+    return {
+      ...item,
+      similarity: similarity2,
+      rankScore,
+      quality,
+      vectorScore: similarity2,
+      lexicalScore: lexical,
+      relationScore: relation
+    };
+  }).filter((item) => item.rankScore >= threshold).sort((a, b) => b.rankScore - a.rankScore).slice(0, Math.max(1, limit));
+  if (ranked.length > 0) {
+    const touched = /* @__PURE__ */ new Map();
+    for (const item of ranked) {
+      item.accessCount += 1;
+      item.lastAccessedAt = nowIso14();
+      touched.set(item.id, item);
+    }
+    upsertMemoryCells(projectDir, Array.from(touched.values()));
+  }
+  autoCleanupCompanionMemoryVectors(projectDir);
+  return ranked;
+}
+function listCompanionMemoryVectors(projectDir) {
+  return listMemoryCells(projectDir);
+}
+function listPendingCompanionMemoryVectors(projectDir) {
+  return listMemoryCells(projectDir).filter((item) => asPending(item.status));
+}
+function listCompanionMemoryCorrections(projectDir) {
+  return listMemoryCorrections(projectDir);
+}
+function updateCompanionMemoryVector(projectDir, input) {
+  const target = listMemoryCells(projectDir).find(
+    (item) => item.id === input.memoryID
+  );
+  if (!target) return null;
+  const nextText = typeof input.text === "string" && input.text.trim() ? normalizeText4(input.text) : target.text;
+  const confidenceInput = typeof input.confidence === "number" && Number.isFinite(input.confidence) ? Math.max(0, Math.min(1, Number(input.confidence))) : target.confidence;
+  target.text = nextText;
+  target.embedding = textToEmbedding(nextText);
+  const conflict = extractConflictKey(nextText);
+  target.conflictKey = conflict.key;
+  target.polarity = conflict.polarity;
+  target.confidence = confidenceInput;
+  target.tier = input.tier ?? (confidenceInput >= 0.95 ? "L0" : confidenceInput >= 0.6 ? "L1" : "L2");
+  target.memoryKind = input.memoryKind === "Fact" || input.memoryKind === "Insight" || input.memoryKind === "UserPreference" ? input.memoryKind : target.memoryKind;
+  if (input.status) target.status = input.status;
+  target.updatedAt = nowIso14();
+  if (target.status === "active") target.lastAccessedAt = target.updatedAt;
+  const saved = upsertMemoryCell(projectDir, target);
+  appendMutationEvent(projectDir, "memory_updated", saved.id, {
+    status: saved.status,
+    tier: saved.tier
+  });
+  return saved;
+}
+function archiveCompanionMemoryVector(projectDir, input) {
+  const target = listMemoryCells(projectDir).find(
+    (item) => item.id === input.memoryID
+  );
+  if (!target) return null;
+  target.isArchived = Boolean(input.archived);
+  target.status = target.isArchived ? "archived" : target.status === "archived" ? "active" : target.status;
+  target.updatedAt = nowIso14();
+  const saved = upsertMemoryCell(projectDir, target);
+  appendMutationEvent(projectDir, "memory_archive_toggled", saved.id, {
+    archived: saved.isArchived
+  });
+  return saved;
+}
+function confirmCompanionMemoryVector(projectDir, input) {
+  const all = listMemoryCells(projectDir);
+  const target = all.find((item) => item.id === input.memoryID);
+  if (!target) return null;
+  const now = nowIso14();
+  if (!input.confirm) {
+    target.status = "superseded";
+    target.updatedAt = now;
+  } else {
+    target.status = "active";
+    target.updatedAt = now;
+    target.lastAccessedAt = now;
+    if (input.supersedeConflicts && target.conflictKey) {
+      const sourcePolarity = extractConflictKey(target.text).polarity;
+      const touched = [];
+      for (const item of all) {
+        if (item.id === target.id || item.status === "superseded") continue;
+        if (item.conflictKey !== target.conflictKey) continue;
+        const itemPolarity = extractConflictKey(item.text).polarity;
+        if (sourcePolarity !== "neutral" && itemPolarity !== "neutral" && sourcePolarity !== itemPolarity) {
+          item.status = "superseded";
+          item.supersededBy = target.id;
+          item.updatedAt = now;
+          touched.push(item);
+        }
+      }
+      if (touched.length > 0) upsertMemoryCells(projectDir, touched);
+    }
+  }
+  const saved = upsertMemoryCell(projectDir, target);
+  if (target.conflictWizardID) {
+    const correction = listMemoryCorrections(projectDir).find(
+      (item) => item.id === target.conflictWizardID
+    );
+    if (correction) {
+      correction.status = input.confirm ? "resolved" : "rejected";
+      correction.updatedAt = now;
+      upsertMemoryCorrection(projectDir, correction);
+    }
+  }
+  appendMutationEvent(projectDir, "memory_confirmed", saved.id, {
+    confirm: input.confirm,
+    supersedeConflicts: Boolean(input.supersedeConflicts)
+  });
+  return saved;
+}
+
+// src/companion/store.ts
+import { randomUUID as randomUUID9 } from "node:crypto";
+import * as fs27 from "node:fs";
+import * as path27 from "node:path";
+function nowIso15() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function filePath7(projectDir) {
+  return path27.join(getMiyaRuntimeDir(projectDir), "companion.json");
+}
+function ensureDir13(file3) {
+  fs27.mkdirSync(path27.dirname(file3), { recursive: true });
+}
+function defaultProfile() {
+  return {
+    enabled: false,
+    onboardingCompleted: false,
+    name: "Miya",
+    persona: "calm, supportive, and proactive",
+    relationship: "companion",
+    style: "warm and concise",
+    memoryFacts: [],
+    assets: [],
+    updatedAt: nowIso15()
+  };
+}
+function deriveActiveMemoryFacts(projectDir) {
+  try {
+    return listCompanionMemoryVectors(projectDir).filter((item) => item.status === "active" && !item.isArchived).map((item) => item.text).slice(0, 300);
+  } catch {
+    return [];
+  }
+}
+function readCompanionProfile(projectDir) {
+  const file3 = filePath7(projectDir);
+  if (!fs27.existsSync(file3)) {
+    return {
+      ...defaultProfile(),
+      memoryFacts: deriveActiveMemoryFacts(projectDir)
+    };
+  }
+  try {
+    const parsed = JSON.parse(
+      fs27.readFileSync(file3, "utf-8")
+    );
+    return {
+      ...defaultProfile(),
+      ...parsed,
+      // Runtime memory truth source is SQLite (mem_cells), not JSON profile blobs.
+      memoryFacts: deriveActiveMemoryFacts(projectDir),
+      assets: Array.isArray(parsed.assets) ? parsed.assets : [],
+      updatedAt: parsed.updatedAt ?? nowIso15()
+    };
+  } catch {
+    return {
+      ...defaultProfile(),
+      memoryFacts: deriveActiveMemoryFacts(projectDir)
+    };
+  }
+}
+function writeCompanionProfile(projectDir, profile) {
+  const file3 = filePath7(projectDir);
+  ensureDir13(file3);
+  const next = {
+    ...profile,
+    memoryFacts: deriveActiveMemoryFacts(projectDir),
+    updatedAt: nowIso15()
+  };
+  fs27.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+`, "utf-8");
+  return next;
+}
+function patchCompanionProfile(projectDir, patch) {
+  const current = readCompanionProfile(projectDir);
+  return writeCompanionProfile(projectDir, {
+    ...current,
+    ...patch
+  });
+}
+function addCompanionAsset(projectDir, input) {
+  const current = readCompanionProfile(projectDir);
+  const asset = {
+    id: `asset_${randomUUID9()}`,
+    type: input.type,
+    pathOrUrl: input.pathOrUrl,
+    label: input.label,
+    createdAt: nowIso15()
+  };
+  return writeCompanionProfile(projectDir, {
+    ...current,
+    assets: [asset, ...current.assets].slice(0, 200)
+  });
+}
+function resetCompanionProfile(projectDir) {
+  const allMemories = listCompanionMemoryVectors(projectDir);
+  for (const item of allMemories) {
+    if (item.isArchived) continue;
+    archiveCompanionMemoryVector(projectDir, {
+      memoryID: item.id,
+      archived: true
+    });
+  }
+  return writeCompanionProfile(projectDir, defaultProfile());
+}
+function syncCompanionProfileMemoryFacts(projectDir) {
+  const current = readCompanionProfile(projectDir);
+  return writeCompanionProfile(projectDir, {
+    ...current,
+    memoryFacts: deriveActiveMemoryFacts(projectDir)
+  });
+}
+
 // src/companion/wizard.ts
-import { createHash as createHash12, randomUUID as randomUUID17 } from "node:crypto";
-import * as fs34 from "node:fs";
-import * as path34 from "node:path";
-function nowIso20() {
+import { createHash as createHash10, randomUUID as randomUUID10 } from "node:crypto";
+import * as fs28 from "node:fs";
+import * as path28 from "node:path";
+function nowIso16() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function normalizeSessionId(sessionId) {
@@ -41725,45 +40753,54 @@ function normalizeSessionId(sessionId) {
   return normalized || "main";
 }
 function profilesRoot(projectDir) {
-  return path34.join(getMiyaRuntimeDir(projectDir), "profiles", "companion");
+  return path28.join(getMiyaRuntimeDir(projectDir), "profiles", "companion");
 }
 function sessionRoot(projectDir, sessionId) {
-  return path34.join(profilesRoot(projectDir), "sessions", normalizeSessionId(sessionId));
+  return path28.join(
+    profilesRoot(projectDir),
+    "sessions",
+    normalizeSessionId(sessionId)
+  );
 }
 function currentProfileDir(projectDir, sessionId) {
-  return path34.join(sessionRoot(projectDir, sessionId), "current");
+  return path28.join(sessionRoot(projectDir, sessionId), "current");
 }
 function wizardFilePath(projectDir, sessionId) {
-  return path34.join(currentProfileDir(projectDir, sessionId), "wizard-state.json");
+  return path28.join(
+    currentProfileDir(projectDir, sessionId),
+    "wizard-state.json"
+  );
 }
 function metadataPath(projectDir, sessionId) {
-  return path34.join(currentProfileDir(projectDir, sessionId), "metadata.json");
+  return path28.join(currentProfileDir(projectDir, sessionId), "metadata.json");
 }
 function ensureProfileLayout(projectDir, sessionId) {
   const current = currentProfileDir(projectDir, sessionId);
-  fs34.mkdirSync(path34.join(current, "photos"), { recursive: true });
-  fs34.mkdirSync(path34.join(current, "embeddings"), { recursive: true });
-  fs34.mkdirSync(path34.join(current, "lora"), { recursive: true });
-  fs34.mkdirSync(path34.join(current, "voice"), { recursive: true });
-  fs34.mkdirSync(path34.join(sessionRoot(projectDir, sessionId), "history"), { recursive: true });
+  fs28.mkdirSync(path28.join(current, "photos"), { recursive: true });
+  fs28.mkdirSync(path28.join(current, "embeddings"), { recursive: true });
+  fs28.mkdirSync(path28.join(current, "lora"), { recursive: true });
+  fs28.mkdirSync(path28.join(current, "voice"), { recursive: true });
+  fs28.mkdirSync(path28.join(sessionRoot(projectDir, sessionId), "history"), {
+    recursive: true
+  });
 }
-function safeReadJson2(filePath14) {
-  if (!fs34.existsSync(filePath14)) return null;
+function safeReadJson(filePath14) {
+  if (!fs28.existsSync(filePath14)) return null;
   try {
-    return JSON.parse(fs34.readFileSync(filePath14, "utf-8"));
+    return JSON.parse(fs28.readFileSync(filePath14, "utf-8"));
   } catch {
     return null;
   }
 }
-function safeWriteJson2(filePath14, value) {
-  fs34.mkdirSync(path34.dirname(filePath14), { recursive: true });
-  fs34.writeFileSync(filePath14, `${JSON.stringify(value, null, 2)}
+function safeWriteJson(filePath14, value) {
+  fs28.mkdirSync(path28.dirname(filePath14), { recursive: true });
+  fs28.writeFileSync(filePath14, `${JSON.stringify(value, null, 2)}
 `, "utf-8");
 }
 function checksumFile(filePath14) {
   try {
-    const data = fs34.readFileSync(filePath14);
-    return `sha256:${createHash12("sha256").update(data).digest("hex")}`;
+    const data = fs28.readFileSync(filePath14);
+    return `sha256:${createHash10("sha256").update(data).digest("hex")}`;
   } catch {
     return "sha256:unknown";
   }
@@ -41778,7 +40815,7 @@ function extensionForMime(mimeType, fallback = ".bin") {
   return fallback;
 }
 function defaultMetadata(sessionId) {
-  const now = nowIso20();
+  const now = nowIso16();
   return {
     profileId: `companion-${now.replace(/[:.]/g, "-")}`,
     createdAt: now,
@@ -41810,8 +40847,8 @@ function defaultMetadata(sessionId) {
     }
   };
 }
-function defaultState5(sessionId) {
-  const now = nowIso20();
+function defaultState2(sessionId) {
+  const now = nowIso16();
   return {
     sessionId: `wizard:companion:${normalizeSessionId(sessionId)}`,
     boundSessionId: sessionId || "main",
@@ -41828,50 +40865,52 @@ function defaultState5(sessionId) {
   };
 }
 function writeMetadata(projectDir, sessionId, metadata) {
-  const next = { ...metadata, updatedAt: nowIso20() };
-  safeWriteJson2(metadataPath(projectDir, sessionId), next);
+  const next = { ...metadata, updatedAt: nowIso16() };
+  safeWriteJson(metadataPath(projectDir, sessionId), next);
   return next;
 }
 function readMetadata(projectDir, sessionId) {
   ensureProfileLayout(projectDir, sessionId);
-  const existing = safeReadJson2(metadataPath(projectDir, sessionId));
+  const existing = safeReadJson(
+    metadataPath(projectDir, sessionId)
+  );
   if (existing) return existing;
   const created = defaultMetadata(sessionId);
   writeMetadata(projectDir, sessionId, created);
   return created;
 }
-function writeState2(projectDir, sessionId, state2) {
+function writeState(projectDir, sessionId, state2) {
   ensureProfileLayout(projectDir, sessionId);
-  const next = { ...state2, updatedAt: nowIso20() };
-  safeWriteJson2(wizardFilePath(projectDir, sessionId), next);
+  const next = { ...state2, updatedAt: nowIso16() };
+  safeWriteJson(wizardFilePath(projectDir, sessionId), next);
   return next;
 }
 function moveCurrentToHistory(projectDir, sessionId) {
   const current = currentProfileDir(projectDir, sessionId);
-  if (!fs34.existsSync(current)) return;
-  const historyDir = path34.join(
+  if (!fs28.existsSync(current)) return;
+  const historyDir = path28.join(
     sessionRoot(projectDir, sessionId),
     "history",
     (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")
   );
-  fs34.mkdirSync(path34.dirname(historyDir), { recursive: true });
-  fs34.cpSync(current, historyDir, { recursive: true });
-  fs34.rmSync(current, { recursive: true, force: true });
+  fs28.mkdirSync(path28.dirname(historyDir), { recursive: true });
+  fs28.cpSync(current, historyDir, { recursive: true });
+  fs28.rmSync(current, { recursive: true, force: true });
 }
 function listSessionDirs(projectDir) {
-  const root = path34.join(profilesRoot(projectDir), "sessions");
-  if (!fs34.existsSync(root)) return [];
-  return fs34.readdirSync(root, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => entry2.name);
+  const root = path28.join(profilesRoot(projectDir), "sessions");
+  if (!fs28.existsSync(root)) return [];
+  return fs28.readdirSync(root, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => entry2.name);
 }
 function sessionHasWizardFile(projectDir, sessionDirName) {
-  const file3 = path34.join(
+  const file3 = path28.join(
     profilesRoot(projectDir),
     "sessions",
     sessionDirName,
     "current",
     "wizard-state.json"
   );
-  return fs34.existsSync(file3);
+  return fs28.existsSync(file3);
 }
 function stateHasAssets(state2) {
   return state2.assets.photos.length > 0 || Boolean(state2.assets.voiceSample) || Boolean(state2.assets.personalityText);
@@ -41903,12 +40942,12 @@ function listCompanionWizardSessions(projectDir) {
 function readCompanionWizardState(projectDir, sessionId = "main") {
   const effectiveSessionId = normalizeSessionId(sessionId);
   ensureProfileLayout(projectDir, effectiveSessionId);
-  const existing = safeReadJson2(
+  const existing = safeReadJson(
     wizardFilePath(projectDir, effectiveSessionId)
   );
   if (existing) return existing;
-  const created = defaultState5(effectiveSessionId);
-  return writeState2(projectDir, effectiveSessionId, created);
+  const created = defaultState2(effectiveSessionId);
+  return writeState(projectDir, effectiveSessionId, created);
 }
 function isCompanionWizardEmpty(projectDir, sessionId = "main") {
   const state2 = readCompanionWizardState(projectDir, sessionId);
@@ -41927,10 +40966,10 @@ function startCompanionWizard(projectDir, input) {
   if (!input?.forceReset && (stateHasAssets(existing) || existing.state !== "idle")) {
     return existing;
   }
-  const state2 = writeState2(projectDir, sessionId, {
-    ...defaultState5(sessionId),
+  const state2 = writeState(projectDir, sessionId, {
+    ...defaultState2(sessionId),
     state: "awaiting_photos",
-    startedAt: nowIso20()
+    startedAt: nowIso16()
   });
   writeMetadata(projectDir, sessionId, defaultMetadata(sessionId));
   return state2;
@@ -41939,38 +40978,42 @@ function resetCompanionWizard(projectDir, sessionId = "main") {
   const effectiveSessionId = normalizeSessionId(sessionId);
   moveCurrentToHistory(projectDir, effectiveSessionId);
   ensureProfileLayout(projectDir, effectiveSessionId);
-  writeMetadata(projectDir, effectiveSessionId, defaultMetadata(effectiveSessionId));
-  return writeState2(projectDir, effectiveSessionId, {
-    ...defaultState5(effectiveSessionId),
+  writeMetadata(
+    projectDir,
+    effectiveSessionId,
+    defaultMetadata(effectiveSessionId)
+  );
+  return writeState(projectDir, effectiveSessionId, {
+    ...defaultState2(effectiveSessionId),
     state: "idle"
   });
 }
 function copyMediaToProfile(projectDir, mediaIDs, targetDir) {
   const output = [];
-  fs34.mkdirSync(targetDir, { recursive: true });
+  fs28.mkdirSync(targetDir, { recursive: true });
   for (const mediaID of mediaIDs) {
     const item = getMediaItem(projectDir, mediaID);
-    if (!item?.localPath || !fs34.existsSync(item.localPath)) {
+    if (!item?.localPath || !fs28.existsSync(item.localPath)) {
       throw new Error(`media_asset_not_found:${mediaID}`);
     }
-    const ext = path34.extname(item.fileName) || extensionForMime(item.mimeType);
+    const ext = path28.extname(item.fileName) || extensionForMime(item.mimeType);
     const fileName = `${String(output.length + 1).padStart(2, "0")}_original${ext}`;
-    const filePath14 = path34.join(targetDir, fileName);
-    fs34.copyFileSync(item.localPath, filePath14);
+    const filePath14 = path28.join(targetDir, fileName);
+    fs28.copyFileSync(item.localPath, filePath14);
     output.push(filePath14);
   }
   return output;
 }
 function enqueueJob(state2, input) {
   const job = {
-    id: `wjob_${randomUUID17()}`,
+    id: `wjob_${randomUUID10()}`,
     type: input.type,
     status: "queued",
     progress: 0,
     estimatedTime: input.estimatedTime,
     fallbackStrategy: input.fallbackStrategy,
-    createdAt: nowIso20(),
-    updatedAt: nowIso20(),
+    createdAt: nowIso16(),
+    updatedAt: nowIso16(),
     attempts: 0
   };
   return {
@@ -41992,8 +41035,11 @@ function submitWizardPhotos(projectDir, input) {
   if (input.mediaIDs.length < 1 || input.mediaIDs.length > 5) {
     throw new Error("wizard_photo_count_invalid:must_be_1_to_5");
   }
-  const photosDir = path34.join(currentProfileDir(projectDir, sessionId), "photos");
-  fs34.rmSync(photosDir, { recursive: true, force: true });
+  const photosDir = path28.join(
+    currentProfileDir(projectDir, sessionId),
+    "photos"
+  );
+  fs28.rmSync(photosDir, { recursive: true, force: true });
   const copied = copyMediaToProfile(projectDir, input.mediaIDs, photosDir);
   if (copied.length < 1 || copied.length > 5 || copied.length !== input.mediaIDs.length) {
     throw new Error("wizard_photo_copy_invalid:must_be_1_to_5");
@@ -42013,7 +41059,7 @@ function submitWizardPhotos(projectDir, input) {
       fallbackStrategy: "\u82E5\u663E\u5B58\u4E0D\u8DB3\u5C06\u81EA\u52A8\u964D\u7EA7\u5230embedding\u65B9\u6848"
     }
   );
-  const written = writeState2(projectDir, sessionId, withJob);
+  const written = writeState(projectDir, sessionId, withJob);
   const metadata = readMetadata(projectDir, sessionId);
   writeMetadata(projectDir, sessionId, {
     ...metadata,
@@ -42021,7 +41067,9 @@ function submitWizardPhotos(projectDir, input) {
       ...metadata.assets,
       photos: {
         count: copied.length,
-        paths: copied.map((item) => path34.relative(currentProfileDir(projectDir, sessionId), item)),
+        paths: copied.map(
+          (item) => path28.relative(currentProfileDir(projectDir, sessionId), item)
+        ),
         checksums: copied.map((item) => checksumFile(item))
       }
     },
@@ -42030,7 +41078,9 @@ function submitWizardPhotos(projectDir, input) {
       image: "pending"
     }
   });
-  const job = written.jobs.find((item) => item.id === written.trainingJobs.imageJobId);
+  const job = written.jobs.find(
+    (item) => item.id === written.trainingJobs.imageJobId
+  );
   if (!job) throw new Error("image_job_not_created");
   return { state: written, job };
 }
@@ -42040,12 +41090,12 @@ function submitWizardVoice(projectDir, input) {
   if (current.state !== "awaiting_voice") {
     throw new Error(`wizard_state_invalid:${current.state}`);
   }
-  const voiceDir = path34.join(currentProfileDir(projectDir, sessionId), "voice");
-  fs34.mkdirSync(voiceDir, { recursive: true });
+  const voiceDir = path28.join(currentProfileDir(projectDir, sessionId), "voice");
+  fs28.mkdirSync(voiceDir, { recursive: true });
   const copied = copyMediaToProfile(projectDir, [input.mediaID], voiceDir);
   if (copied.length !== 1) throw new Error("voice_asset_not_found");
-  const voicePath = path34.join(voiceDir, "original_sample.wav");
-  fs34.copyFileSync(copied[0], voicePath);
+  const voicePath = path28.join(voiceDir, "original_sample.wav");
+  fs28.copyFileSync(copied[0], voicePath);
   const withJob = enqueueJob(
     {
       ...current,
@@ -42061,7 +41111,7 @@ function submitWizardVoice(projectDir, input) {
       fallbackStrategy: "\u82E5\u663E\u5B58\u4E0D\u8DB3\u5C06\u81EA\u52A8\u964D\u7EA7\u5230embedding\u65B9\u6848"
     }
   );
-  const written = writeState2(projectDir, sessionId, withJob);
+  const written = writeState(projectDir, sessionId, withJob);
   const metadata = readMetadata(projectDir, sessionId);
   writeMetadata(projectDir, sessionId, {
     ...metadata,
@@ -42078,7 +41128,9 @@ function submitWizardVoice(projectDir, input) {
       voice: "pending"
     }
   });
-  const job = written.jobs.find((item) => item.id === written.trainingJobs.voiceJobId);
+  const job = written.jobs.find(
+    (item) => item.id === written.trainingJobs.voiceJobId
+  );
   if (!job) throw new Error("voice_job_not_created");
   return { state: written, job };
 }
@@ -42090,14 +41142,17 @@ function submitWizardPersonality(projectDir, input) {
   }
   const text = input.personalityText.trim();
   if (!text) throw new Error("invalid_personality_text");
-  const personaPath = path34.join(currentProfileDir(projectDir, sessionId), "persona.json");
+  const personaPath = path28.join(
+    currentProfileDir(projectDir, sessionId),
+    "persona.json"
+  );
   const persona = {
     sourceText: text,
     generatedPrompt: `system: ${text}`,
-    updatedAt: nowIso20()
+    updatedAt: nowIso16()
   };
-  safeWriteJson2(personaPath, persona);
-  const next = writeState2(projectDir, sessionId, {
+  safeWriteJson(personaPath, persona);
+  const next = writeState(projectDir, sessionId, {
     ...current,
     state: "completed",
     assets: {
@@ -42132,7 +41187,7 @@ function markTrainingJobRunning(projectDir, jobID, sessionId = "main") {
   const sid2 = normalizeSessionId(sessionId);
   const resolvedSession = sessionId === "main" ? findSessionByJobId(projectDir, jobID) ?? sid2 : sid2;
   const current = readCompanionWizardState(projectDir, resolvedSession);
-  const updated = writeState2(projectDir, resolvedSession, {
+  const updated = writeState(projectDir, resolvedSession, {
     ...current,
     jobs: current.jobs.map(
       (job2) => job2.id === jobID ? {
@@ -42140,7 +41195,7 @@ function markTrainingJobRunning(projectDir, jobID, sessionId = "main") {
         status: "training",
         progress: Math.max(5, job2.progress),
         attempts: job2.attempts + 1,
-        updatedAt: nowIso20()
+        updatedAt: nowIso16()
       } : job2
     )
   });
@@ -42163,7 +41218,7 @@ function markTrainingJobRunning(projectDir, jobID, sessionId = "main") {
 function requeueTrainingJob(projectDir, input) {
   const sid2 = resolveSessionForWrite(projectDir, input.sessionId);
   const current = readCompanionWizardState(projectDir, sid2);
-  return writeState2(projectDir, sid2, {
+  return writeState(projectDir, sid2, {
     ...current,
     jobs: current.jobs.map(
       (job) => job.id === input.jobID ? {
@@ -42172,7 +41227,7 @@ function requeueTrainingJob(projectDir, input) {
         progress: Math.max(10, job.progress),
         checkpointPath: input.checkpointPath,
         message: input.message,
-        updatedAt: nowIso20()
+        updatedAt: nowIso16()
       } : job
     )
   });
@@ -42184,7 +41239,7 @@ function markTrainingJobFinished(projectDir, input) {
   const job = current.jobs.find((item) => item.id === input.jobID);
   if (!job) return current;
   const nextState = job.type === "training.image" ? input.status === "failed" || input.status === "canceled" ? "training_image" : "awaiting_voice" : input.status === "failed" || input.status === "canceled" ? "training_voice" : "awaiting_personality";
-  const updated = writeState2(projectDir, resolvedSession, {
+  const updated = writeState(projectDir, resolvedSession, {
     ...current,
     state: nextState,
     jobs: current.jobs.map(
@@ -42195,7 +41250,7 @@ function markTrainingJobFinished(projectDir, input) {
         progress: input.status === "failed" ? item.progress : 100,
         currentTier: input.tier,
         checkpointPath: input.checkpointPath ?? item.checkpointPath,
-        updatedAt: nowIso20()
+        updatedAt: nowIso16()
       } : item
     )
   });
@@ -42230,12 +41285,12 @@ function cancelCompanionWizardTraining(projectDir, sessionId = "main") {
       ...job,
       status: "canceled",
       message: "\u8BAD\u7EC3\u5DF2\u53D6\u6D88/\u53EF\u91CD\u8BD5",
-      updatedAt: nowIso20()
+      updatedAt: nowIso16()
     };
   });
   if (!hasCanceled) return current;
   const nextState = current.assets.voiceSample ? "awaiting_personality" : current.assets.photos.length > 0 ? "awaiting_voice" : "awaiting_photos";
-  return writeState2(projectDir, sid2, {
+  return writeState(projectDir, sid2, {
     ...current,
     state: nextState,
     jobs: nextJobs
@@ -42262,9 +41317,85 @@ function wizardChecklist(state2) {
   ];
 }
 
+// src/mcp/context7.ts
+var context7 = {
+  type: "remote",
+  url: "https://mcp.context7.com/mcp",
+  headers: process.env.CONTEXT7_API_KEY ? { CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY } : void 0,
+  oauth: false,
+  capabilities: {
+    sampling: false,
+    mcpUi: false
+  }
+};
+
+// src/mcp/grep-app.ts
+var grep_app = {
+  type: "remote",
+  url: "https://mcp.grep.app",
+  oauth: false,
+  capabilities: {
+    sampling: false,
+    mcpUi: false
+  }
+};
+
+// src/mcp/websearch.ts
+var websearch = {
+  type: "remote",
+  url: "https://mcp.exa.ai/mcp?tools=web_search_exa",
+  headers: process.env.EXA_API_KEY ? { "x-api-key": process.env.EXA_API_KEY } : void 0,
+  oauth: false,
+  capabilities: {
+    sampling: false,
+    mcpUi: false
+  }
+};
+
+// src/mcp/index.ts
+var allBuiltinMcps = {
+  websearch,
+  context7,
+  grep_app
+};
+function createBuiltinMcps(disabledMcps = []) {
+  return Object.fromEntries(
+    Object.entries(allBuiltinMcps).filter(
+      ([name]) => !disabledMcps.includes(name)
+    )
+  );
+}
+function buildMcpServiceManifest(disabledMcps = []) {
+  const builtins = createBuiltinMcps(disabledMcps);
+  const mcps = Object.entries(builtins).map(([name, config3]) => {
+    const caps = "capabilities" in config3 ? config3.capabilities : void 0;
+    return {
+      name,
+      type: config3.type,
+      sampling: Boolean(caps?.sampling),
+      mcpUi: Boolean(caps?.mcpUi),
+      serviceExpose: Boolean(caps?.serviceExpose)
+    };
+  });
+  return {
+    service: "miya-control-plane",
+    version: 2,
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    mcps,
+    controlPlaneEndpoints: [
+      "gateway.status.get",
+      "gateway.backpressure.stats",
+      "daemon.backpressure.stats",
+      "provider.override.audit.list",
+      "mcp.capabilities.list",
+      "mcp.service.expose"
+    ]
+  };
+}
+
 // src/multimodal/image.ts
-import * as fs35 from "node:fs";
-import * as path35 from "node:path";
+import * as fs29 from "node:fs";
+import * as path29 from "node:path";
 var DEFAULT_IMAGE_MODEL = "local:flux.1-schnell";
 var DEFAULT_IMAGE_SIZE = "1024x1024";
 var BLANK_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6sYz0AAAAASUVORK5CYII=";
@@ -42273,8 +41404,8 @@ function sanitizePrompt(prompt) {
 }
 function toBase64FromFile(filePath14) {
   try {
-    if (!fs35.existsSync(filePath14)) return null;
-    return fs35.readFileSync(filePath14).toString("base64");
+    if (!fs29.existsSync(filePath14)) return null;
+    return fs29.readFileSync(filePath14).toString("base64");
   } catch {
     return null;
   }
@@ -42311,8 +41442,8 @@ async function generateImage(projectDir, input) {
     localPath: item.localPath
   }));
   const outputDir = getMiyaImageTempDir(projectDir);
-  const outputPath = path35.join(outputDir, `flux-${Date.now()}.png`);
-  const profileDir = path35.join(
+  const outputPath = path29.join(outputDir, `flux-${Date.now()}.png`);
+  const profileDir = path29.join(
     getMiyaRuntimeDir(projectDir),
     "profiles",
     "companion",
@@ -42393,18 +41524,132 @@ async function generateImage(projectDir, input) {
   };
 }
 
+// src/multimodal/intent.ts
+function extractFriend(text) {
+  const bracket = text.match(/给\s*\[([^\]]+)\]/);
+  if (bracket?.[1]) return bracket[1].trim();
+  const plain = text.match(/给\s*([^\s，。!?！？]+)/);
+  if (plain?.[1]) return plain[1].trim();
+  return "";
+}
+function detectMultimodalIntent(text) {
+  const normalized = text.trim();
+  if (!normalized) return { type: "unknown" };
+  if (/(发张自拍|来张自拍|自拍一下|自拍照)/.test(normalized)) {
+    return {
+      type: "selfie",
+      prompt: "a natural selfie portrait, indoor soft light, realistic phone camera shot"
+    };
+  }
+  if (/(用你的声音发一条语音给|发语音给|语音发给)/.test(normalized)) {
+    const friend = extractFriend(normalized);
+    return {
+      type: "voice_to_friend",
+      text: normalized,
+      friend
+    };
+  }
+  return { type: "unknown" };
+}
+
 // src/multimodal/vision-regression.ts
-import * as path36 from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
-var FIXTURE_FILE = path36.join(
-  path36.dirname(fileURLToPath2(import.meta.url)),
+import * as path30 from "node:path";
+import { fileURLToPath } from "node:url";
+var FIXTURE_FILE = path30.join(
+  path30.dirname(fileURLToPath(import.meta.url)),
   "fixtures",
   "desktop-outbound-ocr-regression.json"
 );
 
 // src/multimodal/voice.ts
-import * as fs36 from "node:fs";
-import * as path37 from "node:path";
+import * as fs31 from "node:fs";
+import * as path32 from "node:path";
+
+// src/voice/state.ts
+import { randomUUID as randomUUID11 } from "node:crypto";
+import * as fs30 from "node:fs";
+import * as path31 from "node:path";
+function nowIso17() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function filePath8(projectDir) {
+  return path31.join(getMiyaRuntimeDir(projectDir), "voice.json");
+}
+function ensureDir14(file3) {
+  fs30.mkdirSync(path31.dirname(file3), { recursive: true });
+}
+function defaultState3() {
+  return {
+    enabled: false,
+    wakeWordEnabled: false,
+    talkMode: false,
+    routeSessionID: "main",
+    sttProvider: "local",
+    ttsProvider: "local",
+    history: []
+  };
+}
+function readVoiceState(projectDir) {
+  const file3 = filePath8(projectDir);
+  if (!fs30.existsSync(file3)) return defaultState3();
+  try {
+    const parsed = JSON.parse(
+      fs30.readFileSync(file3, "utf-8")
+    );
+    return {
+      ...defaultState3(),
+      ...parsed,
+      history: Array.isArray(parsed.history) ? parsed.history : []
+    };
+  } catch {
+    return defaultState3();
+  }
+}
+function writeVoiceState(projectDir, state2) {
+  const file3 = filePath8(projectDir);
+  ensureDir14(file3);
+  fs30.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
+`, "utf-8");
+  return state2;
+}
+function patchVoiceState(projectDir, patch) {
+  const current = readVoiceState(projectDir);
+  const next = {
+    ...current,
+    ...patch
+  };
+  return writeVoiceState(projectDir, next);
+}
+function appendVoiceHistory(projectDir, input) {
+  const state2 = readVoiceState(projectDir);
+  const item = {
+    id: `voice_${randomUUID11()}`,
+    text: input.text,
+    source: input.source,
+    language: input.language,
+    mediaID: input.mediaID,
+    createdAt: nowIso17()
+  };
+  const next = {
+    ...state2,
+    lastInputAt: item.createdAt,
+    lastTranscript: item.text,
+    history: [item, ...state2.history].slice(0, 200)
+  };
+  writeVoiceState(projectDir, next);
+  return item;
+}
+function clearVoiceHistory(projectDir) {
+  const state2 = readVoiceState(projectDir);
+  return writeVoiceState(projectDir, {
+    ...state2,
+    history: [],
+    lastInputAt: void 0,
+    lastTranscript: void 0
+  });
+}
+
+// src/multimodal/voice.ts
 var DEFAULT_VOICE = "default";
 var DEFAULT_TTS_MODEL = "local:gpt-sovits-v2pro";
 function resolveVoiceInputText(projectDir, input) {
@@ -42462,8 +41707,8 @@ function buildSilentWavBase64(durationMs) {
 }
 function toBase64FromFile2(filePath14) {
   try {
-    if (!fs36.existsSync(filePath14)) return null;
-    return fs36.readFileSync(filePath14).toString("base64");
+    if (!fs31.existsSync(filePath14)) return null;
+    return fs31.readFileSync(filePath14).toString("base64");
   } catch {
     return null;
   }
@@ -42496,8 +41741,8 @@ async function synthesizeVoiceOutput(projectDir, input) {
   const mimeType = format === "mp3" ? "audio/mpeg" : format === "ogg" ? "audio/ogg" : "audio/wav";
   const estDurationMs = Math.max(600, Math.min(7e3, text.length * 55));
   const outputDir = getMiyaVoiceTempDir(projectDir);
-  const outputPath = path37.join(outputDir, `tts-${Date.now()}.${format}`);
-  const profileDir = path37.join(
+  const outputPath = path32.join(outputDir, `tts-${Date.now()}.${format}`);
+  const profileDir = path32.join(
     getMiyaRuntimeDir(projectDir),
     "profiles",
     "companion",
@@ -42585,55 +41830,512 @@ async function synthesizeVoiceOutput(projectDir, input) {
   };
 }
 
-// src/multimodal/intent.ts
-function extractFriend(text) {
-  const bracket = text.match(/给\s*\[([^\]]+)\]/);
-  if (bracket?.[1]) return bracket[1].trim();
-  const plain = text.match(/给\s*([^\s，。!?！？]+)/);
-  if (plain?.[1]) return plain[1].trim();
-  return "";
+// src/nodes/index.ts
+import {
+  createHash as createHash11,
+  randomBytes as randomBytes2,
+  randomUUID as randomUUID12,
+  timingSafeEqual
+} from "node:crypto";
+import * as fs32 from "node:fs";
+import * as path33 from "node:path";
+var HEARTBEAT_STALE_MS = 2 * 60 * 1e3;
+function nowIso18() {
+  return (/* @__PURE__ */ new Date()).toISOString();
 }
-function detectMultimodalIntent(text) {
-  const normalized = text.trim();
-  if (!normalized) return { type: "unknown" };
-  if (/(发张自拍|来张自拍|自拍一下|自拍照)/.test(normalized)) {
+function hashToken(token) {
+  return createHash11("sha256").update(token).digest("hex");
+}
+function defaultNodePermissions() {
+  return {
+    screenRecording: false,
+    accessibility: false,
+    filesystem: "none",
+    network: false
+  };
+}
+function inferPermissionsFromCapabilities(capabilities, base) {
+  const inferred = defaultNodePermissions();
+  for (const capability of capabilities) {
+    if (capability === "perm.screenRecording") inferred.screenRecording = true;
+    if (capability === "perm.accessibility") inferred.accessibility = true;
+    if (capability === "perm.network") inferred.network = true;
+    if (capability.startsWith("perm.filesystem.")) {
+      const suffix = capability.slice("perm.filesystem.".length);
+      if (suffix === "none" || suffix === "read" || suffix === "full") {
+        inferred.filesystem = suffix;
+      }
+    }
+  }
+  return {
+    ...inferred,
+    ...base ?? {}
+  };
+}
+function normalizeNodeRecord(partial3) {
+  const capabilityList = Array.isArray(partial3.capabilities) ? partial3.capabilities.map((item) => String(item)).filter(Boolean).sort() : [];
+  const fallbackHeartbeat = String(partial3.lastSeenAt ?? nowIso18());
+  const permissions = inferPermissionsFromCapabilities(
+    capabilityList,
+    partial3.permissions
+  );
+  const status = partial3.connected ? "online" : "offline";
+  return {
+    nodeID: String(partial3.nodeID ?? ""),
+    deviceID: String(partial3.deviceID ?? ""),
+    type: partial3.type === "cli" || partial3.type === "desktop" || partial3.type === "mobile" || partial3.type === "browser" ? partial3.type : "cli",
+    role: "node",
+    platform: String(partial3.platform ?? process.platform),
+    permissions,
+    capabilities: capabilityList,
+    connected: Boolean(partial3.connected),
+    paired: Boolean(partial3.paired),
+    status: partial3.status === "online" || partial3.status === "offline" || partial3.status === "error" ? partial3.status : status,
+    tokenHash: typeof partial3.tokenHash === "string" ? partial3.tokenHash : void 0,
+    tokenIssuedAt: typeof partial3.tokenIssuedAt === "string" ? partial3.tokenIssuedAt : void 0,
+    tokenLastUsedAt: typeof partial3.tokenLastUsedAt === "string" ? partial3.tokenLastUsedAt : void 0,
+    lastHeartbeatAt: typeof partial3.lastHeartbeatAt === "string" ? partial3.lastHeartbeatAt : fallbackHeartbeat,
+    lastSeenAt: String(partial3.lastSeenAt ?? fallbackHeartbeat),
+    createdAt: String(partial3.createdAt ?? nowIso18()),
+    updatedAt: String(partial3.updatedAt ?? nowIso18())
+  };
+}
+function applyHeartbeatHealth(store2) {
+  const now = Date.now();
+  let changed = false;
+  for (const node of Object.values(store2.nodes)) {
+    const heartbeatAt = Date.parse(node.lastHeartbeatAt || node.lastSeenAt);
+    if (Number.isNaN(heartbeatAt)) continue;
+    const stale = now - heartbeatAt > HEARTBEAT_STALE_MS;
+    if (stale && (node.connected || node.status === "online")) {
+      node.connected = false;
+      node.status = "offline";
+      node.updatedAt = nowIso18();
+      changed = true;
+    }
+  }
+  return changed;
+}
+function filePath9(projectDir) {
+  return path33.join(getMiyaRuntimeDir(projectDir), "nodes.json");
+}
+function ensureDir15(file3) {
+  fs32.mkdirSync(path33.dirname(file3), { recursive: true });
+}
+function readStore7(projectDir) {
+  const file3 = filePath9(projectDir);
+  if (!fs32.existsSync(file3)) {
     return {
-      type: "selfie",
-      prompt: "a natural selfie portrait, indoor soft light, realistic phone camera shot"
+      nodes: {},
+      devices: {},
+      pairs: [],
+      invokes: {}
     };
   }
-  if (/(用你的声音发一条语音给|发语音给|语音发给)/.test(normalized)) {
-    const friend = extractFriend(normalized);
+  try {
+    const parsed = JSON.parse(
+      fs32.readFileSync(file3, "utf-8")
+    );
+    const rawNodes = parsed.nodes ?? {};
+    const nodes = {};
+    for (const [nodeID, node] of Object.entries(rawNodes)) {
+      const normalized = normalizeNodeRecord({
+        ...node,
+        nodeID: nodeID || node?.nodeID
+      });
+      if (!normalized.nodeID) continue;
+      nodes[normalized.nodeID] = normalized;
+    }
     return {
-      type: "voice_to_friend",
-      text: normalized,
-      friend
+      nodes,
+      devices: parsed.devices ?? {},
+      pairs: Array.isArray(parsed.pairs) ? parsed.pairs : [],
+      invokes: parsed.invokes ?? {}
+    };
+  } catch {
+    return {
+      nodes: {},
+      devices: {},
+      pairs: [],
+      invokes: {}
     };
   }
-  return { type: "unknown" };
+}
+function writeStore7(projectDir, store2) {
+  const file3 = filePath9(projectDir);
+  ensureDir15(file3);
+  fs32.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
+`, "utf-8");
+}
+function readStoreWithHealth(projectDir) {
+  const store2 = readStore7(projectDir);
+  if (applyHeartbeatHealth(store2)) {
+    writeStore7(projectDir, store2);
+  }
+  return store2;
+}
+function verifyNodeToken(node, token) {
+  if (!node.tokenHash) return true;
+  if (!token) return false;
+  const expected = Buffer.from(node.tokenHash, "hex");
+  const actual = Buffer.from(hashToken(token), "hex");
+  if (expected.length !== actual.length) return false;
+  return timingSafeEqual(expected, actual);
+}
+function registerNode(projectDir, input) {
+  const store2 = readStoreWithHealth(projectDir);
+  const existing = store2.nodes[input.nodeID];
+  if (existing && !verifyNodeToken(existing, input.token)) {
+    throw new Error("node_token_invalid");
+  }
+  const nextCapabilities = [...new Set(input.capabilities)].sort();
+  const now = nowIso18();
+  const createdAt = store2.nodes[input.nodeID]?.createdAt ?? nowIso18();
+  const lastHeartbeatAt = now;
+  const tokenLastUsedAt = existing?.tokenHash ? now : existing?.tokenLastUsedAt;
+  const node = {
+    nodeID: input.nodeID,
+    deviceID: input.deviceID,
+    type: input.type ?? existing?.type ?? "cli",
+    role: "node",
+    platform: input.platform,
+    permissions: inferPermissionsFromCapabilities(nextCapabilities, {
+      ...existing?.permissions,
+      ...input.permissions ?? {}
+    }),
+    capabilities: nextCapabilities,
+    connected: true,
+    paired: existing?.paired ?? false,
+    status: "online",
+    tokenHash: existing?.tokenHash,
+    tokenIssuedAt: existing?.tokenIssuedAt,
+    tokenLastUsedAt,
+    lastHeartbeatAt,
+    lastSeenAt: now,
+    createdAt,
+    updatedAt: now
+  };
+  store2.nodes[input.nodeID] = node;
+  const device = {
+    deviceID: input.deviceID,
+    label: store2.devices[input.deviceID]?.label,
+    approved: store2.devices[input.deviceID]?.approved ?? false,
+    createdAt: store2.devices[input.deviceID]?.createdAt ?? now,
+    updatedAt: now
+  };
+  store2.devices[input.deviceID] = device;
+  writeStore7(projectDir, store2);
+  return node;
+}
+function touchNodeHeartbeat(projectDir, nodeID) {
+  const store2 = readStore7(projectDir);
+  const node = store2.nodes[nodeID];
+  if (!node) return null;
+  const now = nowIso18();
+  node.connected = true;
+  node.status = "online";
+  node.lastHeartbeatAt = now;
+  node.lastSeenAt = now;
+  node.updatedAt = now;
+  writeStore7(projectDir, store2);
+  return node;
+}
+function markNodeDisconnected(projectDir, nodeID) {
+  const store2 = readStore7(projectDir);
+  const node = store2.nodes[nodeID];
+  if (!node) return;
+  node.connected = false;
+  node.status = "offline";
+  node.updatedAt = nowIso18();
+  writeStore7(projectDir, store2);
+}
+function listNodes(projectDir) {
+  const store2 = readStoreWithHealth(projectDir);
+  return Object.values(store2.nodes).sort(
+    (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+  );
+}
+function listDevices(projectDir) {
+  const store2 = readStoreWithHealth(projectDir);
+  return Object.values(store2.devices).sort(
+    (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+  );
+}
+function describeNode(projectDir, nodeID) {
+  const store2 = readStoreWithHealth(projectDir);
+  return store2.nodes[nodeID] ?? null;
+}
+function issueNodeToken(projectDir, nodeID) {
+  const store2 = readStoreWithHealth(projectDir);
+  const node = store2.nodes[nodeID];
+  if (!node) return null;
+  const token = `nkt_${randomBytes2(24).toString("hex")}`;
+  const issuedAt = nowIso18();
+  node.tokenHash = hashToken(token);
+  node.tokenIssuedAt = issuedAt;
+  node.tokenLastUsedAt = issuedAt;
+  node.updatedAt = issuedAt;
+  store2.nodes[nodeID] = node;
+  writeStore7(projectDir, store2);
+  return { nodeID, token, issuedAt };
+}
+function createNodePairRequest(projectDir, input) {
+  const store2 = readStore7(projectDir);
+  const pending = store2.pairs.find(
+    (item) => item.nodeID === input.nodeID && item.status === "pending"
+  );
+  if (pending) return pending;
+  const pair = {
+    id: `npair_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    nodeID: input.nodeID,
+    deviceID: input.deviceID,
+    status: "pending",
+    requestedAt: nowIso18()
+  };
+  store2.pairs = [pair, ...store2.pairs].slice(0, 1e3);
+  writeStore7(projectDir, store2);
+  return pair;
+}
+function listNodePairs(projectDir, status) {
+  const store2 = readStore7(projectDir);
+  const pairs = status ? store2.pairs.filter((item) => item.status === status) : store2.pairs;
+  return [...pairs].sort(
+    (a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt)
+  );
+}
+function resolveNodePair(projectDir, pairID, status) {
+  const store2 = readStore7(projectDir);
+  const pair = store2.pairs.find((item) => item.id === pairID);
+  if (!pair || pair.status !== "pending") return null;
+  pair.status = status;
+  pair.resolvedAt = nowIso18();
+  if (status === "approved") {
+    const node = store2.nodes[pair.nodeID];
+    if (node) {
+      node.paired = true;
+      node.updatedAt = nowIso18();
+    }
+    const device = store2.devices[pair.deviceID];
+    if (device) {
+      device.approved = true;
+      device.updatedAt = nowIso18();
+    }
+  }
+  writeStore7(projectDir, store2);
+  return pair;
+}
+function createInvokeRequest(projectDir, input) {
+  const store2 = readStore7(projectDir);
+  const invoke = {
+    id: `invoke_${randomUUID12()}`,
+    nodeID: input.nodeID,
+    capability: input.capability,
+    args: input.args,
+    status: "pending",
+    createdAt: nowIso18(),
+    updatedAt: nowIso18()
+  };
+  store2.invokes[invoke.id] = invoke;
+  writeStore7(projectDir, store2);
+  return invoke;
+}
+function markInvokeSent(projectDir, invokeID) {
+  const store2 = readStore7(projectDir);
+  const invoke = store2.invokes[invokeID];
+  if (!invoke) return null;
+  invoke.status = "sent";
+  invoke.updatedAt = nowIso18();
+  writeStore7(projectDir, store2);
+  return invoke;
+}
+function resolveInvokeResult(projectDir, invokeID, input) {
+  const store2 = readStore7(projectDir);
+  const invoke = store2.invokes[invokeID];
+  if (!invoke) return null;
+  invoke.status = input.ok ? "completed" : "failed";
+  invoke.result = input.result;
+  invoke.error = input.error;
+  invoke.updatedAt = nowIso18();
+  writeStore7(projectDir, store2);
+  return invoke;
+}
+function listInvokeRequests(projectDir, limit = 50) {
+  const store2 = readStore7(projectDir);
+  return Object.values(store2.invokes).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, Math.max(1, limit));
+}
+
+// src/policy/decision-fusion.ts
+function normalizeConfidence(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+function normalizeTrustScore(value) {
+  if (!Number.isFinite(value)) return 50;
+  if (value < 0) return 0;
+  if (value > 100) return 100;
+  return Math.round(value);
+}
+function normalizeTrustMode(input) {
+  let silentMin = Math.max(
+    0,
+    Math.min(100, Math.round(input?.silentMin ?? 90))
+  );
+  let modalMax = Math.max(0, Math.min(100, Math.round(input?.modalMax ?? 50)));
+  if (silentMin <= modalMax) {
+    const pivot = Math.round((silentMin + modalMax) / 2);
+    silentMin = Math.min(100, pivot + 1);
+    modalMax = Math.max(0, pivot - 1);
+  }
+  if (silentMin - modalMax < 2) {
+    if (silentMin < 100) silentMin += 1;
+    else if (modalMax > 0) modalMax -= 1;
+  }
+  if (silentMin <= modalMax) {
+    return { silentMin: 90, modalMax: 50 };
+  }
+  return { silentMin, modalMax };
+}
+function resolveApprovalMode(input) {
+  if (input.action !== "allow") return "modal_approval";
+  const thresholds = normalizeTrustMode(input.trustMode);
+  const silentMin = thresholds.silentMin;
+  const modalMax = thresholds.modalMax;
+  if (input.trustScore >= silentMin) return "silent_audit";
+  if (input.trustScore <= modalMax) return "modal_approval";
+  return "toast_gate";
+}
+function evaluateOutboundDecisionFusion(input) {
+  const conf = normalizeConfidence(input.confidenceIntent);
+  const evidenceConf = normalizeConfidence(
+    input.evidenceConfidence ?? input.confidenceIntent
+  );
+  const trustScore = normalizeTrustScore(input.trustMinScore);
+  const expressionMatched = input.factorTextSensitive && !input.factorRecipientIsMe || input.factorTextSensitive && input.factorIntentSuspicious;
+  if (evidenceConf < 0.35) {
+    const action2 = expressionMatched ? conf < 0.5 ? "hard_fuse" : "soft_fuse" : "allow";
+    return {
+      expressionMatched,
+      zone: action2 === "hard_fuse" ? "danger" : "gray",
+      action: action2,
+      approvalMode: "modal_approval",
+      reason: action2 === "hard_fuse" ? "decision_fusion_danger_low_evidence" : action2 === "soft_fuse" ? "decision_fusion_gray_low_evidence" : "decision_fusion_low_evidence_confirmation_required"
+    };
+  }
+  if (!expressionMatched) {
+    const action2 = "allow";
+    return {
+      expressionMatched: false,
+      zone: "safe",
+      action: action2,
+      approvalMode: resolveApprovalMode({
+        action: action2,
+        trustScore,
+        trustMode: input.trustMode
+      }),
+      reason: "decision_fusion_clear"
+    };
+  }
+  if (conf < 0.5) {
+    const action2 = "hard_fuse";
+    return {
+      expressionMatched: true,
+      zone: "danger",
+      action: action2,
+      approvalMode: "modal_approval",
+      reason: "decision_fusion_danger"
+    };
+  }
+  if (conf <= 0.85) {
+    const action2 = "soft_fuse";
+    return {
+      expressionMatched: true,
+      zone: "gray",
+      action: action2,
+      approvalMode: "modal_approval",
+      reason: "decision_fusion_gray"
+    };
+  }
+  const action = "allow";
+  return {
+    expressionMatched: true,
+    zone: "safe",
+    action,
+    approvalMode: resolveApprovalMode({
+      action,
+      trustScore,
+      trustMode: input.trustMode
+    }),
+    reason: "decision_fusion_safe_by_confidence"
+  };
+}
+
+// src/policy/incident.ts
+import { randomUUID as randomUUID13 } from "node:crypto";
+import * as fs33 from "node:fs";
+import * as path34 from "node:path";
+function incidentFile(projectDir) {
+  return path34.join(getMiyaRuntimeDir(projectDir), "policy-incidents.jsonl");
+}
+function appendPolicyIncident(projectDir, incident) {
+  assertSemanticTags(incident.semanticTags);
+  const semanticTags = normalizeSemanticTags(incident.semanticTags);
+  const payload = {
+    id: incident.id ?? `incident_${randomUUID13()}`,
+    at: incident.at ?? (/* @__PURE__ */ new Date()).toISOString(),
+    type: incident.type,
+    reason: incident.reason,
+    channel: incident.channel,
+    destination: incident.destination,
+    auditID: incident.auditID,
+    policyHash: incident.policyHash,
+    pausedDomains: incident.pausedDomains,
+    statusByDomain: incident.statusByDomain,
+    semanticSummary: incident.semanticSummary,
+    semanticTags,
+    details: incident.details
+  };
+  const file3 = incidentFile(projectDir);
+  fs33.mkdirSync(path34.dirname(file3), { recursive: true });
+  fs33.appendFileSync(file3, `${JSON.stringify(payload)}
+`, "utf-8");
+  return payload;
+}
+function listPolicyIncidents(projectDir, limit = 50) {
+  const file3 = incidentFile(projectDir);
+  if (!fs33.existsSync(file3)) return [];
+  const rows = fs33.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return null;
+    }
+  }).filter((row) => Boolean(row));
+  return rows.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, Math.max(1, limit));
 }
 
 // src/resource-scheduler/scheduler.ts
-import { randomUUID as randomUUID18 } from "node:crypto";
+import { randomUUID as randomUUID14 } from "node:crypto";
 
 // src/resource-scheduler/store.ts
-import * as fs37 from "node:fs";
-import * as path38 from "node:path";
+import * as fs34 from "node:fs";
+import * as path35 from "node:path";
 function schedulerDir(projectDir) {
-  return path38.join(getMiyaRuntimeDir(projectDir), "resource-scheduler");
+  return path35.join(getMiyaRuntimeDir(projectDir), "resource-scheduler");
 }
 function snapshotPath(projectDir) {
-  return path38.join(schedulerDir(projectDir), "state.json");
+  return path35.join(schedulerDir(projectDir), "state.json");
 }
 function eventsPath(projectDir) {
-  return path38.join(schedulerDir(projectDir), "events.jsonl");
+  return path35.join(schedulerDir(projectDir), "events.jsonl");
 }
-function ensureDir17(projectDir) {
-  fs37.mkdirSync(schedulerDir(projectDir), { recursive: true });
+function ensureDir16(projectDir) {
+  fs34.mkdirSync(schedulerDir(projectDir), { recursive: true });
 }
 function writeSchedulerSnapshot(projectDir, snapshot) {
-  ensureDir17(projectDir);
-  fs37.writeFileSync(
+  ensureDir16(projectDir);
+  fs34.writeFileSync(
     snapshotPath(projectDir),
     `${JSON.stringify(snapshot, null, 2)}
 `,
@@ -42641,9 +42343,13 @@ function writeSchedulerSnapshot(projectDir, snapshot) {
   );
 }
 function appendSchedulerEvent(projectDir, event) {
-  ensureDir17(projectDir);
-  fs37.appendFileSync(eventsPath(projectDir), `${JSON.stringify(event)}
-`, "utf-8");
+  ensureDir16(projectDir);
+  fs34.appendFileSync(
+    eventsPath(projectDir),
+    `${JSON.stringify(event)}
+`,
+    "utf-8"
+  );
 }
 
 // src/resource-scheduler/vram.ts
@@ -42661,7 +42367,10 @@ function calculateVramBudget(input) {
     clampNonNegative(input.snapshot.totalVramMB) - clampNonNegative(input.snapshot.safetyMarginMB) - clampNonNegative(input.snapshot.usedVramMB) - loadedVramMB
   );
   const loaded = new Map(
-    input.snapshot.loadedModels.map((model) => [model.modelID, clampNonNegative(model.vramMB)])
+    input.snapshot.loadedModels.map((model) => [
+      model.modelID,
+      clampNonNegative(model.vramMB)
+    ])
   );
   const keepLoaded = /* @__PURE__ */ new Set();
   let modelsNeedLoadMB = 0;
@@ -42704,7 +42413,7 @@ function decideModelSwapAction(input) {
 }
 
 // src/resource-scheduler/scheduler.ts
-function nowIso21() {
+function nowIso19() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function toNumber(value, fallback) {
@@ -42751,7 +42460,7 @@ var ResourceScheduler = class {
     this.recordSnapshot();
   }
   async acquire(request) {
-    const pendingID = `lease_${randomUUID18()}`;
+    const pendingID = `lease_${randomUUID14()}`;
     return new Promise((resolve7, reject) => {
       const timeoutMs = typeof request.timeoutMs === "number" && request.timeoutMs > 0 ? request.timeoutMs : void 0;
       const timeoutAtMs = timeoutMs ? Date.now() + timeoutMs : void 0;
@@ -42771,7 +42480,7 @@ var ResourceScheduler = class {
         return a.createdAtMs - b.createdAtMs;
       });
       appendSchedulerEvent(this.projectDir, {
-        at: nowIso21(),
+        at: nowIso19(),
         type: "queued",
         leaseID: pendingID,
         kind: request.kind,
@@ -42793,7 +42502,7 @@ var ResourceScheduler = class {
   }
   snapshot() {
     return {
-      timestamp: nowIso21(),
+      timestamp: nowIso19(),
       totalVramMB: this.totalVramMB,
       safetyMarginMB: this.safetyMarginMB,
       usedVramMB: this.usedVramMB,
@@ -42850,8 +42559,11 @@ var ResourceScheduler = class {
       if (!pending) return;
       if (!this.canGrant(pending.request)) return;
       this.queue.shift();
-      const grantedAt = nowIso21();
-      const requestVramMB = Math.max(0, Math.floor(pending.request.vramMB ?? 0));
+      const grantedAt = nowIso19();
+      const requestVramMB = Math.max(
+        0,
+        Math.floor(pending.request.vramMB ?? 0)
+      );
       const lease = {
         id: pending.id,
         kind: pending.request.kind,
@@ -42876,9 +42588,12 @@ var ResourceScheduler = class {
         }
         this.ensureModelLoaded(pending.request.modelID, modelVramMB);
         this.pinModel(pending.request.modelID);
-        this.currentModelByKind.set(pending.request.kind, pending.request.modelID);
+        this.currentModelByKind.set(
+          pending.request.kind,
+          pending.request.modelID
+        );
         appendSchedulerEvent(this.projectDir, {
-          at: nowIso21(),
+          at: nowIso19(),
           type: "model_swap",
           kind: pending.request.kind,
           action: swapAction,
@@ -42917,7 +42632,7 @@ var ResourceScheduler = class {
       this.touchModel(lease.modelID);
     }
     appendSchedulerEvent(this.projectDir, {
-      at: nowIso21(),
+      at: nowIso19(),
       type: "released",
       leaseID,
       kind: lease.kind,
@@ -42930,15 +42645,14 @@ var ResourceScheduler = class {
   canGrant(request) {
     if (this.active.size >= this.maxConcurrentTasks) return false;
     if (this.isolateTrainingLane) {
-      if (this.isTrainingKind(request.kind) && this.hasActiveInferenceTask()) return false;
-      if (!this.isTrainingKind(request.kind) && this.hasActiveTrainingTask()) return false;
+      if (this.isTrainingKind(request.kind) && this.hasActiveInferenceTask())
+        return false;
+      if (!this.isTrainingKind(request.kind) && this.hasActiveTrainingTask())
+        return false;
     }
     const neededVramMB = Math.max(0, Math.floor(request.vramMB ?? 0));
     if (neededVramMB === 0) return true;
-    const modelVramMB = request.modelID ? Math.max(
-      0,
-      Math.floor(request.modelVramMB ?? request.vramMB ?? 0)
-    ) : 0;
+    const modelVramMB = request.modelID ? Math.max(0, Math.floor(request.modelVramMB ?? request.vramMB ?? 0)) : 0;
     this.evictModelsIfNeeded(neededVramMB + modelVramMB);
     return this.availableVramMB() >= neededVramMB + modelVramMB;
   }
@@ -42967,7 +42681,7 @@ var ResourceScheduler = class {
     for (const pending of this.queue) {
       if (pending.timeoutAtMs && pending.timeoutAtMs <= now) {
         appendSchedulerEvent(this.projectDir, {
-          at: nowIso21(),
+          at: nowIso19(),
           type: "timeout",
           leaseID: pending.id,
           kind: pending.request.kind
@@ -42994,7 +42708,7 @@ var ResourceScheduler = class {
     if (warmEntry) {
       this.warmPool.delete(modelID);
       appendSchedulerEvent(this.projectDir, {
-        at: nowIso21(),
+        at: nowIso19(),
         type: "model_restored_from_warm_pool",
         modelID
       });
@@ -43007,7 +42721,7 @@ var ResourceScheduler = class {
       lastUsedAtMs: Date.now()
     });
     appendSchedulerEvent(this.projectDir, {
-      at: nowIso21(),
+      at: nowIso19(),
       type: "model_loaded",
       modelID,
       vramMB
@@ -43026,7 +42740,7 @@ var ResourceScheduler = class {
       this.loadedModels.delete(candidate.modelID);
       this.addToWarmPool(candidate.modelID);
       appendSchedulerEvent(this.projectDir, {
-        at: nowIso21(),
+        at: nowIso19(),
         type: "model_unloaded",
         modelID: candidate.modelID,
         vramMB: candidate.vramMB,
@@ -43068,7 +42782,8 @@ var ResourceScheduler = class {
     return false;
   }
   addToWarmPool(modelID) {
-    if (!modelID || this.hotsetModelIDs.has(modelID) || this.warmPoolLimit <= 0) return;
+    if (!modelID || this.hotsetModelIDs.has(modelID) || this.warmPoolLimit <= 0)
+      return;
     this.warmPool.set(modelID, {
       modelID,
       cachedAtMs: Date.now()
@@ -43077,7 +42792,9 @@ var ResourceScheduler = class {
   }
   pruneWarmPool() {
     if (this.warmPool.size <= this.warmPoolLimit) return;
-    const entries = [...this.warmPool.values()].sort((a, b) => a.cachedAtMs - b.cachedAtMs);
+    const entries = [...this.warmPool.values()].sort(
+      (a, b) => a.cachedAtMs - b.cachedAtMs
+    );
     while (this.warmPool.size > this.warmPoolLimit) {
       const candidate = entries.shift();
       if (!candidate) break;
@@ -43097,221 +42814,6 @@ function getResourceScheduler(projectDir, options) {
   const created = new ResourceScheduler(projectDir, options);
   schedulers.set(projectDir, created);
   return created;
-}
-
-// src/sessions/index.ts
-import * as fs38 from "node:fs";
-import * as path39 from "node:path";
-var DEFAULT_POLICY = {
-  activation: "active",
-  reply: "auto",
-  queueStrategy: "fifo"
-};
-function nowIso22() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function filePath10(projectDir) {
-  return path39.join(getMiyaRuntimeDir(projectDir), "sessions.json");
-}
-function ensureDir18(file3) {
-  fs38.mkdirSync(path39.dirname(file3), { recursive: true });
-}
-function readStore6(projectDir) {
-  const file3 = filePath10(projectDir);
-  if (!fs38.existsSync(file3)) {
-    return { sessions: {} };
-  }
-  try {
-    const parsed = JSON.parse(fs38.readFileSync(file3, "utf-8"));
-    if (!parsed || typeof parsed !== "object" || !parsed.sessions) {
-      return { sessions: {} };
-    }
-    const normalized = { sessions: {} };
-    for (const [id, session] of Object.entries(parsed.sessions ?? {})) {
-      normalized.sessions[id] = {
-        ...session,
-        groupId: decryptSensitiveValue(
-          projectDir,
-          String(session.groupId ?? "")
-        ),
-        title: typeof session.title === "string" ? decryptSensitiveValue(projectDir, session.title) : session.title,
-        routing: {
-          ...session.routing ?? {
-            opencodeSessionID: "main",
-            agent: "1-task-manager"
-          },
-          opencodeSessionID: decryptSensitiveValue(
-            projectDir,
-            String(session.routing?.opencodeSessionID ?? "main")
-          )
-        },
-        queue: Array.isArray(session.queue) ? session.queue.map((item) => ({
-          ...item,
-          text: decryptSensitiveValue(projectDir, String(item.text ?? "")),
-          source: decryptSensitiveValue(
-            projectDir,
-            String(item.source ?? "")
-          )
-        })) : []
-      };
-    }
-    return normalized;
-  } catch {
-    return { sessions: {} };
-  }
-}
-function writeStore6(projectDir, store2) {
-  const file3 = filePath10(projectDir);
-  ensureDir18(file3);
-  const encrypted = { sessions: {} };
-  for (const [id, session] of Object.entries(store2.sessions)) {
-    encrypted.sessions[id] = {
-      ...session,
-      groupId: encryptSensitiveValue(projectDir, session.groupId),
-      title: session.title ? encryptSensitiveValue(projectDir, session.title) : session.title,
-      routing: {
-        ...session.routing,
-        opencodeSessionID: encryptSensitiveValue(
-          projectDir,
-          session.routing.opencodeSessionID
-        )
-      },
-      queue: session.queue.map((item) => ({
-        ...item,
-        text: encryptSensitiveValue(projectDir, item.text),
-        source: encryptSensitiveValue(projectDir, item.source)
-      }))
-    };
-  }
-  fs38.writeFileSync(file3, `${JSON.stringify(encrypted, null, 2)}
-`, "utf-8");
-}
-function sanitizeSession(value) {
-  return {
-    ...value,
-    policy: {
-      activation: value.policy?.activation ?? DEFAULT_POLICY.activation,
-      reply: value.policy?.reply ?? DEFAULT_POLICY.reply,
-      queueStrategy: value.policy?.queueStrategy ?? DEFAULT_POLICY.queueStrategy
-    },
-    routing: {
-      opencodeSessionID: value.routing?.opencodeSessionID ?? "main",
-      agent: value.routing?.agent ?? "1-task-manager"
-    },
-    recovery: value.recovery ? {
-      recoverable: value.recovery.recoverable !== false,
-      reasonCode: typeof value.recovery.reasonCode === "string" ? value.recovery.reasonCode : void 0,
-      from: value.recovery.from === "autoflow" || value.recovery.from === "daemon" || value.recovery.from === "session" ? value.recovery.from : "session",
-      updatedAt: value.recovery.updatedAt || nowIso22()
-    } : void 0,
-    queue: Array.isArray(value.queue) ? value.queue : []
-  };
-}
-function listSessions(projectDir) {
-  const store2 = readStore6(projectDir);
-  return Object.values(store2.sessions).map(sanitizeSession).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-}
-function getSession(projectDir, sessionID2) {
-  const store2 = readStore6(projectDir);
-  const session = store2.sessions[sessionID2];
-  return session ? sanitizeSession(session) : null;
-}
-function upsertSession(projectDir, input) {
-  const store2 = readStore6(projectDir);
-  const existing = store2.sessions[input.id];
-  const createdAt = existing?.createdAt ?? nowIso22();
-  const session = sanitizeSession({
-    id: input.id,
-    kind: input.kind ?? existing?.kind ?? "channel",
-    groupId: input.groupId ?? existing?.groupId ?? input.id,
-    title: input.title ?? existing?.title,
-    policy: existing?.policy ?? DEFAULT_POLICY,
-    routing: {
-      opencodeSessionID: input.routingSessionID ?? existing?.routing?.opencodeSessionID ?? "main",
-      agent: input.agent ?? existing?.routing?.agent ?? "1-task-manager"
-    },
-    queue: existing?.queue ?? [],
-    createdAt,
-    updatedAt: nowIso22()
-  });
-  store2.sessions[input.id] = session;
-  writeStore6(projectDir, store2);
-  return session;
-}
-function setSessionPolicy(projectDir, sessionID2, patch) {
-  const store2 = readStore6(projectDir);
-  const existing = store2.sessions[sessionID2];
-  if (!existing) return null;
-  const next = sanitizeSession({
-    ...existing,
-    policy: {
-      ...existing.policy,
-      ...patch
-    },
-    updatedAt: nowIso22()
-  });
-  store2.sessions[sessionID2] = next;
-  writeStore6(projectDir, store2);
-  return next;
-}
-function enqueueSessionMessage(projectDir, sessionID2, input) {
-  const store2 = readStore6(projectDir);
-  const existing = sanitizeSession(
-    store2.sessions[sessionID2] ?? upsertSession(projectDir, {
-      id: sessionID2
-    })
-  );
-  const message = {
-    id: `queue_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    text: input.text,
-    source: input.source,
-    createdAt: nowIso22()
-  };
-  const nextQueue = [...existing.queue, message];
-  const next = {
-    ...existing,
-    queue: nextQueue,
-    updatedAt: nowIso22()
-  };
-  store2.sessions[sessionID2] = next;
-  writeStore6(projectDir, store2);
-  return message;
-}
-function dequeueSessionMessage(projectDir, sessionID2) {
-  const store2 = readStore6(projectDir);
-  const existing = store2.sessions[sessionID2];
-  if (!existing || existing.queue.length === 0) {
-    return null;
-  }
-  const [first, ...rest] = existing.queue;
-  store2.sessions[sessionID2] = {
-    ...existing,
-    queue: rest,
-    updatedAt: nowIso22()
-  };
-  writeStore6(projectDir, store2);
-  return first;
-}
-function setSessionRecoveryReason(projectDir, input) {
-  const existing = getSession(projectDir, input.sessionID) ?? upsertSession(projectDir, {
-    id: input.sessionID,
-    kind: input.sessionID.startsWith("opencode:") ? "opencode" : "channel",
-    groupId: input.sessionID
-  });
-  const store2 = readStore6(projectDir);
-  const next = sanitizeSession({
-    ...existing,
-    recovery: {
-      recoverable: Boolean(input.recoverable),
-      reasonCode: input.reasonCode.trim(),
-      from: input.from ?? "session",
-      updatedAt: nowIso22()
-    },
-    updatedAt: nowIso22()
-  });
-  store2.sessions[input.sessionID] = next;
-  writeStore6(projectDir, store2);
-  return next;
 }
 
 // src/router/classifier.ts
@@ -43360,39 +42862,41 @@ function resolveAgentWithFeedback(intent, availableAgents, ranked) {
 }
 
 // src/router/learner.ts
-import * as fs39 from "node:fs";
-import * as path40 from "node:path";
-function filePath11(projectDir) {
-  return path40.join(getMiyaRuntimeDir(projectDir), "router-history.json");
+import * as fs35 from "node:fs";
+import * as path36 from "node:path";
+function filePath10(projectDir) {
+  return path36.join(getMiyaRuntimeDir(projectDir), "router-history.json");
 }
-function readStore7(projectDir) {
-  const file3 = filePath11(projectDir);
-  if (!fs39.existsSync(file3)) return { records: [] };
+function readStore8(projectDir) {
+  const file3 = filePath10(projectDir);
+  if (!fs35.existsSync(file3)) return { records: [] };
   try {
-    const parsed = JSON.parse(fs39.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(
+      fs35.readFileSync(file3, "utf-8")
+    );
     return { records: Array.isArray(parsed.records) ? parsed.records : [] };
   } catch {
     return { records: [] };
   }
 }
-function writeStore7(projectDir, store2) {
-  const file3 = filePath11(projectDir);
-  fs39.mkdirSync(path40.dirname(file3), { recursive: true });
-  fs39.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
+function writeStore8(projectDir, store2) {
+  const file3 = filePath10(projectDir);
+  fs35.mkdirSync(path36.dirname(file3), { recursive: true });
+  fs35.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
 `, "utf-8");
 }
 function addRouteFeedback(projectDir, record3) {
-  const store2 = readStore7(projectDir);
+  const store2 = readStore8(projectDir);
   const next = {
     ...record3,
     at: (/* @__PURE__ */ new Date()).toISOString()
   };
   store2.records = [next, ...store2.records].slice(0, 1e3);
-  writeStore7(projectDir, store2);
+  writeStore8(projectDir, store2);
   return next;
 }
 function summarizeRouteHistory(projectDir) {
-  const records = readStore7(projectDir).records.slice(0, 50);
+  const records = readStore8(projectDir).records.slice(0, 50);
   if (records.length === 0) return "route_history=empty";
   const accepted = records.filter((item) => item.accepted).length;
   return [
@@ -43401,13 +42905,15 @@ function summarizeRouteHistory(projectDir) {
   ].join("\n");
 }
 function rankAgentsByFeedback(projectDir, intent, availableAgents) {
-  const records = readStore7(projectDir).records.filter((item) => item.intent === intent).slice(0, 300);
+  const records = readStore8(projectDir).records.filter((item) => item.intent === intent).slice(0, 300);
   const scored = availableAgents.map((agent) => {
     const matched = records.filter((item) => item.suggestedAgent === agent);
     const accepted = matched.filter((item) => item.accepted).length;
     const samples = matched.length;
     const acceptRate = samples > 0 ? accepted / samples : 0;
-    const score = Number((acceptRate * 0.8 + Math.min(0.2, samples / 50)).toFixed(4));
+    const score = Number(
+      (acceptRate * 0.8 + Math.min(0.2, samples / 50)).toFixed(4)
+    );
     return {
       agent,
       score,
@@ -43419,8 +42925,8 @@ function rankAgentsByFeedback(projectDir, intent, availableAgents) {
 }
 
 // src/router/runtime.ts
-import * as fs40 from "node:fs";
-import * as path41 from "node:path";
+import * as fs36 from "node:fs";
+import * as path37 from "node:path";
 var DEFAULT_MODE = {
   ecoMode: true,
   stageTokenMultiplier: {
@@ -43432,7 +42938,11 @@ var DEFAULT_MODE = {
     low: 9e-4,
     medium: 18e-4,
     high: 32e-4
-  }
+  },
+  autoParallelEnabled: true,
+  autoParallelMinComplexity: "high",
+  autoParallelMaxAgents: 5,
+  sourceAllowlist: ["main", "opencode", "automation", "daemon."]
 };
 var ORCHESTRATION_ORDER = [
   "1-task-manager",
@@ -43463,7 +42973,8 @@ function primaryAgentForIntent(intent) {
 function buildAgentPlan(input) {
   const profile = getComplexityProfile(input.complexity);
   const include = (target, list) => {
-    if (!target || !input.availableAgents.includes(target) || list.includes(target)) return list;
+    if (!target || !input.availableAgents.includes(target) || list.includes(target))
+      return list;
     return [...list, target];
   };
   if (input.pinnedAgent) {
@@ -43513,25 +43024,26 @@ function buildAgentPlan(input) {
   };
 }
 function modeFile(projectDir) {
-  return path41.join(getMiyaRuntimeDir(projectDir), "router-mode.json");
+  return path37.join(getMiyaRuntimeDir(projectDir), "router-mode.json");
 }
 function costFile(projectDir) {
-  return path41.join(getMiyaRuntimeDir(projectDir), "router-cost.jsonl");
+  return path37.join(getMiyaRuntimeDir(projectDir), "router-cost.jsonl");
 }
 function sessionStateFile(projectDir) {
-  return path41.join(getMiyaRuntimeDir(projectDir), "router-session-state.json");
+  return path37.join(getMiyaRuntimeDir(projectDir), "router-session-state.json");
 }
-function ensureDir19(projectDir) {
-  fs40.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+function ensureDir17(projectDir) {
+  fs36.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
 }
 function clamp3(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
-function nowIso23() {
+function nowIso20() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function parseMode(raw) {
   const input = raw && typeof raw === "object" ? raw : {};
+  const autoParallelMinComplexity = input.autoParallelMinComplexity === "low" || input.autoParallelMinComplexity === "medium" || input.autoParallelMinComplexity === "high" ? input.autoParallelMinComplexity : DEFAULT_MODE.autoParallelMinComplexity;
   const forcedStage = input.forcedStage === "low" || input.forcedStage === "medium" || input.forcedStage === "high" ? input.forcedStage : void 0;
   const stageTokenMultiplierInput = input.stageTokenMultiplier && typeof input.stageTokenMultiplier === "object" ? input.stageTokenMultiplier : {};
   const stageCostInput = input.stageCostUsdPer1k && typeof input.stageCostUsdPer1k === "object" ? input.stageCostUsdPer1k : {};
@@ -43539,33 +43051,67 @@ function parseMode(raw) {
     ecoMode: input.ecoMode !== false,
     forcedStage,
     stageTokenMultiplier: {
-      low: clamp3(Number(stageTokenMultiplierInput.low ?? DEFAULT_MODE.stageTokenMultiplier.low), 0.2, 2.5),
+      low: clamp3(
+        Number(
+          stageTokenMultiplierInput.low ?? DEFAULT_MODE.stageTokenMultiplier.low
+        ),
+        0.2,
+        2.5
+      ),
       medium: clamp3(
-        Number(stageTokenMultiplierInput.medium ?? DEFAULT_MODE.stageTokenMultiplier.medium),
+        Number(
+          stageTokenMultiplierInput.medium ?? DEFAULT_MODE.stageTokenMultiplier.medium
+        ),
         0.3,
         3
       ),
-      high: clamp3(Number(stageTokenMultiplierInput.high ?? DEFAULT_MODE.stageTokenMultiplier.high), 0.4, 4)
+      high: clamp3(
+        Number(
+          stageTokenMultiplierInput.high ?? DEFAULT_MODE.stageTokenMultiplier.high
+        ),
+        0.4,
+        4
+      )
     },
     stageCostUsdPer1k: {
-      low: clamp3(Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low), 1e-4, 0.1),
-      medium: clamp3(Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium), 1e-4, 0.2),
-      high: clamp3(Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high), 1e-4, 0.3)
-    }
+      low: clamp3(
+        Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low),
+        1e-4,
+        0.1
+      ),
+      medium: clamp3(
+        Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium),
+        1e-4,
+        0.2
+      ),
+      high: clamp3(
+        Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high),
+        1e-4,
+        0.3
+      )
+    },
+    autoParallelEnabled: input.autoParallelEnabled !== false,
+    autoParallelMinComplexity,
+    autoParallelMaxAgents: clamp3(
+      Number(input.autoParallelMaxAgents ?? DEFAULT_MODE.autoParallelMaxAgents),
+      1,
+      7
+    ),
+    sourceAllowlist: Array.isArray(input.sourceAllowlist) ? input.sourceAllowlist.map(String).map((item) => item.trim()).filter(Boolean) : DEFAULT_MODE.sourceAllowlist
   };
 }
 function readRouterModeConfig(projectDir) {
   const file3 = modeFile(projectDir);
-  if (!fs40.existsSync(file3)) return DEFAULT_MODE;
+  if (!fs36.existsSync(file3)) return DEFAULT_MODE;
   try {
-    const parsed = JSON.parse(fs40.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs36.readFileSync(file3, "utf-8"));
     return parseMode(parsed);
   } catch {
     return DEFAULT_MODE;
   }
 }
 function writeRouterModeConfig(projectDir, patch) {
-  ensureDir19(projectDir);
+  ensureDir17(projectDir);
   const current = readRouterModeConfig(projectDir);
   const next = parseMode({
     ...current,
@@ -43579,25 +43125,36 @@ function writeRouterModeConfig(projectDir, patch) {
       ...patch.stageCostUsdPer1k ?? {}
     }
   });
-  fs40.writeFileSync(modeFile(projectDir), `${JSON.stringify(next, null, 2)}
-`, "utf-8");
+  fs36.writeFileSync(
+    modeFile(projectDir),
+    `${JSON.stringify(next, null, 2)}
+`,
+    "utf-8"
+  );
   return next;
 }
 function readSessionStore(projectDir) {
   const file3 = sessionStateFile(projectDir);
-  if (!fs40.existsSync(file3)) return { sessions: {} };
+  if (!fs36.existsSync(file3)) return { sessions: {} };
   try {
-    const parsed = JSON.parse(fs40.readFileSync(file3, "utf-8"));
-    if (!parsed || typeof parsed !== "object" || !parsed.sessions) return { sessions: {} };
+    const parsed = JSON.parse(
+      fs36.readFileSync(file3, "utf-8")
+    );
+    if (!parsed || typeof parsed !== "object" || !parsed.sessions)
+      return { sessions: {} };
     return {
       sessions: Object.fromEntries(
         Object.entries(parsed.sessions).map(([sessionID2, state2]) => [
           sessionID2,
           {
             sessionID: sessionID2,
-            consecutiveFailures: clamp3(Number(state2?.consecutiveFailures ?? 0), 0, 10),
+            consecutiveFailures: clamp3(
+              Number(state2?.consecutiveFailures ?? 0),
+              0,
+              10
+            ),
             lastStage: state2?.lastStage === "low" || state2?.lastStage === "medium" || state2?.lastStage === "high" ? state2.lastStage : "medium",
-            updatedAt: String(state2?.updatedAt ?? nowIso23())
+            updatedAt: String(state2?.updatedAt ?? nowIso20())
           }
         ])
       )
@@ -43607,9 +43164,13 @@ function readSessionStore(projectDir) {
   }
 }
 function writeSessionStore(projectDir, store2) {
-  ensureDir19(projectDir);
-  fs40.writeFileSync(sessionStateFile(projectDir), `${JSON.stringify(store2, null, 2)}
-`, "utf-8");
+  ensureDir17(projectDir);
+  fs36.writeFileSync(
+    sessionStateFile(projectDir),
+    `${JSON.stringify(store2, null, 2)}
+`,
+    "utf-8"
+  );
 }
 function getSessionState2(projectDir, sessionID2) {
   const store2 = readSessionStore(projectDir);
@@ -43617,7 +43178,7 @@ function getSessionState2(projectDir, sessionID2) {
     sessionID: sessionID2,
     consecutiveFailures: 0,
     lastStage: "medium",
-    updatedAt: nowIso23()
+    updatedAt: nowIso20()
   };
 }
 function stageLevel(stage) {
@@ -43630,10 +43191,33 @@ function levelToStage(level) {
   if (level === 1) return "medium";
   return "high";
 }
+function complexityLevel(complexity) {
+  if (complexity === "low") return 0;
+  if (complexity === "medium") return 1;
+  return 2;
+}
+function isSourceAllowed(source, allowlist) {
+  const normalized = String(source ?? "").trim().toLowerCase();
+  if (!normalized) return true;
+  const blockedPrefixes = [
+    "qq",
+    "wechat",
+    "policy:",
+    "outbound",
+    "desktop_control"
+  ];
+  if (blockedPrefixes.some((prefix) => normalized.startsWith(prefix)))
+    return false;
+  if (allowlist.length === 0) return true;
+  return allowlist.some((entry2) => {
+    const expected = entry2.toLowerCase();
+    return normalized === expected || normalized.startsWith(expected);
+  });
+}
 function readCostRows(projectDir, limit = 500) {
   const file3 = costFile(projectDir);
-  if (!fs40.existsSync(file3)) return [];
-  const rows = fs40.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+  if (!fs36.existsSync(file3)) return [];
+  const rows = fs36.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
     try {
       return JSON.parse(line);
     } catch {
@@ -43643,8 +43227,8 @@ function readCostRows(projectDir, limit = 500) {
   return rows.slice(-Math.max(1, limit));
 }
 function appendCostRow(projectDir, row) {
-  ensureDir19(projectDir);
-  fs40.appendFileSync(costFile(projectDir), `${JSON.stringify(row)}
+  ensureDir17(projectDir);
+  fs36.appendFileSync(costFile(projectDir), `${JSON.stringify(row)}
 `, "utf-8");
 }
 function analyzeRouteComplexity(text) {
@@ -43662,11 +43246,15 @@ function analyzeRouteComplexity(text) {
     score += 2;
     reasons.push("contains_code_block");
   }
-  if (/(架构|tradeoff|风险|risk|migration|重构|performance|性能|security|安全)/i.test(normalized)) {
+  if (/(架构|tradeoff|风险|risk|migration|重构|performance|性能|security|安全)/i.test(
+    normalized
+  )) {
     score += 1;
     reasons.push("architecture_or_risk");
   }
-  if (/(并行|多步骤|pipeline|workflow|验证|verify|修复|fix|loop)/i.test(normalized)) {
+  if (/(并行|多步骤|pipeline|workflow|验证|verify|修复|fix|loop)/i.test(
+    normalized
+  )) {
     score += 1;
     reasons.push("multi_step_execution");
   }
@@ -43686,8 +43274,10 @@ function compressTextByStage(text, stage) {
   const normalized = String(text ?? "").trim();
   if (!normalized) return { text: "", compressed: false };
   if (stage === "high") return { text: normalized, compressed: false };
-  if (stage === "medium" && normalized.length <= 4200) return { text: normalized, compressed: false };
-  if (stage === "low" && normalized.length <= 1600) return { text: normalized, compressed: false };
+  if (stage === "medium" && normalized.length <= 4200)
+    return { text: normalized, compressed: false };
+  if (stage === "low" && normalized.length <= 1600)
+    return { text: normalized, compressed: false };
   if (stage === "medium") {
     const head2 = normalized.slice(0, 2600);
     const tail2 = normalized.slice(-1200);
@@ -43725,10 +43315,18 @@ function buildRouteExecutionPlan(input) {
   const complexity = analyzeRouteComplexity(input.text);
   const mode = readRouterModeConfig(input.projectDir);
   const session = getSessionState2(input.projectDir, input.sessionID);
-  const ranked = rankAgentsByFeedback(input.projectDir, intent, input.availableAgents);
+  const ranked = rankAgentsByFeedback(
+    input.projectDir,
+    intent,
+    input.availableAgents
+  );
   const preferredAgent = resolveFallbackAgent(intent, input.availableAgents);
   const fallbackAgent = resolveFallbackAgent(intent, input.availableAgents);
-  const selectedByFeedback = resolveAgentWithFeedback(intent, input.availableAgents, ranked);
+  const selectedByFeedback = resolveAgentWithFeedback(
+    intent,
+    input.availableAgents,
+    ranked
+  );
   const pinnedAgent = input.pinnedAgent?.trim();
   const selectedAgent = pinnedAgent && input.availableAgents.includes(pinnedAgent) ? pinnedAgent : selectedByFeedback;
   const feedbackScore = ranked.find((item) => item.agent === selectedAgent)?.score ?? 0;
@@ -43765,6 +43363,17 @@ function buildRouteExecutionPlan(input) {
   if (pinnedAgent && input.availableAgents.includes(pinnedAgent)) {
     reasons.push("pinned_agent_lock");
   }
+  const minComplexityLevel = complexityLevel(mode.autoParallelMinComplexity);
+  const currentComplexityLevel = complexityLevel(complexity.complexity);
+  const sourceAllowed = isSourceAllowed(input.source, mode.sourceAllowlist);
+  const autoParallelReady = mode.autoParallelEnabled && currentComplexityLevel >= minComplexityLevel && sourceAllowed && !pinnedAgent;
+  const executionMode = autoParallelReady ? "auto_parallel" : "sequential";
+  const orchestrationReason = autoParallelReady ? "auto_parallel_by_router_policy" : sourceAllowed ? "sequential_by_complexity_or_pin" : "sequential_by_source_policy";
+  if (autoParallelReady) {
+    reasons.push("auto_parallel_enabled");
+  } else if (!sourceAllowed) {
+    reasons.push("auto_parallel_blocked_by_source");
+  }
   return {
     intent,
     complexity: complexity.complexity,
@@ -43781,6 +43390,8 @@ function buildRouteExecutionPlan(input) {
     feedbackScore,
     feedbackSamples,
     ecoMode: mode.ecoMode,
+    executionMode,
+    orchestrationReason,
     reasons
   };
 }
@@ -43810,7 +43421,7 @@ function prepareRoutePayload(projectDir, input) {
 }
 function recordRouteExecutionOutcome(input) {
   const row = {
-    at: nowIso23(),
+    at: nowIso20(),
     sessionID: input.sessionID,
     intent: input.intent,
     complexity: input.complexity,
@@ -43829,13 +43440,13 @@ function recordRouteExecutionOutcome(input) {
     sessionID: input.sessionID,
     consecutiveFailures: 0,
     lastStage: input.stage,
-    updatedAt: nowIso23()
+    updatedAt: nowIso20()
   };
   const next = {
     sessionID: input.sessionID,
     consecutiveFailures: input.success ? 0 : clamp3(current.consecutiveFailures + 1, 0, 10),
     lastStage: input.stage,
-    updatedAt: nowIso23()
+    updatedAt: nowIso20()
   };
   store2.sessions[input.sessionID] = next;
   writeSessionStore(input.projectDir, store2);
@@ -43859,8 +43470,15 @@ function getRouteCostSummary(projectDir, limit = 300) {
     baselineHighTokensEstimate += row.baselineHighTokensEstimate;
     totalCostUsdEstimate += row.costUsdEstimate;
   }
-  const savingsTokensEstimate = Math.max(0, baselineHighTokensEstimate - totalTokensEstimate);
-  const savingsPercentEstimate = baselineHighTokensEstimate > 0 ? Number((savingsTokensEstimate / baselineHighTokensEstimate * 100).toFixed(2)) : 0;
+  const savingsTokensEstimate = Math.max(
+    0,
+    baselineHighTokensEstimate - totalTokensEstimate
+  );
+  const savingsPercentEstimate = baselineHighTokensEstimate > 0 ? Number(
+    (savingsTokensEstimate / baselineHighTokensEstimate * 100).toFixed(
+      2
+    )
+  ) : 0;
   return {
     totalRecords: rows.length,
     totalTokensEstimate,
@@ -43891,11 +43509,888 @@ function getRouterSessionState(projectDir, sessionID2) {
   return getSessionState2(projectDir, sessionID2);
 }
 
-// src/skills/loader.ts
+// src/router/usage-audit.ts
+import * as fs37 from "node:fs";
+import * as path38 from "node:path";
+function usageFile(projectDir) {
+  return path38.join(getMiyaRuntimeDir(projectDir), "router-usage.jsonl");
+}
+function ensureDir18(projectDir) {
+  fs37.mkdirSync(getMiyaRuntimeDir(projectDir), { recursive: true });
+}
+function clamp4(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function appendRouteUsageRecord(projectDir, input) {
+  const record3 = {
+    ...input,
+    at: input.at ?? (/* @__PURE__ */ new Date()).toISOString(),
+    estimatedTokens: clamp4(Number(input.estimatedTokens || 0), 0, 5e7),
+    estimatedCostUsd: Number(Number(input.estimatedCostUsd || 0).toFixed(6)),
+    actualInputTokens: clamp4(
+      Number(input.actualInputTokens || 0),
+      0,
+      5e7
+    ),
+    actualOutputTokens: clamp4(
+      Number(input.actualOutputTokens || 0),
+      0,
+      5e7
+    ),
+    actualTotalTokens: clamp4(
+      Number(input.actualTotalTokens || 0),
+      0,
+      5e7
+    ),
+    actualCostUsd: Number(Number(input.actualCostUsd || 0).toFixed(6))
+  };
+  ensureDir18(projectDir);
+  fs37.appendFileSync(
+    usageFile(projectDir),
+    `${JSON.stringify(record3)}
+`,
+    "utf-8"
+  );
+  return record3;
+}
+function listRouteUsageRecords(projectDir, limit = 40) {
+  const file3 = usageFile(projectDir);
+  if (!fs37.existsSync(file3)) return [];
+  const rows = fs37.readFileSync(file3, "utf-8").split(/\r?\n/).filter(Boolean).map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return null;
+    }
+  }).filter((item) => Boolean(item));
+  return rows.slice(-Math.max(1, Math.min(500, limit)));
+}
+function summarizeRouteUsage(projectDir, limit = 300) {
+  const rows = listRouteUsageRecords(projectDir, limit);
+  let estimatedTokens = 0;
+  let actualTokens = 0;
+  let estimatedCostUsd = 0;
+  let actualCostUsd = 0;
+  for (const row of rows) {
+    estimatedTokens += row.estimatedTokens;
+    actualTokens += row.actualTotalTokens;
+    estimatedCostUsd += row.estimatedCostUsd;
+    actualCostUsd += row.actualCostUsd;
+  }
+  const tokenDelta = actualTokens - estimatedTokens;
+  const tokenDeltaPercent = estimatedTokens > 0 ? Number((tokenDelta / estimatedTokens * 100).toFixed(2)) : 0;
+  return {
+    totalRecords: rows.length,
+    estimatedTokens,
+    actualTokens,
+    estimatedCostUsd: Number(estimatedCostUsd.toFixed(6)),
+    actualCostUsd: Number(actualCostUsd.toFixed(6)),
+    tokenDelta,
+    tokenDeltaPercent,
+    costDeltaUsd: Number((actualCostUsd - estimatedCostUsd).toFixed(6))
+  };
+}
+
+// src/safety/risk.ts
+import { createHash as createHash12 } from "node:crypto";
+var IRREVERSIBLE_BASH_PATTERNS = [
+  /\bgit\s+push\b/i,
+  /\bgit\s+remote\s+set-url\b/i,
+  /\bgit\s+reset\s+--hard\b/i,
+  /\bgit\s+clean\b[^\n]*\b-f\b/i,
+  /\bgit\s+branch\b[^\n]*\b-D\b/i,
+  /\brm\s+-[^\n]*\br\b/i,
+  /\brm\s+-[^\n]*\bf\b/i,
+  /\brm\s+(-rf|-fr)\b/i,
+  /\bdel\s+\/[sfpq]/i,
+  /\berase\s+\/[sfpq]/i,
+  /\bRemove-Item\b[^\n]*\b(-Recurse|-Force)\b/i,
+  /\btruncate\b/i,
+  /\bcp\b[^\n]*\b-f\b/i,
+  />\s*\.env(\.|$)/i,
+  /\b(overwrite|truncate)\b/i
+];
+var SENSITIVE_PATH_PATTERNS = [
+  /\.env(\.|$)/i,
+  /\.pem$/i,
+  /\.key$/i,
+  /cookie/i,
+  /credential/i,
+  /secret/i,
+  /token/i
+];
+var READ_ONLY_BASH_PATTERNS = [
+  /^\s*(ls|dir)\b/i,
+  /^\s*(cat|type)\b/i,
+  /^\s*(grep|rg|findstr)\b/i,
+  /^\s*(pwd|cd)\b/i,
+  /^\s*(echo)\b/i,
+  /^\s*git\s+(status|log|show|diff)\b/i
+];
+function normalizePattern(pattern) {
+  return pattern.trim().replaceAll("\\", "/");
+}
+function hasIrreversiblePattern(patterns) {
+  return patterns.some(
+    (pattern) => IRREVERSIBLE_BASH_PATTERNS.some((rule) => rule.test(pattern))
+  );
+}
+function isReadOnlyShellPattern(patterns) {
+  if (patterns.length === 0) return false;
+  return patterns.every(
+    (pattern) => READ_ONLY_BASH_PATTERNS.some((rule) => rule.test(pattern.trim()))
+  );
+}
+function hasSensitivePath(patterns) {
+  return patterns.some(
+    (pattern) => SENSITIVE_PATH_PATTERNS.some((rule) => rule.test(pattern))
+  );
+}
+function hasIrreversibleEditPattern(patterns) {
+  return patterns.some(
+    (pattern) => /\b(delete|remove|overwrite|truncate|destroy|wipe)\b/i.test(pattern) || pattern.endsWith(".env") || pattern.includes("/.env")
+  );
+}
+function isSideEffectPermission(permission) {
+  return permission === "edit" || permission === "bash" || permission === "external_directory" || permission === "external_message" || permission === "desktop_control" || permission === "node_invoke" || permission === "skills_install" || permission === "webhook_outbound";
+}
+function classifySideEffect(request) {
+  if (!isSideEffectPermission(request.permission)) {
+    return { sideEffect: false, reversibility: "none" };
+  }
+  const patterns = request.patterns.map(normalizePattern);
+  if (request.permission === "bash") {
+    if (isReadOnlyShellPattern(patterns)) {
+      return { sideEffect: true, reversibility: "reversible" };
+    }
+    return {
+      sideEffect: true,
+      reversibility: hasIrreversiblePattern(patterns) ? "irreversible" : "reversible"
+    };
+  }
+  if (request.permission === "edit") {
+    return {
+      sideEffect: true,
+      reversibility: hasIrreversibleEditPattern(patterns) ? "irreversible" : "reversible"
+    };
+  }
+  return { sideEffect: true, reversibility: "irreversible" };
+}
+function requiredTierForRequest(request) {
+  const patterns = request.patterns.map(normalizePattern);
+  const sideEffect = classifySideEffect(request);
+  if (request.permission === "external_directory") return "THOROUGH";
+  if (request.permission === "external_message") return "THOROUGH";
+  if (request.permission === "desktop_control") return "THOROUGH";
+  if (request.permission === "node_invoke") {
+    const patterns2 = request.patterns.map(normalizePattern).join(" ");
+    if (/\b(system\.run|camera\.capture|canvas\.open|canvas\.render|voice\.)\b/i.test(
+      patterns2
+    )) {
+      return "THOROUGH";
+    }
+    return "STANDARD";
+  }
+  if (request.permission === "skills_install") return "THOROUGH";
+  if (request.permission === "webhook_outbound") return "THOROUGH";
+  if (request.permission === "bash") {
+    return sideEffect.reversibility === "irreversible" ? "THOROUGH" : "STANDARD";
+  }
+  if (request.permission === "edit") {
+    if (hasSensitivePath(patterns) || hasIrreversibleEditPattern(patterns)) {
+      return "THOROUGH";
+    }
+    return "STANDARD";
+  }
+  return "STANDARD";
+}
+function buildRequestHash(request, includeMessageContext = true) {
+  const payload = {
+    permission: request.permission,
+    patterns: [...request.patterns].map(normalizePattern).sort(),
+    toolCallID: includeMessageContext ? request.toolCallID ?? "" : "",
+    messageID: includeMessageContext ? request.messageID ?? "" : ""
+  };
+  return createHash12("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+// src/safety/state-machine.ts
+import * as fs38 from "node:fs";
+import * as path39 from "node:path";
+function nowIso21() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function stateFile(projectDir) {
+  return path39.join(getMiyaRuntimeDir(projectDir), "safety-state.json");
+}
+function auditFile(projectDir) {
+  return path39.join(getMiyaRuntimeDir(projectDir), "safety-state-audit.jsonl");
+}
+function ensureDir19(filePath14) {
+  fs38.mkdirSync(path39.dirname(filePath14), { recursive: true });
+}
+function defaultState4() {
+  return {
+    version: 1,
+    updatedAt: nowIso21(),
+    globalState: "running",
+    domains: Object.fromEntries(
+      POLICY_DOMAINS.map((domain3) => [domain3, "running"])
+    )
+  };
+}
+function writeState2(projectDir, state2) {
+  const file3 = stateFile(projectDir);
+  const next = {
+    ...state2,
+    updatedAt: nowIso21()
+  };
+  ensureDir19(file3);
+  fs38.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+`, "utf-8");
+  return next;
+}
+function readSafetyState(projectDir) {
+  const file3 = stateFile(projectDir);
+  if (!fs38.existsSync(file3)) {
+    const created = defaultState4();
+    return writeState2(projectDir, created);
+  }
+  try {
+    const parsed = JSON.parse(
+      fs38.readFileSync(file3, "utf-8")
+    );
+    const base = defaultState4();
+    const domains = {
+      ...base.domains,
+      ...parsed.domains ?? {}
+    };
+    return {
+      ...base,
+      ...parsed,
+      domains
+    };
+  } catch {
+    return defaultState4();
+  }
+}
+function appendAudit(projectDir, row) {
+  const file3 = auditFile(projectDir);
+  ensureDir19(file3);
+  fs38.appendFileSync(file3, `${JSON.stringify(row)}
+`, "utf-8");
+}
+function syncPolicyDomain(projectDir, domain3, state2) {
+  const policy = readPolicy(projectDir);
+  const mapped = state2 === "running" ? "running" : "paused";
+  if (policy.domains[domain3] === mapped) return;
+  writePolicy(projectDir, {
+    domains: {
+      ...policy.domains,
+      [domain3]: mapped
+    }
+  });
+}
+function transitionSafetyState(projectDir, input) {
+  const current = readSafetyState(projectDir);
+  const next = {
+    ...current,
+    globalState: input.globalState ?? current.globalState,
+    reason: input.reason,
+    traceID: input.traceID ?? current.traceID,
+    domains: {
+      ...current.domains,
+      ...input.domains ?? {}
+    }
+  };
+  const written = writeState2(projectDir, next);
+  for (const domain3 of POLICY_DOMAINS) {
+    syncPolicyDomain(projectDir, domain3, written.domains[domain3]);
+  }
+  appendAudit(projectDir, {
+    id: `safety_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    at: nowIso21(),
+    source: input.source,
+    reason: input.reason,
+    traceID: input.traceID,
+    policyHash: input.policyHash,
+    globalState: written.globalState,
+    domains: input.domains ?? {}
+  });
+  return written;
+}
+function isDomainExecutionAllowed(projectDir, domain3) {
+  const state2 = readSafetyState(projectDir);
+  if (state2.globalState === "killed") return false;
+  return state2.domains[domain3] === "running";
+}
+
+// src/safety/store.ts
+import { randomUUID as randomUUID15 } from "node:crypto";
+import * as fs39 from "node:fs";
+import * as path40 from "node:path";
+
+// src/safety/tier.ts
+var SAFETY_RANK = {
+  LIGHT: 1,
+  STANDARD: 2,
+  THOROUGH: 3
+};
+function normalizeTier(value) {
+  const normalized = String(value ?? "STANDARD").trim().toUpperCase();
+  if (normalized === "LIGHT") return "LIGHT";
+  if (normalized === "THOROUGH") return "THOROUGH";
+  return "STANDARD";
+}
+function tierAtLeast(current, required3) {
+  return SAFETY_RANK[current] >= SAFETY_RANK[required3];
+}
+
+// src/safety/store.ts
+var RECORD_LIMIT = 500;
+var TOKEN_TTL_MS = 12e4;
+var TOKEN_LIMIT_PER_SESSION = 200;
+function runtimeFile2(projectDir, name) {
+  return path40.join(getMiyaRuntimeDir(projectDir), name);
+}
+function ensureDir20(file3) {
+  fs39.mkdirSync(path40.dirname(file3), { recursive: true });
+}
+function readJson(file3, fallback) {
+  if (!fs39.existsSync(file3)) return fallback;
+  try {
+    return JSON.parse(fs39.readFileSync(file3, "utf-8"));
+  } catch {
+    return fallback;
+  }
+}
+function writeJson2(file3, value) {
+  ensureDir20(file3);
+  fs39.writeFileSync(file3, `${JSON.stringify(value, null, 2)}
+`, "utf-8");
+}
+function nowIso22() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function syncGatewayStatus(projectDir, status) {
+  const file3 = runtimeFile2(projectDir, "gateway.json");
+  if (!fs39.existsSync(file3)) return;
+  const current = readJson(file3, {});
+  if (!current || typeof current !== "object") return;
+  writeJson2(file3, { ...current, status });
+}
+function createTraceId() {
+  return randomUUID15();
+}
+function writeSelfApprovalRecord(projectDir, record3) {
+  const file3 = runtimeFile2(projectDir, "self-approval.json");
+  const current = readJson(file3, { records: [] });
+  const next = {
+    id: randomUUID15(),
+    created_at: nowIso22(),
+    ...record3
+  };
+  current.records = [next, ...current.records].slice(0, RECORD_LIMIT);
+  writeJson2(file3, current);
+  return next;
+}
+function listRecentSelfApprovalRecords(projectDir, limit = 10) {
+  const file3 = runtimeFile2(projectDir, "self-approval.json");
+  const current = readJson(file3, { records: [] });
+  return current.records.slice(0, Math.max(1, limit));
+}
+function readTokenStore(projectDir) {
+  const file3 = runtimeFile2(projectDir, "approval-tokens.json");
+  const store2 = readJson(file3, { tokens: {} });
+  const decoded = { tokens: {} };
+  for (const [sessionID2, tokens] of Object.entries(store2.tokens ?? {})) {
+    const plainSession = decryptSensitiveValue(projectDir, sessionID2);
+    decoded.tokens[plainSession] = {};
+    for (const [hash3, token] of Object.entries(tokens ?? {})) {
+      const plainHash = decryptSensitiveValue(projectDir, hash3);
+      decoded.tokens[plainSession][plainHash] = {
+        ...token,
+        request_hash: decryptSensitiveValue(projectDir, token.request_hash),
+        action: decryptSensitiveValue(projectDir, token.action)
+      };
+    }
+  }
+  return decoded;
+}
+function writeTokenStore(projectDir, store2) {
+  const file3 = runtimeFile2(projectDir, "approval-tokens.json");
+  const encoded = { tokens: {} };
+  for (const [sessionID2, tokens] of Object.entries(store2.tokens ?? {})) {
+    const safeSession = encryptSensitiveValue(projectDir, sessionID2);
+    encoded.tokens[safeSession] = {};
+    for (const [hash3, token] of Object.entries(tokens ?? {})) {
+      const safeHash = encryptSensitiveValue(projectDir, hash3);
+      encoded.tokens[safeSession][safeHash] = {
+        ...token,
+        request_hash: encryptSensitiveValue(projectDir, token.request_hash),
+        action: encryptSensitiveValue(projectDir, token.action)
+      };
+    }
+  }
+  writeJson2(file3, encoded);
+}
+function saveApprovalToken(projectDir, sessionID2, token, ttlMs = TOKEN_TTL_MS) {
+  const store2 = readTokenStore(projectDir);
+  const created = /* @__PURE__ */ new Date();
+  const expires = new Date(created.getTime() + ttlMs);
+  const next = {
+    ...token,
+    created_at: created.toISOString(),
+    expires_at: expires.toISOString()
+  };
+  const sessionTokens = store2.tokens[sessionID2] ?? {};
+  sessionTokens[token.request_hash] = next;
+  const normalized = Object.values(sessionTokens).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, TOKEN_LIMIT_PER_SESSION);
+  store2.tokens[sessionID2] = Object.fromEntries(
+    normalized.map((entry2) => [entry2.request_hash, entry2])
+  );
+  writeTokenStore(projectDir, store2);
+  return next;
+}
+function findApprovalToken(projectDir, sessionID2, requestHashes, requiredTier) {
+  const store2 = readTokenStore(projectDir);
+  const sessionTokens = store2.tokens[sessionID2] ?? {};
+  const now = Date.now();
+  for (const hash3 of requestHashes) {
+    const token = sessionTokens[hash3];
+    if (!token) continue;
+    const expiresAt = Date.parse(token.expires_at);
+    if (!Number.isFinite(expiresAt) || expiresAt < now) continue;
+    if (!tierAtLeast(token.tier, requiredTier)) continue;
+    return token;
+  }
+  return null;
+}
+function readKillSwitch(projectDir) {
+  return readJson(
+    runtimeFile2(projectDir, "kill-switch.json"),
+    {
+      active: false
+    }
+  );
+}
+function activateKillSwitch(projectDir, reason, traceID) {
+  const next = {
+    active: true,
+    reason,
+    trace_id: traceID,
+    activated_at: nowIso22()
+  };
+  writeJson2(runtimeFile2(projectDir, "kill-switch.json"), next);
+  transitionSafetyState(projectDir, {
+    source: "kill_switch_activate",
+    reason,
+    traceID,
+    globalState: "killed",
+    domains: {}
+  });
+  syncGatewayStatus(projectDir, "killswitch");
+  return next;
+}
+function releaseKillSwitch(projectDir) {
+  const next = { active: false };
+  writeJson2(runtimeFile2(projectDir, "kill-switch.json"), next);
+  transitionSafetyState(projectDir, {
+    source: "kill_switch_release",
+    reason: "manual_release",
+    globalState: "running",
+    domains: {}
+  });
+  syncGatewayStatus(projectDir, "running");
+  return next;
+}
+
+// src/security/owner-identity.ts
+import { createHash as createHash13, randomUUID as randomUUID16 } from "node:crypto";
+import * as fs40 from "node:fs";
+import * as path41 from "node:path";
+function nowIso23() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function filePath11(projectDir) {
+  return path41.join(
+    getMiyaRuntimeDir(projectDir),
+    "security",
+    "owner-identity.json"
+  );
+}
+function guestAuditPath(projectDir) {
+  return path41.join(
+    getMiyaRuntimeDir(projectDir),
+    "security",
+    "guest-conversations.jsonl"
+  );
+}
+function clamp5(input, min, max) {
+  if (!Number.isFinite(input)) return min;
+  return Math.min(max, Math.max(min, input));
+}
+function defaultVoiceprintThresholds() {
+  return {
+    ownerMinScore: 0.78,
+    guestMaxScore: 0.62,
+    ownerMinLiveness: 0.65,
+    guestMaxLiveness: 0.55,
+    ownerMinDiarizationRatio: 0.7,
+    minSampleDurationSec: 2,
+    farTarget: 0.01,
+    frrTarget: 0.03
+  };
+}
+function normalizeVoiceprintThresholds(input) {
+  const base = defaultVoiceprintThresholds();
+  const normalized = {
+    ownerMinScore: typeof input?.ownerMinScore === "number" ? clamp5(input.ownerMinScore, 0.5, 0.99) : base.ownerMinScore,
+    guestMaxScore: typeof input?.guestMaxScore === "number" ? clamp5(input.guestMaxScore, 0.01, 0.9) : base.guestMaxScore,
+    ownerMinLiveness: typeof input?.ownerMinLiveness === "number" ? clamp5(input.ownerMinLiveness, 0.1, 0.99) : base.ownerMinLiveness,
+    guestMaxLiveness: typeof input?.guestMaxLiveness === "number" ? clamp5(input.guestMaxLiveness, 0.01, 0.9) : base.guestMaxLiveness,
+    ownerMinDiarizationRatio: typeof input?.ownerMinDiarizationRatio === "number" ? clamp5(input.ownerMinDiarizationRatio, 0.1, 1) : base.ownerMinDiarizationRatio,
+    minSampleDurationSec: typeof input?.minSampleDurationSec === "number" ? clamp5(input.minSampleDurationSec, 0.5, 20) : base.minSampleDurationSec,
+    farTarget: typeof input?.farTarget === "number" ? clamp5(input.farTarget, 1e-4, 0.5) : base.farTarget,
+    frrTarget: typeof input?.frrTarget === "number" ? clamp5(input.frrTarget, 1e-4, 0.5) : base.frrTarget
+  };
+  if (normalized.guestMaxScore >= normalized.ownerMinScore) {
+    normalized.guestMaxScore = Math.max(0.01, normalized.ownerMinScore - 0.05);
+  }
+  return normalized;
+}
+function defaultState5() {
+  return {
+    initialized: false,
+    mode: "unknown",
+    voiceprintModelPath: "",
+    voiceprintSampleDir: "",
+    voiceprintThresholds: defaultVoiceprintThresholds(),
+    updatedAt: nowIso23()
+  };
+}
+function hashSecret(input) {
+  return createHash13("sha256").update(input).digest("hex");
+}
+function defaultVoiceprintModelPath(projectDir) {
+  return process.env.MIYA_VOICEPRINT_MODEL_PATH || getMiyaVoiceprintModelDir(projectDir);
+}
+function defaultVoiceprintSampleDir(projectDir) {
+  return process.env.MIYA_VOICEPRINT_SAMPLE_DIR || getMiyaVoiceprintSampleDir(projectDir);
+}
+function readOwnerIdentityState(projectDir) {
+  const file3 = filePath11(projectDir);
+  if (!fs40.existsSync(file3)) {
+    return {
+      ...defaultState5(),
+      voiceprintModelPath: defaultVoiceprintModelPath(projectDir),
+      voiceprintSampleDir: defaultVoiceprintSampleDir(projectDir)
+    };
+  }
+  try {
+    const parsed = JSON.parse(
+      fs40.readFileSync(file3, "utf-8")
+    );
+    return {
+      ...defaultState5(),
+      ...parsed,
+      voiceprintModelPath: typeof parsed.voiceprintModelPath === "string" ? parsed.voiceprintModelPath : defaultVoiceprintModelPath(projectDir),
+      voiceprintSampleDir: typeof parsed.voiceprintSampleDir === "string" ? parsed.voiceprintSampleDir : defaultVoiceprintSampleDir(projectDir),
+      voiceprintThresholds: normalizeVoiceprintThresholds(
+        parsed.voiceprintThresholds
+      ),
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso23()
+    };
+  } catch {
+    return {
+      ...defaultState5(),
+      voiceprintModelPath: defaultVoiceprintModelPath(projectDir),
+      voiceprintSampleDir: defaultVoiceprintSampleDir(projectDir)
+    };
+  }
+}
+function writeOwnerIdentityState(projectDir, state2) {
+  const file3 = filePath11(projectDir);
+  fs40.mkdirSync(path41.dirname(file3), { recursive: true });
+  const next = {
+    ...state2,
+    voiceprintThresholds: normalizeVoiceprintThresholds(
+      state2.voiceprintThresholds
+    ),
+    updatedAt: nowIso23()
+  };
+  fs40.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+`, "utf-8");
+  return next;
+}
+function initOwnerIdentity(projectDir, input) {
+  const current = readOwnerIdentityState(projectDir);
+  const next = {
+    ...current,
+    initialized: true,
+    passwordHash: hashSecret(input.password),
+    passphraseHash: hashSecret(input.passphrase),
+    voiceprintEmbeddingID: input.voiceprintEmbeddingID || current.voiceprintEmbeddingID || `owner_${randomUUID16()}`,
+    voiceprintModelPath: input.voiceprintModelPath || current.voiceprintModelPath || defaultVoiceprintModelPath(projectDir),
+    voiceprintSampleDir: input.voiceprintSampleDir || current.voiceprintSampleDir || defaultVoiceprintSampleDir(projectDir),
+    voiceprintThresholds: normalizeVoiceprintThresholds({
+      ...current.voiceprintThresholds,
+      ...input.voiceprintThresholds ?? {}
+    }),
+    mode: "owner",
+    lastSpeakerAt: nowIso23(),
+    updatedAt: nowIso23()
+  };
+  return writeOwnerIdentityState(projectDir, next);
+}
+function verifyOwnerSecrets(projectDir, input) {
+  const state2 = readOwnerIdentityState(projectDir);
+  if (!state2.initialized || !state2.passwordHash || !state2.passphraseHash)
+    return false;
+  const passOk = typeof input.password === "string" && hashSecret(input.password) === state2.passwordHash;
+  const phraseOk = typeof input.passphrase === "string" && hashSecret(input.passphrase) === state2.passphraseHash;
+  return passOk || phraseOk;
+}
+function verifyOwnerPasswordOnly(projectDir, password) {
+  const state2 = readOwnerIdentityState(projectDir);
+  if (!state2.initialized || !state2.passwordHash) return false;
+  if (typeof password !== "string" || !password) return false;
+  return hashSecret(password) === state2.passwordHash;
+}
+function rotateOwnerSecrets(projectDir, input) {
+  if (!verifyOwnerSecrets(projectDir, {
+    password: input.currentPassword,
+    passphrase: input.currentPassphrase
+  })) {
+    throw new Error("owner_secret_verification_failed");
+  }
+  const state2 = readOwnerIdentityState(projectDir);
+  return writeOwnerIdentityState(projectDir, {
+    ...state2,
+    initialized: true,
+    passwordHash: hashSecret(input.newPassword),
+    passphraseHash: hashSecret(input.newPassphrase),
+    mode: "owner",
+    lastSpeakerAt: nowIso23(),
+    updatedAt: nowIso23()
+  });
+}
+function updateVoiceprintThresholds(projectDir, patch) {
+  const current = readOwnerIdentityState(projectDir);
+  return writeOwnerIdentityState(projectDir, {
+    ...current,
+    voiceprintThresholds: normalizeVoiceprintThresholds({
+      ...current.voiceprintThresholds,
+      ...patch
+    }),
+    updatedAt: nowIso23()
+  });
+}
+function resolveInteractionMode(projectDir, input) {
+  const hint = (input.speakerHint || "").trim().toLowerCase();
+  if (hint === "owner" || hint === "guest" || hint === "unknown") {
+    return hint;
+  }
+  const state2 = readOwnerIdentityState(projectDir);
+  if (!state2.initialized) return "unknown";
+  if (typeof input.speakerScore === "number") {
+    if (input.speakerScore >= state2.voiceprintThresholds.ownerMinScore)
+      return "owner";
+    if (input.speakerScore < state2.voiceprintThresholds.guestMaxScore)
+      return "guest";
+  }
+  return state2.mode === "owner" ? "owner" : "unknown";
+}
+function setInteractionMode(projectDir, mode) {
+  const current = readOwnerIdentityState(projectDir);
+  return writeOwnerIdentityState(projectDir, {
+    ...current,
+    mode,
+    lastSpeakerAt: nowIso23(),
+    updatedAt: nowIso23()
+  });
+}
+function appendGuestConversation(projectDir, input) {
+  const file3 = guestAuditPath(projectDir);
+  fs40.mkdirSync(path41.dirname(file3), { recursive: true });
+  const row = {
+    id: `guest_${randomUUID16()}`,
+    at: nowIso23(),
+    source: input.source,
+    sessionID: input.sessionID,
+    text: input.text
+  };
+  fs40.appendFileSync(file3, `${JSON.stringify(row)}
+`, "utf-8");
+}
+
+// src/security/owner-sync.ts
+import { randomUUID as randomUUID17 } from "node:crypto";
 import * as fs41 from "node:fs";
-import * as os7 from "node:os";
 import * as path42 from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
+function nowIso24() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function storeFile2(projectDir) {
+  return path42.join(
+    getMiyaRuntimeDir(projectDir),
+    "security",
+    "owner-sync.json"
+  );
+}
+function readStore9(projectDir) {
+  const file3 = storeFile2(projectDir);
+  if (!fs41.existsSync(file3)) return { tokens: [] };
+  try {
+    const parsed = JSON.parse(fs41.readFileSync(file3, "utf-8"));
+    return Array.isArray(parsed.tokens) ? parsed : { tokens: [] };
+  } catch {
+    return { tokens: [] };
+  }
+}
+function writeStore9(projectDir, store2) {
+  const file3 = storeFile2(projectDir);
+  fs41.mkdirSync(path42.dirname(file3), { recursive: true });
+  fs41.writeFileSync(file3, `${JSON.stringify(store2, null, 2)}
+`, "utf-8");
+}
+function purgeExpired(tokens) {
+  const now = Date.now();
+  return tokens.filter((item) => {
+    const expiresAt = Date.parse(item.expiresAt);
+    if (!Number.isFinite(expiresAt)) return false;
+    if (expiresAt < now && item.status === "pending") return false;
+    return true;
+  });
+}
+function normalizeToken(input) {
+  return input.trim().toUpperCase();
+}
+function createToken() {
+  return `OS${randomUUID17().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+}
+function issueOwnerSyncToken(projectDir, input) {
+  const ttlMs = Math.max(6e4, Number(input.ttlMs ?? 10 * 6e4));
+  const store2 = readStore9(projectDir);
+  store2.tokens = purgeExpired(store2.tokens);
+  const now = Date.now();
+  const existing = store2.tokens.find(
+    (item) => item.status === "pending" && item.action === input.action && item.payloadHash === input.payloadHash && Date.parse(item.expiresAt) > now
+  );
+  if (existing) {
+    writeStore9(projectDir, store2);
+    return existing;
+  }
+  const createdAt = nowIso24();
+  const record3 = {
+    token: createToken(),
+    action: input.action,
+    payloadHash: input.payloadHash,
+    status: "pending",
+    createdAt,
+    expiresAt: new Date(now + ttlMs).toISOString()
+  };
+  store2.tokens.unshift(record3);
+  store2.tokens = store2.tokens.slice(0, 500);
+  writeStore9(projectDir, store2);
+  return record3;
+}
+function approveOwnerSyncToken(projectDir, input) {
+  const token = normalizeToken(input.token);
+  if (!token) return { ok: false, reason: "owner_sync_token_empty" };
+  const store2 = readStore9(projectDir);
+  store2.tokens = purgeExpired(store2.tokens);
+  const found = store2.tokens.find((item) => item.token === token);
+  if (!found) {
+    writeStore9(projectDir, store2);
+    return { ok: false, reason: "owner_sync_token_not_found" };
+  }
+  if (found.status !== "pending") {
+    writeStore9(projectDir, store2);
+    return {
+      ok: false,
+      reason: `owner_sync_token_not_pending:${found.status}`
+    };
+  }
+  if (Date.parse(found.expiresAt) <= Date.now()) {
+    writeStore9(projectDir, store2);
+    return { ok: false, reason: "owner_sync_token_expired" };
+  }
+  found.status = "approved";
+  found.approvedAt = nowIso24();
+  found.approvedBy = { channel: input.channel, senderID: input.senderID };
+  writeStore9(projectDir, store2);
+  return { ok: true, record: found };
+}
+function verifyOwnerSyncToken(projectDir, input) {
+  const token = normalizeToken(input.token);
+  if (!token) return { ok: false, reason: "owner_sync_token_empty" };
+  const store2 = readStore9(projectDir);
+  store2.tokens = purgeExpired(store2.tokens);
+  const found = store2.tokens.find((item) => item.token === token);
+  if (!found) {
+    writeStore9(projectDir, store2);
+    return { ok: false, reason: "owner_sync_token_not_found" };
+  }
+  if (found.status !== "approved") {
+    writeStore9(projectDir, store2);
+    return {
+      ok: false,
+      reason: `owner_sync_token_not_approved:${found.status}`
+    };
+  }
+  if (found.action !== input.action) {
+    writeStore9(projectDir, store2);
+    return { ok: false, reason: "owner_sync_token_action_mismatch" };
+  }
+  if (found.payloadHash !== input.payloadHash) {
+    writeStore9(projectDir, store2);
+    return { ok: false, reason: "owner_sync_token_payload_mismatch" };
+  }
+  if (Date.parse(found.expiresAt) <= Date.now()) {
+    writeStore9(projectDir, store2);
+    return { ok: false, reason: "owner_sync_token_expired" };
+  }
+  writeStore9(projectDir, store2);
+  return { ok: true, record: found };
+}
+function consumeOwnerSyncToken(projectDir, tokenInput) {
+  const token = normalizeToken(tokenInput);
+  if (!token) return { ok: false, reason: "owner_sync_token_empty" };
+  const store2 = readStore9(projectDir);
+  store2.tokens = purgeExpired(store2.tokens);
+  const found = store2.tokens.find((item) => item.token === token);
+  if (!found) {
+    writeStore9(projectDir, store2);
+    return { ok: false, reason: "owner_sync_token_not_found" };
+  }
+  if (found.status !== "approved") {
+    writeStore9(projectDir, store2);
+    return {
+      ok: false,
+      reason: `owner_sync_token_not_approved:${found.status}`
+    };
+  }
+  found.status = "consumed";
+  found.consumedAt = nowIso24();
+  writeStore9(projectDir, store2);
+  return { ok: true };
+}
+function detectOwnerSyncTokenFromText(text) {
+  const normalized = text.trim();
+  if (!normalized) return null;
+  const matched = /(?:同意|确认|approve|confirm|ok)\s*[:：#]?\s*([a-z0-9_-]{6,64})/i.exec(
+    normalized
+  ) ?? /(?:\/miya\s+confirm)\s+([a-z0-9_-]{6,64})/i.exec(normalized);
+  if (!matched?.[1]) return null;
+  return normalizeToken(matched[1]);
+}
+
+// src/skills/loader.ts
+import * as fs42 from "node:fs";
+import * as os7 from "node:os";
+import * as path43 from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/skills/frontmatter.ts
 var LIST_KEYS = /* @__PURE__ */ new Set(["bins", "env", "platforms", "permissions"]);
@@ -43921,7 +44416,9 @@ function parseSkillFrontmatter(markdown) {
   if (lines.length < 3 || lines[0].trim() !== "---") {
     return {};
   }
-  const endIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  const endIndex = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === "---"
+  );
   if (endIndex === -1) {
     return {};
   }
@@ -43961,10 +44458,10 @@ function parseSkillFrontmatter(markdown) {
 }
 
 // src/skills/gating.ts
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync4 } from "node:child_process";
 function hasBinary(bin) {
   const checker = process.platform === "win32" ? "where" : "which";
-  const result = spawnSync5(checker, [bin], { stdio: "ignore" });
+  const result = spawnSync4(checker, [bin], { stdio: "ignore" });
   return result.status === 0;
 }
 function evaluateSkillGate(frontmatter) {
@@ -43992,18 +44489,18 @@ function evaluateSkillGate(frontmatter) {
 
 // src/skills/loader.ts
 function isSkillDir(dir) {
-  const skillFile = path42.join(dir, "SKILL.md");
-  return fs41.existsSync(skillFile);
+  const skillFile = path43.join(dir, "SKILL.md");
+  return fs42.existsSync(skillFile);
 }
 function listSkillDirs(rootDir) {
-  if (!fs41.existsSync(rootDir)) return [];
-  const entries = fs41.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path42.join(rootDir, entry2.name));
+  if (!fs42.existsSync(rootDir)) return [];
+  const entries = fs42.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path43.join(rootDir, entry2.name));
   return entries.filter(isSkillDir);
 }
 function builtinSkillRoots(projectDir) {
   const roots = /* @__PURE__ */ new Set();
-  const localBuiltinRoot = path42.dirname(fileURLToPath3(import.meta.url));
-  roots.add(path42.join(projectDir, "miya-src", "src", "skills"));
+  const localBuiltinRoot = path43.dirname(fileURLToPath2(import.meta.url));
+  roots.add(path43.join(projectDir, "miya-src", "src", "skills"));
   roots.add(localBuiltinRoot);
   return [...roots];
 }
@@ -44017,18 +44514,28 @@ function enforcePermissionMetadataGate(source, frontmatter, gate) {
   };
 }
 function discoverSkills(projectDir, extraDirs = []) {
-  const workspaceRoot = path42.join(projectDir, "skills");
-  const globalRoot = path42.join(os7.homedir(), ".config", "opencode", "miya", "skills");
+  const workspaceRoot = path43.join(projectDir, "skills");
+  const globalRoot = path43.join(
+    os7.homedir(),
+    ".config",
+    "opencode",
+    "miya",
+    "skills"
+  );
   const scopedDirs = [
     { source: "workspace", dirs: listSkillDirs(workspaceRoot) },
     { source: "global", dirs: listSkillDirs(globalRoot) },
     {
       source: "builtin",
-      dirs: builtinSkillRoots(projectDir).flatMap((root) => listSkillDirs(root))
+      dirs: builtinSkillRoots(projectDir).flatMap(
+        (root) => listSkillDirs(root)
+      )
     },
     {
       source: "extra",
-      dirs: extraDirs.flatMap((root) => listSkillDirs(path42.resolve(projectDir, root)))
+      dirs: extraDirs.flatMap(
+        (root) => listSkillDirs(path43.resolve(projectDir, root))
+      )
     }
   ];
   const precedence = {
@@ -44040,15 +44547,15 @@ function discoverSkills(projectDir, extraDirs = []) {
   const byName = /* @__PURE__ */ new Map();
   for (const scope of scopedDirs) {
     for (const dir of scope.dirs) {
-      const skillFile = path42.join(dir, "SKILL.md");
+      const skillFile = path43.join(dir, "SKILL.md");
       let content = "";
       try {
-        content = fs41.readFileSync(skillFile, "utf-8");
+        content = fs42.readFileSync(skillFile, "utf-8");
       } catch {
         continue;
       }
       const frontmatter = parseSkillFrontmatter(content);
-      const name = frontmatter.name ?? path42.basename(dir);
+      const name = frontmatter.name ?? path43.basename(dir);
       const gate = enforcePermissionMetadataGate(
         scope.source,
         frontmatter,
@@ -44073,36 +44580,38 @@ function discoverSkills(projectDir, extraDirs = []) {
 }
 
 // src/skills/state.ts
-import * as fs42 from "node:fs";
-import * as path43 from "node:path";
-function nowIso24() {
+import * as fs43 from "node:fs";
+import * as path44 from "node:path";
+function nowIso25() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function filePath12(projectDir) {
-  return path43.join(getMiyaRuntimeDir(projectDir), "skills.json");
+  return path44.join(getMiyaRuntimeDir(projectDir), "skills.json");
 }
-function ensureDir20(file3) {
-  fs42.mkdirSync(path43.dirname(file3), { recursive: true });
+function ensureDir21(file3) {
+  fs43.mkdirSync(path44.dirname(file3), { recursive: true });
 }
 function readState(projectDir) {
   const file3 = filePath12(projectDir);
-  if (!fs42.existsSync(file3)) {
-    return { enabled: [], updatedAt: nowIso24() };
+  if (!fs43.existsSync(file3)) {
+    return { enabled: [], updatedAt: nowIso25() };
   }
   try {
-    const parsed = JSON.parse(fs42.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(
+      fs43.readFileSync(file3, "utf-8")
+    );
     return {
       enabled: Array.isArray(parsed.enabled) ? parsed.enabled.map(String) : [],
-      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso24()
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : nowIso25()
     };
   } catch {
-    return { enabled: [], updatedAt: nowIso24() };
+    return { enabled: [], updatedAt: nowIso25() };
   }
 }
 function writeState3(projectDir, state2) {
   const file3 = filePath12(projectDir);
-  ensureDir20(file3);
-  fs42.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
+  ensureDir21(file3);
+  fs43.writeFileSync(file3, `${JSON.stringify(state2, null, 2)}
 `, "utf-8");
 }
 function listEnabledSkills(projectDir) {
@@ -44115,17 +44624,17 @@ function setSkillEnabled(projectDir, skillID, enabled) {
   else normalized.delete(skillID);
   const next = {
     enabled: [...normalized].sort(),
-    updatedAt: nowIso24()
+    updatedAt: nowIso25()
   };
   writeState3(projectDir, next);
   return next.enabled;
 }
 
 // src/skills/sync.ts
-import { createHash as createHash13 } from "node:crypto";
-import * as fs43 from "node:fs";
+import { createHash as createHash14 } from "node:crypto";
+import * as fs44 from "node:fs";
 import * as os8 from "node:os";
-import * as path44 from "node:path";
+import * as path45 from "node:path";
 var DEFAULT_STATE3 = {
   version: 1,
   updatedAt: (/* @__PURE__ */ new Date(0)).toISOString(),
@@ -44137,17 +44646,19 @@ var TRUSTED_SOURCE_ALLOWLIST = [
   /^https?:\/\/github\.com\/(openclaw|openclaw-girl-agent|Yeachan-Heo|code-yeongyu|SumeLabs|MemTensor|mmy4shadow)\//i,
   /^git@github\.com:(openclaw|openclaw-girl-agent|Yeachan-Heo|code-yeongyu|SumeLabs|MemTensor|mmy4shadow)\//i
 ];
-function nowIso25(options) {
+function nowIso26(options) {
   return options?.now?.() ?? (/* @__PURE__ */ new Date()).toISOString();
 }
 function stateFile2(projectDir) {
-  return path44.join(getMiyaRuntimeDir(projectDir), "ecosystem-bridge.json");
+  return path45.join(getMiyaRuntimeDir(projectDir), "ecosystem-bridge.json");
 }
 function readState2(projectDir) {
   const file3 = stateFile2(projectDir);
-  if (!fs43.existsSync(file3)) return { ...DEFAULT_STATE3 };
+  if (!fs44.existsSync(file3)) return { ...DEFAULT_STATE3 };
   try {
-    const parsed = JSON.parse(fs43.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(
+      fs44.readFileSync(file3, "utf-8")
+    );
     return {
       version: 1,
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : (/* @__PURE__ */ new Date(0)).toISOString(),
@@ -44161,13 +44672,13 @@ function readState2(projectDir) {
 }
 function writeState4(projectDir, state2, options) {
   const file3 = stateFile2(projectDir);
-  fs43.mkdirSync(path44.dirname(file3), { recursive: true });
+  fs44.mkdirSync(path45.dirname(file3), { recursive: true });
   const next = {
     ...state2,
     version: 1,
-    updatedAt: nowIso25(options)
+    updatedAt: nowIso26(options)
   };
-  fs43.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
+  fs44.writeFileSync(file3, `${JSON.stringify(next, null, 2)}
 `, "utf-8");
 }
 function runGit(args, cwd) {
@@ -44190,22 +44701,22 @@ function normalizeText5(value) {
 }
 function defaultSourceRoots(projectDir) {
   return [
-    path44.join(projectDir, "skills"),
-    path44.join(os8.homedir(), ".config", "opencode", "miya", "skills")
+    path45.join(projectDir, "skills"),
+    path45.join(os8.homedir(), ".config", "opencode", "miya", "skills")
   ];
 }
 function listSkillReposFromRoot(rootDir) {
-  if (!fs43.existsSync(rootDir)) return [];
-  return fs43.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path44.join(rootDir, entry2.name)).filter((dir) => {
-    return fs43.existsSync(path44.join(dir, "SKILL.md")) && fs43.existsSync(path44.join(dir, ".git"));
+  if (!fs44.existsSync(rootDir)) return [];
+  return fs44.readdirSync(rootDir, { withFileTypes: true }).filter((entry2) => entry2.isDirectory()).map((entry2) => path45.join(rootDir, entry2.name)).filter((dir) => {
+    return fs44.existsSync(path45.join(dir, "SKILL.md")) && fs44.existsSync(path45.join(dir, ".git"));
   });
 }
 function sanitizeIdSegment(input) {
   return input.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 function buildSourcePackID(repo, localDir) {
-  const base = sanitizeIdSegment(path44.basename(localDir) || "source-pack") || "source-pack";
-  const fingerprint = createHash13("sha256").update(`${repo ?? ""}|${path44.resolve(localDir)}`).digest("hex").slice(0, 12);
+  const base = sanitizeIdSegment(path45.basename(localDir) || "source-pack") || "source-pack";
+  const fingerprint = createHash14("sha256").update(`${repo ?? ""}|${path45.resolve(localDir)}`).digest("hex").slice(0, 12);
   return `${base}-${fingerprint}`;
 }
 function trustLevelForRepo(repo) {
@@ -44213,15 +44724,15 @@ function trustLevelForRepo(repo) {
   return TRUSTED_SOURCE_ALLOWLIST.some((rule) => rule.test(repo)) ? "allowlisted" : "untrusted";
 }
 function resolveSkillName(localDir) {
-  const manifest = path44.join(localDir, "SKILL.md");
-  if (!fs43.existsSync(manifest)) return path44.basename(localDir);
+  const manifest = path45.join(localDir, "SKILL.md");
+  if (!fs44.existsSync(manifest)) return path45.basename(localDir);
   try {
-    const raw = fs43.readFileSync(manifest, "utf-8");
+    const raw = fs44.readFileSync(manifest, "utf-8");
     const heading = /^#\s+(.+)$/m.exec(raw)?.[1]?.trim();
     if (heading) return heading;
   } catch {
   }
-  return path44.basename(localDir);
+  return path45.basename(localDir);
 }
 function readGitValue(options, cwd, args) {
   const result = git(options, args, cwd);
@@ -44240,7 +44751,10 @@ function resolveUpstreamRef(localDir, branch, options) {
   return "origin/HEAD";
 }
 function resolveRevision(localDir, ref, options) {
-  const resolved = readGitValue(options, localDir, ["rev-parse", `${ref}^{commit}`]);
+  const resolved = readGitValue(options, localDir, [
+    "rev-parse",
+    `${ref}^{commit}`
+  ]);
   if (!resolved) {
     throw new Error(`source_pack_revision_unresolved:${ref}`);
   }
@@ -44260,14 +44774,18 @@ function discoverSourcePacks(projectDir, state2, options) {
   const dirs = /* @__PURE__ */ new Set();
   for (const root of roots) {
     for (const repoDir of listSkillReposFromRoot(root)) {
-      dirs.add(path44.resolve(repoDir));
+      dirs.add(path45.resolve(repoDir));
     }
   }
   const packs = [];
   for (const localDir of [...dirs]) {
     const headRevision = readGitValue(options, localDir, ["rev-parse", "HEAD"]);
     if (!headRevision) continue;
-    const repo = readGitValue(options, localDir, ["config", "--get", "remote.origin.url"]);
+    const repo = readGitValue(options, localDir, [
+      "config",
+      "--get",
+      "remote.origin.url"
+    ]);
     const branch = readGitValue(options, localDir, ["rev-parse", "--abbrev-ref", "HEAD"]) ?? "HEAD";
     const sourcePackID = buildSourcePackID(repo, localDir);
     const sourceState = state2.sourcePacks[sourcePackID];
@@ -44275,7 +44793,7 @@ function discoverSourcePacks(projectDir, state2, options) {
     const pinnedRelease = state2.pinnedReleases[sourcePackID];
     packs.push({
       sourcePackID,
-      name: path44.basename(localDir),
+      name: path45.basename(localDir),
       skillName: resolveSkillName(localDir),
       repo,
       localDir,
@@ -44308,7 +44826,7 @@ function ensureImportPlan(state2, sourcePack, options) {
       ...existing,
       sourcePackID: sourcePack.sourcePackID,
       localDir: sourcePack.localDir,
-      updatedAt: nowIso25(options)
+      updatedAt: nowIso26(options)
     };
     state2.importPlans[sourcePack.sourcePackID] = refreshed;
     return refreshed;
@@ -44318,8 +44836,8 @@ function ensureImportPlan(state2, sourcePack, options) {
     localDir: sourcePack.localDir,
     importMode: "skills_only",
     permissionMode: "sandbox_read_only",
-    createdAt: nowIso25(options),
-    updatedAt: nowIso25(options)
+    createdAt: nowIso26(options),
+    updatedAt: nowIso26(options)
   };
   state2.importPlans[sourcePack.sourcePackID] = created;
   return created;
@@ -44370,7 +44888,11 @@ function listEcosystemBridge(projectDir, options) {
 }
 function pullSourcePack(projectDir, sourcePackID, options) {
   const resolved = requireSourcePack(projectDir, sourcePackID, options);
-  const pull = git(options, ["fetch", "--prune", "origin"], resolved.sourcePack.localDir);
+  const pull = git(
+    options,
+    ["fetch", "--prune", "origin"],
+    resolved.sourcePack.localDir
+  );
   if (pull.exitCode !== 0) {
     updateSourcePackState(resolved.state, resolved.sourcePack, {
       lastError: pull.stderr || "source_pack_fetch_failed"
@@ -44383,11 +44905,15 @@ function pullSourcePack(projectDir, sourcePackID, options) {
     resolved.sourcePack.branch,
     options
   );
-  const latestRevision = resolveRevision(resolved.sourcePack.localDir, compareRef, options);
+  const latestRevision = resolveRevision(
+    resolved.sourcePack.localDir,
+    compareRef,
+    options
+  );
   ensureImportPlan(resolved.state, resolved.sourcePack, options);
   updateSourcePackState(resolved.state, resolved.sourcePack, {
     latestRevision,
-    lastPulledAt: nowIso25(options),
+    lastPulledAt: nowIso26(options),
     lastError: void 0
   });
   writeState4(projectDir, resolved.state, options);
@@ -44396,13 +44922,21 @@ function pullSourcePack(projectDir, sourcePackID, options) {
     localDir: resolved.sourcePack.localDir,
     latestRevision,
     compareRef,
-    pulledAt: nowIso25(options)
+    pulledAt: nowIso26(options)
   };
 }
 function diffSourcePack(projectDir, sourcePackID, options) {
-  const { state: state2, sourcePack } = requireSourcePack(projectDir, sourcePackID, options);
+  const { state: state2, sourcePack } = requireSourcePack(
+    projectDir,
+    sourcePackID,
+    options
+  );
   const compareRef = state2.sourcePacks[sourcePackID]?.latestRevision ?? resolveUpstreamRef(sourcePack.localDir, sourcePack.branch, options);
-  const compareRevision = resolveRevision(sourcePack.localDir, compareRef, options);
+  const compareRevision = resolveRevision(
+    sourcePack.localDir,
+    compareRef,
+    options
+  );
   const count = git(
     options,
     ["rev-list", "--left-right", "--count", `HEAD...${compareRevision}`],
@@ -44435,8 +44969,16 @@ function diffSourcePack(projectDir, sourcePackID, options) {
 function applySourcePack(projectDir, sourcePackID, input = {}, options) {
   const resolved = requireSourcePack(projectDir, sourcePackID, options);
   requireCleanWorkingTree(resolved.sourcePack.localDir, options);
-  const targetRef = normalizeText5(input.revision) ?? resolved.state.sourcePacks[sourcePackID]?.latestRevision ?? resolveUpstreamRef(resolved.sourcePack.localDir, resolved.sourcePack.branch, options);
-  const targetRevision = resolveRevision(resolved.sourcePack.localDir, targetRef, options);
+  const targetRef = normalizeText5(input.revision) ?? resolved.state.sourcePacks[sourcePackID]?.latestRevision ?? resolveUpstreamRef(
+    resolved.sourcePack.localDir,
+    resolved.sourcePack.branch,
+    options
+  );
+  const targetRevision = resolveRevision(
+    resolved.sourcePack.localDir,
+    targetRef,
+    options
+  );
   const previousRevision = resolved.sourcePack.headRevision;
   if (previousRevision !== targetRevision) {
     const checkout = git(
@@ -44457,7 +44999,7 @@ function applySourcePack(projectDir, sourcePackID, input = {}, options) {
     sourcePackID,
     revision: targetRevision,
     previousRevision: previousRevision !== targetRevision ? previousRevision : resolved.state.pinnedReleases[sourcePackID]?.previousRevision,
-    appliedAt: nowIso25(options)
+    appliedAt: nowIso26(options)
   };
   writeState4(projectDir, resolved.state, options);
   return {
@@ -44493,7 +45035,7 @@ function rollbackSourcePack(projectDir, sourcePackID, options) {
     sourcePackID,
     revision: rollbackRevision,
     previousRevision,
-    appliedAt: nowIso25(options)
+    appliedAt: nowIso26(options)
   };
   writeState4(projectDir, resolved.state, options);
   return {
@@ -44505,941 +45047,90 @@ function rollbackSourcePack(projectDir, sourcePackID, options) {
   };
 }
 
-// src/mcp/context7.ts
-var context7 = {
-  type: "remote",
-  url: "https://mcp.context7.com/mcp",
-  headers: process.env.CONTEXT7_API_KEY ? { CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY } : void 0,
-  oauth: false,
-  capabilities: {
-    sampling: false,
-    mcpUi: false
+// src/gateway/agent-model-api.ts
+var AgentModelRuntimeApi = class {
+  constructor(projectDir) {
+    this.projectDir = projectDir;
   }
-};
-
-// src/mcp/grep-app.ts
-var grep_app = {
-  type: "remote",
-  url: "https://mcp.grep.app",
-  oauth: false,
-  capabilities: {
-    sampling: false,
-    mcpUi: false
-  }
-};
-
-// src/mcp/websearch.ts
-var websearch = {
-  type: "remote",
-  url: "https://mcp.exa.ai/mcp?tools=web_search_exa",
-  headers: process.env.EXA_API_KEY ? { "x-api-key": process.env.EXA_API_KEY } : void 0,
-  oauth: false,
-  capabilities: {
-    sampling: false,
-    mcpUi: false
-  }
-};
-
-// src/mcp/index.ts
-var allBuiltinMcps = {
-  websearch,
-  context7,
-  grep_app
-};
-function createBuiltinMcps(disabledMcps = []) {
-  return Object.fromEntries(
-    Object.entries(allBuiltinMcps).filter(
-      ([name]) => !disabledMcps.includes(name)
-    )
-  );
-}
-function buildMcpServiceManifest(disabledMcps = []) {
-  const builtins = createBuiltinMcps(disabledMcps);
-  const mcps = Object.entries(builtins).map(([name, config3]) => {
-    const caps = "capabilities" in config3 ? config3.capabilities : void 0;
-    return {
-      name,
-      type: config3.type,
-      sampling: Boolean(caps?.sampling),
-      mcpUi: Boolean(caps?.mcpUi),
-      serviceExpose: Boolean(caps?.serviceExpose)
-    };
-  });
-  return {
-    service: "miya-control-plane",
-    version: 2,
-    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    mcps,
-    controlPlaneEndpoints: [
-      "gateway.status.get",
-      "gateway.backpressure.stats",
-      "daemon.backpressure.stats",
-      "provider.override.audit.list",
-      "mcp.capabilities.list",
-      "mcp.service.expose"
-    ]
-  };
-}
-
-// src/autoflow/state.ts
-import * as fs44 from "node:fs";
-import * as path45 from "node:path";
-var DEFAULT_MAX_FIX_ROUNDS = 3;
-var MAX_HISTORY = 120;
-function nowIso26() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function stateFilePath(projectDir) {
-  return path45.join(getMiyaRuntimeDir(projectDir), "autoflow-state.json");
-}
-function ensureRuntimeDir(projectDir) {
-  fs44.mkdirSync(path45.dirname(stateFilePath(projectDir)), { recursive: true });
-}
-function normalizeFixRounds(value) {
-  if (!Number.isFinite(value)) return DEFAULT_MAX_FIX_ROUNDS;
-  return Math.max(1, Math.min(10, Math.floor(Number(value))));
-}
-function normalizeState(sessionID2, raw) {
-  const createdAt = raw?.createdAt ?? nowIso26();
-  const history = Array.isArray(raw?.history) ? raw?.history.slice(-MAX_HISTORY).map((item) => ({
-    at: String(item.at ?? createdAt),
-    phase: item.phase ?? "planning",
-    event: String(item.event ?? "unknown"),
-    summary: String(item.summary ?? "")
-  })) : [];
-  const fixCommands = Array.isArray(raw?.fixCommands) ? raw.fixCommands.map(String).map((item) => item.trim()).filter(Boolean) : [];
-  const recentVerificationHashes = Array.isArray(raw?.recentVerificationHashes) ? raw.recentVerificationHashes.map(String).slice(-3) : [];
-  const planTasks = Array.isArray(raw?.planTasks) ? raw.planTasks : [];
-  return {
-    sessionID: sessionID2,
-    goal: String(raw?.goal ?? "").trim(),
-    phase: raw?.phase ?? "planning",
-    createdAt,
-    updatedAt: raw?.updatedAt ?? createdAt,
-    maxFixRounds: normalizeFixRounds(raw?.maxFixRounds),
-    fixRound: Number.isFinite(raw?.fixRound) ? Math.max(0, Math.floor(Number(raw?.fixRound))) : 0,
-    verificationCommand: raw?.verificationCommand ? String(raw.verificationCommand) : void 0,
-    fixCommands,
-    planTasks,
-    recentVerificationHashes,
-    lastError: raw?.lastError ? String(raw.lastError) : void 0,
-    lastDag: raw?.lastDag && Number.isFinite(raw.lastDag.total) ? {
-      total: Math.max(0, Math.floor(Number(raw.lastDag.total))),
-      completed: Math.max(0, Math.floor(Number(raw.lastDag.completed))),
-      failed: Math.max(0, Math.floor(Number(raw.lastDag.failed))),
-      blocked: Math.max(0, Math.floor(Number(raw.lastDag.blocked)))
-    } : void 0,
-    history
-  };
-}
-function readStore8(projectDir) {
-  const file3 = stateFilePath(projectDir);
-  if (!fs44.existsSync(file3)) return { sessions: {} };
-  try {
-    const parsed = JSON.parse(fs44.readFileSync(file3, "utf-8"));
-    if (!parsed || typeof parsed !== "object" || !parsed.sessions) {
-      return { sessions: {} };
-    }
-    const sessions = {};
-    for (const [sessionID2, state2] of Object.entries(parsed.sessions)) {
-      sessions[sessionID2] = normalizeState(sessionID2, state2);
-    }
-    return { sessions };
-  } catch {
-    return { sessions: {} };
-  }
-}
-function writeStore8(projectDir, store2) {
-  ensureRuntimeDir(projectDir);
-  fs44.writeFileSync(stateFilePath(projectDir), `${JSON.stringify(store2, null, 2)}
-`, "utf-8");
-}
-function loadAutoflowSession(projectDir, sessionID2) {
-  const store2 = readStore8(projectDir);
-  return store2.sessions[sessionID2] ?? null;
-}
-function listAutoflowSessions(projectDir, limit = 50) {
-  const store2 = readStore8(projectDir);
-  return Object.values(store2.sessions).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, Math.max(1, Math.min(200, limit)));
-}
-function getAutoflowSession(projectDir, sessionID2) {
-  return loadAutoflowSession(projectDir, sessionID2) ?? normalizeState(sessionID2);
-}
-function saveAutoflowSession(projectDir, session) {
-  const store2 = readStore8(projectDir);
-  const normalized = normalizeState(session.sessionID, {
-    ...session,
-    updatedAt: nowIso26()
-  });
-  store2.sessions[session.sessionID] = normalized;
-  writeStore8(projectDir, store2);
-  return normalized;
-}
-function appendAutoflowHistory(session, event, summary) {
-  const record3 = {
-    at: nowIso26(),
-    phase: session.phase,
-    event,
-    summary
-  };
-  session.history = [...session.history, record3].slice(-MAX_HISTORY);
-  return session;
-}
-function configureAutoflowSession(projectDir, input) {
-  const current = getAutoflowSession(projectDir, input.sessionID);
-  const next = {
-    ...current,
-    goal: typeof input.goal === "string" ? input.goal.trim() : current.goal,
-    planTasks: Array.isArray(input.tasks) && input.tasks.length > 0 ? input.tasks : current.planTasks,
-    verificationCommand: typeof input.verificationCommand === "string" ? input.verificationCommand.trim() || void 0 : current.verificationCommand,
-    fixCommands: Array.isArray(input.fixCommands) ? input.fixCommands.map(String).map((item) => item.trim()).filter(Boolean) : current.fixCommands,
-    maxFixRounds: typeof input.maxFixRounds === "number" ? normalizeFixRounds(input.maxFixRounds) : current.maxFixRounds,
-    phase: input.phase ?? current.phase
-  };
-  if (next.phase === "planning") {
-    next.fixRound = 0;
-    next.recentVerificationHashes = [];
-    next.lastError = void 0;
-  }
-  return saveAutoflowSession(projectDir, next);
-}
-function stopAutoflowSession(projectDir, sessionID2) {
-  const current = getAutoflowSession(projectDir, sessionID2);
-  current.phase = "stopped";
-  appendAutoflowHistory(current, "stopped", "Session stopped by operator.");
-  return saveAutoflowSession(projectDir, current);
-}
-
-// src/autoflow/engine.ts
-import { createHash as createHash14 } from "node:crypto";
-
-// src/ultrawork/scheduler.ts
-function buildNodes(tasks) {
-  const normalized = tasks.filter((task) => task.agent.trim() && task.prompt.trim()).slice(0, 40);
-  return normalized.map((task, index) => ({
-    nodeID: task.id?.trim() || `node_${index + 1}`,
-    agent: task.agent.trim(),
-    prompt: task.prompt.trim(),
-    description: task.description.trim() || task.prompt.trim().slice(0, 80),
-    dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn.map(String).map((item) => item.trim()).filter(Boolean) : [],
-    timeoutMs: Math.max(5e3, Math.min(20 * 6e4, Number(task.timeoutMs ?? 12e4))),
-    maxRetries: Math.max(0, Math.min(3, Math.floor(Number(task.maxRetries ?? 0))))
-  }));
-}
-function hasCycle(nodes) {
-  const edges = new Map(nodes.map((node) => [node.nodeID, node.dependsOn]));
-  const visiting = /* @__PURE__ */ new Set();
-  const visited = /* @__PURE__ */ new Set();
-  const dfs = (id) => {
-    if (visiting.has(id)) return true;
-    if (visited.has(id)) return false;
-    visiting.add(id);
-    for (const dep of edges.get(id) ?? []) {
-      if (edges.has(dep) && dfs(dep)) return true;
-    }
-    visiting.delete(id);
-    visited.add(id);
-    return false;
-  };
-  for (const node of nodes) {
-    if (dfs(node.nodeID)) return true;
-  }
-  return false;
-}
-function launchUltraworkTasks(input) {
-  const nodes = buildNodes(input.tasks);
-  return nodes.map((task) => {
-    const launched = input.manager.launch({
-      agent: task.agent,
-      prompt: task.prompt,
-      description: task.description,
-      parentSessionId: input.parentSessionID
-    });
-    return {
-      nodeID: task.nodeID,
-      taskID: launched.id,
-      agent: launched.agent,
-      status: String(launched.status)
-    };
-  });
-}
-async function runUltraworkDag(input) {
-  const nodes = buildNodes(input.tasks);
-  if (nodes.length === 0) {
-    return { total: 0, completed: 0, failed: 0, blocked: 0, nodes: [] };
-  }
-  if (hasCycle(nodes)) {
-    return {
-      total: nodes.length,
-      completed: 0,
-      failed: 0,
-      blocked: nodes.length,
-      nodes: nodes.map((item) => ({
-        nodeID: item.nodeID,
-        agent: item.agent,
-        status: "blocked_dependency",
-        retries: 0,
-        error: "dag_cycle_detected"
-      }))
-    };
-  }
-  const maxParallel = Math.max(1, Math.min(8, Math.floor(Number(input.maxParallel ?? 3))));
-  const nodeMap = new Map(nodes.map((node) => [node.nodeID, node]));
-  const pending = new Set(nodes.map((item) => item.nodeID));
-  const running = /* @__PURE__ */ new Set();
-  const results = /* @__PURE__ */ new Map();
-  const retries = /* @__PURE__ */ new Map();
-  const canRun = (node) => {
-    for (const dependency of node.dependsOn) {
-      const status = results.get(dependency)?.status;
-      if (!status) return false;
-      if (status !== "completed") return false;
-    }
-    return true;
-  };
-  const runNode = async (node) => {
-    const launched = input.manager.launch({
-      agent: node.agent,
-      prompt: node.prompt,
-      description: node.description,
-      parentSessionId: input.parentSessionID
-    });
-    const task = await input.manager.waitForCompletion(launched.id, node.timeoutMs);
-    const status = String(task?.status ?? "timeout");
-    const attempts = retries.get(node.nodeID) ?? 0;
-    if ((status === "failed" || status === "timeout" || status === "cancelled") && attempts < node.maxRetries) {
-      retries.set(node.nodeID, attempts + 1);
-      pending.add(node.nodeID);
-      return;
-    }
-    results.set(node.nodeID, {
-      nodeID: node.nodeID,
-      agent: node.agent,
-      status,
-      retries: attempts,
-      taskID: launched.id,
-      error: status === "failed" || status === "timeout" || status === "cancelled" ? `task_${status}` : void 0
-    });
-  };
-  while (pending.size > 0 || running.size > 0) {
-    const ready = [...pending].map((nodeID) => nodeMap.get(nodeID)).filter((node) => Boolean(node)).filter((node) => canRun(node));
-    for (const node of ready) {
-      if (running.size >= maxParallel) break;
-      pending.delete(node.nodeID);
-      running.add(node.nodeID);
-      void runNode(node).finally(() => {
-        running.delete(node.nodeID);
+  list() {
+    const runtime = readPersistedAgentRuntime(this.projectDir);
+    const agents = [];
+    for (const agentName of ALL_AGENT_NAMES) {
+      const entry2 = runtime.agents[agentName];
+      const model = entry2?.model ?? DEFAULT_MODELS[agentName];
+      const source = entry2?.model ? "runtime" : "default";
+      agents.push({
+        agentName,
+        model,
+        providerID: entry2?.providerID,
+        variant: entry2?.variant,
+        updatedAt: entry2?.updatedAt ?? "",
+        source,
+        active: runtime.activeAgentId === agentName,
+        healthStatus: this.resolveHealthStatus(model)
       });
     }
-    const blocked2 = [...pending].map((nodeID) => nodeMap.get(nodeID)).filter((node) => Boolean(node)).filter((node) => node.dependsOn.some((dep) => {
-      const depStatus = results.get(dep)?.status;
-      return depStatus === "failed" || depStatus === "cancelled" || depStatus === "timeout" || depStatus === "blocked_dependency";
-    }));
-    for (const node of blocked2) {
-      pending.delete(node.nodeID);
-      results.set(node.nodeID, {
-        nodeID: node.nodeID,
-        agent: node.agent,
-        status: "blocked_dependency",
-        retries: retries.get(node.nodeID) ?? 0,
-        error: "dependency_failed"
-      });
-    }
-    if (running.size === 0 && ready.length === 0 && blocked2.length === 0 && pending.size > 0) {
-      for (const nodeID of pending) {
-        const node = nodeMap.get(nodeID);
-        if (!node) continue;
-        results.set(node.nodeID, {
-          nodeID: node.nodeID,
-          agent: node.agent,
-          status: "blocked_dependency",
-          retries: retries.get(node.nodeID) ?? 0,
-          error: "dependency_missing"
-        });
-      }
-      pending.clear();
-      break;
-    }
-    if (running.size > 0) {
-      await new Promise((resolve7) => setTimeout(resolve7, 60));
-    }
-  }
-  const nodeResults = nodes.map((node) => {
-    const result = results.get(node.nodeID);
-    return result ?? {
-      nodeID: node.nodeID,
-      agent: node.agent,
-      status: "blocked_dependency",
-      retries: retries.get(node.nodeID) ?? 0,
-      error: "unknown_state"
+    return {
+      activeAgentId: runtime.activeAgentId,
+      revision: runtime.revision,
+      agents
     };
-  });
-  const completed = nodeResults.filter((item) => item.status === "completed").length;
-  const failed = nodeResults.filter(
-    (item) => item.status === "failed" || item.status === "cancelled" || item.status === "timeout"
-  ).length;
-  const blocked = nodeResults.filter((item) => item.status === "blocked_dependency").length;
-  return {
-    total: nodeResults.length,
-    completed,
-    failed,
-    blocked,
-    nodes: nodeResults
-  };
-}
-
-// src/autoflow/engine.ts
-var DEFAULT_TIMEOUT_MS2 = 9e4;
-var RUN_LOOP_LIMIT = 40;
-function hashText2(input) {
-  return createHash14("sha256").update(input).digest("hex").slice(0, 16);
-}
-function runShellCommand(command, timeoutMs, cwd) {
-  const startedAt = Date.now();
-  const shellArgs = process.platform === "win32" ? ["powershell", "-NoProfile", "-Command", command] : ["sh", "-lc", command];
-  const proc = runProcessSync(shellArgs[0], shellArgs.slice(1), {
-    cwd,
-    timeout: Math.max(1e3, Math.min(timeoutMs, 10 * 60 * 1e3))
-  });
-  return {
-    command,
-    ok: proc.exitCode === 0 && !proc.timedOut,
-    exitCode: proc.exitCode,
-    stdout: proc.stdout,
-    stderr: proc.stderr,
-    durationMs: Date.now() - startedAt
-  };
-}
-function normalizeTasks(input) {
-  if (!Array.isArray(input)) return [];
-  return input.filter((task) => task?.agent?.trim() && task.prompt?.trim()).map((task, index) => ({
-    id: task.id?.trim() || `task_${index + 1}`,
-    agent: task.agent.trim(),
-    prompt: task.prompt.trim(),
-    description: task.description?.trim() || task.prompt.trim().slice(0, 120),
-    dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn.map(String).map((dep) => dep.trim()).filter(Boolean) : [],
-    timeoutMs: typeof task.timeoutMs === "number" && Number.isFinite(task.timeoutMs) ? Number(task.timeoutMs) : void 0,
-    maxRetries: typeof task.maxRetries === "number" && Number.isFinite(task.maxRetries) ? Number(task.maxRetries) : void 0
-  }));
-}
-function normalizeFixCommands(input) {
-  if (!Array.isArray(input)) return [];
-  return input.map(String).map((item) => item.trim()).filter(Boolean);
-}
-function setFailed(state2, reason) {
-  state2.phase = "failed";
-  state2.lastError = reason;
-  appendAutoflowHistory(state2, "failed", reason);
-}
-function setCompleted(state2, reason) {
-  state2.phase = "completed";
-  state2.lastError = void 0;
-  appendAutoflowHistory(state2, "completed", reason);
-}
-function verificationFailureReason(result) {
-  const text = result.stderr.trim() || result.stdout.trim();
-  return text.slice(0, 220) || `verification_exit=${result.exitCode}`;
-}
-async function runAutoflow(input) {
-  const timeoutMs = typeof input.timeoutMs === "number" && Number.isFinite(input.timeoutMs) ? Math.max(1e3, Math.floor(input.timeoutMs)) : DEFAULT_TIMEOUT_MS2;
-  const runCommand5 = input.runCommand ?? runShellCommand;
-  const runDag = input.runDag ?? runUltraworkDag;
-  if (input.forceRestart) {
-    configureAutoflowSession(input.projectDir, {
-      sessionID: input.sessionID,
-      goal: input.goal,
-      tasks: normalizeTasks(input.tasks),
-      verificationCommand: input.verificationCommand,
-      fixCommands: normalizeFixCommands(input.fixCommands),
-      maxFixRounds: input.maxFixRounds,
-      phase: "planning"
+  }
+  set(input) {
+    const agentName = normalizeAgentName(input.agentName);
+    if (!agentName) {
+      throw new Error("invalid_agent_name");
+    }
+    if (!normalizeModelRef(input.model)) {
+      throw new Error("invalid_model_ref");
+    }
+    const changed = persistAgentRuntimeSelection(this.projectDir, {
+      agentName,
+      model: input.model,
+      variant: input.variant,
+      providerID: input.providerID,
+      options: input.options,
+      apiKey: input.apiKey,
+      baseURL: input.baseURL,
+      activeAgentId: input.activate === false ? void 0 : agentName
     });
+    return { changed };
   }
-  let state2 = getAutoflowSession(input.projectDir, input.sessionID);
-  if (input.goal?.trim()) state2.goal = input.goal.trim();
-  if (input.tasks) state2.planTasks = normalizeTasks(input.tasks);
-  if (input.verificationCommand !== void 0) {
-    const command = String(input.verificationCommand).trim();
-    state2.verificationCommand = command || void 0;
+  reset(input) {
+    const changed = removePersistedAgentRuntimeSelection(
+      this.projectDir,
+      input.agentName,
+      {
+        clearActive: input.clearActive ?? true,
+        activeAgentId: input.activeAgentId
+      }
+    );
+    return { changed };
   }
-  if (input.fixCommands) {
-    state2.fixCommands = normalizeFixCommands(input.fixCommands);
+  resolveHealthStatus(model) {
+    if (!model) return "unavailable";
+    return isModelLikelyAvailable(model) ? "healthy" : "degraded";
   }
-  if (typeof input.maxFixRounds === "number" && Number.isFinite(input.maxFixRounds)) {
-    state2.maxFixRounds = Math.max(1, Math.min(10, Math.floor(input.maxFixRounds)));
-  }
-  if (state2.phase === "stopped") {
-    state2 = saveAutoflowSession(input.projectDir, state2);
-    return {
-      success: false,
-      phase: state2.phase,
-      summary: "autoflow_stopped",
-      state: state2
-    };
-  }
-  if (state2.phase === "completed" || state2.phase === "failed") {
-    if (input.forceRestart) {
-      state2.phase = "planning";
-      state2.fixRound = 0;
-      state2.recentVerificationHashes = [];
-      state2.lastError = void 0;
-      appendAutoflowHistory(state2, "restarted", "State reset for new run.");
-    } else {
-      state2 = saveAutoflowSession(input.projectDir, state2);
-      return {
-        success: state2.phase === "completed",
-        phase: state2.phase,
-        summary: `autoflow_${state2.phase}`,
-        state: state2
-      };
-    }
-  }
-  let dagResult;
-  let verification;
-  let fixResult;
-  for (let loop = 0; loop < RUN_LOOP_LIMIT; loop += 1) {
-    if (state2.phase === "planning") {
-      if (state2.planTasks.length === 0) {
-        appendAutoflowHistory(state2, "planning_waiting", "No executable tasks in plan.");
-        state2 = saveAutoflowSession(input.projectDir, state2);
-        return {
-          success: false,
-          phase: state2.phase,
-          summary: "planning_requires_tasks",
-          state: state2
-        };
-      }
-      state2.phase = "execution";
-      appendAutoflowHistory(
-        state2,
-        "planning_complete",
-        `Plan accepted with ${state2.planTasks.length} task(s).`
-      );
-      continue;
-    }
-    if (state2.phase === "execution") {
-      try {
-        dagResult = await runDag({
-          manager: input.manager,
-          parentSessionID: input.sessionID,
-          tasks: state2.planTasks,
-          maxParallel: typeof input.maxParallel === "number" && Number.isFinite(input.maxParallel) ? Number(input.maxParallel) : void 0
-        });
-      } catch (error92) {
-        setFailed(state2, `execution_exception:${error92 instanceof Error ? error92.message : String(error92)}`);
-        break;
-      }
-      state2.lastDag = {
-        total: dagResult.total,
-        completed: dagResult.completed,
-        failed: dagResult.failed,
-        blocked: dagResult.blocked
-      };
-      if (dagResult.total === 0) {
-        setFailed(state2, "execution_empty_dag");
-        break;
-      }
-      if (dagResult.failed > 0 || dagResult.blocked > 0) {
-        const reason = `execution_not_clean failed=${dagResult.failed} blocked=${dagResult.blocked}`;
-        if (state2.fixCommands.length === 0) {
-          setFailed(state2, `${reason} (no fix commands configured)`);
-          break;
-        }
-        state2.lastError = reason;
-        state2.phase = "fixing";
-        appendAutoflowHistory(state2, "execution_failed", reason);
-        continue;
-      }
-      state2.phase = "verification";
-      appendAutoflowHistory(state2, "execution_complete", "Parallel execution completed.");
-      continue;
-    }
-    if (state2.phase === "verification") {
-      if (!state2.verificationCommand) {
-        setCompleted(state2, "verification_skipped_no_command");
-        break;
-      }
-      verification = runCommand5(state2.verificationCommand, timeoutMs, input.workingDirectory);
-      if (verification.ok) {
-        setCompleted(state2, "verification_passed");
-        break;
-      }
-      const hash3 = hashText2(`${verification.stderr}
-${verification.stdout}`);
-      state2.recentVerificationHashes = [...state2.recentVerificationHashes, hash3].slice(-3);
-      const repeatedFailure = state2.recentVerificationHashes.length >= 3 && state2.recentVerificationHashes.every((item) => item === hash3);
-      const reason = verificationFailureReason(verification);
-      if (repeatedFailure) {
-        setFailed(state2, `verification_repeated_failure:${reason}`);
-        break;
-      }
-      if (state2.fixRound >= state2.maxFixRounds) {
-        setFailed(state2, `verification_failed_max_fix_rounds:${reason}`);
-        break;
-      }
-      if (state2.fixCommands.length === 0) {
-        setFailed(state2, `verification_failed_no_fix_commands:${reason}`);
-        break;
-      }
-      state2.lastError = reason;
-      state2.phase = "fixing";
-      appendAutoflowHistory(state2, "verification_failed", reason);
-      continue;
-    }
-    if (state2.phase === "fixing") {
-      if (state2.fixRound >= state2.maxFixRounds) {
-        setFailed(state2, "fix_round_limit_reached");
-        break;
-      }
-      const fixCommand = state2.fixCommands[state2.fixRound];
-      if (!fixCommand) {
-        setFailed(state2, `missing_fix_command_at_round_${state2.fixRound + 1}`);
-        break;
-      }
-      fixResult = runCommand5(fixCommand, timeoutMs, input.workingDirectory);
-      state2.fixRound += 1;
-      appendAutoflowHistory(
-        state2,
-        "fix_attempt",
-        `round=${state2.fixRound} ok=${fixResult.ok} exit=${fixResult.exitCode}`
-      );
-      state2.phase = "verification";
-      continue;
-    }
-    break;
-  }
-  state2 = saveAutoflowSession(input.projectDir, state2);
-  const success3 = state2.phase === "completed";
-  return {
-    success: success3,
-    phase: state2.phase,
-    summary: success3 ? "autoflow_completed" : state2.lastError ?? `autoflow_${state2.phase}`,
-    state: state2,
-    dagResult,
-    verification,
-    fixResult
-  };
-}
-
-// src/autoflow/persistent.ts
-import * as fs45 from "node:fs";
-import * as path46 from "node:path";
-var DEFAULT_CONFIG = {
-  enabled: true,
-  resumeCooldownMs: 2500,
-  maxAutoResumes: 8,
-  maxConsecutiveResumeFailures: 3,
-  resumeTimeoutMs: 9e4
 };
-function storeFile2(projectDir) {
-  return path46.join(getMiyaRuntimeDir(projectDir), "autoflow-persistent.json");
-}
-function nowIso27() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function clamp4(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-function normalizeConfig(raw) {
-  return {
-    enabled: raw?.enabled !== false,
-    resumeCooldownMs: clamp4(
-      Number(raw?.resumeCooldownMs ?? DEFAULT_CONFIG.resumeCooldownMs),
-      500,
-      12e4
-    ),
-    maxAutoResumes: clamp4(
-      Number(raw?.maxAutoResumes ?? DEFAULT_CONFIG.maxAutoResumes),
-      1,
-      50
-    ),
-    maxConsecutiveResumeFailures: clamp4(
-      Number(
-        raw?.maxConsecutiveResumeFailures ?? DEFAULT_CONFIG.maxConsecutiveResumeFailures
-      ),
-      1,
-      20
-    ),
-    resumeTimeoutMs: clamp4(
-      Number(raw?.resumeTimeoutMs ?? DEFAULT_CONFIG.resumeTimeoutMs),
-      3e3,
-      10 * 6e4
-    )
-  };
-}
-function normalizeRuntime(sessionID2, raw) {
-  return {
-    sessionID: sessionID2,
-    resumeAttempts: clamp4(Number(raw?.resumeAttempts ?? 0), 0, 1e3),
-    resumeFailures: clamp4(Number(raw?.resumeFailures ?? 0), 0, 1e3),
-    userStopped: Boolean(raw?.userStopped),
-    lastStopAt: raw?.lastStopAt ? String(raw.lastStopAt) : void 0,
-    lastStopType: raw?.lastStopType ? String(raw.lastStopType) : void 0,
-    lastStopReason: raw?.lastStopReason ? String(raw.lastStopReason) : void 0,
-    lastResumeAt: raw?.lastResumeAt ? String(raw.lastResumeAt) : void 0,
-    lastOutcomePhase: raw?.lastOutcomePhase ? String(raw.lastOutcomePhase) : void 0,
-    lastOutcomeSummary: raw?.lastOutcomeSummary ? String(raw.lastOutcomeSummary) : void 0
-  };
-}
-function readStore9(projectDir) {
-  const file3 = storeFile2(projectDir);
-  if (!fs45.existsSync(file3)) return { config: DEFAULT_CONFIG, sessions: {} };
-  try {
-    const parsed = JSON.parse(
-      fs45.readFileSync(file3, "utf-8")
-    );
-    const sessionsRaw = parsed.sessions && typeof parsed.sessions === "object" ? parsed.sessions : {};
-    const sessions = Object.fromEntries(
-      Object.entries(sessionsRaw).map(([sessionID2, runtime]) => [
-        sessionID2,
-        normalizeRuntime(sessionID2, runtime)
-      ])
-    );
-    return {
-      config: normalizeConfig(parsed.config),
-      sessions
-    };
-  } catch {
-    return { config: DEFAULT_CONFIG, sessions: {} };
-  }
-}
-function writeStore9(projectDir, store2) {
-  fs45.mkdirSync(path46.dirname(storeFile2(projectDir)), { recursive: true });
-  const normalized = {
-    config: normalizeConfig(store2.config),
-    sessions: Object.fromEntries(
-      Object.entries(store2.sessions).map(([sessionID2, runtime]) => [
-        sessionID2,
-        normalizeRuntime(sessionID2, runtime)
-      ])
-    )
-  };
-  fs45.writeFileSync(
-    storeFile2(projectDir),
-    `${JSON.stringify(normalized, null, 2)}
-`,
-    "utf-8"
-  );
-  return normalized;
-}
-function getSessionRuntime(projectDir, sessionID2) {
-  const store2 = readStore9(projectDir);
-  return store2.sessions[sessionID2] ?? normalizeRuntime(sessionID2);
-}
-function saveSessionRuntime(projectDir, runtime) {
-  const store2 = readStore9(projectDir);
-  store2.sessions[runtime.sessionID] = normalizeRuntime(
-    runtime.sessionID,
-    runtime
-  );
-  return writeStore9(projectDir, store2).sessions[runtime.sessionID];
-}
-function parseStopReason(event) {
-  const statusReason = event.properties?.status?.reason;
-  const topReason = event.properties?.reason;
-  const source = event.properties?.status?.source ?? event.properties?.source;
-  const text = [statusReason, topReason, source].map((item) => item ? String(item).trim() : "").filter(Boolean).join(" | ");
-  return text || "unknown_stop_reason";
-}
-function isStopStatus(statusType) {
+
+// src/gateway/bootstrap.ts
+function formatGatewayStateWithRuntime(state2, ownerPID, isOwner, activeAgentId, storageRevision) {
   return [
-    "stopped",
-    "stop",
-    "error",
-    "failed",
-    "terminated",
-    "aborted",
-    "cancelled",
-    "canceled"
-  ].some((item) => statusType.includes(item));
-}
-function isUserInitiatedStop(reason) {
-  return /(user|manual|operator|cancel_by_user|interrupted_by_user|用户|手动|停止|取消)/i.test(
-    reason
-  );
-}
-function isActiveAutoflowPhase(phase) {
-  return phase === "planning" || phase === "execution" || phase === "verification" || phase === "fixing";
-}
-function toRecoveryReasonCode(input) {
-  if (input.reason === "user_initiated_stop") return "RECOVERY_USER_STOP";
-  if (input.reason === "persistent_disabled") return "RECOVERY_DISABLED";
-  if (input.reason === "resume_cooldown") return "RECOVERY_COOLDOWN";
-  if (input.reason === "persistent_resume_attempt_limit_reached")
-    return "RECOVERY_ATTEMPT_EXHAUSTED";
-  if (input.reason === "persistent_resume_failure_limit_reached")
-    return "RECOVERY_FAILURE_EXHAUSTED";
-  if (!input.resumed) return "RECOVERY_NOT_TRIGGERED";
-  if (input.success) return "RECOVERY_RESUMED_OK";
-  if (input.phase === "failed") return "RECOVERY_RESUMED_FAILED";
-  return "RECOVERY_RESUMED";
-}
-function markPersistentExhausted(projectDir, sessionID2, reason) {
-  const state2 = getAutoflowSession(projectDir, sessionID2);
-  state2.phase = "failed";
-  state2.lastError = reason;
-  appendAutoflowHistory(state2, "persistent_exhausted", reason);
-  saveAutoflowSession(projectDir, state2);
-}
-function readAutoflowPersistentConfig(projectDir) {
-  return readStore9(projectDir).config;
-}
-function writeAutoflowPersistentConfig(projectDir, patch) {
-  const store2 = readStore9(projectDir);
-  store2.config = normalizeConfig({
-    ...store2.config,
-    ...patch
-  });
-  return writeStore9(projectDir, store2).config;
-}
-function getAutoflowPersistentRuntimeSnapshot(projectDir, limit = 50) {
-  const store2 = readStore9(projectDir);
-  return Object.values(store2.sessions).sort(
-    (a, b) => Date.parse(b.lastStopAt ?? b.lastResumeAt ?? "") - Date.parse(a.lastStopAt ?? a.lastResumeAt ?? "")
-  ).slice(0, Math.max(1, Math.min(200, limit)));
-}
-async function handleAutoflowPersistentEvent(input) {
-  if (input.event.type !== "session.status")
-    return { handled: false, resumed: false };
-  const sessionID2 = String(input.event.properties?.sessionID ?? "").trim();
-  if (!sessionID2) return { handled: false, resumed: false };
-  const statusType = String(input.event.properties?.status?.type ?? "").trim().toLowerCase();
-  if (!statusType || !isStopStatus(statusType))
-    return { handled: false, resumed: false };
-  const current = loadAutoflowSession(input.projectDir, sessionID2);
-  if (!current || !isActiveAutoflowPhase(current.phase)) {
-    return { handled: false, resumed: false };
-  }
-  const reason = parseStopReason(input.event);
-  const runtime = getSessionRuntime(input.projectDir, sessionID2);
-  runtime.lastStopAt = nowIso27();
-  runtime.lastStopType = statusType;
-  runtime.lastStopReason = reason;
-  saveSessionRuntime(input.projectDir, runtime);
-  if (isUserInitiatedStop(reason)) {
-    runtime.userStopped = true;
-    runtime.lastOutcomePhase = "stopped";
-    runtime.lastOutcomeSummary = "user_initiated_stop";
-    saveSessionRuntime(input.projectDir, runtime);
-    stopAutoflowSession(input.projectDir, sessionID2);
-    setSessionRecoveryReason(input.projectDir, {
-      sessionID: sessionID2,
-      recoverable: false,
-      reasonCode: "RECOVERY_USER_STOP",
-      from: "autoflow"
-    });
-    return {
-      handled: true,
-      resumed: false,
-      reason: "user_initiated_stop",
-      phase: "stopped",
-      summary: "autoflow_stopped_by_user"
-    };
-  }
-  const config3 = readAutoflowPersistentConfig(input.projectDir);
-  if (!config3.enabled) {
-    setSessionRecoveryReason(input.projectDir, {
-      sessionID: sessionID2,
-      recoverable: false,
-      reasonCode: "RECOVERY_DISABLED",
-      from: "autoflow"
-    });
-    return { handled: true, resumed: false, reason: "persistent_disabled" };
-  }
-  if (runtime.userStopped) {
-    setSessionRecoveryReason(input.projectDir, {
-      sessionID: sessionID2,
-      recoverable: false,
-      reasonCode: "RECOVERY_USER_STOP",
-      from: "autoflow"
-    });
-    return { handled: true, resumed: false, reason: "user_stopped_session" };
-  }
-  if (runtime.resumeAttempts >= config3.maxAutoResumes) {
-    const exhaustedReason = "persistent_resume_attempt_limit_reached";
-    markPersistentExhausted(input.projectDir, sessionID2, exhaustedReason);
-    runtime.lastOutcomePhase = "failed";
-    runtime.lastOutcomeSummary = exhaustedReason;
-    saveSessionRuntime(input.projectDir, runtime);
-    setSessionRecoveryReason(input.projectDir, {
-      sessionID: sessionID2,
-      recoverable: false,
-      reasonCode: "RECOVERY_ATTEMPT_EXHAUSTED",
-      from: "autoflow"
-    });
-    return {
-      handled: true,
-      resumed: false,
-      reason: exhaustedReason,
-      phase: "failed"
-    };
-  }
-  if (runtime.resumeFailures >= config3.maxConsecutiveResumeFailures) {
-    const exhaustedReason = "persistent_resume_failure_limit_reached";
-    markPersistentExhausted(input.projectDir, sessionID2, exhaustedReason);
-    runtime.lastOutcomePhase = "failed";
-    runtime.lastOutcomeSummary = exhaustedReason;
-    saveSessionRuntime(input.projectDir, runtime);
-    setSessionRecoveryReason(input.projectDir, {
-      sessionID: sessionID2,
-      recoverable: false,
-      reasonCode: "RECOVERY_FAILURE_EXHAUSTED",
-      from: "autoflow"
-    });
-    return {
-      handled: true,
-      resumed: false,
-      reason: exhaustedReason,
-      phase: "failed"
-    };
-  }
-  if (runtime.lastResumeAt) {
-    const delta = Date.now() - Date.parse(runtime.lastResumeAt);
-    if (Number.isFinite(delta) && delta < config3.resumeCooldownMs) {
-      setSessionRecoveryReason(input.projectDir, {
-        sessionID: sessionID2,
-        recoverable: true,
-        reasonCode: "RECOVERY_COOLDOWN",
-        from: "autoflow"
-      });
-      return { handled: true, resumed: false, reason: "resume_cooldown" };
-    }
-  }
-  runtime.resumeAttempts += 1;
-  runtime.lastResumeAt = nowIso27();
-  saveSessionRuntime(input.projectDir, runtime);
-  const result = await runAutoflow({
-    projectDir: input.projectDir,
-    sessionID: sessionID2,
-    manager: input.manager,
-    timeoutMs: config3.resumeTimeoutMs
-  });
-  runtime.lastOutcomePhase = result.phase;
-  runtime.lastOutcomeSummary = result.summary;
-  runtime.resumeFailures = result.success ? 0 : runtime.resumeFailures + 1;
-  saveSessionRuntime(input.projectDir, runtime);
-  setSessionRecoveryReason(input.projectDir, {
-    sessionID: sessionID2,
-    recoverable: result.success || result.phase !== "failed",
-    reasonCode: toRecoveryReasonCode({
-      resumed: true,
-      success: result.success,
-      phase: result.phase
-    }),
-    from: "autoflow"
-  });
-  return {
-    handled: true,
-    resumed: true,
-    success: result.success,
-    phase: result.phase,
-    summary: result.summary
-  };
+    `url=${state2.url}`,
+    `port=${state2.port}`,
+    `pid=${state2.pid}`,
+    `owner_pid=${ownerPID ?? 0}`,
+    `is_owner=${Boolean(isOwner)}`,
+    `started_at=${state2.startedAt}`,
+    `status=${state2.status}`,
+    `active_agent=${activeAgentId ?? ""}`,
+    `storage_revision=${storageRevision ?? 0}`
+  ].join("\n");
 }
 
 // src/gateway/control-ui.ts
-import fs46 from "node:fs";
-import path47 from "node:path";
+import fs45 from "node:fs";
+import path46 from "node:path";
 
 // src/gateway/control-ui-shared.ts
 function normalizeControlUiBasePath(basePath) {
@@ -45501,7 +45192,7 @@ function textResponse(status, body) {
 }
 function isSafeRelativePath(relPath) {
   if (!relPath) return false;
-  const normalized = path47.posix.normalize(relPath);
+  const normalized = path46.posix.normalize(relPath);
   if (normalized.startsWith("../") || normalized === "..") return false;
   if (normalized.includes("\0")) return false;
   return true;
@@ -45522,14 +45213,14 @@ function resolveRequestedFile(pathname, basePath) {
 function resolveRootState(projectDir) {
   const envRoot = process.env.MIYA_GATEWAY_UI_ROOT?.trim();
   const candidates = envRoot ? [envRoot] : [
-    path47.join(projectDir, "miya-src", "gateway-ui", "dist"),
-    path47.join(projectDir, "gateway-ui", "dist"),
-    path47.join(projectDir, ".opencode", "miya", "gateway-ui", "dist"),
-    path47.join(projectDir, ".opencode", "miya", "gateway-ui")
+    path46.join(projectDir, "miya-src", "gateway-ui", "dist"),
+    path46.join(projectDir, "gateway-ui", "dist"),
+    path46.join(projectDir, ".opencode", "miya", "gateway-ui", "dist"),
+    path46.join(projectDir, ".opencode", "miya", "gateway-ui")
   ];
   for (const candidate of candidates) {
-    const indexPath = path47.join(candidate, "index.html");
-    if (fs46.existsSync(indexPath) && fs46.statSync(indexPath).isFile()) {
+    const indexPath = path46.join(candidate, "index.html");
+    if (fs45.existsSync(indexPath) && fs45.statSync(indexPath).isFile()) {
       return { kind: "resolved", path: candidate };
     }
   }
@@ -45568,45 +45259,30 @@ function handleControlUiHttpRequest(request, opts) {
     );
   }
   if (!root || root.kind !== "resolved") return null;
-  const filePath14 = path47.join(root.path, requestedFile);
+  const filePath14 = path46.join(root.path, requestedFile);
   if (!filePath14.startsWith(root.path)) {
     return textResponse(404, "Not Found");
   }
-  const indexPath = path47.join(root.path, "index.html");
-  const resolvedPath = fs46.existsSync(filePath14) && fs46.statSync(filePath14).isFile() ? filePath14 : indexPath;
-  if (!fs46.existsSync(resolvedPath) || !fs46.statSync(resolvedPath).isFile()) {
+  const indexPath = path46.join(root.path, "index.html");
+  const resolvedPath = fs45.existsSync(filePath14) && fs45.statSync(filePath14).isFile() ? filePath14 : indexPath;
+  if (!fs45.existsSync(resolvedPath) || !fs45.statSync(resolvedPath).isFile()) {
     return textResponse(404, "Not Found");
   }
   const headers = securityHeaders(
-    contentTypeForExt(path47.extname(resolvedPath).toLowerCase())
+    contentTypeForExt(path46.extname(resolvedPath).toLowerCase())
   );
   if (request.method === "HEAD") {
     return new Response(null, { status: 200, headers });
   }
-  const body = fs46.readFileSync(resolvedPath);
+  const body = fs45.readFileSync(resolvedPath);
   return new Response(body, {
     status: 200,
     headers
   });
 }
 
-// src/gateway/bootstrap.ts
-function formatGatewayStateWithRuntime(state2, ownerPID, isOwner, activeAgentId, storageRevision) {
-  return [
-    `url=${state2.url}`,
-    `port=${state2.port}`,
-    `pid=${state2.pid}`,
-    `owner_pid=${ownerPID ?? 0}`,
-    `is_owner=${Boolean(isOwner)}`,
-    `started_at=${state2.startedAt}`,
-    `status=${state2.status}`,
-    `active_agent=${activeAgentId ?? ""}`,
-    `storage_revision=${storageRevision ?? 0}`
-  ].join("\n");
-}
-
 // src/gateway/http-router.ts
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync5 } from "node:child_process";
 function normalizeNodeHeaders(headers) {
   const normalized = {};
   for (const [key, value] of Object.entries(headers)) {
@@ -45659,71 +45335,21 @@ function reserveGatewayPort(hostname6, configuredPort) {
     "});",
     "s.on('error',()=>process.exit(1));"
   ].join("");
-  const probe = spawnSync6("node", ["-e", script, hostname6], {
+  const probe = spawnSync5("node", ["-e", script, hostname6], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true
   });
   if (probe.status !== 0) {
-    throw new Error(`gateway_port_reservation_failed:${String(probe.stderr || "").trim()}`);
+    throw new Error(
+      `gateway_port_reservation_failed:${String(probe.stderr || "").trim()}`
+    );
   }
   const reserved = Number(String(probe.stdout || "").trim());
   if (!Number.isFinite(reserved) || reserved <= 0) {
     throw new Error("gateway_port_reservation_invalid");
   }
   return Math.floor(reserved);
-}
-
-// src/gateway/negotiation-budget.ts
-function nowIso28() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function sanitizeBudget(input) {
-  const autoRetry = Number.isFinite(input.autoRetry) ? Math.max(0, Math.floor(input.autoRetry)) : 0;
-  const humanEdit = Number.isFinite(input.humanEdit) ? Math.max(0, Math.floor(input.humanEdit)) : 0;
-  return { autoRetry, humanEdit };
-}
-function applyNegotiationBudget(store2, input) {
-  const budget = sanitizeBudget(input.budget);
-  const fixability = input.fixability;
-  const existing = store2.get(input.key);
-  const state2 = existing ? {
-    ...existing,
-    fixability,
-    budget: fixability === "impossible" ? { autoRetry: 0, humanEdit: 0 } : budget,
-    updatedAt: nowIso28()
-  } : {
-    key: input.key,
-    fixability,
-    budget: fixability === "impossible" ? { autoRetry: 0, humanEdit: 0 } : budget,
-    autoUsed: 0,
-    humanUsed: 0,
-    updatedAt: nowIso28()
-  };
-  if (!input.attemptType) {
-    store2.set(input.key, state2);
-    return { allowed: true, state: state2 };
-  }
-  if (state2.fixability === "impossible") {
-    store2.set(input.key, state2);
-    return { allowed: false, reason: "fixability_impossible", state: state2 };
-  }
-  if (input.attemptType === "auto") {
-    if (state2.autoUsed >= state2.budget.autoRetry) {
-      store2.set(input.key, state2);
-      return { allowed: false, reason: "auto_retry_exhausted", state: state2 };
-    }
-    state2.autoUsed += 1;
-  } else {
-    if (state2.humanUsed >= state2.budget.humanEdit) {
-      store2.set(input.key, state2);
-      return { allowed: false, reason: "human_edit_exhausted", state: state2 };
-    }
-    state2.humanUsed += 1;
-  }
-  state2.updatedAt = nowIso28();
-  store2.set(input.key, state2);
-  return { allowed: true, state: state2 };
 }
 
 // src/gateway/methods/channels.ts
@@ -45828,9 +45454,7 @@ function registerChannelMethods(deps) {
 }
 
 // src/gateway/methods/memory.ts
-import {
-  randomUUID as randomUUID19
-} from "node:crypto";
+import { randomUUID as randomUUID18 } from "node:crypto";
 function registerMemoryMethods(deps) {
   const { methods, projectDir, parseText: parseText2 } = deps;
   const isMemoryRuntimeUnavailable = (error92) => String(error92 instanceof Error ? error92.message : error92).includes(
@@ -45839,7 +45463,7 @@ function registerMemoryMethods(deps) {
   const createDegradedCandidate = (fact) => {
     const now = (/* @__PURE__ */ new Date()).toISOString();
     return {
-      id: `volatile_${randomUUID19()}`,
+      id: `volatile_${randomUUID18()}`,
       text: fact,
       source: "conversation",
       embedding: [],
@@ -46005,10 +45629,17 @@ function registerMemoryMethods(deps) {
 }
 
 // src/gateway/protocol.ts
-var JsonValue2 = external_exports.lazy(
-  () => external_exports.union([external_exports.string(), external_exports.number(), external_exports.boolean(), external_exports.null(), external_exports.array(JsonValue2), external_exports.record(external_exports.string(), JsonValue2)])
+var JsonValue = external_exports.lazy(
+  () => external_exports.union([
+    external_exports.string(),
+    external_exports.number(),
+    external_exports.boolean(),
+    external_exports.null(),
+    external_exports.array(JsonValue),
+    external_exports.record(external_exports.string(), JsonValue)
+  ])
 );
-var JsonObject2 = external_exports.record(external_exports.string(), JsonValue2);
+var JsonObject = external_exports.record(external_exports.string(), JsonValue);
 var HelloFrameSchema = external_exports.object({
   type: external_exports.literal("hello"),
   role: external_exports.enum(["ui", "admin", "node", "channel", "unknown"]).default("unknown"),
@@ -46023,7 +45654,7 @@ var RequestFrameSchema = external_exports.object({
   type: external_exports.literal("request"),
   id: external_exports.string().min(1),
   method: external_exports.string().min(1),
-  params: JsonObject2.default({})
+  params: JsonObject.default({})
 });
 var PingFrameSchema = external_exports.object({
   type: external_exports.literal("ping"),
@@ -46037,21 +45668,29 @@ var ResponseFrameSchema = external_exports.object({
   type: external_exports.literal("response"),
   id: external_exports.string(),
   ok: external_exports.boolean(),
-  result: JsonValue2.optional(),
+  result: JsonValue.optional(),
   error: external_exports.object({
     code: external_exports.string(),
     message: external_exports.string(),
-    details: JsonValue2.optional()
+    details: JsonValue.optional()
   }).optional()
 });
 var EventFrameSchema = external_exports.object({
   type: external_exports.literal("event"),
   event: external_exports.string().min(1),
-  payload: JsonValue2,
+  payload: JsonValue,
   stateVersion: external_exports.record(external_exports.string(), external_exports.number()).optional()
 });
-var GatewayIncomingFrameSchema = external_exports.union([HelloFrameSchema, RequestFrameSchema, PingFrameSchema]);
-var GatewayOutgoingFrameSchema = external_exports.union([ResponseFrameSchema, EventFrameSchema, PongFrameSchema]);
+var GatewayIncomingFrameSchema = external_exports.union([
+  HelloFrameSchema,
+  RequestFrameSchema,
+  PingFrameSchema
+]);
+var GatewayOutgoingFrameSchema = external_exports.union([
+  ResponseFrameSchema,
+  EventFrameSchema,
+  PongFrameSchema
+]);
 var GatewayMethodRegistry = class {
   handlers = /* @__PURE__ */ new Map();
   inFlight = 0;
@@ -46179,7 +45818,12 @@ function parseIncomingFrame(message) {
     const raw = message.trim();
     if (!raw) return { error: "empty_message" };
     if (raw === "status") {
-      payload = { type: "request", id: "legacy-status", method: "gateway.status.get", params: {} };
+      payload = {
+        type: "request",
+        id: "legacy-status",
+        method: "gateway.status.get",
+        params: {}
+      };
     } else {
       try {
         payload = JSON.parse(raw);
@@ -46671,6 +46315,182 @@ function registerVoiceMethods(deps) {
   });
 }
 
+// src/gateway/negotiation-budget.ts
+function nowIso27() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function sanitizeBudget(input) {
+  const autoRetry = Number.isFinite(input.autoRetry) ? Math.max(0, Math.floor(input.autoRetry)) : 0;
+  const humanEdit = Number.isFinite(input.humanEdit) ? Math.max(0, Math.floor(input.humanEdit)) : 0;
+  return { autoRetry, humanEdit };
+}
+function applyNegotiationBudget(store2, input) {
+  const budget = sanitizeBudget(input.budget);
+  const fixability = input.fixability;
+  const existing = store2.get(input.key);
+  const state2 = existing ? {
+    ...existing,
+    fixability,
+    budget: fixability === "impossible" ? { autoRetry: 0, humanEdit: 0 } : budget,
+    updatedAt: nowIso27()
+  } : {
+    key: input.key,
+    fixability,
+    budget: fixability === "impossible" ? { autoRetry: 0, humanEdit: 0 } : budget,
+    autoUsed: 0,
+    humanUsed: 0,
+    updatedAt: nowIso27()
+  };
+  if (!input.attemptType) {
+    store2.set(input.key, state2);
+    return { allowed: true, state: state2 };
+  }
+  if (state2.fixability === "impossible") {
+    store2.set(input.key, state2);
+    return { allowed: false, reason: "fixability_impossible", state: state2 };
+  }
+  if (input.attemptType === "auto") {
+    if (state2.autoUsed >= state2.budget.autoRetry) {
+      store2.set(input.key, state2);
+      return { allowed: false, reason: "auto_retry_exhausted", state: state2 };
+    }
+    state2.autoUsed += 1;
+  } else {
+    if (state2.humanUsed >= state2.budget.humanEdit) {
+      store2.set(input.key, state2);
+      return { allowed: false, reason: "human_edit_exhausted", state: state2 };
+    }
+    state2.humanUsed += 1;
+  }
+  state2.updatedAt = nowIso27();
+  store2.set(input.key, state2);
+  return { allowed: true, state: state2 };
+}
+
+// src/gateway/orchestration/auto-parallel.ts
+function clip(text, max = 1400) {
+  return text.trim().slice(0, max);
+}
+function stageToVerificationCommand(stage) {
+  if (stage === "high") return "npm --prefix miya-src run -s typecheck";
+  if (stage === "medium") return "npm --prefix miya-src run -s check:contracts";
+  return void 0;
+}
+function buildStageDag(plan, text) {
+  const available = new Set(plan.plannedAgents);
+  const tasks = [];
+  const phase1 = [];
+  const seed = clip(text, 900);
+  const pushPhase1 = (agent, id, prompt) => {
+    if (!available.has(agent)) return;
+    tasks.push({
+      id,
+      agent,
+      prompt,
+      description: `${agent} phase1`,
+      dependsOn: [],
+      maxRetries: 1
+    });
+    phase1.push(id);
+  };
+  pushPhase1(
+    "2-code-search",
+    "phase1_search",
+    `\u8BF7\u5E76\u884C\u4FA6\u5BDF\u4EE3\u7801\u4E0E\u914D\u7F6E\u73B0\u72B6\uFF1A${seed}`
+  );
+  pushPhase1(
+    "3-docs-helper",
+    "phase1_docs",
+    `\u8BF7\u5E76\u884C\u67E5\u8BC1\u5173\u952E\u7EA6\u675F\u4E0E\u5B98\u65B9\u4F9D\u636E\uFF1A${seed}`
+  );
+  pushPhase1(
+    "4-architecture-advisor",
+    "phase1_arch",
+    `\u8BF7\u5E76\u884C\u8BC4\u4F30\u98CE\u9669\u4E0E\u9A8C\u8BC1\u5C42\u7EA7\uFF1A${seed}`
+  );
+  if (phase1.length === 0) {
+    const first = plan.plannedAgents[0] ?? plan.agent;
+    tasks.push({
+      id: "phase1_primary",
+      agent: first,
+      prompt: seed,
+      description: `${first} primary`,
+      dependsOn: [],
+      maxRetries: 1
+    });
+    phase1.push("phase1_primary");
+  }
+  const fixer = plan.plannedAgents.includes("5-code-fixer") ? "5-code-fixer" : plan.agent;
+  tasks.push({
+    id: "phase2_fix",
+    agent: fixer,
+    prompt: `\u57FA\u4E8E\u4E0A\u6E38\u5E76\u884C\u7ED3\u679C\u6267\u884C\u843D\u5730\u4FEE\u6539\u5E76\u51C6\u5907\u9A8C\u8BC1\uFF1A${seed}`,
+    description: `${fixer} phase2`,
+    dependsOn: phase1,
+    maxRetries: 1
+  });
+  if (plan.plannedAgents.includes("7-code-simplicity-reviewer")) {
+    tasks.push({
+      id: "phase3_simplify",
+      agent: "7-code-simplicity-reviewer",
+      prompt: `\u5BF9\u5DF2\u5B8C\u6210\u53D8\u66F4\u6267\u884C\u7B80\u5316\u5BA1\u67E5\u5E76\u7ED9\u51FA\u53EF\u6267\u884C\u4FEE\u6B63\uFF1A${seed}`,
+      description: "7-code-simplicity-reviewer phase3",
+      dependsOn: ["phase2_fix"],
+      maxRetries: 1
+    });
+  }
+  return tasks.slice(0, Math.max(1, plan.maxAgents));
+}
+function defaultFixSteps() {
+  return [
+    {
+      id: "fix_agent_round_1",
+      type: "agent_task",
+      agent: "5-code-fixer",
+      prompt: "\u6839\u636E\u6700\u65B0\u9A8C\u8BC1\u5931\u8D25\u4FE1\u606F\u6267\u884C\u6700\u5C0F\u4FEE\u590D\u5E76\u8BF4\u660E\u53D8\u66F4\u3002",
+      description: "agent-based fix step",
+      maxRetries: 1
+    },
+    {
+      id: "fix_command_round_2",
+      type: "command",
+      command: "npm --prefix miya-src run -s typecheck",
+      description: "fallback command verification/fix step"
+    }
+  ];
+}
+async function executeAutoParallelWorkflow(input) {
+  const tasks = buildStageDag(input.plan, input.text);
+  const verificationCommand = stageToVerificationCommand(input.plan.stage);
+  configureAutoflowSession(input.projectDir, {
+    sessionID: input.sessionID,
+    goal: `auto_parallel:${clip(input.text, 280)}`,
+    tasks,
+    verificationCommand,
+    fixSteps: defaultFixSteps(),
+    maxFixRounds: 2,
+    phase: "planning"
+  });
+  const flow = await runAutoflow({
+    projectDir: input.projectDir,
+    sessionID: input.sessionID,
+    manager: input.manager,
+    goal: `auto_parallel:${clip(input.text, 280)}`,
+    tasks,
+    verificationCommand,
+    fixSteps: defaultFixSteps(),
+    maxFixRounds: 2,
+    maxParallel: Math.max(2, Math.min(input.plan.maxAgents, 5)),
+    forceRestart: true
+  });
+  return {
+    ok: flow.success,
+    summary: flow.summary,
+    flow,
+    tasks
+  };
+}
+
 // src/gateway/ownership-lock.ts
 function isProcessAlive(pid) {
   if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -47079,35 +46899,36 @@ function sanitizeGatewayContext(input) {
 }
 
 // src/gateway/state-files.ts
-import * as fs47 from "node:fs";
-import * as path48 from "node:path";
+import * as fs46 from "node:fs";
+import * as path47 from "node:path";
 function gatewayFile(projectDir) {
-  return path48.join(getMiyaRuntimeDir(projectDir), "gateway.json");
+  return path47.join(getMiyaRuntimeDir(projectDir), "gateway.json");
 }
 function trustModeFile(projectDir) {
-  return path48.join(getMiyaRuntimeDir(projectDir), "gateway-trust-mode.json");
+  return path47.join(getMiyaRuntimeDir(projectDir), "gateway-trust-mode.json");
 }
 function psycheModeFile(projectDir) {
-  return path48.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-mode.json");
+  return path47.join(getMiyaRuntimeDir(projectDir), "gateway-psyche-mode.json");
 }
 function learningGateFile(projectDir) {
-  return path48.join(getMiyaRuntimeDir(projectDir), "gateway-learning-gate.json");
+  return path47.join(getMiyaRuntimeDir(projectDir), "gateway-learning-gate.json");
 }
-function ensureDir21(file3) {
-  fs47.mkdirSync(path48.dirname(file3), { recursive: true });
+function ensureDir22(file3) {
+  fs46.mkdirSync(path47.dirname(file3), { recursive: true });
 }
 function writeJsonAtomic(file3, payload) {
-  ensureDir21(file3);
+  ensureDir22(file3);
   const tmp = `${file3}.tmp.${process.pid}.${Date.now()}`;
-  fs47.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}
+  fs46.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}
 `, "utf-8");
-  fs47.renameSync(tmp, file3);
+  fs46.renameSync(tmp, file3);
 }
 function safeReadJsonObject(file3) {
-  if (!fs47.existsSync(file3)) return null;
+  if (!fs46.existsSync(file3)) return null;
   try {
-    const parsed = JSON.parse(fs47.readFileSync(file3, "utf-8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const parsed = JSON.parse(fs46.readFileSync(file3, "utf-8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return null;
     return parsed;
   } catch {
     return null;
@@ -47123,15 +46944,19 @@ function normalizeWsInput(message) {
 }
 
 // src/gateway/index.ts
-var z3 = tool.schema;
-var runtimes2 = /* @__PURE__ */ new Map();
+var z2 = tool.schema;
+var runtimes = /* @__PURE__ */ new Map();
 var dependencies = /* @__PURE__ */ new Map();
 var ownerTokens = /* @__PURE__ */ new Map();
 var controlUiFallbackLoggedAtByDir = /* @__PURE__ */ new Map();
 var followerRecoveryTimers = /* @__PURE__ */ new Map();
 function fallbackMemorySqliteStats(projectDir) {
   return {
-    sqlitePath: path49.join(getMiyaRuntimeDir(projectDir), "memory", "memories.sqlite"),
+    sqlitePath: path48.join(
+      getMiyaRuntimeDir(projectDir),
+      "memory",
+      "memories.sqlite"
+    ),
     memoryCount: 0,
     candidateCount: 0,
     activeCount: 0,
@@ -47171,7 +46996,7 @@ function readMemoryObservability(projectDir) {
     pendingVectors
   };
 }
-function nowIso29() {
+function nowIso28() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function resolveKillSwitchMode(projectDir, kill) {
@@ -47185,7 +47010,8 @@ function resolveKillSwitchMode(projectDir, kill) {
 }
 function resolvePsycheApprovalMode(input) {
   if (input.decision !== "allow") return "modal_approval";
-  if (input.urgency === "high" || input.urgency === "critical") return "modal_approval";
+  if (input.urgency === "high" || input.urgency === "critical")
+    return "modal_approval";
   if (input.trust.minScore >= input.mode.silentMin) return "silent_audit";
   if (input.trust.minScore <= input.mode.modalMax) return "modal_approval";
   return "toast_gate";
@@ -47194,7 +47020,7 @@ function appendNexusInsight(runtime, input) {
   const trimmed = input.text.trim();
   if (!trimmed) return;
   runtime.nexus.insights.push({
-    at: input.at ?? nowIso29(),
+    at: input.at ?? nowIso28(),
     text: trimmed,
     auditID: input.auditID
   });
@@ -47231,9 +47057,24 @@ var DEFAULT_LEARNING_GATE = {
 function normalizeTrustMode2(input) {
   const silentMinRaw = Number(input?.silentMin ?? DEFAULT_TRUST_MODE.silentMin);
   const modalMaxRaw = Number(input?.modalMax ?? DEFAULT_TRUST_MODE.modalMax);
-  const silentMin = Math.max(0, Math.min(100, Number.isFinite(silentMinRaw) ? silentMinRaw : DEFAULT_TRUST_MODE.silentMin));
-  const modalMax = Math.max(0, Math.min(100, Number.isFinite(modalMaxRaw) ? modalMaxRaw : DEFAULT_TRUST_MODE.modalMax));
-  const correctedSilentMin = Math.max(Math.ceil(modalMax), Math.round(silentMin));
+  const silentMin = Math.max(
+    0,
+    Math.min(
+      100,
+      Number.isFinite(silentMinRaw) ? silentMinRaw : DEFAULT_TRUST_MODE.silentMin
+    )
+  );
+  const modalMax = Math.max(
+    0,
+    Math.min(
+      100,
+      Number.isFinite(modalMaxRaw) ? modalMaxRaw : DEFAULT_TRUST_MODE.modalMax
+    )
+  );
+  const correctedSilentMin = Math.max(
+    Math.ceil(modalMax),
+    Math.round(silentMin)
+  );
   return {
     silentMin: correctedSilentMin,
     modalMax: Math.round(modalMax)
@@ -47307,7 +47148,7 @@ function resolvePsycheConsultEnabled(projectDir, mode) {
   return mode.resonanceEnabled;
 }
 function gatewayOwnerLockFile(projectDir) {
-  return path49.join(getMiyaRuntimeDir(projectDir), "gateway-owner.json");
+  return path48.join(getMiyaRuntimeDir(projectDir), "gateway-owner.json");
 }
 function readGatewayOwnerLock(projectDir) {
   const raw = safeReadJsonObject(gatewayOwnerLockFile(projectDir));
@@ -47356,8 +47197,8 @@ function writeOwnerLock(projectDir, token) {
   const lock = {
     pid: process.pid,
     token,
-    updatedAt: nowIso29(),
-    startedAt: existing?.pid === process.pid && existing.token === token ? existing.startedAt : nowIso29()
+    updatedAt: nowIso28(),
+    startedAt: existing?.pid === process.pid && existing.token === token ? existing.startedAt : nowIso28()
   };
   writeJsonAtomic(file3, lock);
   return lock;
@@ -47374,20 +47215,20 @@ function removeOwnerLock(projectDir) {
   if (!lock || !token) return;
   if (lock.pid === process.pid && lock.token === token) {
     try {
-      fs48.unlinkSync(file3);
+      fs47.unlinkSync(file3);
     } catch {
     }
   }
 }
 function acquireGatewayOwner(projectDir) {
-  const existingToken = ownerTokens.get(projectDir) ?? randomUUID20();
+  const existingToken = ownerTokens.get(projectDir) ?? randomUUID19();
   ownerTokens.set(projectDir, existingToken);
   const lockFile = gatewayOwnerLockFile(projectDir);
   const lock = readGatewayOwnerLock(projectDir);
   if (lock && lock.pid === process.pid && lock.token === existingToken && isOwnerLockFresh(lock)) {
     const refreshed = {
       ...lock,
-      updatedAt: nowIso29()
+      updatedAt: nowIso28()
     };
     writeJsonAtomic(lockFile, refreshed);
     return { owned: true, owner: refreshed };
@@ -47431,7 +47272,7 @@ function describeGatewayState(state2) {
 }
 function clearGatewayStateFile(projectDir) {
   try {
-    fs48.unlinkSync(gatewayFile(projectDir));
+    fs47.unlinkSync(gatewayFile(projectDir));
   } catch {
   }
 }
@@ -47473,7 +47314,8 @@ function resolveGatewayListenOptions(projectDir) {
 }
 function logControlUiFallback(projectDir, pathname, controlUi, responseStatus) {
   const logKey = `${projectDir}:control-ui-fallback`;
-  if (!shouldEmitThrottledLog(controlUiFallbackLoggedAtByDir, logKey, 1e4)) return;
+  if (!shouldEmitThrottledLog(controlUiFallbackLoggedAtByDir, logKey, 1e4))
+    return;
   log("[gateway] control-ui fallback to built-in console", {
     projectDir,
     pathname,
@@ -47505,7 +47347,7 @@ function syncGatewayState(projectDir, runtime) {
   return state2;
 }
 function stopGateway(projectDir) {
-  const runtime = runtimes2.get(projectDir);
+  const runtime = runtimes.get(projectDir);
   if (!runtime) return { stopped: false };
   try {
     maybeReflectOnSessionEnd(projectDir, {
@@ -47550,7 +47392,7 @@ function stopGateway(projectDir) {
     runtime.server.httpServer.close();
   } catch {
   }
-  runtimes2.delete(projectDir);
+  runtimes.delete(projectDir);
   clearGatewayStateFile(projectDir);
   removeOwnerLock(projectDir);
   return { stopped: true, previous };
@@ -47574,7 +47416,7 @@ function runStartupSelfCheck(projectDir) {
   for (const name of commands) {
     const startedMs = Date.now();
     const subcommand = name.replace("opencode.debug.", "");
-    const result = spawnSync7("opencode", ["debug", subcommand], {
+    const result = spawnSync6("opencode", ["debug", subcommand], {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 8e3
@@ -47589,7 +47431,7 @@ function runStartupSelfCheck(projectDir) {
     });
   }
   return {
-    ranAt: nowIso29(),
+    ranAt: nowIso28(),
     overall: checks.every((item) => item.ok) ? "ok" : "degraded",
     checks
   };
@@ -47672,12 +47514,15 @@ function buildSessionPayloadByMode(mode, text) {
       payload: [contextEnvelopeByMode(mode), text].join("\n")
     };
   }
-  return { redacted: false, payload: [contextEnvelopeByMode(mode), text].join("\n") };
+  return {
+    redacted: false,
+    payload: [contextEnvelopeByMode(mode), text].join("\n")
+  };
 }
 async function enforceCriticalIntentGuard(projectDir, input) {
   if (shouldBypassIntentGuard(input.source)) return false;
   if (!isCriticalInjectionIntent(input.text)) return false;
-  const traceID = randomUUID20();
+  const traceID = randomUUID19();
   const reason = "critical_intent_killswitch_triggered";
   activateKillSwitch(projectDir, reason, traceID);
   appendPolicyIncident(projectDir, {
@@ -47810,17 +47655,21 @@ function assertConsoleMethodAllowed(method, context) {
   throw new Error(`console_method_forbidden:${method}`);
 }
 function interventionAuditFile(projectDir) {
-  return path49.join(getMiyaRuntimeDir(projectDir), "audit", "intervention.jsonl");
+  return path48.join(
+    getMiyaRuntimeDir(projectDir),
+    "audit",
+    "intervention.jsonl"
+  );
 }
 function appendInterventionAudit(projectDir, input) {
-  const id = `intervention_${randomUUID20()}`;
+  const id = `intervention_${randomUUID19()}`;
   const file3 = interventionAuditFile(projectDir);
-  fs48.mkdirSync(path49.dirname(file3), { recursive: true });
-  fs48.appendFileSync(
+  fs47.mkdirSync(path48.dirname(file3), { recursive: true });
+  fs47.appendFileSync(
     file3,
     `${JSON.stringify({
       id,
-      at: nowIso29(),
+      at: nowIso28(),
       ...input
     })}
 `,
@@ -47885,8 +47734,12 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
   });
   const audioPath = (input.mediaPath ?? "").trim();
   const cmdRaw = String(process.env.MIYA_VOICEPRINT_VERIFY_CMD ?? "").trim();
-  if (!audioPath || !fs48.existsSync(audioPath)) {
-    return { mode: strict ? "unknown" : hintMode, score: input.speakerScore, source: "no_audio" };
+  if (!audioPath || !fs47.existsSync(audioPath)) {
+    return {
+      mode: strict ? "unknown" : hintMode,
+      score: input.speakerScore,
+      source: "no_audio"
+    };
   }
   if (!cmdRaw) {
     return {
@@ -47904,14 +47757,14 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
     };
   }
   const state2 = readOwnerIdentityState(projectDir);
-  if (!state2.voiceprintModelPath || !fs48.existsSync(state2.voiceprintModelPath)) {
+  if (!state2.voiceprintModelPath || !fs47.existsSync(state2.voiceprintModelPath)) {
     return {
       mode: strict ? "unknown" : hintMode,
       score: input.speakerScore,
       source: "strict_model_missing"
     };
   }
-  if (!state2.voiceprintSampleDir || !fs48.existsSync(state2.voiceprintSampleDir)) {
+  if (!state2.voiceprintSampleDir || !fs47.existsSync(state2.voiceprintSampleDir)) {
     return {
       mode: strict ? "unknown" : hintMode,
       score: input.speakerScore,
@@ -47928,8 +47781,17 @@ async function verifyVoiceprintWithLocalModel(projectDir, input) {
       command: spec.command,
       args,
       timeoutMs: 45e3,
-      resource: { priority: 90, vramMB: 0, modelID: "local:eres2net", modelVramMB: 0 },
-      metadata: { stage: "security.voiceprint.verify", audioPath, compute: "cpu" }
+      resource: {
+        priority: 90,
+        vramMB: 0,
+        modelID: "local:eres2net",
+        modelVramMB: 0
+      },
+      metadata: {
+        stage: "security.voiceprint.verify",
+        audioPath,
+        compute: "cpu"
+      }
     });
     if (result.exitCode !== 0) {
       return {
@@ -48080,7 +47942,10 @@ async function sendChannelMessageGuarded(projectDir, runtime, input) {
   requireDomainRunning(projectDir, "desktop_control");
   const identity = readOwnerIdentityState(projectDir);
   const localPhysicalConfirmed = Boolean(input.confirmation?.physicalConfirmed);
-  const localPasswordVerified = verifyOwnerPasswordOnly(projectDir, input.confirmation?.password);
+  const localPasswordVerified = verifyOwnerPasswordOnly(
+    projectDir,
+    input.confirmation?.password
+  );
   const localGuestOverride = (identity.mode === "guest" || identity.mode === "unknown") && localPhysicalConfirmed && localPasswordVerified;
   if ((identity.mode === "guest" || identity.mode === "unknown") && !localGuestOverride) {
     return {
@@ -48103,7 +47968,9 @@ async function sendChannelMessageGuarded(projectDir, runtime, input) {
     factorIntentSuspicious,
     factorRecipientIsMe
   });
-  const captureLimitations = Array.isArray(input.outboundCheck?.captureLimitations) ? input.outboundCheck.captureLimitations : [];
+  const captureLimitations = Array.isArray(
+    input.outboundCheck?.captureLimitations
+  ) ? input.outboundCheck.captureLimitations : [];
   let evidenceConfidence = typeof input.outboundCheck?.evidenceConfidence === "number" && Number.isFinite(input.outboundCheck.evidenceConfidence) ? Number(input.outboundCheck.evidenceConfidence) : confidenceIntentRaw;
   evidenceConfidence = Math.max(0, Math.min(1, evidenceConfidence));
   if (captureLimitations.some(
@@ -48128,7 +47995,9 @@ async function sendChannelMessageGuarded(projectDir, runtime, input) {
     }
     const ownerSyncRequired = process.env.MIYA_OWNER_SYNC_REQUIRED !== "0";
     if (ownerSyncRequired && !localGuestOverride) {
-      const providedOwnerSyncToken = String(input.confirmation?.ownerSyncToken ?? "").trim();
+      const providedOwnerSyncToken = String(
+        input.confirmation?.ownerSyncToken ?? ""
+      ).trim();
       if (!providedOwnerSyncToken) {
         const pending = issueOwnerSyncToken(projectDir, {
           action: "outbound.high_risk.send",
@@ -48271,7 +48140,10 @@ async function sendChannelMessageGuarded(projectDir, runtime, input) {
     };
   }
   const psycheMode = runtime.nexus.psycheMode;
-  const psycheConsultEnabled = resolvePsycheConsultEnabled(projectDir, psycheMode);
+  const psycheConsultEnabled = resolvePsycheConsultEnabled(
+    projectDir,
+    psycheMode
+  );
   if (!psycheMode.resonanceEnabled && !userInitiated) {
     runtime.nexus.guardianSafeHoldReason = "resonance_disabled";
     appendNexusInsight(runtime, {
@@ -48491,7 +48363,8 @@ async function sendChannelMessageGuarded(projectDir, runtime, input) {
       `payload_sha256=${payloadHash}`
     ]
   });
-  if (!outboundTicket.ok) throw new Error(`approval_required:${outboundTicket.reason}`);
+  if (!outboundTicket.ok)
+    throw new Error(`approval_required:${outboundTicket.reason}`);
   const desktopTicket = resolveApprovalTicket({
     projectDir,
     sessionID: input.sessionID,
@@ -48502,7 +48375,8 @@ async function sendChannelMessageGuarded(projectDir, runtime, input) {
       `payload_sha256=${payloadHash}`
     ]
   });
-  if (!desktopTicket.ok) throw new Error(`approval_required:${desktopTicket.reason}`);
+  if (!desktopTicket.ok)
+    throw new Error(`approval_required:${desktopTicket.reason}`);
   const sendFingerprint = hashText3(
     `${input.channel}|${input.destination}|${payloadHash}|${Math.floor(Date.now() / 6e4)}`
   ).slice(0, 40);
@@ -48735,7 +48609,10 @@ function buildSnapshot(projectDir, runtime) {
   const devices = listDevices(projectDir);
   const invokes = listInvokeRequests(projectDir, 40);
   const enabledSkills = listEnabledSkills(projectDir);
-  const discoveredSkills = discoverSkills(projectDir, deps.extraSkillDirs ?? []);
+  const discoveredSkills = discoverSkills(
+    projectDir,
+    deps.extraSkillDirs ?? []
+  );
   const mediaRecent = listMediaItems(projectDir, 20);
   const voice = readVoiceState(projectDir);
   const canvas = readCanvasState(projectDir);
@@ -48748,25 +48625,34 @@ function buildSnapshot(projectDir, runtime) {
   }
   const autoflowSessions = listAutoflowSessions(projectDir, 30);
   const autoflowPersistentConfig = readAutoflowPersistentConfig(projectDir);
-  const autoflowPersistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, 30);
+  const autoflowPersistentSessions = getAutoflowPersistentRuntimeSnapshot(
+    projectDir,
+    30
+  );
   const routingMode = readRouterModeConfig(projectDir);
   const routingCost = getRouteCostSummary(projectDir, 500);
   const routingRecent = listRouteCostRecords(projectDir, 20);
+  const routingUsage = summarizeRouteUsage(projectDir, 500);
+  const routingUsageRecent = listRouteUsageRecords(projectDir, 20);
   const memoryObservability = readMemoryObservability(projectDir);
   const learningStats = getLearningStats(projectDir);
-  const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
-    id: item.id,
-    status: item.status,
-    source: item.source,
-    confidence: item.confidence,
-    uses: item.uses,
-    hitRate: item.uses > 0 ? Number((item.hits / item.uses).toFixed(3)) : 0,
-    title: item.title
-  }));
-  runtime.nexus.pendingTickets = approvals.filter((item) => item.status === "pending").length;
+  const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map(
+    (item) => ({
+      id: item.id,
+      status: item.status,
+      source: item.source,
+      confidence: item.confidence,
+      uses: item.uses,
+      hitRate: item.uses > 0 ? Number((item.hits / item.uses).toFixed(3)) : 0,
+      title: item.title
+    })
+  );
+  runtime.nexus.pendingTickets = approvals.filter(
+    (item) => item.status === "pending"
+  ).length;
   runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, kill);
   const base = {
-    updatedAt: nowIso29(),
+    updatedAt: nowIso28(),
     lifecycle: {
       gateway: "standalone_background",
       ui: "opencode_bound"
@@ -48814,7 +48700,9 @@ function buildSnapshot(projectDir, runtime) {
       sessions: autoflowSessions.map((item) => {
         const phaseProgress = item.phase === "planning" ? 10 : item.phase === "execution" ? 45 : item.phase === "verification" ? 70 : item.phase === "fixing" ? 80 : item.phase === "completed" ? 100 : item.phase === "failed" ? 100 : 0;
         const fixProgress = item.maxFixRounds > 0 ? Math.min(20, Math.floor(item.fixRound / item.maxFixRounds * 20)) : 0;
-        const retryReason = [...item.history].reverse().find((row) => row.event === "verification_failed" || row.event === "execution_failed")?.summary;
+        const retryReason = [...item.history].reverse().find(
+          (row) => row.event === "verification_failed" || row.event === "execution_failed"
+        )?.summary;
         return {
           sessionID: item.sessionID,
           phase: item.phase,
@@ -48842,13 +48730,16 @@ function buildSnapshot(projectDir, runtime) {
           lastOutcomePhase: item.lastOutcomePhase,
           lastOutcomeSummary: item.lastOutcomeSummary
         }))
-      }
+      },
+      autoParallel: runtime.autoParallel
     },
     routing: {
       ecoMode: routingMode.ecoMode,
       forcedStage: routingMode.forcedStage,
       cost: routingCost,
-      recent: routingRecent
+      recent: routingRecent,
+      usage: routingUsage,
+      usageRecent: routingUsageRecent
     },
     learning: {
       stats: learningStats,
@@ -48909,7 +48800,8 @@ function buildSnapshot(projectDir, runtime) {
         sqlite: memoryObservability.sqlite,
         pendingVectors: memoryObservability.pendingVectors
       },
-      router: routingCost
+      router: routingCost,
+      routerUsage: routingUsage
     },
     health: {
       overall: "ok",
@@ -48932,34 +48824,81 @@ function buildSnapshot(projectDir, runtime) {
   };
 }
 function daemonProgressAuditFile(projectDir) {
-  return path49.join(getMiyaRuntimeDir(projectDir), "audit", "daemon-job-progress.jsonl");
+  return path48.join(
+    getMiyaRuntimeDir(projectDir),
+    "audit",
+    "daemon-job-progress.jsonl"
+  );
 }
 function appendDaemonProgressAudit(projectDir, input) {
   const file3 = daemonProgressAuditFile(projectDir);
-  fs48.mkdirSync(path49.dirname(file3), { recursive: true });
-  fs48.appendFileSync(
+  fs47.mkdirSync(path48.dirname(file3), { recursive: true });
+  fs47.appendFileSync(
     file3,
-    `${JSON.stringify({ id: `dprogress_${randomUUID20()}`, ...input })}
+    `${JSON.stringify({ id: `dprogress_${randomUUID19()}`, ...input })}
 `,
     "utf-8"
   );
 }
 function gatewayMethodAuditFile(projectDir) {
-  return path49.join(getMiyaRuntimeDir(projectDir), "audit", "gateway-methods.jsonl");
+  return path48.join(
+    getMiyaRuntimeDir(projectDir),
+    "audit",
+    "gateway-methods.jsonl"
+  );
 }
 function appendGatewayMethodAudit(projectDir, input) {
   const file3 = gatewayMethodAuditFile(projectDir);
-  fs48.mkdirSync(path49.dirname(file3), { recursive: true });
-  fs48.appendFileSync(
+  fs47.mkdirSync(path48.dirname(file3), { recursive: true });
+  fs47.appendFileSync(
     file3,
     `${JSON.stringify({
-      id: `gmethod_${randomUUID20()}`,
-      at: nowIso29(),
+      id: `gmethod_${randomUUID19()}`,
+      at: nowIso28(),
       ...input
     })}
 `,
     "utf-8"
   );
+}
+function extractUsageFromPromptResult(result) {
+  const stack = [result];
+  const seen = /* @__PURE__ */ new Set();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalTokens = 0;
+  let costUsd = 0;
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || typeof current !== "object") continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const row = current;
+    if (typeof row.inputTokens === "number")
+      inputTokens += Number(row.inputTokens);
+    if (typeof row.prompt_tokens === "number")
+      inputTokens += Number(row.prompt_tokens);
+    if (typeof row.outputTokens === "number")
+      outputTokens += Number(row.outputTokens);
+    if (typeof row.completion_tokens === "number")
+      outputTokens += Number(row.completion_tokens);
+    if (typeof row.totalTokens === "number")
+      totalTokens += Number(row.totalTokens);
+    if (typeof row.total_tokens === "number")
+      totalTokens += Number(row.total_tokens);
+    if (typeof row.costUsd === "number") costUsd += Number(row.costUsd);
+    if (typeof row.cost_usd === "number") costUsd += Number(row.cost_usd);
+    for (const value of Object.values(row)) {
+      if (value && typeof value === "object") stack.push(value);
+    }
+  }
+  if (totalTokens === 0) totalTokens = inputTokens + outputTokens;
+  return {
+    inputTokens: Math.max(0, Math.floor(inputTokens)),
+    outputTokens: Math.max(0, Math.floor(outputTokens)),
+    totalTokens: Math.max(0, Math.floor(totalTokens)),
+    costUsd: Number(Math.max(0, costUsd).toFixed(6))
+  };
 }
 async function routeSessionMessage(projectDir, input) {
   const availableAgents = [
@@ -48968,9 +48907,11 @@ async function routeSessionMessage(projectDir, input) {
     "3-docs-helper",
     "4-architecture-advisor",
     "5-code-fixer",
-    "6-ui-designer"
+    "6-ui-designer",
+    "7-code-simplicity-reviewer"
   ];
   const deps = depsOf(projectDir);
+  const runtime = runtimes.get(projectDir);
   if (await enforceCriticalIntentGuard(projectDir, input)) {
     return {
       delivered: false,
@@ -49033,12 +48974,18 @@ async function routeSessionMessage(projectDir, input) {
     sessionID: input.sessionID,
     text: safeText,
     availableAgents,
-    pinnedAgent
+    pinnedAgent,
+    source: input.source
   });
   const learning = buildLearningInjection(projectDir, safeText, {
     threshold: 0.66,
     limit: 2
   });
+  if (learning.matchedDraftIDs.length > 0) {
+    for (const draftID of learning.matchedDraftIDs) {
+      markSkillDraftPendingUsage(projectDir, draftID);
+    }
+  }
   const enrichedText = learning.snippet ? `${learning.snippet}
 
 ---
@@ -49048,9 +48995,84 @@ ${safeText}` : safeText;
     text: enrichedText,
     stage: plan.stage
   });
-  const routedAgents = buildRoutedAgentSequence(plan, availableAgents, safeText);
+  let actualInputTokens = 0;
+  let actualOutputTokens = 0;
+  let actualTotalTokens = 0;
+  let actualCostUsd = 0;
+  const routedAgents = buildRoutedAgentSequence(
+    plan,
+    availableAgents,
+    safeText
+  );
   let lastAttemptedAgent = routedAgents[0] ?? plan.agent;
+  const backgroundManager = depsOf(projectDir).backgroundManager;
   try {
+    if (plan.executionMode === "auto_parallel" && backgroundManager) {
+      if (runtime) runtime.autoParallel.triggered += 1;
+      const autoParallel = await executeAutoParallelWorkflow({
+        projectDir,
+        sessionID: input.sessionID,
+        text: payloadPlan.text,
+        plan,
+        manager: backgroundManager
+      });
+      if (runtime && autoParallel.flow.dagResult) {
+        runtime.autoParallel.totalDagNodes += autoParallel.flow.dagResult.total;
+        runtime.autoParallel.totalDagCompleted += autoParallel.flow.dagResult.completed;
+      }
+      if (runtime) {
+        if (autoParallel.ok) {
+          runtime.autoParallel.succeeded += 1;
+        } else {
+          runtime.autoParallel.failed += 1;
+        }
+      }
+      recordRouteExecutionOutcome({
+        projectDir,
+        sessionID: input.sessionID,
+        intent: plan.intent,
+        complexity: plan.complexity,
+        stage: plan.stage,
+        agent: lastAttemptedAgent,
+        success: autoParallel.ok,
+        inputTokens: payloadPlan.inputTokens,
+        outputTokensEstimate: payloadPlan.outputTokensEstimate,
+        totalTokensEstimate: payloadPlan.totalTokensEstimate,
+        baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
+        costUsdEstimate: payloadPlan.costUsdEstimate
+      });
+      appendRouteUsageRecord(projectDir, {
+        sessionID: input.sessionID,
+        intent: plan.intent,
+        complexity: plan.complexity,
+        stage: plan.stage,
+        agent: lastAttemptedAgent,
+        estimatedTokens: payloadPlan.totalTokensEstimate,
+        estimatedCostUsd: payloadPlan.costUsdEstimate,
+        actualInputTokens: payloadPlan.inputTokens,
+        actualOutputTokens: payloadPlan.outputTokensEstimate,
+        actualTotalTokens: payloadPlan.totalTokensEstimate,
+        actualCostUsd: payloadPlan.costUsdEstimate
+      });
+      if (learning.matchedDraftIDs.length > 0) {
+        for (const draftID of learning.matchedDraftIDs) {
+          settleSkillDraftUsage(projectDir, draftID, autoParallel.ok);
+        }
+      }
+      if (autoParallel.ok) {
+        dequeueSessionMessage(projectDir, input.sessionID);
+        return { delivered: true, queued: false };
+      }
+      enqueueSessionMessage(projectDir, input.sessionID, {
+        text: safeText,
+        source: input.source
+      });
+      return {
+        delivered: false,
+        queued: true,
+        reason: `auto_parallel_failed:${autoParallel.summary}`
+      };
+    }
     for (let index = 0; index < routedAgents.length; index++) {
       const agent = routedAgents[index];
       if (!agent) continue;
@@ -49063,7 +49085,7 @@ ${safeText}` : safeText;
         total: routedAgents.length,
         contextStrategy: plan.contextStrategy
       });
-      await client.session.prompt({
+      const promptResult = await client.session.prompt({
         path: { id: session.routing.opencodeSessionID },
         body: {
           agent,
@@ -49071,6 +49093,11 @@ ${safeText}` : safeText;
         },
         query: { directory: projectDir }
       });
+      const usage = extractUsageFromPromptResult(promptResult);
+      actualInputTokens += usage.inputTokens;
+      actualOutputTokens += usage.outputTokens;
+      actualTotalTokens += usage.totalTokens;
+      actualCostUsd += usage.costUsd;
     }
     recordRouteExecutionOutcome({
       projectDir,
@@ -49086,11 +49113,19 @@ ${safeText}` : safeText;
       baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
       costUsdEstimate: payloadPlan.costUsdEstimate
     });
-    if (learning.matchedDraftIDs.length > 0) {
-      for (const draftID of learning.matchedDraftIDs) {
-        setSkillDraftStatus(projectDir, draftID, void 0, { hit: true });
-      }
-    }
+    appendRouteUsageRecord(projectDir, {
+      sessionID: input.sessionID,
+      intent: plan.intent,
+      complexity: plan.complexity,
+      stage: plan.stage,
+      agent: lastAttemptedAgent,
+      estimatedTokens: payloadPlan.totalTokensEstimate,
+      estimatedCostUsd: payloadPlan.costUsdEstimate,
+      actualInputTokens: actualInputTokens || payloadPlan.inputTokens,
+      actualOutputTokens: actualOutputTokens || payloadPlan.outputTokensEstimate,
+      actualTotalTokens: actualTotalTokens || payloadPlan.totalTokensEstimate,
+      actualCostUsd: actualCostUsd || payloadPlan.costUsdEstimate
+    });
     dequeueSessionMessage(projectDir, input.sessionID);
     return { delivered: true, queued: false };
   } catch (error92) {
@@ -49108,9 +49143,22 @@ ${safeText}` : safeText;
       baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
       costUsdEstimate: payloadPlan.costUsdEstimate
     });
+    appendRouteUsageRecord(projectDir, {
+      sessionID: input.sessionID,
+      intent: plan.intent,
+      complexity: plan.complexity,
+      stage: plan.stage,
+      agent: lastAttemptedAgent,
+      estimatedTokens: payloadPlan.totalTokensEstimate,
+      estimatedCostUsd: payloadPlan.costUsdEstimate,
+      actualInputTokens: actualInputTokens || payloadPlan.inputTokens,
+      actualOutputTokens: actualOutputTokens || payloadPlan.outputTokensEstimate,
+      actualTotalTokens: actualTotalTokens || payloadPlan.totalTokensEstimate,
+      actualCostUsd: actualCostUsd || payloadPlan.costUsdEstimate
+    });
     if (learning.matchedDraftIDs.length > 0) {
       for (const draftID of learning.matchedDraftIDs) {
-        setSkillDraftStatus(projectDir, draftID, void 0, { hit: false });
+        settleSkillDraftUsage(projectDir, draftID, false);
       }
     }
     enqueueSessionMessage(projectDir, input.sessionID, {
@@ -49127,7 +49175,9 @@ ${safeText}` : safeText;
 function buildRoutedAgentSequence(plan, availableAgents, originalText) {
   const source = plan.plannedAgents.length > 0 ? plan.plannedAgents : [plan.agent];
   const filtered = source.filter((agent) => availableAgents.includes(agent));
-  const unique = filtered.filter((agent, index, arr) => arr.indexOf(agent) === index);
+  const unique = filtered.filter(
+    (agent, index, arr) => arr.indexOf(agent) === index
+  );
   const base = unique.length > 0 ? unique : [plan.agent];
   if (plan.complexity === "low") {
     return base.slice(0, 1);
@@ -49167,8 +49217,12 @@ function shouldEarlyExitForMediumTask(text) {
     "\u65B0\u589E\u9875\u9762",
     "\u767B\u5F55\u9875\u9762"
   ];
-  const hasQuickFixSignal = quickFixSignals.some((token) => normalized.includes(token));
-  const hasMultiStepSignal = multiStepSignals.some((token) => normalized.includes(token));
+  const hasQuickFixSignal = quickFixSignals.some(
+    (token) => normalized.includes(token)
+  );
+  const hasMultiStepSignal = multiStepSignals.some(
+    (token) => normalized.includes(token)
+  );
   return hasQuickFixSignal && !hasMultiStepSignal;
 }
 function buildRoutedAgentPayload(input) {
@@ -49210,7 +49264,12 @@ function resolveApprovalTicket(input) {
     },
     false
   );
-  const token = findApprovalToken(input.projectDir, input.sessionID, [requestHash], tier);
+  const token = findApprovalToken(
+    input.projectDir,
+    input.sessionID,
+    [requestHash],
+    tier
+  );
   if (token) {
     return {
       ok: true,
@@ -49224,7 +49283,7 @@ function resolveApprovalTicket(input) {
       }
     };
   }
-  activateKillSwitch(input.projectDir, "missing_evidence", randomUUID20());
+  activateKillSwitch(input.projectDir, "missing_evidence", randomUUID19());
   return { ok: false, reason: "missing_evidence" };
 }
 function enforceToken(input) {
@@ -49316,7 +49375,11 @@ async function runWizardTrainingWorker(projectDir, runtime) {
   if (!queued) return;
   runtime.wizardRunnerBusy = true;
   try {
-    const runningState = markTrainingJobRunning(projectDir, queued.job.id, queued.sessionId);
+    const runningState = markTrainingJobRunning(
+      projectDir,
+      queued.job.id,
+      queued.sessionId
+    );
     emitWizardProgress(runtime, {
       sessionId: queued.sessionId,
       jobID: queued.job.id,
@@ -49326,9 +49389,12 @@ async function runWizardTrainingWorker(projectDir, runtime) {
       step: runningState.state
     });
     const daemon = getMiyaClient(projectDir);
-    const profileDir = getCompanionProfileCurrentDir(projectDir, queued.sessionId);
+    const profileDir = getCompanionProfileCurrentDir(
+      projectDir,
+      queued.sessionId
+    );
     if (queued.job.type === "training.image") {
-      const photosDir = path49.join(profileDir, "photos");
+      const photosDir = path48.join(profileDir, "photos");
       const result2 = await daemon.runFluxTraining({
         profileDir,
         photosDir,
@@ -49370,7 +49436,11 @@ async function runWizardTrainingWorker(projectDir, runtime) {
       });
       return;
     }
-    const voiceSamplePath = path49.join(profileDir, "voice", "original_sample.wav");
+    const voiceSamplePath = path48.join(
+      profileDir,
+      "voice",
+      "original_sample.wav"
+    );
     const result = await daemon.runSovitsTraining({
       profileDir,
       voiceSamplePath,
@@ -49420,7 +49490,7 @@ function ensureWsData(runtime, ws) {
     return existing;
   }
   const fallback = {
-    clientID: `ws_${randomUUID20()}`,
+    clientID: `ws_${randomUUID19()}`,
     role: "unknown",
     subscriptions: /* @__PURE__ */ new Set(["*"]),
     authenticated: !process.env.MIYA_GATEWAY_TOKEN
@@ -49475,12 +49545,21 @@ function createMethods(projectDir, runtime) {
     queueTimeoutMs
   });
   const agentRuntimeApi = new AgentModelRuntimeApi(projectDir);
-  methods.register("gateway.status.get", async () => buildSnapshot(projectDir, runtime));
+  methods.register(
+    "gateway.status.get",
+    async () => buildSnapshot(projectDir, runtime)
+  );
   methods.register("autoflow.status.get", async (params) => {
     const limit = typeof params.limit === "number" ? Number(params.limit) : 30;
-    const sessions = listAutoflowSessions(projectDir, Math.max(1, Math.min(200, limit)));
+    const sessions = listAutoflowSessions(
+      projectDir,
+      Math.max(1, Math.min(200, limit))
+    );
     const persistentConfig = readAutoflowPersistentConfig(projectDir);
-    const persistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, Math.max(1, Math.min(200, limit)));
+    const persistentSessions = getAutoflowPersistentRuntimeSnapshot(
+      projectDir,
+      Math.max(1, Math.min(200, limit))
+    );
     return {
       active: sessions.filter(
         (item) => item.phase === "planning" || item.phase === "execution" || item.phase === "verification" || item.phase === "fixing"
@@ -49498,7 +49577,10 @@ function createMethods(projectDir, runtime) {
     return {
       mode,
       cost: getRouteCostSummary(projectDir, Math.max(1, Math.min(1e3, limit))),
-      recent: listRouteCostRecords(projectDir, Math.max(1, Math.min(100, limit)))
+      recent: listRouteCostRecords(
+        projectDir,
+        Math.max(1, Math.min(100, limit))
+      )
     };
   });
   methods.register("learning.drafts.stats", async () => ({
@@ -49532,21 +49614,24 @@ function createMethods(projectDir, runtime) {
     }, 20);
     return { ok: true, state: state2 };
   });
-  methods.register("doctor.run", async () => buildSnapshot(projectDir, runtime).doctor);
+  methods.register(
+    "doctor.run",
+    async () => buildSnapshot(projectDir, runtime).doctor
+  );
   methods.register("gateway.backpressure.stats", async () => ({
     ...runtime.methods.stats(),
-    updatedAt: nowIso29()
+    updatedAt: nowIso28()
   }));
   methods.register("daemon.backpressure.stats", async () => ({
     ...getLauncherBackpressureStats(projectDir),
-    updatedAt: nowIso29()
+    updatedAt: nowIso28()
   }));
   methods.register("gateway.audit.tail", async (params) => {
     const limitRaw = typeof params.limit === "number" ? Number(params.limit) : 100;
     const limit = Math.max(1, Math.min(1e3, Math.floor(limitRaw)));
     const file3 = gatewayMethodAuditFile(projectDir);
-    if (!fs48.existsSync(file3)) return [];
-    const lines = fs48.readFileSync(file3, "utf-8").trim().split(/\r?\n/).filter(Boolean);
+    if (!fs47.existsSync(file3)) return [];
+    const lines = fs47.readFileSync(file3, "utf-8").trim().split(/\r?\n/).filter(Boolean);
     return lines.slice(Math.max(0, lines.length - limit)).map((line) => {
       try {
         return JSON.parse(line);
@@ -49568,7 +49653,7 @@ function createMethods(projectDir, runtime) {
     for (let round = 0; round < rounds; round += 1) {
       const tasks = Array.from({ length: concurrency }, async (_, index) => {
         try {
-          const probe = spawnSync7(
+          const probe = spawnSync6(
             process.platform === "win32" ? "cmd" : "sh",
             process.platform === "win32" ? ["/c", "echo", `miya-pressure-${round}-${index}`] : ["-lc", `echo miya-pressure-${round}-${index}`],
             {
@@ -49690,7 +49775,9 @@ function createMethods(projectDir, runtime) {
     requireDomainRunning(projectDir, "fs_write");
     const validation = validateConfigPatch(projectDir, params.patch);
     if (!validation.ok) {
-      throw new Error(`config_validation_failed:${validation.errors.join("|")}`);
+      throw new Error(
+        `config_validation_failed:${validation.errors.join("|")}`
+      );
     }
     const applied = applyConfigPatch(projectDir, validation);
     return {
@@ -49708,7 +49795,10 @@ function createMethods(projectDir, runtime) {
     wizardPromptPhotos: WIZARD_PROMPT_PHOTOS,
     wizardPromptByState
   });
-  methods.register("cron.list", async () => depsOf(projectDir).automationService?.listJobs() ?? []);
+  methods.register(
+    "cron.list",
+    async () => depsOf(projectDir).automationService?.listJobs() ?? []
+  );
   methods.register("cron.runs.list", async (params) => {
     const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(200, Number(params.limit)) : 50;
     return depsOf(projectDir).automationService?.listHistory(limit) ?? [];
@@ -49747,7 +49837,8 @@ function createMethods(projectDir, runtime) {
     if (!service) throw new Error("automation_service_unavailable");
     const policyHash = parseText(params.policyHash) || void 0;
     const jobID = parseText(params.jobID);
-    if (!jobID || typeof params.enabled !== "boolean") throw new Error("invalid_cron_update_args");
+    if (!jobID || typeof params.enabled !== "boolean")
+      throw new Error("invalid_cron_update_args");
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, "fs_write");
     return service.setJobEnabled(jobID, params.enabled);
@@ -49762,7 +49853,10 @@ function createMethods(projectDir, runtime) {
     requireDomainRunning(projectDir, "local_build");
     return service.runJobNow(jobID);
   });
-  methods.register("cron.approvals.list", async () => depsOf(projectDir).automationService?.listApprovals() ?? []);
+  methods.register(
+    "cron.approvals.list",
+    async () => depsOf(projectDir).automationService?.listApprovals() ?? []
+  );
   methods.register("cron.approvals.approve", async (params) => {
     const service = depsOf(projectDir).automationService;
     if (!service) throw new Error("automation_service_unavailable");
@@ -49808,7 +49902,11 @@ function createMethods(projectDir, runtime) {
     const status = await daemon.getPythonRuntimeStatus();
     if (!status) return null;
     const recommendations = normalizeRuntimeDependencyRecommendations(status);
-    const assist = await maybeTriggerDependencyAssist(projectDir, runtime, status);
+    const assist = await maybeTriggerDependencyAssist(
+      projectDir,
+      runtime,
+      status
+    );
     return {
       ...status,
       repairPlan: {
@@ -49955,7 +50053,7 @@ function createMethods(projectDir, runtime) {
     if (!mode) throw new Error("invalid_killswitch_mode");
     const reason = parseText(params.reason) || `manual_mode:${mode}`;
     if (mode === "all_stop") {
-      const traceID = randomUUID20();
+      const traceID = randomUUID19();
       activateKillSwitch(projectDir, reason, traceID);
       transitionSafetyState(projectDir, {
         source: "killswitch.set_mode",
@@ -49993,13 +50091,16 @@ function createMethods(projectDir, runtime) {
         }
       });
     }
-    runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, readKillSwitch(projectDir));
+    runtime.nexus.killSwitchMode = resolveKillSwitchMode(
+      projectDir,
+      readKillSwitch(projectDir)
+    );
     appendNexusInsight(runtime, {
       text: `KillSwitch mode -> ${runtime.nexus.killSwitchMode}`
     });
     publishGatewayEvent(runtime, "gateway.killswitch.mode", {
       mode: runtime.nexus.killSwitchMode,
-      at: nowIso29()
+      at: nowIso28()
     });
     return {
       mode: runtime.nexus.killSwitchMode,
@@ -50010,7 +50111,9 @@ function createMethods(projectDir, runtime) {
     const sessionID2 = parseText(params.sessionID) || "main";
     const permission = parseText(params.permission) || "external_message";
     const action = parseText(params.action) || `intervention_approve:${permission}`;
-    const tierText = normalizeApprovalTier(parseText(params.tier).toLowerCase());
+    const tierText = normalizeApprovalTier(
+      parseText(params.tier).toLowerCase()
+    );
     const patternsRaw = Array.isArray(params.patterns) ? params.patterns : ["*"];
     const patterns = patternsRaw.map((item) => String(item).trim()).filter(Boolean);
     const normalizedPatterns = patterns.length > 0 ? patterns : ["*"];
@@ -50024,7 +50127,7 @@ function createMethods(projectDir, runtime) {
       false
     );
     const token = saveApprovalToken(projectDir, sessionID2, {
-      trace_id: randomUUID20(),
+      trace_id: randomUUID19(),
       request_hash: requestHash,
       tier: tierText,
       action
@@ -50047,7 +50150,7 @@ function createMethods(projectDir, runtime) {
       auditID
     });
     publishGatewayEvent(runtime, "intervention.approve", {
-      at: nowIso29(),
+      at: nowIso28(),
       auditID,
       sessionID: sessionID2,
       permission,
@@ -50080,7 +50183,7 @@ function createMethods(projectDir, runtime) {
       payload: { domain: domain3, result }
     });
     publishGatewayEvent(runtime, "intervention.pause", {
-      at: nowIso29(),
+      at: nowIso28(),
       auditID,
       domain: domain3,
       result
@@ -50106,7 +50209,7 @@ function createMethods(projectDir, runtime) {
       payload: { reason, result }
     });
     publishGatewayEvent(runtime, "intervention.kill", {
-      at: nowIso29(),
+      at: nowIso28(),
       auditID,
       reason,
       result
@@ -50120,7 +50223,7 @@ function createMethods(projectDir, runtime) {
   methods.register("intervention.annotate", async (params, context) => {
     const text = parseText(params.text);
     if (!text) throw new Error("invalid_annotation_text");
-    const at = parseText(params.at) || nowIso29();
+    const at = parseText(params.at) || nowIso28();
     const targetAuditID = parseText(params.auditID) || void 0;
     const annotation = await methods.invoke(
       "insight.append",
@@ -50168,7 +50271,7 @@ function createMethods(projectDir, runtime) {
       text: `Trust mode updated: silent>=${next.silentMin}, modal<=${next.modalMax}`
     });
     publishGatewayEvent(runtime, "trust.mode.update", {
-      at: nowIso29(),
+      at: nowIso28(),
       mode: next
     });
     return {
@@ -50193,7 +50296,7 @@ function createMethods(projectDir, runtime) {
       text: `\u5B88\u95E8\u5458\u6A21\u5F0F\u5DF2\u66F4\u65B0\uFF1A\u5171\u9E23\u5C42=${next.resonanceEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}\uFF0C\u622A\u56FE\u6838\u9A8C=${next.captureProbeEnabled ? "\u5F00\u542F" : "\u5173\u95ED"}`
     });
     publishGatewayEvent(runtime, "psyche.mode.update", {
-      at: nowIso29(),
+      at: nowIso28(),
       mode: next,
       consultEnabled: resolvePsycheConsultEnabled(projectDir, next)
     });
@@ -50217,7 +50320,7 @@ function createMethods(projectDir, runtime) {
       text: `\u5B66\u4E60\u95F8\u95E8\u5DF2\u66F4\u65B0\uFF1Acandidate=${next.candidateMode}, persistent_requires_approval=${next.persistentRequiresApproval ? "1" : "0"}`
     });
     publishGatewayEvent(runtime, "learning.gate.update", {
-      at: nowIso29(),
+      at: nowIso28(),
       gate: next
     });
     return { gate: next };
@@ -50225,7 +50328,7 @@ function createMethods(projectDir, runtime) {
   methods.register("insight.append", async (params) => {
     const text = parseText(params.text);
     if (!text) throw new Error("invalid_insight_text");
-    const at = parseText(params.at) || nowIso29();
+    const at = parseText(params.at) || nowIso28();
     const auditID = parseText(params.auditID);
     appendNexusInsight(runtime, { text, at, auditID: auditID || void 0 });
     publishGatewayEvent(runtime, "insight.append", {
@@ -50252,9 +50355,15 @@ function createMethods(projectDir, runtime) {
   });
   methods.register("skills.status", async () => ({
     enabled: listEnabledSkills(projectDir),
-    discovered: discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? [])
+    discovered: discoverSkills(
+      projectDir,
+      depsOf(projectDir).extraSkillDirs ?? []
+    )
   }));
-  methods.register("miya.sync.list", async () => listEcosystemBridge(projectDir));
+  methods.register(
+    "miya.sync.list",
+    async () => listEcosystemBridge(projectDir)
+  );
   methods.register("miya.sync.diff", async (params) => {
     const sourcePackID = parseText(params.sourcePackID);
     if (!sourcePackID) throw new Error("invalid_source_pack_id");
@@ -50290,7 +50399,10 @@ function createMethods(projectDir, runtime) {
       projectDir,
       sessionID: sessionID2,
       permission: "skills_install",
-      patterns: [`sourcePackID=${sourcePackID}`, `revision=${revision ?? "latest"}`]
+      patterns: [
+        `sourcePackID=${sourcePackID}`,
+        `revision=${revision ?? "latest"}`
+      ]
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
     return applySourcePack(projectDir, sourcePackID, { revision });
@@ -50337,11 +50449,18 @@ function createMethods(projectDir, runtime) {
   methods.register("skills.enable", async (params) => {
     const skillID = parseText(params.skillID);
     if (!skillID) throw new Error("invalid_skill_id");
-    const discovered = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []);
-    const descriptor = discovered.find((item) => item.id === skillID || item.name === skillID);
+    const discovered = discoverSkills(
+      projectDir,
+      depsOf(projectDir).extraSkillDirs ?? []
+    );
+    const descriptor = discovered.find(
+      (item) => item.id === skillID || item.name === skillID
+    );
     if (!descriptor) throw new Error(`skill_not_found:${skillID}`);
     if (!descriptor.gate.loadable) {
-      throw new Error(`skill_not_loadable:${descriptor.gate.reasons.join("|")}`);
+      throw new Error(
+        `skill_not_loadable:${descriptor.gate.reasons.join("|")}`
+      );
     }
     return { enabled: setSkillEnabled(projectDir, descriptor.id, true) };
   });
@@ -50366,12 +50485,19 @@ function createMethods(projectDir, runtime) {
       patterns: [`repo=${repo}`]
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
-    const root = path49.join(os9.homedir(), ".config", "opencode", "miya", "skills");
-    fs48.mkdirSync(root, { recursive: true });
+    const root = path48.join(
+      os9.homedir(),
+      ".config",
+      "opencode",
+      "miya",
+      "skills"
+    );
+    fs47.mkdirSync(root, { recursive: true });
     const name = targetName || repo.split("/").filter(Boolean).pop()?.replace(/\.git$/i, "") || `skill-${Date.now().toString(36)}`;
-    const target = path49.join(root, name);
-    if (fs48.existsSync(target)) return { ok: false, message: `target_exists:${target}` };
-    const proc = spawnSync7("git", ["clone", "--depth", "1", repo, target], {
+    const target = path48.join(root, name);
+    if (fs47.existsSync(target))
+      return { ok: false, message: `target_exists:${target}` };
+    const proc = spawnSync6("git", ["clone", "--depth", "1", repo, target], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -50381,18 +50507,19 @@ function createMethods(projectDir, runtime) {
         message: String(proc.stderr || "").trim() || "git_clone_failed"
       };
     }
-    const installed = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []).find(
-      (item) => path49.resolve(item.dir) === path49.resolve(target)
-    );
+    const installed = discoverSkills(
+      projectDir,
+      depsOf(projectDir).extraSkillDirs ?? []
+    ).find((item) => path48.resolve(item.dir) === path48.resolve(target));
     if (!installed) {
-      fs48.rmSync(target, { recursive: true, force: true });
+      fs47.rmSync(target, { recursive: true, force: true });
       return {
         ok: false,
         message: "installed_skill_invalid:manifest_not_found"
       };
     }
     if (installed.gate.reasons.includes("missing_permission_metadata")) {
-      fs48.rmSync(target, { recursive: true, force: true });
+      fs47.rmSync(target, { recursive: true, force: true });
       return {
         ok: false,
         message: "installed_skill_invalid:missing_permission_metadata"
@@ -50420,7 +50547,7 @@ function createMethods(projectDir, runtime) {
       patterns: [`dir=${dir}`]
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
-    const proc = spawnSync7("git", ["-C", dir, "pull", "--ff-only"], {
+    const proc = spawnSync6("git", ["-C", dir, "pull", "--ff-only"], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -50440,7 +50567,8 @@ function createMethods(projectDir, runtime) {
     const source = parseText(params.source);
     const mimeType = parseText(params.mimeType);
     const fileName = parseText(params.fileName);
-    if (!source || !mimeType || !fileName) throw new Error("invalid_media_ingest_args");
+    if (!source || !mimeType || !fileName)
+      throw new Error("invalid_media_ingest_args");
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, "fs_write");
     if (params.kind !== "image" && params.kind !== "audio" && params.kind !== "video" && params.kind !== "file") {
@@ -50534,9 +50662,16 @@ function createMethods(projectDir, runtime) {
     if (!docID) throw new Error("invalid_doc_id");
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, "fs_write");
-    return closeCanvasDoc(projectDir, docID, parseText(params.actor) || "gateway");
+    return closeCanvasDoc(
+      projectDir,
+      docID,
+      parseText(params.actor) || "gateway"
+    );
   });
-  methods.register("companion.status", async () => readCompanionProfile(projectDir));
+  methods.register(
+    "companion.status",
+    async () => readCompanionProfile(projectDir)
+  );
   methods.register("companion.wizard.start", async (params) => {
     const sessionId = parseText(params.sessionID) || "wizard:companion";
     const session = upsertSession(projectDir, {
@@ -50564,7 +50699,10 @@ function createMethods(projectDir, runtime) {
     };
   });
   methods.register("companion.wizard.status", async (params) => {
-    const wizard = readCompanionWizardState(projectDir, parseText(params.sessionID) || "main");
+    const wizard = readCompanionWizardState(
+      projectDir,
+      parseText(params.sessionID) || "main"
+    );
     return {
       wizard,
       checklist: wizardChecklist(wizard),
@@ -50577,7 +50715,10 @@ function createMethods(projectDir, runtime) {
     requireDomainRunning(projectDir, "memory_write");
     const mediaIDs = Array.isArray(params.photoMediaIDs) ? params.photoMediaIDs.map(String) : Array.isArray(params.imageMediaIDs) ? params.imageMediaIDs.map(String) : [];
     const sessionId = parseText(params.sessionID) || "main";
-    const { state: state2, job } = submitWizardPhotos(projectDir, { mediaIDs, sessionId });
+    const { state: state2, job } = submitWizardPhotos(projectDir, {
+      mediaIDs,
+      sessionId
+    });
     return {
       state: state2.state,
       message: "\u6536\u5230\u7167\u7247\uFF0C\u5F00\u59CB\u8BAD\u7EC3\u56FE\u50CF\u6A21\u578B...",
@@ -50594,7 +50735,10 @@ function createMethods(projectDir, runtime) {
     const mediaID = parseText(params.mediaID) || parseText(params.audioMediaID);
     if (!mediaID) throw new Error("invalid_voice_media_id");
     const sessionId = parseText(params.sessionID) || "main";
-    const { state: state2, job } = submitWizardVoice(projectDir, { mediaID, sessionId });
+    const { state: state2, job } = submitWizardVoice(projectDir, {
+      mediaID,
+      sessionId
+    });
     return {
       state: state2.state,
       message: "\u6536\u5230\u8BED\u97F3\u6837\u672C\uFF0C\u5F00\u59CB\u8BAD\u7EC3\u58F0\u97F3\u6A21\u578B...",
@@ -50845,14 +50989,18 @@ function createMethods(projectDir, runtime) {
     if (!pathOrUrl) throw new Error("invalid_asset_path");
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, "fs_write");
-    if (type !== "image" && type !== "audio") throw new Error("invalid_asset_type");
+    if (type !== "image" && type !== "audio")
+      throw new Error("invalid_asset_type");
     return addCompanionAsset(projectDir, {
       type,
       pathOrUrl,
       label: parseText(params.label) || void 0
     });
   });
-  methods.register("companion.asset.list", async () => readCompanionProfile(projectDir).assets);
+  methods.register(
+    "companion.asset.list",
+    async () => readCompanionProfile(projectDir).assets
+  );
   methods.register("companion.reset", async (params) => {
     const policyHash = parseText(params.policyHash) || void 0;
     requirePolicyHash(projectDir, policyHash);
@@ -50975,7 +51123,12 @@ async function routeGatewayHttpRequest(projectDir, runtime, request, controlUi) 
   if (controlUiResponse) {
     const missingUiFallback = controlUiResponse.status === 503 && controlUi.root?.kind !== "resolved";
     if (missingUiFallback) {
-      logControlUiFallback(projectDir, url3.pathname, controlUi, controlUiResponse.status);
+      logControlUiFallback(
+        projectDir,
+        url3.pathname,
+        controlUi,
+        controlUiResponse.status
+      );
     }
     if (!missingUiFallback) return controlUiResponse;
   }
@@ -51027,7 +51180,7 @@ async function routeGatewayHttpRequest(projectDir, runtime, request, controlUi) 
   return new Response("Not Found", { status: 404 });
 }
 function ensureGatewayRunning(projectDir) {
-  const existing = runtimes2.get(projectDir);
+  const existing = runtimes.get(projectDir);
   if (existing) {
     const owner2 = acquireGatewayOwner(projectDir);
     if (owner2.owned) {
@@ -51118,7 +51271,12 @@ function ensureGatewayRunning(projectDir) {
     const httpServer = createServer((req, res) => {
       void (async () => {
         const request = toNodeRequest(req, listen.hostname, port);
-        const response = await routeGatewayHttpRequest(projectDir, runtime, request, controlUi);
+        const response = await routeGatewayHttpRequest(
+          projectDir,
+          runtime,
+          request,
+          controlUi
+        );
         await sendNodeResponse(req, res, response);
       })().catch((error92) => {
         log("[gateway] http request failed", {
@@ -51135,7 +51293,10 @@ function ensureGatewayRunning(projectDir) {
       });
     });
     httpServer.on("upgrade", (req, socket, head) => {
-      const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
+      const requestUrl = new URL(
+        req.url || "/",
+        `http://${req.headers.host || "127.0.0.1"}`
+      );
       if (requestUrl.pathname !== "/ws") {
         socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
         socket.destroy();
@@ -51146,7 +51307,7 @@ function ensureGatewayRunning(projectDir) {
       });
     });
     runtime = {
-      startedAt: nowIso29(),
+      startedAt: nowIso28(),
       server: {
         hostname: listen.hostname,
         port,
@@ -51169,6 +51330,13 @@ function ensureGatewayRunning(projectDir) {
       daemonLauncherUnsubscribe: void 0,
       startupSelfCheck: void 0,
       negotiationBudgets: /* @__PURE__ */ new Map(),
+      autoParallel: {
+        triggered: 0,
+        succeeded: 0,
+        failed: 0,
+        totalDagNodes: 0,
+        totalDagCompleted: 0
+      },
       nexus: {
         sessionId: "main",
         activeTool: void 0,
@@ -51337,7 +51505,9 @@ function ensureGatewayRunning(projectDir) {
             ok: true,
             durationMs: Date.now() - invokeStartedAt
           });
-          ws.send(JSON.stringify(toResponseFrame({ id: frame.id, ok: true, result })));
+          ws.send(
+            JSON.stringify(toResponseFrame({ id: frame.id, ok: true, result }))
+          );
           if (frame.method !== "gateway.status.get") {
             maybeBroadcast(projectDir, runtime);
           }
@@ -51378,42 +51548,48 @@ function ensureGatewayRunning(projectDir) {
     });
     throw error92;
   }
-  runtimes2.set(projectDir, runtime);
+  runtimes.set(projectDir, runtime);
   runtime.wizardTickTimer = setInterval(() => {
     void runWizardTrainingWorker(projectDir, runtime);
   }, 1200);
   runtime.ownerBeatTimer = setInterval(() => {
     touchOwnerLock(projectDir);
   }, 5e3);
-  runtime.memoryReflectTimer = setInterval(() => {
-    const reflected = maybeAutoReflectCompanionMemory(projectDir, {
-      idleMinutes: 60,
-      minPendingLogs: 200,
-      cooldownMinutes: 12 * 60,
-      maxLogs: 500
-    });
-    if (reflected) {
-      syncCompanionProfileMemoryFacts(projectDir);
-    }
-  }, 5 * 60 * 1e3);
-  runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
-    appendDaemonProgressAudit(projectDir, event);
-    if (event.type === "job.progress") {
-      publishGatewayEvent(runtime, "daemon.job_progress", event);
-      const phase = String(event.payload?.phase ?? "");
-      if (phase === "audio.filler") {
-        publishGatewayEvent(runtime, "daemon.audio_filler", event);
+  runtime.memoryReflectTimer = setInterval(
+    () => {
+      const reflected = maybeAutoReflectCompanionMemory(projectDir, {
+        idleMinutes: 60,
+        minPendingLogs: 200,
+        cooldownMinutes: 12 * 60,
+        maxLogs: 500
+      });
+      if (reflected) {
+        syncCompanionProfileMemoryFacts(projectDir);
       }
-      const config3 = readConfig(projectDir);
-      const notifyOnTerminal = config3.runtime?.notifications?.job_toast !== false;
-      const status = String(event.payload?.status ?? "").trim().toLowerCase();
-      if (notifyOnTerminal && (status === "completed" || status === "failed" || status === "degraded" || status === "canceled")) {
-        publishGatewayEvent(runtime, "daemon.job_terminal", event);
+    },
+    5 * 60 * 1e3
+  );
+  runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(
+    projectDir,
+    (event) => {
+      appendDaemonProgressAudit(projectDir, event);
+      if (event.type === "job.progress") {
+        publishGatewayEvent(runtime, "daemon.job_progress", event);
+        const phase = String(event.payload?.phase ?? "");
+        if (phase === "audio.filler") {
+          publishGatewayEvent(runtime, "daemon.audio_filler", event);
+        }
+        const config3 = readConfig(projectDir);
+        const notifyOnTerminal = config3.runtime?.notifications?.job_toast !== false;
+        const status = String(event.payload?.status ?? "").trim().toLowerCase();
+        if (notifyOnTerminal && (status === "completed" || status === "failed" || status === "degraded" || status === "canceled")) {
+          publishGatewayEvent(runtime, "daemon.job_terminal", event);
+        }
+        return;
       }
-      return;
+      publishGatewayEvent(runtime, event.type, event);
     }
-    publishGatewayEvent(runtime, event.type, event);
-  });
+  );
   void runtime.channelRuntime.start();
   log("[gateway] runtime started", {
     projectDir,
@@ -51471,14 +51647,16 @@ function createGatewayTools(ctx) {
     async execute() {
       registerGatewayDependencies(ctx.directory, { client: ctx.client });
       ensureGatewayRunning(ctx.directory);
-      const runtime = runtimes2.get(ctx.directory);
+      const runtime = runtimes.get(ctx.directory);
       if (!runtime) return "doctor_failed=gateway_unavailable";
       const issues = buildSnapshot(ctx.directory, runtime).doctor.issues;
       if (issues.length === 0) return "doctor=ok\nissues=0";
       return [
         "doctor=issues",
         `issues=${issues.length}`,
-        ...issues.map((issue3) => `- [${issue3.severity}] ${issue3.code} | ${issue3.message}`)
+        ...issues.map(
+          (issue3) => `- [${issue3.severity}] ${issue3.code} | ${issue3.message}`
+        )
       ].join("\n");
     }
   });
@@ -51498,16 +51676,16 @@ function createGatewayTools(ctx) {
   const miya_memory_reflect = tool({
     description: "Trigger Miya memory reflection (Memory Consolidation Loop) and sync long-term graph.",
     args: {
-      force: z3.boolean().optional().describe("Force reflection even with low pending logs"),
-      minLogs: z3.number().optional().describe("Minimum pending logs required"),
-      maxLogs: z3.number().optional().describe("Maximum logs processed in this run"),
-      cooldownMinutes: z3.number().optional().describe("Cooldown window in minutes"),
-      idempotencyKey: z3.string().optional().describe("Optional idempotency key")
+      force: z2.boolean().optional().describe("Force reflection even with low pending logs"),
+      minLogs: z2.number().optional().describe("Minimum pending logs required"),
+      maxLogs: z2.number().optional().describe("Maximum logs processed in this run"),
+      cooldownMinutes: z2.number().optional().describe("Cooldown window in minutes"),
+      idempotencyKey: z2.string().optional().describe("Optional idempotency key")
     },
     async execute(args) {
       registerGatewayDependencies(ctx.directory, { client: ctx.client });
       ensureGatewayRunning(ctx.directory);
-      const runtime = runtimes2.get(ctx.directory);
+      const runtime = runtimes.get(ctx.directory);
       if (!runtime) throw new Error("gateway_runtime_unavailable");
       const result = await invokeGatewayMethod(
         ctx.directory,
@@ -51607,9 +51785,1668 @@ function startGatewayWithLog(projectDir) {
   }
 }
 
+// src/safety/evidence.ts
+import * as fs48 from "node:fs";
+import * as path49 from "node:path";
+var MAX_OUTPUT = 8e3;
+var LARGE_FILE_LIMIT = 2 * 1024 * 1024;
+var SECRET_RULES = [
+  { name: "openai", pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
+  { name: "github_pat", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/ },
+  { name: "slack_token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/ },
+  { name: "aws_key", pattern: /\bAKIA[0-9A-Z]{16}\b/ },
+  { name: "private_key", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ }
+];
+function truncate(text) {
+  if (text.length <= MAX_OUTPUT) return text;
+  return `${text.slice(0, MAX_OUTPUT)}
+...[truncated]`;
+}
+async function runCommand2(projectDir, command, timeoutMs = 6e4) {
+  const result = await runProcess(command[0], command.slice(1), {
+    cwd: projectDir,
+    timeoutMs
+  });
+  const stdout = truncate(result.stdout);
+  const stderr = truncate(result.stderr);
+  return {
+    ok: result.exitCode === 0 && !result.timedOut,
+    code: result.exitCode,
+    stdout,
+    stderr: result.timedOut ? `${stderr}
+[timeout]` : stderr
+  };
+}
+function scanSecrets(content) {
+  const hits = [];
+  for (const rule of SECRET_RULES) {
+    if (rule.pattern.test(content)) {
+      hits.push(rule.name);
+    }
+  }
+  return hits;
+}
+async function collectSafetyEvidence(projectDir, tier) {
+  const checks = [];
+  const evidence = [];
+  const issues = [];
+  const status = await runCommand2(projectDir, ["git", "status", "--porcelain"]);
+  checks.push("git status --porcelain");
+  evidence.push(`git_status_exit=${status.code}`);
+  if (status.stdout) evidence.push(`git_status:
+${status.stdout}`);
+  if (!status.ok)
+    issues.push(`git status failed: ${status.stderr || status.code}`);
+  const diffStat = await runCommand2(projectDir, ["git", "diff", "--stat"]);
+  checks.push("git diff --stat");
+  evidence.push(`git_diff_stat_exit=${diffStat.code}`);
+  if (diffStat.stdout) evidence.push(`git_diff_stat:
+${diffStat.stdout}`);
+  if (!diffStat.ok)
+    issues.push(`git diff --stat failed: ${diffStat.stderr || diffStat.code}`);
+  const changed = await runCommand2(projectDir, ["git", "diff", "--name-only"]);
+  const changedFiles = changed.stdout.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+  if (changedFiles.some((file3) => file3.startsWith("miya-src/"))) {
+    const test = await runCommand2(
+      projectDir,
+      ["npm", "--prefix", "miya-src", "run", "typecheck"],
+      12e4
+    );
+    checks.push("npm --prefix miya-src run typecheck");
+    evidence.push(`miya_typecheck_exit=${test.code}`);
+    if (test.stdout) evidence.push(`miya_typecheck_stdout:
+${test.stdout}`);
+    if (test.stderr) evidence.push(`miya_typecheck_stderr:
+${test.stderr}`);
+    if (!test.ok) issues.push("miya-src typecheck failed");
+  }
+  if (tier === "THOROUGH") {
+    const diff = await runCommand2(projectDir, ["git", "diff"]);
+    checks.push("git diff");
+    evidence.push(`git_diff_exit=${diff.code}`);
+    const diffText = [diff.stdout, diff.stderr].filter(Boolean).join("\n");
+    if (diffText) evidence.push(`git_diff:
+${diffText}`);
+    if (!diff.ok) issues.push(`git diff failed: ${diff.stderr || diff.code}`);
+    const secretHits = scanSecrets(diffText);
+    if (secretHits.length > 0) {
+      issues.push(`secret scan matched: ${secretHits.join(", ")}`);
+    }
+    checks.push("secret scan (workspace diff)");
+    const oversized = changedFiles.map((file3) => {
+      const full = path49.join(projectDir, file3);
+      if (!fs48.existsSync(full)) return null;
+      const stat = fs48.statSync(full);
+      if (!stat.isFile()) return null;
+      if (stat.size <= LARGE_FILE_LIMIT) return null;
+      return `${file3} (${stat.size} bytes)`;
+    }).filter((line) => line !== null);
+    checks.push("large file scan (2MB)");
+    if (oversized.length > 0) {
+      issues.push(`large file threshold exceeded: ${oversized.join(", ")}`);
+    }
+  }
+  return {
+    pass: issues.length === 0,
+    checks,
+    evidence,
+    issues
+  };
+}
+
+// src/safety/verifier.ts
+function extractText(parts) {
+  return parts.filter((part) => typeof part.text === "string").map((part) => String(part.text)).join("\n").trim();
+}
+function parseVerdict(text) {
+  const allow = /\bVERDICT:\s*ALLOW\b/i.test(text);
+  const deny = /\bVERDICT:\s*DENY\b/i.test(text);
+  const summaryMatch = /REASON:\s*([^\n]+)/i.exec(text);
+  if (allow && !deny) {
+    return {
+      verdict: "allow",
+      summary: summaryMatch?.[1]?.trim() ?? "Verifier allowed action.",
+      raw: text
+    };
+  }
+  return {
+    verdict: "deny",
+    summary: summaryMatch?.[1]?.trim() ?? "Verifier denied action.",
+    raw: text
+  };
+}
+async function runVerifier(ctx, input) {
+  const prompt = [
+    "You are the safety verifier.",
+    "Do not call tools. Text response only.",
+    "Reject if evidence is insufficient or issues are non-empty.",
+    "",
+    `trace_id=${input.traceID}`,
+    `request_hash=${input.requestHash}`,
+    `tier=${input.tier}`,
+    `action=${input.action}`,
+    "",
+    "checks:",
+    ...input.checks.map((check3) => `- ${check3}`),
+    "",
+    "issues:",
+    ...input.issues.length > 0 ? input.issues.map((issue3) => `- ${issue3}`) : ["- none"],
+    "",
+    "evidence:",
+    ...input.evidence.slice(0, 20).map((item) => `- ${item}`),
+    "",
+    "Respond in exact format:",
+    "VERDICT: ALLOW|DENY",
+    "REASON: <single sentence>"
+  ].join("\n");
+  try {
+    const response = await ctx.client.session.prompt({
+      path: { id: input.sessionID },
+      body: {
+        agent: "4-architecture-advisor",
+        parts: [{ type: "text", text: prompt }]
+      },
+      query: { directory: ctx.directory }
+    });
+    const text = extractText(
+      response.data?.parts ?? []
+    );
+    if (!text) {
+      return {
+        verdict: "deny",
+        summary: "Verifier returned empty response.",
+        raw: ""
+      };
+    }
+    return parseVerdict(text);
+  } catch (error92) {
+    return {
+      verdict: "deny",
+      summary: error92 instanceof Error ? error92.message : String(error92),
+      raw: ""
+    };
+  }
+}
+
+// src/settings/tools.ts
+var z3 = tool.schema;
+function formatValue(value) {
+  if (value === void 0) return "undefined";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+function formatValidationResult(validation) {
+  const lines = [
+    `ok=${validation.ok}`,
+    `risk=${validation.maxRisk}`,
+    `required_tier=${validation.requiredSafetyTier}`,
+    `requires_evidence=${validation.requiresEvidence}`,
+    `changes=${validation.changes.length}`
+  ];
+  if (validation.errors.length > 0) {
+    lines.push(`errors=${validation.errors.join(" | ")}`);
+  }
+  if (validation.warnings.length > 0) {
+    lines.push(`warnings=${validation.warnings.join(" | ")}`);
+  }
+  if (validation.changes.length > 0) {
+    lines.push(
+      `changed_keys=${validation.changes.map((item) => item.key).join(", ")}`
+    );
+  }
+  return lines.join("\n");
+}
+function openUrl(url3) {
+  if (process.platform === "win32") {
+    const child2 = spawn3("cmd", ["/c", "start", "", url3], {
+      detached: true,
+      stdio: "ignore"
+    });
+    child2.unref();
+    return;
+  }
+  if (process.platform === "darwin") {
+    const child2 = spawn3("open", [url3], { detached: true, stdio: "ignore" });
+    child2.unref();
+    return;
+  }
+  const child = spawn3("xdg-open", [url3], { detached: true, stdio: "ignore" });
+  child.unref();
+}
+function stringifyPatch(input) {
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return String(input);
+  }
+}
+function safetyTierFromValidation(validation) {
+  if (validation.requiredSafetyTier === "THOROUGH") return "THOROUGH";
+  if (validation.requiredSafetyTier === "STANDARD") return "STANDARD";
+  return "LIGHT";
+}
+function createConfigTools(ctx) {
+  const miya_config_get = tool({
+    description: "Read Miya runtime config by key (or all flattened keys).",
+    args: {
+      key: z3.string().optional().describe("Setting key, e.g. ui.language")
+    },
+    async execute(args) {
+      const key = args.key ? String(args.key) : void 0;
+      const value = getConfigValue(ctx.directory, key);
+      if (key) {
+        return `key=${key}
+value=${formatValue(value)}`;
+      }
+      return formatValue(value);
+    }
+  });
+  const miya_registry_list = tool({
+    description: "List all writable Miya settings from registry with risk/type/default info.",
+    args: {},
+    async execute() {
+      return formatValue({ settings: listSettingEntries() });
+    }
+  });
+  const miya_config_validate = tool({
+    description: "Validate config patch without writing (type/range/conflict/risk checks).",
+    args: {
+      patch: z3.any().describe("Patch payload: {set,unset} or JSON Patch array")
+    },
+    async execute(args) {
+      return formatValidationResult(
+        validateConfigPatch(ctx.directory, args.patch)
+      );
+    }
+  });
+  const miya_config_patch = tool({
+    description: "Apply Miya config patch with self-approval audit. HIGH risk enforces THOROUGH verification.",
+    args: {
+      patch: z3.any().describe("Patch payload: {set,unset} or JSON Patch array"),
+      reason: z3.string().optional().describe("Reason for this change")
+    },
+    async execute(args, toolContext) {
+      const sessionID2 = toolContext && typeof toolContext === "object" && "sessionID" in toolContext ? String(toolContext.sessionID) : "main";
+      const validation = validateConfigPatch(
+        ctx.directory,
+        args.patch
+      );
+      if (!validation.ok) {
+        return formatValidationResult(validation);
+      }
+      const traceID = createTraceId();
+      const reason = args.reason && String(args.reason).trim().length > 0 ? String(args.reason).trim() : "config_patch";
+      const action = `miya.config.patch ${reason}`;
+      const tier = safetyTierFromValidation(validation);
+      let allow = true;
+      let verifierSummary = "LOW/MED \u914D\u7F6E\u53D8\u66F4\u81EA\u52A8\u901A\u8FC7\u3002";
+      let checks = ["config patch validation"];
+      let evidence = [
+        `patch=${stringifyPatch(args.patch)}`,
+        `risk=${validation.maxRisk}`,
+        `required_tier=${validation.requiredSafetyTier}`
+      ];
+      let issues = [];
+      if (validation.maxRisk === "HIGH") {
+        const kill = readKillSwitch(ctx.directory);
+        if (kill.active) {
+          allow = false;
+          verifierSummary = "Kill switch \u5DF2\u6FC0\u6D3B\uFF0C\u62D2\u7EDD\u9AD8\u98CE\u9669\u914D\u7F6E\u53D8\u66F4\u3002";
+          issues = ["kill_switch_active"];
+        } else {
+          const collected = await collectSafetyEvidence(
+            ctx.directory,
+            "THOROUGH"
+          );
+          checks = [...checks, ...collected.checks];
+          evidence = [...evidence, ...collected.evidence.slice(0, 20)];
+          issues = [...collected.issues];
+          const verifier = await runVerifier(ctx, {
+            sessionID: sessionID2,
+            traceID,
+            requestHash: `config:${traceID}`,
+            tier: "THOROUGH",
+            action,
+            checks,
+            evidence,
+            issues
+          });
+          verifierSummary = verifier.summary;
+          allow = collected.pass && verifier.verdict === "allow";
+        }
+      }
+      writeSelfApprovalRecord(ctx.directory, {
+        trace_id: traceID,
+        session_id: sessionID2,
+        request_hash: `config:${traceID}`,
+        action,
+        tier,
+        status: allow ? "allow" : "deny",
+        reason: allow ? verifierSummary : `config_patch_denied:${verifierSummary}`,
+        checks: checks.slice(0, 20),
+        evidence: evidence.slice(0, 30),
+        executor: {
+          agent: "executor",
+          plan: action
+        },
+        verifier: {
+          agent: "4-architecture-advisor",
+          verdict: allow ? "allow" : "deny",
+          summary: verifierSummary
+        },
+        rollback: {
+          strategy: "\u4F7F\u7528\u540C\u4E00\u5DE5\u5177\u63D0\u4EA4\u53CD\u5411 patch \u56DE\u6EDA\u3002"
+        }
+      });
+      if (!allow) {
+        activateKillSwitch(
+          ctx.directory,
+          `config_patch_denied:${verifierSummary}`,
+          traceID
+        );
+        return [
+          "VERDICT=DENY",
+          `trace_id=${traceID}`,
+          `risk=${validation.maxRisk}`,
+          `reason=${verifierSummary}`,
+          `changed_keys=${validation.changes.map((item) => item.key).join(", ")}`
+        ].join("\n");
+      }
+      const applied = applyConfigPatch(ctx.directory, validation);
+      return [
+        "VERDICT=ALLOW",
+        `trace_id=${traceID}`,
+        `risk=${validation.maxRisk}`,
+        `required_tier=${validation.requiredSafetyTier}`,
+        `changed_keys=${applied.applied.map((item) => item.key).join(", ")}`
+      ].join("\n");
+    }
+  });
+  const miya_ui_open = tool({
+    description: "Open Miya \u672C\u5730\u63A7\u5236\u53F0\u9875\u9762\uFF08\u9ED8\u8BA4\u6D4F\u89C8\u5668\uFF09\u3002",
+    args: {},
+    async execute() {
+      let state2 = ensureGatewayRunning(ctx.directory);
+      let healthy = await probeGatewayAlive(state2.url);
+      if (!healthy) {
+        stopGateway(ctx.directory);
+        state2 = ensureGatewayRunning(ctx.directory);
+        healthy = await probeGatewayAlive(state2.url, 1200);
+      }
+      if (!healthy) {
+        return `opened=false
+reason=gateway_unhealthy
+url=${state2.url}`;
+      }
+      openUrl(state2.url);
+      return `opened=${state2.url}`;
+    }
+  });
+  return {
+    miya_config_get,
+    miya_config_validate,
+    miya_config_patch,
+    miya_registry_list,
+    miya_ui_open
+  };
+}
+
+// src/daemon/ws-protocol.ts
+var JsonValue2 = external_exports.lazy(
+  () => external_exports.union([
+    external_exports.string(),
+    external_exports.number(),
+    external_exports.boolean(),
+    external_exports.null(),
+    external_exports.array(JsonValue2),
+    external_exports.record(external_exports.string(), JsonValue2)
+  ])
+);
+var JsonObject2 = external_exports.record(external_exports.string(), JsonValue2);
+var DaemonHelloFrameSchema = external_exports.object({
+  type: external_exports.literal("hello"),
+  clientID: external_exports.string().min(1).max(120).optional(),
+  role: external_exports.enum(["plugin", "ui", "unknown"]).default("plugin"),
+  protocolVersion: external_exports.string().default("1.0"),
+  auth: external_exports.object({
+    token: external_exports.string().min(1)
+  }).optional()
+});
+var DaemonRequestFrameSchema = external_exports.object({
+  type: external_exports.literal("request"),
+  id: external_exports.string().min(1),
+  method: external_exports.string().min(1),
+  params: JsonObject2.default({})
+});
+var DaemonResponseFrameSchema = external_exports.object({
+  type: external_exports.literal("response"),
+  id: external_exports.string(),
+  ok: external_exports.boolean(),
+  result: JsonValue2.optional(),
+  error: external_exports.object({
+    code: external_exports.string(),
+    message: external_exports.string(),
+    details: JsonValue2.optional()
+  }).optional()
+});
+var DaemonEventFrameSchema = external_exports.object({
+  type: external_exports.literal("event"),
+  event: external_exports.string().min(1),
+  payload: JsonValue2
+});
+var DaemonPingFrameSchema = external_exports.object({
+  type: external_exports.literal("ping"),
+  ts: external_exports.number().int().nonnegative()
+});
+var DaemonPongFrameSchema = external_exports.object({
+  type: external_exports.literal("pong"),
+  ts: external_exports.number().int().nonnegative()
+});
+var DaemonIncomingFrameSchema = external_exports.union([
+  DaemonHelloFrameSchema,
+  DaemonRequestFrameSchema,
+  DaemonPingFrameSchema
+]);
+var DaemonOutgoingFrameSchema = external_exports.union([
+  DaemonResponseFrameSchema,
+  DaemonEventFrameSchema,
+  DaemonPongFrameSchema
+]);
+function parseDaemonOutgoingFrame(input) {
+  try {
+    const value = typeof input === "string" ? JSON.parse(input) : input;
+    const frame = DaemonOutgoingFrameSchema.parse(value);
+    return { frame };
+  } catch (error92) {
+    return { error: error92 instanceof Error ? error92.message : "invalid_frame" };
+  }
+}
+
+// src/daemon/launcher.ts
+var runtimes2 = /* @__PURE__ */ new Map();
+var resolvedNodeBinaryCache;
+function emitLauncherEvent(runtime, type, payload) {
+  if (runtime.listeners.size === 0) return;
+  const event = {
+    type,
+    at: nowIso29(),
+    payload,
+    snapshot: { ...runtime.snapshot }
+  };
+  for (const listener of runtime.listeners) {
+    try {
+      listener(event);
+    } catch {
+    }
+  }
+}
+function syncBackpressureSnapshot(runtime) {
+  runtime.snapshot.pendingRequests = runtime.pending.size;
+  runtime.snapshot.rejectedRequests = runtime.rejectedRequests;
+  runtime.snapshot.lastRejectReason = runtime.lastRejectReason;
+}
+function nowIso29() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function daemonDir(projectDir) {
+  return path50.join(getMiyaRuntimeDir(projectDir), "daemon");
+}
+function daemonPidFile(projectDir) {
+  return path50.join(daemonDir(projectDir), "daemon.pid");
+}
+function ensureDaemonDir(projectDir) {
+  fs49.mkdirSync(daemonDir(projectDir), { recursive: true });
+}
+function safeWriteJson2(filePath14, payload) {
+  fs49.mkdirSync(path50.dirname(filePath14), { recursive: true });
+  fs49.writeFileSync(filePath14, `${JSON.stringify(payload, null, 2)}
+`, "utf-8");
+}
+function safeReadJson2(filePath14) {
+  if (!fs49.existsSync(filePath14)) return null;
+  try {
+    const parsed = JSON.parse(fs49.readFileSync(filePath14, "utf-8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function toDaemonLock(raw) {
+  if (!raw) return null;
+  const pid = Number(raw.pid);
+  const wsPort = Number(raw.wsPort);
+  const token = String(raw.token ?? "");
+  const updatedAt = String(raw.updatedAt ?? "");
+  if (!Number.isFinite(pid) || !Number.isFinite(wsPort) || !token || !updatedAt)
+    return null;
+  return { pid, wsPort, token, updatedAt };
+}
+function resolveHostScriptPath(projectDir) {
+  const here = path50.dirname(fileURLToPath3(import.meta.url));
+  const candidates = [
+    path50.join(here, "host.ts"),
+    path50.join(here, "host.js"),
+    path50.join(projectDir, "src", "daemon", "host.ts"),
+    path50.join(projectDir, "dist", "daemon", "host.js"),
+    path50.join(projectDir, "miya-src", "src", "daemon", "host.ts"),
+    path50.join(projectDir, "miya-src", "dist", "daemon", "host.js")
+  ];
+  for (const candidate of candidates) {
+    if (fs49.existsSync(candidate)) return candidate;
+  }
+  return path50.join(here, "host.js");
+}
+function noteLaunchFailure(runtime, reason) {
+  runtime.consecutiveLaunchFailures += 1;
+  runtime.lastRejectReason = reason;
+  if (runtime.consecutiveLaunchFailures >= runtime.maxConsecutiveLaunchFailures) {
+    runtime.retryHalted = true;
+    runtime.connected = false;
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = `Miya Daemon Retry Halted (${reason})`;
+  }
+  syncBackpressureSnapshot(runtime);
+}
+function resetLaunchFailureState(runtime) {
+  runtime.consecutiveLaunchFailures = 0;
+  runtime.retryHalted = false;
+  runtime.lastRejectReason = void 0;
+  syncBackpressureSnapshot(runtime);
+}
+function resolveNodeBinary() {
+  if (resolvedNodeBinaryCache !== void 0) return resolvedNodeBinaryCache;
+  const configured = process.env.MIYA_NODE_BIN?.trim();
+  const windowsNodeCandidates = process.platform === "win32" ? [
+    path50.join(
+      process.env.ProgramFiles ?? "C:\\Program Files",
+      "nodejs",
+      "node.exe"
+    ),
+    path50.join(
+      process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
+      "nodejs",
+      "node.exe"
+    ),
+    path50.join(
+      process.env.LOCALAPPDATA ?? "",
+      "Programs",
+      "nodejs",
+      "node.exe"
+    )
+  ] : [];
+  const candidates = [
+    configured || null,
+    (() => {
+      const execBase = path50.basename(process.execPath).toLowerCase();
+      return execBase === "node" || execBase === "node.exe" ? process.execPath : null;
+    })(),
+    ...windowsNodeCandidates,
+    process.platform === "win32" ? "node.exe" : "node"
+  ].filter((item) => Boolean(item));
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync7(candidate, ["--version"], {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 2e3,
+        windowsHide: true
+      });
+      if (probe.status === 0) {
+        resolvedNodeBinaryCache = candidate;
+        return candidate;
+      }
+    } catch {
+    }
+  }
+  return null;
+}
+function resolveLifecycleMode(projectDir) {
+  if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === "service")
+    return "service_experimental";
+  if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === "coupled") return "coupled";
+  const config3 = readConfig(projectDir);
+  const runtime = config3.runtime ?? {};
+  return runtime.service_mode_experimental === true ? "service_experimental" : "coupled";
+}
+function spawnDaemon(runtime) {
+  if (runtime.retryHalted) {
+    return false;
+  }
+  if (runtime.lifecycleMode === "service_experimental") {
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = "Miya Daemon Service Mode (attach only)";
+    return false;
+  }
+  const now = Date.now();
+  if (now - runtime.lastSpawnAttemptAtMs < 3e3) {
+    return false;
+  }
+  runtime.lastSpawnAttemptAtMs = now;
+  cleanupExistingDaemon(runtime.projectDir);
+  const nodeBinary = resolveNodeBinary();
+  if (!nodeBinary) {
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = "Miya Daemon Disabled (node_not_found)";
+    noteLaunchFailure(runtime, "node_not_found");
+    return false;
+  }
+  const binaryBase = path50.basename(nodeBinary).toLowerCase();
+  if (binaryBase.includes("powershell") || binaryBase === "pwsh.exe") {
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = "Miya Daemon Disabled (invalid_runtime_binary)";
+    noteLaunchFailure(runtime, "invalid_runtime_binary");
+    return false;
+  }
+  const hostScript = resolveHostScriptPath(runtime.projectDir);
+  const nodeArgs = [
+    ...hostScript.endsWith(".ts") ? ["--import", "tsx"] : [],
+    hostScript,
+    "--project-dir",
+    runtime.projectDir,
+    "--parent-lock-file",
+    runtime.parentLockFile,
+    "--token",
+    runtime.daemonToken
+  ];
+  spawn4(nodeBinary, nodeArgs, {
+    cwd: path50.dirname(hostScript),
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  }).unref();
+  return true;
+}
+function readPidFile(projectDir) {
+  const file3 = daemonPidFile(projectDir);
+  if (!fs49.existsSync(file3)) return null;
+  const raw = fs49.readFileSync(file3, "utf-8").trim();
+  const pid = Number(raw);
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  return pid;
+}
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function cleanupExistingDaemon(projectDir) {
+  const stalePid = readPidFile(projectDir);
+  if (!stalePid || !isPidAlive(stalePid)) return;
+  try {
+    process.kill(stalePid);
+  } catch {
+  }
+}
+function writeParentLock(runtime) {
+  safeWriteJson2(runtime.parentLockFile, {
+    pid: process.pid,
+    plugin: "miya",
+    updatedAt: nowIso29()
+  });
+}
+function connectWebSocket(runtime, lock) {
+  const url3 = `ws://127.0.0.1:${lock.wsPort}/ws?token=${encodeURIComponent(runtime.daemonToken)}`;
+  const ws = new WebSocket(url3);
+  runtime.ws = ws;
+  ws.onopen = () => {
+    resetLaunchFailureState(runtime);
+    runtime.connected = true;
+    runtime.reconnectBackoffMs = 1e3;
+    runtime.snapshot.statusText = "Miya Daemon Connected";
+    runtime.snapshot.connected = true;
+    runtime.snapshot.port = lock.wsPort;
+    runtime.snapshot.pid = lock.pid;
+    const hello = DaemonHelloFrameSchema.parse({
+      type: "hello",
+      clientID: `plugin-${process.pid}`,
+      role: "plugin",
+      protocolVersion: "1.0",
+      auth: { token: runtime.daemonToken }
+    });
+    ws.send(JSON.stringify(hello));
+    startHeartbeat(runtime);
+    startStatusPoll(runtime);
+  };
+  ws.onmessage = (event) => {
+    const parsed = parseDaemonOutgoingFrame(event.data);
+    if (!parsed.frame) return;
+    const frame = parsed.frame;
+    if (frame.type === "pong") {
+      runtime.lastPongAt = Date.now();
+      if (runtime.pingWatchdog) clearTimeout(runtime.pingWatchdog);
+      return;
+    }
+    if (frame.type === "response") {
+      if (frame.id === "hello" && frame.ok) return;
+      const pending = runtime.pending.get(frame.id);
+      if (pending) {
+        runtime.pending.delete(frame.id);
+        clearTimeout(pending.timeout);
+        syncBackpressureSnapshot(runtime);
+        if (frame.ok) {
+          pending.resolve(frame.result);
+        } else {
+          pending.reject(
+            new Error(frame.error?.message ?? "daemon_request_failed")
+          );
+        }
+      }
+      return;
+    }
+    if (frame.type === "event" && frame.event === "daemon.ready") {
+      runtime.snapshot.statusText = "Miya Daemon Connected";
+      runtime.snapshot.connected = true;
+      emitLauncherEvent(runtime, "daemon.ready");
+      return;
+    }
+    if (frame.type === "event" && frame.event === "job.progress") {
+      const payload = frame.payload && typeof frame.payload === "object" && !Array.isArray(frame.payload) ? frame.payload : {};
+      runtime.snapshot.activeJobID = typeof payload.jobID === "string" ? payload.jobID : runtime.snapshot.activeJobID;
+      runtime.snapshot.activeJobProgress = typeof payload.progress === "number" ? Math.floor(payload.progress) : runtime.snapshot.activeJobProgress;
+      runtime.snapshot.statusText = typeof payload.status === "string" && payload.status ? payload.status : runtime.snapshot.statusText;
+      emitLauncherEvent(runtime, "job.progress", payload);
+    }
+  };
+  ws.onerror = () => {
+    runtime.connected = false;
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = "Miya Daemon Reconnecting";
+  };
+  ws.onclose = () => {
+    noteLaunchFailure(runtime, "ws_closed");
+    runtime.connected = false;
+    runtime.snapshot.connected = false;
+    runtime.snapshot.statusText = "Miya Daemon Disconnected";
+    emitLauncherEvent(runtime, "daemon.disconnected");
+    stopHeartbeat(runtime);
+    stopStatusPoll(runtime);
+    scheduleReconnect(runtime);
+  };
+}
+function daemonRequest(runtime, method, params, timeoutMs = 8e3) {
+  if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) {
+    runtime.lastRejectReason = "ws_not_open";
+    runtime.rejectedRequests += 1;
+    syncBackpressureSnapshot(runtime);
+    return Promise.reject(new Error("daemon_ws_not_open"));
+  }
+  if (runtime.pending.size >= runtime.maxPendingRequests) {
+    runtime.lastRejectReason = "overloaded";
+    runtime.rejectedRequests += 1;
+    syncBackpressureSnapshot(runtime);
+    return Promise.reject(
+      new Error(
+        `daemon_backpressure_overloaded:pending=${runtime.pending.size}:max=${runtime.maxPendingRequests}`
+      )
+    );
+  }
+  runtime.reqSeq += 1;
+  const id = `req-${runtime.reqSeq}`;
+  const frame = DaemonRequestFrameSchema.parse({
+    type: "request",
+    id,
+    method,
+    params
+  });
+  return new Promise((resolve7, reject) => {
+    const timeout = setTimeout(
+      () => {
+        runtime.pending.delete(id);
+        runtime.lastRejectReason = "timeout";
+        runtime.rejectedRequests += 1;
+        syncBackpressureSnapshot(runtime);
+        reject(new Error("daemon_request_timeout"));
+      },
+      Math.max(1e3, timeoutMs)
+    );
+    runtime.pending.set(id, { resolve: resolve7, reject, timeout });
+    syncBackpressureSnapshot(runtime);
+    runtime.ws?.send(JSON.stringify(frame));
+  });
+}
+function startHeartbeat(runtime) {
+  stopHeartbeat(runtime);
+  runtime.pingTimer = setInterval(() => {
+    if (!runtime.ws || runtime.ws.readyState !== WebSocket.OPEN) return;
+    const ping = DaemonPingFrameSchema.parse({
+      type: "ping",
+      ts: Date.now()
+    });
+    runtime.ws.send(JSON.stringify(ping));
+    if (runtime.pingWatchdog) clearTimeout(runtime.pingWatchdog);
+    runtime.pingWatchdog = setTimeout(() => {
+      if (runtime.ws && runtime.ws.readyState === WebSocket.OPEN) {
+        runtime.ws.close();
+      }
+    }, 3e4);
+  }, 1e4);
+}
+function stopHeartbeat(runtime) {
+  if (runtime.pingTimer) clearInterval(runtime.pingTimer);
+  runtime.pingTimer = void 0;
+  if (runtime.pingWatchdog) clearTimeout(runtime.pingWatchdog);
+  runtime.pingWatchdog = void 0;
+}
+function startStatusPoll(runtime) {
+  stopStatusPoll(runtime);
+  runtime.statusTimer = setInterval(async () => {
+    try {
+      const data = await daemonRequest(runtime, "daemon.status.get", {});
+      if (!data || typeof data !== "object") return;
+      runtime.snapshot.connected = true;
+      runtime.snapshot.statusText = "Miya Daemon Connected";
+      runtime.snapshot.uptimeSec = typeof data.uptimeSec === "number" ? data.uptimeSec : runtime.snapshot.uptimeSec;
+      runtime.snapshot.cpuPercent = typeof data.cpuPercent === "number" ? data.cpuPercent : runtime.snapshot.cpuPercent;
+      runtime.snapshot.vramUsedMB = typeof data.vramUsedMB === "number" ? data.vramUsedMB : runtime.snapshot.vramUsedMB;
+      runtime.snapshot.vramTotalMB = typeof data.vramTotalMB === "number" ? data.vramTotalMB : runtime.snapshot.vramTotalMB;
+      runtime.snapshot.lastSeenAt = typeof data.lastSeenAt === "string" ? data.lastSeenAt : runtime.snapshot.lastSeenAt;
+    } catch {
+      runtime.snapshot.connected = false;
+      runtime.snapshot.statusText = "Miya Daemon Reconnecting";
+    }
+  }, 3e3);
+}
+function stopStatusPoll(runtime) {
+  if (runtime.statusTimer) clearInterval(runtime.statusTimer);
+  runtime.statusTimer = void 0;
+}
+function scheduleReconnect(runtime) {
+  if (runtime.retryHalted) return;
+  if (runtime.reconnectTimer) return;
+  const wait = runtime.reconnectBackoffMs;
+  runtime.reconnectBackoffMs = Math.min(runtime.reconnectBackoffMs * 2, 3e4);
+  runtime.reconnectTimer = setTimeout(() => {
+    runtime.reconnectTimer = void 0;
+    ensureDaemonLaunched(runtime);
+  }, wait);
+}
+function ensureDaemonLaunched(runtime) {
+  if (runtime.retryHalted) {
+    return;
+  }
+  writeParentLock(runtime);
+  if (Date.now() < runtime.launchCooldownUntilMs) {
+    return;
+  }
+  const lock = toDaemonLock(safeReadJson2(runtime.daemonLockFile));
+  const lockFresh = lock && Number.isFinite(Date.parse(lock.updatedAt)) && Date.now() - Date.parse(lock.updatedAt) < 3e4;
+  const lockOwnedByLauncher = runtime.lifecycleMode === "service_experimental" ? Boolean(lock) && (runtime.daemonToken ? lock?.token === runtime.daemonToken : true) : Boolean(lock) && lock?.token === runtime.daemonToken;
+  if (!lockFresh || !lockOwnedByLauncher) {
+    if (runtime.lifecycleMode === "service_experimental") {
+      runtime.snapshot.connected = false;
+      runtime.snapshot.statusText = "Miya Daemon Service Mode (waiting for daemon lock)";
+      scheduleReconnect(runtime);
+      return;
+    }
+    if (runtime.reconnectTimer) {
+      return;
+    }
+    const spawned = spawnDaemon(runtime);
+    if (!spawned) {
+      runtime.reconnectBackoffMs = Math.max(runtime.reconnectBackoffMs, 15e3);
+      runtime.launchCooldownUntilMs = Date.now() + 15e3;
+      if (!runtime.retryHalted) {
+        noteLaunchFailure(runtime, "spawn_skipped_or_failed");
+      }
+    }
+    scheduleReconnect(runtime);
+    return;
+  }
+  if (!runtime.ws || runtime.ws.readyState >= WebSocket.CLOSING) {
+    connectWebSocket(runtime, lock);
+  }
+}
+function cleanupRuntime(runtime) {
+  if (runtime.parentBeatTimer) clearInterval(runtime.parentBeatTimer);
+  runtime.parentBeatTimer = void 0;
+  if (runtime.reconnectTimer) clearTimeout(runtime.reconnectTimer);
+  runtime.reconnectTimer = void 0;
+  stopHeartbeat(runtime);
+  stopStatusPoll(runtime);
+  for (const pending of runtime.pending.values()) {
+    clearTimeout(pending.timeout);
+    pending.reject(new Error("launcher_shutdown"));
+  }
+  runtime.pending.clear();
+  syncBackpressureSnapshot(runtime);
+  runtime.listeners.clear();
+  try {
+    runtime.ws?.close();
+  } catch {
+  }
+  runtime.ws = void 0;
+}
+function ensureMiyaLauncher(projectDir) {
+  const existing = runtimes2.get(projectDir);
+  if (existing) return { ...existing.snapshot };
+  ensureDaemonDir(projectDir);
+  const lifecycleMode = resolveLifecycleMode(projectDir);
+  const config3 = readConfig(projectDir);
+  const backpressure = config3.runtime?.backpressure;
+  const configuredMaxPending = typeof backpressure?.daemon_max_pending_requests === "number" ? Number(backpressure.daemon_max_pending_requests) : Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64);
+  const configuredMaxFailures = typeof backpressure?.daemon_max_consecutive_failures === "number" ? Number(backpressure.daemon_max_consecutive_failures) : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
+  const daemonToken = lifecycleMode === "service_experimental" ? String(
+    process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? ""
+  ) : randomUUID20();
+  const runtime = {
+    projectDir,
+    lifecycleMode,
+    daemonToken,
+    parentLockFile: path50.join(daemonDir(projectDir), "parent.lock.json"),
+    daemonLockFile: path50.join(daemonDir(projectDir), "daemon.lock.json"),
+    reconnectBackoffMs: 1e3,
+    connected: false,
+    reqSeq: 0,
+    pending: /* @__PURE__ */ new Map(),
+    maxPendingRequests: Math.max(4, Math.floor(configuredMaxPending)),
+    rejectedRequests: 0,
+    lastRejectReason: void 0,
+    listeners: /* @__PURE__ */ new Set(),
+    lastSpawnAttemptAtMs: 0,
+    launchCooldownUntilMs: 0,
+    consecutiveLaunchFailures: 0,
+    retryHalted: false,
+    maxConsecutiveLaunchFailures: Math.max(
+      1,
+      Math.floor(configuredMaxFailures)
+    ),
+    snapshot: {
+      connected: false,
+      statusText: lifecycleMode === "service_experimental" ? daemonToken ? "Miya Daemon Service Mode (attach only)" : "Miya Daemon Service Mode (token missing)" : "Miya Daemon Booting",
+      lifecycleMode,
+      pendingRequests: 0,
+      rejectedRequests: 0,
+      startedAt: nowIso29()
+    }
+  };
+  syncBackpressureSnapshot(runtime);
+  runtimes2.set(projectDir, runtime);
+  writeParentLock(runtime);
+  runtime.parentBeatTimer = setInterval(() => {
+    writeParentLock(runtime);
+  }, 1e4);
+  ensureDaemonLaunched(runtime);
+  return { ...runtime.snapshot };
+}
+function getLauncherDaemonSnapshot(projectDir) {
+  const runtime = runtimes2.get(projectDir);
+  if (!runtime) {
+    return {
+      connected: false,
+      statusText: "Miya Daemon Not Started",
+      pendingRequests: 0,
+      rejectedRequests: 0,
+      startedAt: nowIso29()
+    };
+  }
+  syncBackpressureSnapshot(runtime);
+  return { ...runtime.snapshot };
+}
+function getLauncherBackpressureStats(projectDir) {
+  const runtime = runtimes2.get(projectDir);
+  if (!runtime) {
+    return {
+      connected: false,
+      maxPendingRequests: Math.max(
+        4,
+        Math.floor(Number(process.env.MIYA_DAEMON_MAX_PENDING_REQUESTS ?? 64))
+      ),
+      pendingRequests: 0,
+      rejectedRequests: 0
+    };
+  }
+  syncBackpressureSnapshot(runtime);
+  return {
+    connected: runtime.connected,
+    maxPendingRequests: runtime.maxPendingRequests,
+    pendingRequests: runtime.snapshot.pendingRequests,
+    rejectedRequests: runtime.snapshot.rejectedRequests,
+    lastRejectReason: runtime.snapshot.lastRejectReason
+  };
+}
+function subscribeLauncherEvents(projectDir, listener) {
+  ensureMiyaLauncher(projectDir);
+  const runtime = runtimes2.get(projectDir);
+  if (!runtime) return () => {
+  };
+  runtime.listeners.add(listener);
+  return () => {
+    const current = runtimes2.get(projectDir);
+    current?.listeners.delete(listener);
+  };
+}
+async function waitForDaemonConnection(runtime, timeoutMs) {
+  if (runtime.ws?.readyState === WebSocket.OPEN && runtime.connected) return;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    ensureDaemonLaunched(runtime);
+    if (runtime.ws?.readyState === WebSocket.OPEN && runtime.connected) return;
+    await new Promise((resolve7) => setTimeout(resolve7, 150));
+  }
+  throw new Error("daemon_connect_timeout");
+}
+async function daemonInvoke(projectDir, method, params, timeoutMs = 6e4) {
+  ensureMiyaLauncher(projectDir);
+  const runtime = runtimes2.get(projectDir);
+  if (!runtime) throw new Error("daemon_runtime_missing");
+  await waitForDaemonConnection(runtime, Math.min(timeoutMs, 15e3));
+  return daemonRequest(runtime, method, params, timeoutMs);
+}
+process.on("exit", () => {
+  for (const runtime of runtimes2.values()) {
+    cleanupRuntime(runtime);
+    try {
+      fs49.rmSync(runtime.parentLockFile, { force: true });
+    } catch {
+    }
+  }
+});
+
+// src/daemon/client.ts
+var MiyaClient = class {
+  constructor(projectDir) {
+    this.projectDir = projectDir;
+    ensureMiyaLauncher(projectDir);
+  }
+  async runFluxImageGenerate(input) {
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.flux.generate",
+      input,
+      24e4
+    );
+  }
+  async runSovitsTts(input) {
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.sovits.tts",
+      input,
+      18e4
+    );
+  }
+  async runFluxTraining(input) {
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.training.flux",
+      input,
+      35 * 6e4
+    );
+  }
+  async runSovitsTraining(input) {
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.training.sovits",
+      input,
+      35 * 6e4
+    );
+  }
+  async requestTrainingCancel(jobID) {
+    await daemonInvoke(
+      this.projectDir,
+      "daemon.training.cancel",
+      { jobID },
+      15e3
+    );
+  }
+  async getPythonRuntimeStatus() {
+    return daemonInvoke(this.projectDir, "daemon.python.env.get", {}, 15e3);
+  }
+  async getModelLockStatus() {
+    return daemonInvoke(this.projectDir, "daemon.model.locks.get", {}, 15e3);
+  }
+  async getModelUpdatePlan(target) {
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.model.update.plan",
+      target ? { target } : {},
+      2e4
+    );
+  }
+  async applyModelUpdate(target) {
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.model.update.apply",
+      target ? { target } : {},
+      3e4
+    );
+  }
+  async runIsolatedProcess(input) {
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.process.run_isolated",
+      input,
+      Math.max(3e4, input.timeoutMs ?? 12e4) + 1e4
+    );
+  }
+  async psycheConsult(input) {
+    const timeoutMs = Math.max(
+      1e3,
+      Math.floor(Number(process.env.MIYA_PSYCHE_CONSULT_TIMEOUT_MS ?? 3e3))
+    );
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.psyche.consult",
+      input,
+      timeoutMs
+    );
+  }
+  async psycheOutcome(input) {
+    return daemonInvoke(
+      this.projectDir,
+      "daemon.psyche.outcome",
+      input,
+      15e3
+    );
+  }
+};
+var clients = /* @__PURE__ */ new Map();
+function getMiyaClient(projectDir) {
+  const existing = clients.get(projectDir);
+  if (existing) return existing;
+  const created = new MiyaClient(projectDir);
+  clients.set(projectDir, created);
+  return created;
+}
+
+// src/hooks/context-governor/index.ts
+var DEFAULTS = {
+  enabled: true,
+  toolOutputMaxChars: 12e3,
+  toolOutputHeadChars: 4200,
+  toolOutputTailChars: 2800,
+  recordTtlMs: 12 * 60 * 1e3,
+  maxRecordsPerSession: 30,
+  maxInjectedRecords: 3,
+  maxInjectedChars: 2400
+};
+var TOOL_GUIDANCE = "narrow scope with path/query/limit and rerun tool";
+var store = /* @__PURE__ */ new Map();
+function normalizeSessionID(sessionID2) {
+  const value = String(sessionID2 ?? "main").trim();
+  return value.length > 0 ? value : "main";
+}
+function normalizeToolName(tool2) {
+  const normalized = String(tool2 ?? "").trim().toLowerCase();
+  return normalized.length > 0 ? normalized : "unknown";
+}
+function cleanSnippet(text, maxChars) {
+  return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
+}
+function sanitizeUserTerms(text) {
+  return Array.from(
+    new Set(
+      text.toLowerCase().split(/[^a-z0-9_\-\u4e00-\u9fff]+/i).map((item) => item.trim()).filter((item) => item.length >= 3)
+    )
+  );
+}
+function makeTruncatedOutput(tool2, text, config3) {
+  const normalized = String(text ?? "");
+  const totalChars = normalized.length;
+  if (totalChars <= config3.toolOutputMaxChars) {
+    return {
+      output: normalized,
+      truncated: false,
+      omittedChars: 0,
+      originalChars: totalChars
+    };
+  }
+  const head = normalized.slice(0, config3.toolOutputHeadChars);
+  const tail = normalized.slice(
+    Math.max(0, totalChars - config3.toolOutputTailChars)
+  );
+  const omittedChars = Math.max(0, totalChars - head.length - tail.length);
+  const marker = `
+
+...[MIYA_OUTPUT_TRUNCATED tool=${tool2} omitted_chars=${omittedChars} total_chars=${totalChars} hint="${TOOL_GUIDANCE}"]...
+
+`;
+  return {
+    output: `${head}${marker}${tail}`,
+    truncated: true,
+    omittedChars,
+    originalChars: totalChars
+  };
+}
+function pruneRecords(records, nowMs, config3) {
+  const nonExpired = records.filter(
+    (record3) => nowMs - record3.recordedAt <= config3.recordTtlMs
+  );
+  const expired = records.length - nonExpired.length;
+  const trimmed = nonExpired.slice(-config3.maxRecordsPerSession);
+  return { records: trimmed, expired };
+}
+function findLastUserTextPart(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.info.role !== "user") continue;
+    const partIndex = message.parts.findIndex(
+      (part) => part.type === "text" && typeof part.text === "string"
+    );
+    if (partIndex === -1) continue;
+    return {
+      message,
+      partIndex,
+      sessionID: normalizeSessionID(message.info.sessionID)
+    };
+  }
+  return null;
+}
+function renderCompactContext(records, expired, terms, nowMs, config3) {
+  if (records.length === 0) return "";
+  const withScore = records.map((record3) => {
+    const ageMs = Math.max(0, nowMs - record3.recordedAt);
+    const recency = Math.max(0, 1 - ageMs / config3.recordTtlMs);
+    const overlap = terms.reduce((count, term) => {
+      if (record3.output.toLowerCase().includes(term)) return count + 1;
+      if (record3.tool.includes(term)) return count + 1;
+      return count;
+    }, 0);
+    return {
+      record: record3,
+      overlap,
+      score: overlap * 2 + record3.references * 0.5 + recency,
+      ageMs
+    };
+  });
+  const ranked = withScore.sort((a, b) => b.score - a.score).slice(0, config3.maxInjectedRecords);
+  for (const item of ranked) {
+    if (item.overlap > 0) {
+      item.record.references += 1;
+    }
+  }
+  const lines = [];
+  lines.push("[MIYA CONTEXT GOVERNOR]");
+  lines.push(
+    `Retained compact tool context: keep=${ranked.length} pool=${records.length} expired_pruned=${expired}.`
+  );
+  lines.push(
+    "Use these snapshots instead of replaying long historical tool logs."
+  );
+  lines.push("");
+  let usedChars = lines.join("\n").length;
+  for (const item of ranked) {
+    const ageSec = Math.floor(item.ageMs / 1e3);
+    const header = `- #${item.record.id} tool=${item.record.tool} age=${ageSec}s refs=${item.record.references} truncated=${item.record.truncated ? "yes" : "no"} chars=${item.record.originalChars}`;
+    const snippet = `  snippet: ${cleanSnippet(item.record.output, 320)}`;
+    const block = `${header}
+${snippet}`;
+    if (usedChars + block.length > config3.maxInjectedChars) break;
+    lines.push(block);
+    usedChars += block.length + 1;
+  }
+  return lines.join("\n");
+}
+function resolveConfig(input) {
+  return {
+    enabled: input?.enabled ?? DEFAULTS.enabled,
+    toolOutputMaxChars: Math.max(
+      1200,
+      Number(input?.toolOutputMaxChars ?? DEFAULTS.toolOutputMaxChars)
+    ),
+    toolOutputHeadChars: Math.max(
+      400,
+      Number(input?.toolOutputHeadChars ?? DEFAULTS.toolOutputHeadChars)
+    ),
+    toolOutputTailChars: Math.max(
+      200,
+      Number(input?.toolOutputTailChars ?? DEFAULTS.toolOutputTailChars)
+    ),
+    recordTtlMs: Math.max(
+      1e4,
+      Number(input?.recordTtlMs ?? DEFAULTS.recordTtlMs)
+    ),
+    maxRecordsPerSession: Math.max(
+      5,
+      Number(input?.maxRecordsPerSession ?? DEFAULTS.maxRecordsPerSession)
+    ),
+    maxInjectedRecords: Math.max(
+      1,
+      Number(input?.maxInjectedRecords ?? DEFAULTS.maxInjectedRecords)
+    ),
+    maxInjectedChars: Math.max(
+      400,
+      Number(input?.maxInjectedChars ?? DEFAULTS.maxInjectedChars)
+    )
+  };
+}
+function createContextGovernorHook(rawConfig, options) {
+  const config3 = resolveConfig(rawConfig);
+  const now = options?.now ?? (() => Date.now());
+  let counter = 0;
+  return {
+    "tool.execute.after": async (input, output) => {
+      if (!config3.enabled) return;
+      const sessionID2 = normalizeSessionID(input.sessionID);
+      const tool2 = normalizeToolName(input.tool);
+      const snapshot = makeTruncatedOutput(
+        tool2,
+        String(output.output ?? ""),
+        config3
+      );
+      output.output = snapshot.output;
+      const record3 = {
+        id: `${now().toString(36)}-${(counter++).toString(36)}`,
+        tool: tool2,
+        output: cleanSnippet(snapshot.output, 1e3),
+        recordedAt: now(),
+        truncated: snapshot.truncated,
+        omittedChars: snapshot.omittedChars,
+        originalChars: snapshot.originalChars,
+        references: 0
+      };
+      const existing = store.get(sessionID2) ?? [];
+      const { records } = pruneRecords([...existing, record3], now(), config3);
+      store.set(sessionID2, records);
+    },
+    "experimental.chat.messages.transform": async (_input, output) => {
+      if (!config3.enabled) return;
+      const target = findLastUserTextPart(output.messages);
+      if (!target) return;
+      const currentText = String(
+        target.message.parts[target.partIndex].text ?? ""
+      );
+      if (currentText.includes("[MIYA COMMAND BRIDGE]")) return;
+      if (currentText.includes("[MIYA CONTEXT GOVERNOR]")) return;
+      const sessionID2 = target.sessionID;
+      const existing = store.get(sessionID2);
+      if (!existing || existing.length === 0) return;
+      const nowMs = now();
+      const { records, expired } = pruneRecords(existing, nowMs, config3);
+      store.set(sessionID2, records);
+      if (records.length === 0) return;
+      const compact = renderCompactContext(
+        records,
+        expired,
+        sanitizeUserTerms(currentText),
+        nowMs,
+        config3
+      );
+      if (!compact) return;
+      target.message.parts[target.partIndex].text = `${compact}
+
+---
+
+${currentText}`;
+    }
+  };
+}
+
+// src/hooks/loop-guard/index.ts
+var SUBAGENT_NAMES2 = ALL_AGENT_NAMES.filter(
+  (name) => name !== ORCHESTRATOR_NAME
+);
+function getAllText(message) {
+  return message.parts.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => String(part.text)).join("\n");
+}
+function hasQualityGatePass(messages) {
+  return messages.some(
+    (message) => getAllText(message).includes("QUALITY_GATE=PASS")
+  );
+}
+function isCompletionIntent(text) {
+  const lowered = text.toLowerCase();
+  const keywords = [
+    "done",
+    "finish",
+    "final",
+    "complete",
+    "ship",
+    "close",
+    "\u7ED3\u675F",
+    "\u5B8C\u6210",
+    "\u6536\u5C3E",
+    "\u4EA4\u4ED8"
+  ];
+  return keywords.some((keyword) => lowered.includes(keyword));
+}
+function findLastUserMessage(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].info.role === "user") {
+      return { index: i, message: messages[i] };
+    }
+  }
+  return null;
+}
+function findTextPartIndex(parts) {
+  return parts.findIndex(
+    (part) => part.type === "text" && part.text !== void 0
+  );
+}
+function isDirectAgentSelection(agent) {
+  if (!agent) return false;
+  return SUBAGENT_NAMES2.includes(agent);
+}
+function createLoopGuardHook(projectDir) {
+  return {
+    "experimental.chat.messages.transform": async (_input, output) => {
+      const lastUser = findLastUserMessage(output.messages);
+      if (!lastUser) return;
+      const agent = lastUser.message.info.agent;
+      const sessionID2 = lastUser.message.info.sessionID ?? "main";
+      const textPartIndex = findTextPartIndex(lastUser.message.parts);
+      if (textPartIndex === -1) return;
+      const originalText = lastUser.message.parts[textPartIndex].text ?? "";
+      const normalizedText = originalText.trim();
+      const state2 = getSessionState(projectDir, sessionID2);
+      if (isNegativeConfirmation(normalizedText) || normalizedText === "cancel-work") {
+        resetSessionState(projectDir, sessionID2);
+        lastUser.message.parts[textPartIndex].text = `[MIYA LOOP CANCELED]
+Output a concise final status only:
+<loop_report>
+- done: completed work
+- missing: remaining required work
+- unresolved: still broken/risky parts
+</loop_report>`;
+        return;
+      }
+      if (isDirectAgentSelection(agent)) {
+        const window = Math.max(
+          0,
+          state2.iterationCompleted - state2.windowStartIteration
+        );
+        if (state2.loopEnabled && window >= state2.maxIterationsPerWindow) {
+          lastUser.message.parts[textPartIndex].text = `[MIYA DIRECT MODE - LOOP LIMIT REACHED]
+This is iteration ${state2.iterationCompleted} (limit: ${state2.maxIterationsPerWindow}).
+
+<loop_report>
+- done: ${state2.lastDone.join(", ") || "(none recorded)"}
+- missing: ${state2.lastMissing.join(", ") || "(none recorded)"}
+- unresolved: ${state2.lastUnresolved.join(", ") || "(none recorded)"}
+</loop_report>
+
+${originalText}`;
+          return;
+        }
+        if (!originalText.includes("[MIYA DIRECT MODE]")) {
+          lastUser.message.parts[textPartIndex].text = `[MIYA DIRECT MODE: ${agent}]
+\u4F60\u6B63\u5728\u4F7F\u7528\u76F4\u63A5\u6A21\u5F0F - \u7ACB\u5373\u4F7F\u7528\u4F60\u7684\u4E13\u4E1A\u80FD\u529B\u6267\u884C\uFF0C\u65E0\u9700\u7B49\u5F85\u5B8C\u65746\u6B65\u5DE5\u4F5C\u6D41\u3002
+\u5F53\u524D\u5FAA\u73AF: ${state2.iterationCompleted}/${state2.maxIterationsPerWindow}\u3002
+
+${originalText}`;
+        }
+        return;
+      }
+      if (agent && agent !== ORCHESTRATOR_NAME) {
+        return;
+      }
+      if (state2.loopEnabled && state2.awaitingConfirmation) {
+        state2.awaitingConfirmation = false;
+        state2.windowStartIteration = state2.iterationCompleted;
+      }
+      const lowered = normalizedText.toLowerCase();
+      if (shouldEnableStrictQualityGate(normalizedText)) {
+        state2.strictQualityGate = true;
+      }
+      if (lowered.includes("strict-quality-gate off") || lowered.includes("strict quality gate off")) {
+        state2.strictQualityGate = false;
+      }
+      if (state2.strictQualityGate && isCompletionIntent(normalizedText) && !hasQualityGatePass(output.messages)) {
+        setSessionState(projectDir, sessionID2, state2);
+        lastUser.message.parts[textPartIndex].text = `[MIYA STRICT QUALITY GATE BLOCK]
+Completion is blocked because QUALITY_GATE=PASS was not found.
+Call tool \`quality_gate\` with architecture_score, docs_score, and domain_score.
+Proceed only after QUALITY_GATE=PASS.`;
+        return;
+      }
+      setSessionState(projectDir, sessionID2, state2);
+      if (state2.strictQualityGate) {
+        lastUser.message.parts[textPartIndex].text = `[MIYA STRICT QUALITY GATE ACTIVE]
+Before declaring completion, call tool \`quality_gate\` and require QUALITY_GATE=PASS.
+
+---
+
+${originalText}`;
+      }
+    }
+  };
+}
+
+// src/hooks/persistent-autoflow/index.ts
+function createPersistentAutoflowHook(projectDir, manager) {
+  return {
+    onEvent: async (event) => {
+      return handleAutoflowPersistentEvent({
+        projectDir,
+        manager,
+        event
+      });
+    }
+  };
+}
+
+// src/hooks/phase-reminder/index.ts
+var PHASE_REMINDER = `<reminder>\u26A0\uFE0F MANDATORY: Understand\u2192DELEGATE(! based on each agent rules)\u2192Split-and-Parallelize(?)\u2192Plan\u2192Execute\u2192Verify
+Available Specialist Team: @2-code-search @3-docs-helper @4-architecture-advisor @5-code-fixer @6-ui-designer
+</reminder>`;
+function createPhaseReminderHook() {
+  return {
+    "experimental.chat.messages.transform": async (_input, output) => {
+      const { messages } = output;
+      if (messages.length === 0) {
+        return;
+      }
+      let lastUserMessageIndex = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].info.role === "user") {
+          lastUserMessageIndex = i;
+          break;
+        }
+      }
+      if (lastUserMessageIndex === -1) {
+        return;
+      }
+      const lastUserMessage = messages[lastUserMessageIndex];
+      const agent = lastUserMessage.info.agent;
+      if (agent && agent !== "1-task-manager") {
+        return;
+      }
+      const textPartIndex = lastUserMessage.parts.findIndex(
+        (p) => p.type === "text" && p.text !== void 0
+      );
+      if (textPartIndex === -1) {
+        return;
+      }
+      const originalText = lastUserMessage.parts[textPartIndex].text ?? "";
+      lastUserMessage.parts[textPartIndex].text = `${PHASE_REMINDER}
+
+---
+
+${originalText}`;
+    }
+  };
+}
+
+// src/hooks/post-read-nudge/index.ts
+var NUDGE = "\n\n---\nReminder to follow the workflow instructions, consider delegation to specialist(s)";
+function createPostReadNudgeHook() {
+  return {
+    "tool.execute.after": async (input, output) => {
+      if (input.tool !== "Read" && input.tool !== "read") {
+        return;
+      }
+      output.output = output.output + NUDGE;
+    }
+  };
+}
+
+// src/hooks/post-write-simplicity/index.ts
+var NUDGE2 = "\n\n---\nPost-write check: run @7-code-simplicity-reviewer for complexity/comment cleanup before final response.";
+var WRITE_TOOLS = /* @__PURE__ */ new Set(["write", "edit", "multiedit", "ast_grep_replace"]);
+function createPostWriteSimplicityHook() {
+  return {
+    "tool.execute.after": async (input, output) => {
+      const tool2 = String(input.tool ?? "").toLowerCase();
+      if (!WRITE_TOOLS.has(tool2)) {
+        return;
+      }
+      output.output = String(output.output ?? "") + NUDGE2;
+    }
+  };
+}
+
+// src/hooks/slash-command-bridge/index.ts
+var BRIDGE_PROMPTS = {
+  "miya-gateway-start": () => "MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text.",
+  miya_gateway_start: () => "MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text.",
+  "miya.gateway.start": () => "MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text.",
+  "miya-gateway-status": () => "MANDATORY: Call tool `miya_gateway_status` exactly once. Return only tool output.",
+  miya_gateway_status: () => "MANDATORY: Call tool `miya_gateway_status` exactly once. Return only tool output.",
+  "miya-ui-open": () => "MANDATORY: Call tool `miya_ui_open` exactly once. Return only tool output.",
+  miya_ui_open: () => "MANDATORY: Call tool `miya_ui_open` exactly once. Return only tool output."
+};
+function extractSlashCommand(text) {
+  const firstLine = text.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  if (!firstLine.startsWith("/")) return null;
+  const body = firstLine.slice(1).trim();
+  if (!body) return null;
+  const [name = "", ...rest] = body.split(/\s+/);
+  if (!name) return null;
+  return {
+    name,
+    argumentsText: rest.join(" ").trim()
+  };
+}
+function findLastUserTextPart2(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.info.role !== "user") continue;
+    if (message.info.agent && message.info.agent !== "1-task-manager") continue;
+    const textPartIndex = message.parts.findIndex(
+      (part) => part.type === "text" && part.text !== void 0
+    );
+    if (textPartIndex === -1) continue;
+    return { message, textPartIndex };
+  }
+  return null;
+}
+function createSlashCommandBridgeHook() {
+  return {
+    "experimental.chat.messages.transform": async (_input, output) => {
+      const target = findLastUserTextPart2(output.messages);
+      if (!target) return;
+      const originalText = target.message.parts[target.textPartIndex].text ?? "";
+      const slashCommand = extractSlashCommand(originalText);
+      if (!slashCommand) return;
+      const promptFactory = BRIDGE_PROMPTS[slashCommand.name];
+      if (!promptFactory) return;
+      const commandPrompt = promptFactory(slashCommand.argumentsText);
+      target.message.parts[target.textPartIndex].text = `[MIYA COMMAND BRIDGE]
+${commandPrompt}`;
+    }
+  };
+}
+
 // src/intake/store.ts
-import * as fs49 from "node:fs";
-import * as path50 from "node:path";
+import * as fs50 from "node:fs";
+import * as path51 from "node:path";
 var DEFAULT_STATE4 = {
   proposals: [],
   whitelist: [],
@@ -51620,10 +53457,10 @@ var MAX_PROPOSALS = 1e3;
 var MAX_LIST_ENTRIES = 1e3;
 var MAX_EVENTS = 5e3;
 function filePath13(projectDir) {
-  return path50.join(getMiyaRuntimeDir(projectDir), "intake.json");
+  return path51.join(getMiyaRuntimeDir(projectDir), "intake.json");
 }
-function ensureDir22(file3) {
-  fs49.mkdirSync(path50.dirname(file3), { recursive: true });
+function ensureDir23(file3) {
+  fs50.mkdirSync(path51.dirname(file3), { recursive: true });
 }
 function randomId2(prefix) {
   const time5 = Date.now().toString(36);
@@ -51647,11 +53484,11 @@ function createIntakeId(prefix) {
 }
 function readIntakeState(projectDir) {
   const file3 = filePath13(projectDir);
-  if (!fs49.existsSync(file3)) {
+  if (!fs50.existsSync(file3)) {
     return { ...DEFAULT_STATE4 };
   }
   try {
-    const parsed = JSON.parse(fs49.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs50.readFileSync(file3, "utf-8"));
     return sanitizeState(parsed);
   } catch {
     return { ...DEFAULT_STATE4 };
@@ -51659,14 +53496,14 @@ function readIntakeState(projectDir) {
 }
 function writeIntakeState(projectDir, state2) {
   const file3 = filePath13(projectDir);
-  ensureDir22(file3);
+  ensureDir23(file3);
   const normalized = {
     proposals: state2.proposals.slice(0, MAX_PROPOSALS),
     whitelist: state2.whitelist.slice(0, MAX_LIST_ENTRIES),
     blacklist: state2.blacklist.slice(0, MAX_LIST_ENTRIES),
     events: state2.events.slice(0, MAX_EVENTS)
   };
-  fs49.writeFileSync(file3, `${JSON.stringify(normalized, null, 2)}
+  fs50.writeFileSync(file3, `${JSON.stringify(normalized, null, 2)}
 `, "utf-8");
 }
 
@@ -51836,7 +53673,9 @@ function matchListEntry(entry2, source) {
   return entry2.value === source.source.domain;
 }
 function addUniqueRule(list, scope, value, reason) {
-  const existing = list.find((entry2) => entry2.scope === scope && entry2.value === value);
+  const existing = list.find(
+    (entry2) => entry2.scope === scope && entry2.value === value
+  );
   if (existing) return existing;
   const next = {
     id: createIntakeId("rule"),
@@ -51872,10 +53711,16 @@ function decideOutcome(decision) {
   return "rejected";
 }
 function evaluateStatsForEvents(config3, sourceUnitKey, events) {
-  const related = events.filter((event) => event.sourceUnitKey === sourceUnitKey);
+  const related = events.filter(
+    (event) => event.sourceUnitKey === sourceUnitKey
+  );
   const window = related.slice(0, config3.windowN);
-  const usefulCount = window.filter((event) => event.outcome === "useful").length;
-  const rejectedCount = window.filter((event) => event.outcome === "rejected").length;
+  const usefulCount = window.filter(
+    (event) => event.outcome === "useful"
+  ).length;
+  const rejectedCount = window.filter(
+    (event) => event.outcome === "rejected"
+  ).length;
   const trialCount = window.filter((event) => event.outcome === "trial").length;
   const considered = usefulCount + rejectedCount;
   const trustScore = considered > 0 ? usefulCount / considered : 0;
@@ -51912,11 +53757,17 @@ function proposeIntake(projectDir, input) {
   const config3 = readIntakeConfig(projectDir);
   const state2 = readIntakeState(projectDir);
   const source = resolveSource(config3, input.source);
-  const stats = evaluateStatsForEvents(config3, source.sourceUnitKey, state2.events);
+  const stats = evaluateStatsForEvents(
+    config3,
+    source.sourceUnitKey,
+    state2.events
+  );
   if (!config3.enabled) {
     return { status: "disabled", stats };
   }
-  const blackRule = state2.blacklist.find((entry2) => matchListEntry(entry2, source));
+  const blackRule = state2.blacklist.find(
+    (entry2) => matchListEntry(entry2, source)
+  );
   if (blackRule) {
     const proposal2 = {
       id: createIntakeId("intake"),
@@ -51944,7 +53795,9 @@ function proposeIntake(projectDir, input) {
     writeIntakeState(projectDir, state2);
     return { status: "auto_rejected", proposal: proposal2, matchedRule: blackRule, stats };
   }
-  const whiteRule = state2.whitelist.find((entry2) => matchListEntry(entry2, source));
+  const whiteRule = state2.whitelist.find(
+    (entry2) => matchListEntry(entry2, source)
+  );
   if (whiteRule) {
     const proposal2 = {
       id: createIntakeId("intake"),
@@ -52034,7 +53887,11 @@ function decideIntake(projectDir, input) {
     return { ok: false, message: "proposal_not_found" };
   }
   if (proposal.status !== "pending") {
-    return { ok: false, message: `proposal_not_pending:${proposal.status}`, proposal };
+    return {
+      ok: false,
+      message: `proposal_not_pending:${proposal.status}`,
+      proposal
+    };
   }
   const resolvedSource = resolveSource(config3, proposal.source);
   let createdRule;
@@ -52107,7 +53964,11 @@ function decideIntake(projectDir, input) {
     outcome: decideOutcome(input.decision),
     decision: input.decision
   });
-  const stats = evaluateStatsForEvents(config3, proposal.sourceUnitKey, state2.events);
+  const stats = evaluateStatsForEvents(
+    config3,
+    proposal.sourceUnitKey,
+    state2.events
+  );
   writeIntakeState(projectDir, state2);
   return {
     ok: true,
@@ -52298,7 +54159,10 @@ message=${result.message}`;
       const target = args.target ? String(args.target).toLowerCase() : "all";
       const limit = typeof args.limit === "number" && args.limit > 0 ? Math.min(500, Math.trunc(args.limit)) : 50;
       if (target === "pending") {
-        return toText({ summary, pending: summary.pendingItems.slice(0, limit) });
+        return toText({
+          summary,
+          pending: summary.pendingItems.slice(0, limit)
+        });
       }
       if (target === "whitelist") {
         return toText({ summary, whitelist: state2.whitelist.slice(0, limit) });
@@ -52328,9 +54192,14 @@ message=${result.message}`;
 
 // src/intake/websearch-guard.ts
 var SESSION_TTL_MS = 30 * 60 * 1e3;
-var WRITE_PERMISSIONS = /* @__PURE__ */ new Set(["edit", "write", "bash", "external_directory"]);
+var WRITE_PERMISSIONS = /* @__PURE__ */ new Set([
+  "edit",
+  "write",
+  "bash",
+  "external_directory"
+]);
 var state = /* @__PURE__ */ new Map();
-function normalizeSessionID(sessionID2) {
+function normalizeSessionID2(sessionID2) {
   const raw = (sessionID2 ?? "main").trim();
   return raw.length > 0 ? raw : "main";
 }
@@ -52357,7 +54226,7 @@ function parseSource(url3) {
 }
 function trackWebsearchToolOutput(sessionID2, tool2, outputText) {
   if (!isWebsearchTool(tool2)) return;
-  const key = normalizeSessionID(sessionID2);
+  const key = normalizeSessionID2(sessionID2);
   const now = Date.now();
   state.set(key, {
     ...state.get(key),
@@ -52370,7 +54239,7 @@ function shouldInterceptWriteAfterWebsearch(projectDir, input) {
   if (!WRITE_PERMISSIONS.has(permission)) {
     return { intercept: false, reason: "permission_not_write" };
   }
-  const key = normalizeSessionID(input.sessionID);
+  const key = normalizeSessionID2(input.sessionID);
   const session = state.get(key);
   if (!session) return { intercept: false, reason: "no_websearch_context" };
   const now = Date.now();
@@ -52428,545 +54297,9 @@ function shouldInterceptWriteAfterWebsearch(projectDir, input) {
   return { intercept: false, reason: proposal.status };
 }
 
-// src/sessions/shadow.ts
-import * as fs50 from "node:fs";
-import * as path51 from "node:path";
-var NOISY_TOOLS = /* @__PURE__ */ new Set([
-  "bash",
-  "miya_ralph_loop",
-  "lsp_diagnostics",
-  "grep",
-  "ast_grep_search"
-]);
-function normalizeSessionID2(sessionID2) {
-  const value = String(sessionID2 ?? "main").trim();
-  return value.length > 0 ? value : "main";
-}
-function shouldCaptureTool(tool2) {
-  const normalized = String(tool2 ?? "").trim().toLowerCase();
-  if (normalized.includes("websearch")) return false;
-  return NOISY_TOOLS.has(normalized);
-}
-function nowIso31() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-function shadowFile(projectDir, sessionID2) {
-  return path51.join(
-    getMiyaRuntimeDir(projectDir),
-    "shadow-sessions",
-    `${normalizeSessionID2(sessionID2)}.jsonl`
-  );
-}
-function shouldRouteToShadowSession(input) {
-  const tool2 = String(input.tool ?? "").trim();
-  if (tool2.toLowerCase().includes("websearch")) return false;
-  const output = String(input.output ?? "");
-  if (output.length >= 2400) return true;
-  if (shouldCaptureTool(tool2) && output.length >= 800) return true;
-  return false;
-}
-function appendShadowSessionLog(input) {
-  const file3 = shadowFile(input.projectDir, normalizeSessionID2(input.sessionID));
-  fs50.mkdirSync(path51.dirname(file3), { recursive: true });
-  const row = {
-    at: nowIso31(),
-    tool: String(input.tool ?? "").trim() || "unknown",
-    callID: input.callID,
-    outputChars: String(input.output ?? "").length,
-    output: String(input.output ?? "")
-  };
-  fs50.appendFileSync(file3, `${JSON.stringify(row)}
-`, "utf-8");
-  return file3;
-}
-
-// src/contracts/hook-contract.ts
-var REQUIRED_HOOK_KEYS = [
-  "tool.execute.before",
-  "tool.execute.after",
-  "permission.ask"
-];
-function assertRequiredHookHandlers(hooks) {
-  const missing = REQUIRED_HOOK_KEYS.filter((key) => typeof hooks[key] !== "function");
-  if (missing.length > 0) {
-    throw new Error(`miya_hook_contract_missing:${missing.join(",")}`);
-  }
-}
-
-// src/hooks/context-governor/index.ts
-var DEFAULTS = {
-  enabled: true,
-  toolOutputMaxChars: 12e3,
-  toolOutputHeadChars: 4200,
-  toolOutputTailChars: 2800,
-  recordTtlMs: 12 * 60 * 1e3,
-  maxRecordsPerSession: 30,
-  maxInjectedRecords: 3,
-  maxInjectedChars: 2400
-};
-var TOOL_GUIDANCE = "narrow scope with path/query/limit and rerun tool";
-var store = /* @__PURE__ */ new Map();
-function normalizeSessionID3(sessionID2) {
-  const value = String(sessionID2 ?? "main").trim();
-  return value.length > 0 ? value : "main";
-}
-function normalizeToolName(tool2) {
-  const normalized = String(tool2 ?? "").trim().toLowerCase();
-  return normalized.length > 0 ? normalized : "unknown";
-}
-function cleanSnippet(text, maxChars) {
-  return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
-}
-function sanitizeUserTerms(text) {
-  return Array.from(
-    new Set(
-      text.toLowerCase().split(/[^a-z0-9_\-\u4e00-\u9fff]+/i).map((item) => item.trim()).filter((item) => item.length >= 3)
-    )
-  );
-}
-function makeTruncatedOutput(tool2, text, config3) {
-  const normalized = String(text ?? "");
-  const totalChars = normalized.length;
-  if (totalChars <= config3.toolOutputMaxChars) {
-    return {
-      output: normalized,
-      truncated: false,
-      omittedChars: 0,
-      originalChars: totalChars
-    };
-  }
-  const head = normalized.slice(0, config3.toolOutputHeadChars);
-  const tail = normalized.slice(Math.max(0, totalChars - config3.toolOutputTailChars));
-  const omittedChars = Math.max(0, totalChars - head.length - tail.length);
-  const marker = `
-
-...[MIYA_OUTPUT_TRUNCATED tool=${tool2} omitted_chars=${omittedChars} total_chars=${totalChars} hint="${TOOL_GUIDANCE}"]...
-
-`;
-  return {
-    output: `${head}${marker}${tail}`,
-    truncated: true,
-    omittedChars,
-    originalChars: totalChars
-  };
-}
-function pruneRecords(records, nowMs, config3) {
-  const nonExpired = records.filter(
-    (record3) => nowMs - record3.recordedAt <= config3.recordTtlMs
-  );
-  const expired = records.length - nonExpired.length;
-  const trimmed = nonExpired.slice(-config3.maxRecordsPerSession);
-  return { records: trimmed, expired };
-}
-function findLastUserTextPart(messages) {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.info.role !== "user") continue;
-    const partIndex = message.parts.findIndex(
-      (part) => part.type === "text" && typeof part.text === "string"
-    );
-    if (partIndex === -1) continue;
-    return {
-      message,
-      partIndex,
-      sessionID: normalizeSessionID3(message.info.sessionID)
-    };
-  }
-  return null;
-}
-function renderCompactContext(records, expired, terms, nowMs, config3) {
-  if (records.length === 0) return "";
-  const withScore = records.map((record3) => {
-    const ageMs = Math.max(0, nowMs - record3.recordedAt);
-    const recency = Math.max(0, 1 - ageMs / config3.recordTtlMs);
-    const overlap = terms.reduce((count, term) => {
-      if (record3.output.toLowerCase().includes(term)) return count + 1;
-      if (record3.tool.includes(term)) return count + 1;
-      return count;
-    }, 0);
-    return {
-      record: record3,
-      overlap,
-      score: overlap * 2 + record3.references * 0.5 + recency,
-      ageMs
-    };
-  });
-  const ranked = withScore.sort((a, b) => b.score - a.score).slice(0, config3.maxInjectedRecords);
-  for (const item of ranked) {
-    if (item.overlap > 0) {
-      item.record.references += 1;
-    }
-  }
-  const lines = [];
-  lines.push("[MIYA CONTEXT GOVERNOR]");
-  lines.push(
-    `Retained compact tool context: keep=${ranked.length} pool=${records.length} expired_pruned=${expired}.`
-  );
-  lines.push("Use these snapshots instead of replaying long historical tool logs.");
-  lines.push("");
-  let usedChars = lines.join("\n").length;
-  for (const item of ranked) {
-    const ageSec = Math.floor(item.ageMs / 1e3);
-    const header = `- #${item.record.id} tool=${item.record.tool} age=${ageSec}s refs=${item.record.references} truncated=${item.record.truncated ? "yes" : "no"} chars=${item.record.originalChars}`;
-    const snippet = `  snippet: ${cleanSnippet(item.record.output, 320)}`;
-    const block = `${header}
-${snippet}`;
-    if (usedChars + block.length > config3.maxInjectedChars) break;
-    lines.push(block);
-    usedChars += block.length + 1;
-  }
-  return lines.join("\n");
-}
-function resolveConfig(input) {
-  return {
-    enabled: input?.enabled ?? DEFAULTS.enabled,
-    toolOutputMaxChars: Math.max(
-      1200,
-      Number(input?.toolOutputMaxChars ?? DEFAULTS.toolOutputMaxChars)
-    ),
-    toolOutputHeadChars: Math.max(
-      400,
-      Number(input?.toolOutputHeadChars ?? DEFAULTS.toolOutputHeadChars)
-    ),
-    toolOutputTailChars: Math.max(
-      200,
-      Number(input?.toolOutputTailChars ?? DEFAULTS.toolOutputTailChars)
-    ),
-    recordTtlMs: Math.max(1e4, Number(input?.recordTtlMs ?? DEFAULTS.recordTtlMs)),
-    maxRecordsPerSession: Math.max(
-      5,
-      Number(input?.maxRecordsPerSession ?? DEFAULTS.maxRecordsPerSession)
-    ),
-    maxInjectedRecords: Math.max(
-      1,
-      Number(input?.maxInjectedRecords ?? DEFAULTS.maxInjectedRecords)
-    ),
-    maxInjectedChars: Math.max(
-      400,
-      Number(input?.maxInjectedChars ?? DEFAULTS.maxInjectedChars)
-    )
-  };
-}
-function createContextGovernorHook(rawConfig, options) {
-  const config3 = resolveConfig(rawConfig);
-  const now = options?.now ?? (() => Date.now());
-  let counter = 0;
-  return {
-    "tool.execute.after": async (input, output) => {
-      if (!config3.enabled) return;
-      const sessionID2 = normalizeSessionID3(input.sessionID);
-      const tool2 = normalizeToolName(input.tool);
-      const snapshot = makeTruncatedOutput(tool2, String(output.output ?? ""), config3);
-      output.output = snapshot.output;
-      const record3 = {
-        id: `${now().toString(36)}-${(counter++).toString(36)}`,
-        tool: tool2,
-        output: cleanSnippet(snapshot.output, 1e3),
-        recordedAt: now(),
-        truncated: snapshot.truncated,
-        omittedChars: snapshot.omittedChars,
-        originalChars: snapshot.originalChars,
-        references: 0
-      };
-      const existing = store.get(sessionID2) ?? [];
-      const { records } = pruneRecords([...existing, record3], now(), config3);
-      store.set(sessionID2, records);
-    },
-    "experimental.chat.messages.transform": async (_input, output) => {
-      if (!config3.enabled) return;
-      const target = findLastUserTextPart(output.messages);
-      if (!target) return;
-      const currentText = String(target.message.parts[target.partIndex].text ?? "");
-      if (currentText.includes("[MIYA COMMAND BRIDGE]")) return;
-      if (currentText.includes("[MIYA CONTEXT GOVERNOR]")) return;
-      const sessionID2 = target.sessionID;
-      const existing = store.get(sessionID2);
-      if (!existing || existing.length === 0) return;
-      const nowMs = now();
-      const { records, expired } = pruneRecords(existing, nowMs, config3);
-      store.set(sessionID2, records);
-      if (records.length === 0) return;
-      const compact = renderCompactContext(
-        records,
-        expired,
-        sanitizeUserTerms(currentText),
-        nowMs,
-        config3
-      );
-      if (!compact) return;
-      target.message.parts[target.partIndex].text = `${compact}
-
----
-
-${currentText}`;
-    }
-  };
-}
-
-// src/hooks/loop-guard/index.ts
-var SUBAGENT_NAMES2 = ALL_AGENT_NAMES.filter((name) => name !== ORCHESTRATOR_NAME);
-function getAllText(message) {
-  return message.parts.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => String(part.text)).join("\n");
-}
-function hasQualityGatePass(messages) {
-  return messages.some((message) => getAllText(message).includes("QUALITY_GATE=PASS"));
-}
-function isCompletionIntent(text) {
-  const lowered = text.toLowerCase();
-  const keywords = [
-    "done",
-    "finish",
-    "final",
-    "complete",
-    "ship",
-    "close",
-    "\u7ED3\u675F",
-    "\u5B8C\u6210",
-    "\u6536\u5C3E",
-    "\u4EA4\u4ED8"
-  ];
-  return keywords.some((keyword) => lowered.includes(keyword));
-}
-function findLastUserMessage(messages) {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].info.role === "user") {
-      return { index: i, message: messages[i] };
-    }
-  }
-  return null;
-}
-function findTextPartIndex(parts) {
-  return parts.findIndex((part) => part.type === "text" && part.text !== void 0);
-}
-function isDirectAgentSelection(agent) {
-  if (!agent) return false;
-  return SUBAGENT_NAMES2.includes(agent);
-}
-function createLoopGuardHook(projectDir) {
-  return {
-    "experimental.chat.messages.transform": async (_input, output) => {
-      const lastUser = findLastUserMessage(output.messages);
-      if (!lastUser) return;
-      const agent = lastUser.message.info.agent;
-      const sessionID2 = lastUser.message.info.sessionID ?? "main";
-      const textPartIndex = findTextPartIndex(lastUser.message.parts);
-      if (textPartIndex === -1) return;
-      const originalText = lastUser.message.parts[textPartIndex].text ?? "";
-      const normalizedText = originalText.trim();
-      const state2 = getSessionState(projectDir, sessionID2);
-      if (isNegativeConfirmation(normalizedText) || normalizedText === "cancel-work") {
-        resetSessionState(projectDir, sessionID2);
-        lastUser.message.parts[textPartIndex].text = `[MIYA LOOP CANCELED]
-Output a concise final status only:
-<loop_report>
-- done: completed work
-- missing: remaining required work
-- unresolved: still broken/risky parts
-</loop_report>`;
-        return;
-      }
-      if (isDirectAgentSelection(agent)) {
-        const window = Math.max(0, state2.iterationCompleted - state2.windowStartIteration);
-        if (state2.loopEnabled && window >= state2.maxIterationsPerWindow) {
-          lastUser.message.parts[textPartIndex].text = `[MIYA DIRECT MODE - LOOP LIMIT REACHED]
-This is iteration ${state2.iterationCompleted} (limit: ${state2.maxIterationsPerWindow}).
-
-<loop_report>
-- done: ${state2.lastDone.join(", ") || "(none recorded)"}
-- missing: ${state2.lastMissing.join(", ") || "(none recorded)"}
-- unresolved: ${state2.lastUnresolved.join(", ") || "(none recorded)"}
-</loop_report>
-
-${originalText}`;
-          return;
-        }
-        if (!originalText.includes("[MIYA DIRECT MODE]")) {
-          lastUser.message.parts[textPartIndex].text = `[MIYA DIRECT MODE: ${agent}]
-\u4F60\u6B63\u5728\u4F7F\u7528\u76F4\u63A5\u6A21\u5F0F - \u7ACB\u5373\u4F7F\u7528\u4F60\u7684\u4E13\u4E1A\u80FD\u529B\u6267\u884C\uFF0C\u65E0\u9700\u7B49\u5F85\u5B8C\u65746\u6B65\u5DE5\u4F5C\u6D41\u3002
-\u5F53\u524D\u5FAA\u73AF: ${state2.iterationCompleted}/${state2.maxIterationsPerWindow}\u3002
-
-${originalText}`;
-        }
-        return;
-      }
-      if (agent && agent !== ORCHESTRATOR_NAME) {
-        return;
-      }
-      if (state2.loopEnabled && state2.awaitingConfirmation) {
-        state2.awaitingConfirmation = false;
-        state2.windowStartIteration = state2.iterationCompleted;
-      }
-      const lowered = normalizedText.toLowerCase();
-      if (shouldEnableStrictQualityGate(normalizedText)) {
-        state2.strictQualityGate = true;
-      }
-      if (lowered.includes("strict-quality-gate off") || lowered.includes("strict quality gate off")) {
-        state2.strictQualityGate = false;
-      }
-      if (state2.strictQualityGate && isCompletionIntent(normalizedText) && !hasQualityGatePass(output.messages)) {
-        setSessionState(projectDir, sessionID2, state2);
-        lastUser.message.parts[textPartIndex].text = `[MIYA STRICT QUALITY GATE BLOCK]
-Completion is blocked because QUALITY_GATE=PASS was not found.
-Call tool \`quality_gate\` with architecture_score, docs_score, and domain_score.
-Proceed only after QUALITY_GATE=PASS.`;
-        return;
-      }
-      setSessionState(projectDir, sessionID2, state2);
-      if (state2.strictQualityGate) {
-        lastUser.message.parts[textPartIndex].text = `[MIYA STRICT QUALITY GATE ACTIVE]
-Before declaring completion, call tool \`quality_gate\` and require QUALITY_GATE=PASS.
-
----
-
-${originalText}`;
-      }
-    }
-  };
-}
-
-// src/hooks/phase-reminder/index.ts
-var PHASE_REMINDER = `<reminder>\u26A0\uFE0F MANDATORY: Understand\u2192DELEGATE(! based on each agent rules)\u2192Split-and-Parallelize(?)\u2192Plan\u2192Execute\u2192Verify
-Available Specialist Team: @2-code-search @3-docs-helper @4-architecture-advisor @5-code-fixer @6-ui-designer
-</reminder>`;
-function createPhaseReminderHook() {
-  return {
-    "experimental.chat.messages.transform": async (_input, output) => {
-      const { messages } = output;
-      if (messages.length === 0) {
-        return;
-      }
-      let lastUserMessageIndex = -1;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].info.role === "user") {
-          lastUserMessageIndex = i;
-          break;
-        }
-      }
-      if (lastUserMessageIndex === -1) {
-        return;
-      }
-      const lastUserMessage = messages[lastUserMessageIndex];
-      const agent = lastUserMessage.info.agent;
-      if (agent && agent !== "1-task-manager") {
-        return;
-      }
-      const textPartIndex = lastUserMessage.parts.findIndex(
-        (p) => p.type === "text" && p.text !== void 0
-      );
-      if (textPartIndex === -1) {
-        return;
-      }
-      const originalText = lastUserMessage.parts[textPartIndex].text ?? "";
-      lastUserMessage.parts[textPartIndex].text = `${PHASE_REMINDER}
-
----
-
-${originalText}`;
-    }
-  };
-}
-
-// src/hooks/persistent-autoflow/index.ts
-function createPersistentAutoflowHook(projectDir, manager) {
-  return {
-    onEvent: async (event) => {
-      return handleAutoflowPersistentEvent({
-        projectDir,
-        manager,
-        event
-      });
-    }
-  };
-}
-
-// src/hooks/post-read-nudge/index.ts
-var NUDGE = "\n\n---\nReminder to follow the workflow instructions, consider delegation to specialist(s)";
-function createPostReadNudgeHook() {
-  return {
-    "tool.execute.after": async (input, output) => {
-      if (input.tool !== "Read" && input.tool !== "read") {
-        return;
-      }
-      output.output = output.output + NUDGE;
-    }
-  };
-}
-
-// src/hooks/post-write-simplicity/index.ts
-var NUDGE2 = "\n\n---\nPost-write check: run @7-code-simplicity-reviewer for complexity/comment cleanup before final response.";
-var WRITE_TOOLS = /* @__PURE__ */ new Set([
-  "write",
-  "edit",
-  "multiedit",
-  "ast_grep_replace"
-]);
-function createPostWriteSimplicityHook() {
-  return {
-    "tool.execute.after": async (input, output) => {
-      const tool2 = String(input.tool ?? "").toLowerCase();
-      if (!WRITE_TOOLS.has(tool2)) {
-        return;
-      }
-      output.output = String(output.output ?? "") + NUDGE2;
-    }
-  };
-}
-
-// src/hooks/slash-command-bridge/index.ts
-var BRIDGE_PROMPTS = {
-  "miya-gateway-start": () => "MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text.",
-  miya_gateway_start: () => "MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text.",
-  "miya.gateway.start": () => "MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text.",
-  "miya-gateway-status": () => "MANDATORY: Call tool `miya_gateway_status` exactly once. Return only tool output.",
-  miya_gateway_status: () => "MANDATORY: Call tool `miya_gateway_status` exactly once. Return only tool output.",
-  "miya-ui-open": () => "MANDATORY: Call tool `miya_ui_open` exactly once. Return only tool output.",
-  miya_ui_open: () => "MANDATORY: Call tool `miya_ui_open` exactly once. Return only tool output."
-};
-function extractSlashCommand(text) {
-  const firstLine = text.split(/\r?\n/, 1)[0]?.trim() ?? "";
-  if (!firstLine.startsWith("/")) return null;
-  const body = firstLine.slice(1).trim();
-  if (!body) return null;
-  const [name = "", ...rest] = body.split(/\s+/);
-  if (!name) return null;
-  return {
-    name,
-    argumentsText: rest.join(" ").trim()
-  };
-}
-function findLastUserTextPart2(messages) {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.info.role !== "user") continue;
-    if (message.info.agent && message.info.agent !== "1-task-manager") continue;
-    const textPartIndex = message.parts.findIndex(
-      (part) => part.type === "text" && part.text !== void 0
-    );
-    if (textPartIndex === -1) continue;
-    return { message, textPartIndex };
-  }
-  return null;
-}
-function createSlashCommandBridgeHook() {
-  return {
-    "experimental.chat.messages.transform": async (_input, output) => {
-      const target = findLastUserTextPart2(output.messages);
-      if (!target) return;
-      const originalText = target.message.parts[target.textPartIndex].text ?? "";
-      const slashCommand = extractSlashCommand(originalText);
-      if (!slashCommand) return;
-      const promptFactory = BRIDGE_PROMPTS[slashCommand.name];
-      if (!promptFactory) return;
-      const commandPrompt = promptFactory(slashCommand.argumentsText);
-      target.message.parts[target.textPartIndex].text = `[MIYA COMMAND BRIDGE]
-${commandPrompt}`;
-    }
-  };
-}
-
 // src/safety/index.ts
 var z5 = tool.schema;
-function nowIso32() {
+function nowIso31() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
 function toPermissionRequest(input) {
@@ -53055,7 +54388,9 @@ async function handlePermissionAsk(projectDir, input) {
         verdict: "deny",
         summary: "Evidence token missing or expired."
       },
-      rollback: { strategy: "rerun miya_self_approve before side-effect actions" }
+      rollback: {
+        strategy: "rerun miya_self_approve before side-effect actions"
+      }
     });
     return { status: "deny", reason: "missing_evidence" };
   }
@@ -53083,7 +54418,9 @@ async function handlePermissionAsk(projectDir, input) {
       verdict: "allow",
       summary: "Token satisfied required tier and freshness constraints."
     },
-    rollback: { strategy: "use git checkpoint and kill-switch if execution fails" }
+    rollback: {
+      strategy: "use git checkpoint and kill-switch if execution fails"
+    }
   });
   return { status: "allow", reason: "token_validated" };
 }
@@ -53097,7 +54434,9 @@ function createSafetyTools(ctx) {
   const miya_self_approve = tool({
     description: "Run mandatory self-approval with evidence collection and verifier veto. Generates a short-lived approval token.",
     args: {
-      permission: z5.string().describe("Permission key for the intended side-effect (edit/bash/external_directory)"),
+      permission: z5.string().describe(
+        "Permission key for the intended side-effect (edit/bash/external_directory)"
+      ),
       patterns: z5.array(z5.string()).optional().describe("Expected permission patterns to bind approval token"),
       tier: z5.enum(["LIGHT", "STANDARD", "THOROUGH"]).optional().describe("Requested verification tier"),
       action: z5.string().optional().describe("Human-readable action summary"),
@@ -53165,7 +54504,11 @@ trace_id=${kill.trace_id ?? "n/a"}`;
         }
       });
       if (!allow) {
-        activateKillSwitch(ctx.directory, `self_approval_denied:${reason}`, traceID);
+        activateKillSwitch(
+          ctx.directory,
+          `self_approval_denied:${reason}`,
+          traceID
+        );
       } else {
         saveApprovalToken(ctx.directory, sessionID2, {
           trace_id: traceID,
@@ -53204,7 +54547,9 @@ trace_id=${kill.trace_id ?? "n/a"}`;
       if (actions.length === 0) {
         return "VERDICT=DENY\nreason=empty_bundle_actions";
       }
-      let tier = normalizeTier(typeof args.tier === "string" ? args.tier : void 0);
+      let tier = normalizeTier(
+        typeof args.tier === "string" ? args.tier : void 0
+      );
       const requests = actions.map((item) => ({
         permission: String(item.permission ?? ""),
         patterns: Array.isArray(item.patterns) ? item.patterns.map(String) : [],
@@ -53260,7 +54605,11 @@ trace_id=${kill.trace_id ?? "n/a"}`;
             strategy: rollbackStrategy
           }
         });
-        activateKillSwitch(ctx.directory, `self_approval_denied:${reason}`, traceID);
+        activateKillSwitch(
+          ctx.directory,
+          `self_approval_denied:${reason}`,
+          traceID
+        );
         return formatResult({
           verdict: "deny",
           traceID,
@@ -53339,7 +54688,7 @@ trace_id=${kill.trace_id ?? "n/a"}`;
       return `kill_switch_active=${next.active}
 trace_id=${traceID}
 reason=${next.reason ?? "n/a"}
-activated_at=${next.activated_at ?? nowIso32()}`;
+activated_at=${next.activated_at ?? nowIso31()}`;
     }
   });
   const miya_kill_release = tool({
@@ -53372,19 +54721,80 @@ activated_at=${next.activated_at ?? nowIso32()}`;
   };
 }
 
+// src/sessions/shadow.ts
+import * as fs51 from "node:fs";
+import * as path52 from "node:path";
+var NOISY_TOOLS = /* @__PURE__ */ new Set([
+  "bash",
+  "miya_ralph_loop",
+  "lsp_diagnostics",
+  "grep",
+  "ast_grep_search"
+]);
+function normalizeSessionID3(sessionID2) {
+  const value = String(sessionID2 ?? "main").trim();
+  return value.length > 0 ? value : "main";
+}
+function shouldCaptureTool(tool2) {
+  const normalized = String(tool2 ?? "").trim().toLowerCase();
+  if (normalized.includes("websearch")) return false;
+  return NOISY_TOOLS.has(normalized);
+}
+function nowIso32() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function shadowFile(projectDir, sessionID2) {
+  return path52.join(
+    getMiyaRuntimeDir(projectDir),
+    "shadow-sessions",
+    `${normalizeSessionID3(sessionID2)}.jsonl`
+  );
+}
+function shouldRouteToShadowSession(input) {
+  const tool2 = String(input.tool ?? "").trim();
+  if (tool2.toLowerCase().includes("websearch")) return false;
+  const output = String(input.output ?? "");
+  if (output.length >= 2400) return true;
+  if (shouldCaptureTool(tool2) && output.length >= 800) return true;
+  return false;
+}
+function appendShadowSessionLog(input) {
+  const file3 = shadowFile(
+    input.projectDir,
+    normalizeSessionID3(input.sessionID)
+  );
+  fs51.mkdirSync(path52.dirname(file3), { recursive: true });
+  const row = {
+    at: nowIso32(),
+    tool: String(input.tool ?? "").trim() || "unknown",
+    callID: input.callID,
+    outputChars: String(input.output ?? "").length,
+    output: String(input.output ?? "")
+  };
+  fs51.appendFileSync(file3, `${JSON.stringify(row)}
+`, "utf-8");
+  return file3;
+}
+
 // src/tools/ast-grep/cli.ts
-import { existsSync as existsSync47 } from "node:fs";
+import { existsSync as existsSync48 } from "node:fs";
 
 // src/tools/ast-grep/constants.ts
-import { existsSync as existsSync46, statSync as statSync3 } from "node:fs";
+import { existsSync as existsSync47, statSync as statSync3 } from "node:fs";
 import { createRequire as createRequire3 } from "node:module";
-import { dirname as dirname36, join as join51 } from "node:path";
+import { dirname as dirname36, join as join52 } from "node:path";
 
 // src/tools/ast-grep/downloader.ts
-import { chmodSync, existsSync as existsSync45, mkdirSync as mkdirSync42, promises as fsPromises, unlinkSync as unlinkSync4 } from "node:fs";
+import {
+  chmodSync,
+  existsSync as existsSync46,
+  promises as fsPromises,
+  mkdirSync as mkdirSync43,
+  unlinkSync as unlinkSync4
+} from "node:fs";
 import { createRequire as createRequire2 } from "node:module";
 import { homedir as homedir8 } from "node:os";
-import { join as join50 } from "node:path";
+import { join as join51 } from "node:path";
 var REPO = "ast-grep/ast-grep";
 var DEFAULT_VERSION = "0.40.0";
 function getAstGrepVersion() {
@@ -53408,33 +54818,31 @@ var PLATFORM_MAP = {
 function getCacheDir() {
   if (process.platform === "win32") {
     const localAppData = process.env.LOCALAPPDATA || process.env.APPDATA;
-    const base2 = localAppData || join50(homedir8(), "AppData", "Local");
-    return join50(base2, "miya", "bin");
+    const base2 = localAppData || join51(homedir8(), "AppData", "Local");
+    return join51(base2, "miya", "bin");
   }
   const xdgCache = process.env.XDG_CACHE_HOME;
-  const base = xdgCache || join50(homedir8(), ".cache");
-  return join50(base, "miya", "bin");
+  const base = xdgCache || join51(homedir8(), ".cache");
+  return join51(base, "miya", "bin");
 }
 function getBinaryName() {
   return process.platform === "win32" ? "sg.exe" : "sg";
 }
 function getCachedBinaryPath() {
-  const binaryPath = join50(getCacheDir(), getBinaryName());
-  return existsSync45(binaryPath) ? binaryPath : null;
+  const binaryPath = join51(getCacheDir(), getBinaryName());
+  return existsSync46(binaryPath) ? binaryPath : null;
 }
 async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   const platformKey = `${process.platform}-${process.arch}`;
   const platformInfo = PLATFORM_MAP[platformKey];
   if (!platformInfo) {
-    console.error(
-      `[miya] Unsupported platform for ast-grep: ${platformKey}`
-    );
+    console.error(`[miya] Unsupported platform for ast-grep: ${platformKey}`);
     return null;
   }
   const cacheDir = getCacheDir();
   const binaryName = getBinaryName();
-  const binaryPath = join50(cacheDir, binaryName);
-  if (existsSync45(binaryPath)) {
+  const binaryPath = join51(cacheDir, binaryName);
+  if (existsSync46(binaryPath)) {
     return binaryPath;
   }
   const { arch, os: os10 } = platformInfo;
@@ -53442,21 +54850,21 @@ async function downloadAstGrep(version3 = DEFAULT_VERSION) {
   const downloadUrl = `https://github.com/${REPO}/releases/download/${version3}/${assetName}`;
   console.log("[miya] Downloading ast-grep binary...");
   try {
-    if (!existsSync45(cacheDir)) {
-      mkdirSync42(cacheDir, { recursive: true });
+    if (!existsSync46(cacheDir)) {
+      mkdirSync43(cacheDir, { recursive: true });
     }
     const response = await fetch(downloadUrl, { redirect: "follow" });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
-    const archivePath = join50(cacheDir, assetName);
+    const archivePath = join51(cacheDir, assetName);
     const arrayBuffer = await response.arrayBuffer();
     await fsPromises.writeFile(archivePath, Buffer.from(arrayBuffer));
     await extractZip(archivePath, cacheDir);
-    if (existsSync45(archivePath)) {
+    if (existsSync46(archivePath)) {
       unlinkSync4(archivePath);
     }
-    if (process.platform !== "win32" && existsSync45(binaryPath)) {
+    if (process.platform !== "win32" && existsSync46(binaryPath)) {
       chmodSync(binaryPath, 493);
     }
     console.log("[miya] ast-grep binary ready.");
@@ -53540,8 +54948,8 @@ function findSgCliPathSync() {
     const require3 = createRequire3(import.meta.url);
     const cliPkgPath = require3.resolve("@ast-grep/cli/package.json");
     const cliDir = dirname36(cliPkgPath);
-    const sgPath = join51(cliDir, binaryName);
-    if (existsSync46(sgPath) && isValidBinary(sgPath)) {
+    const sgPath = join52(cliDir, binaryName);
+    if (existsSync47(sgPath) && isValidBinary(sgPath)) {
       return sgPath;
     }
   } catch {
@@ -53553,8 +54961,8 @@ function findSgCliPathSync() {
       const pkgPath = require3.resolve(`${platformPkg}/package.json`);
       const pkgDir = dirname36(pkgPath);
       const astGrepName = process.platform === "win32" ? "ast-grep.exe" : "ast-grep";
-      const binaryPath = join51(pkgDir, astGrepName);
-      if (existsSync46(binaryPath) && isValidBinary(binaryPath)) {
+      const binaryPath = join52(pkgDir, astGrepName);
+      if (existsSync47(binaryPath) && isValidBinary(binaryPath)) {
         return binaryPath;
       }
     } catch {
@@ -53562,9 +54970,9 @@ function findSgCliPathSync() {
   }
   if (process.platform === "darwin") {
     const homebrewPaths = ["/opt/homebrew/bin/sg", "/usr/local/bin/sg"];
-    for (const path54 of homebrewPaths) {
-      if (existsSync46(path54) && isValidBinary(path54)) {
-        return path54;
+    for (const path55 of homebrewPaths) {
+      if (existsSync47(path55) && isValidBinary(path55)) {
+        return path55;
       }
     }
   }
@@ -53581,8 +54989,8 @@ function getSgCliPath() {
   }
   return "sg";
 }
-function setSgCliPath(path54) {
-  resolvedCliPath = path54;
+function setSgCliPath(path55) {
+  resolvedCliPath = path55;
 }
 var DEFAULT_TIMEOUT_MS3 = 3e5;
 var DEFAULT_MAX_OUTPUT_BYTES = 1 * 1024 * 1024;
@@ -53592,7 +55000,7 @@ var DEFAULT_MAX_MATCHES = 500;
 var initPromise = null;
 async function getAstGrepPath() {
   const currentPath = getSgCliPath();
-  if (currentPath !== "sg" && existsSync47(currentPath)) {
+  if (currentPath !== "sg" && existsSync48(currentPath)) {
     return currentPath;
   }
   if (initPromise) {
@@ -53600,7 +55008,7 @@ async function getAstGrepPath() {
   }
   initPromise = (async () => {
     const syncPath = findSgCliPathSync();
-    if (syncPath && existsSync47(syncPath)) {
+    if (syncPath && existsSync48(syncPath)) {
       setSgCliPath(syncPath);
       return syncPath;
     }
@@ -53639,7 +55047,7 @@ async function runSg(options) {
   const paths = options.paths && options.paths.length > 0 ? options.paths : ["."];
   args.push(...paths);
   let cliPath = getSgCliPath();
-  if (!existsSync47(cliPath) && cliPath !== "sg") {
+  if (!existsSync48(cliPath) && cliPath !== "sg") {
     const downloadedPath = await getAstGrepPath();
     if (downloadedPath) {
       cliPath = downloadedPath;
@@ -53921,684 +55329,527 @@ var ast_grep_replace = tool({
   }
 });
 
-// src/tools/background.ts
+// src/tools/autoflow.ts
 var z6 = tool.schema;
-function createBackgroundTools(_ctx, manager, _tmuxConfig, _pluginConfig) {
-  const agentNames = SUBAGENT_NAMES.join(", ");
-  const background_task = tool({
-    description: `Launch background agent task. Returns task_id immediately.
-
-Flow: launch \u2192 wait for automatic notification when complete.
-
-Key behaviors:
-- Fire-and-forget: returns task_id in ~1ms
-- Parallel: up to 10 concurrent tasks
-- Auto-notify: parent session receives result when task completes`,
-    args: {
-      description: z6.string().describe("Short description of the task (5-10 words)"),
-      prompt: z6.string().describe("The task prompt for the agent"),
-      agent: z6.string().describe(`Agent to use: ${agentNames}`)
-    },
-    async execute(args, toolContext) {
-      if (!toolContext || typeof toolContext !== "object" || !("sessionID" in toolContext)) {
-        throw new Error("Invalid toolContext: missing sessionID");
-      }
-      const agent = String(args.agent);
-      const prompt = String(args.prompt);
-      const description = String(args.description);
-      const parentSessionId = toolContext.sessionID;
-      if (!manager.isAgentAllowed(parentSessionId, agent)) {
-        const allowed = manager.getAllowedSubagents(parentSessionId);
-        return `Agent '${agent}' is not allowed. Allowed agents: ${allowed.join(", ")}`;
-      }
-      const task = manager.launch({
+function getSessionID(ctx) {
+  if (ctx && typeof ctx === "object" && "sessionID" in ctx) {
+    return String(ctx.sessionID ?? "main");
+  }
+  return "main";
+}
+function formatStateSummary(state2) {
+  return [
+    `session=${state2.sessionID}`,
+    `phase=${state2.phase}`,
+    `goal=${state2.goal || "(empty)"}`,
+    `tasks=${state2.planTasks.length}`,
+    `fix_round=${state2.fixRound}/${state2.maxFixRounds}`,
+    `verification_command=${state2.verificationCommand ?? "(none)"}`,
+    `fix_commands=${state2.fixCommands.length}`,
+    `last_error=${state2.lastError ?? "(none)"}`,
+    `recent_verification_fingerprints=${state2.recentVerificationHashes.length}`,
+    `history=${state2.history.length}`
+  ];
+}
+function formatPersistentSummary(projectDir, sessionID2) {
+  const config3 = readAutoflowPersistentConfig(projectDir);
+  const runtime = getAutoflowPersistentRuntimeSnapshot(projectDir, 200).find(
+    (item) => item.sessionID === sessionID2
+  );
+  return [
+    `persistent_enabled=${config3.enabled}`,
+    `persistent_resume_cooldown_ms=${config3.resumeCooldownMs}`,
+    `persistent_max_auto_resumes=${config3.maxAutoResumes}`,
+    `persistent_max_resume_failures=${config3.maxConsecutiveResumeFailures}`,
+    `persistent_resume_timeout_ms=${config3.resumeTimeoutMs}`,
+    `persistent_resume_attempts=${runtime?.resumeAttempts ?? 0}`,
+    `persistent_resume_failures=${runtime?.resumeFailures ?? 0}`,
+    `persistent_user_stopped=${runtime?.userStopped ?? false}`,
+    `persistent_last_outcome_phase=${runtime?.lastOutcomePhase ?? "(none)"}`
+  ];
+}
+function parseFixSteps(input) {
+  if (!Array.isArray(input)) return void 0;
+  const steps = [];
+  input.forEach((item, index) => {
+    if (!item || typeof item !== "object") return;
+    const row = item;
+    const id = typeof row.id === "string" && row.id.trim().length > 0 ? row.id.trim() : `fix_step_${index + 1}`;
+    if (row.type === "command") {
+      const command = typeof row.command === "string" ? row.command.trim() : "";
+      if (!command) return;
+      steps.push({
+        id,
+        type: "command",
+        command,
+        description: typeof row.description === "string" && row.description.trim().length > 0 ? row.description.trim() : void 0
+      });
+      return;
+    }
+    if (row.type === "agent_task") {
+      const agent = typeof row.agent === "string" ? row.agent.trim() : "";
+      const prompt = typeof row.prompt === "string" ? row.prompt.trim() : "";
+      const description = typeof row.description === "string" ? row.description.trim() : "";
+      if (!agent || !prompt || !description) return;
+      steps.push({
+        id,
+        type: "agent_task",
         agent,
         prompt,
         description,
-        parentSessionId
+        timeoutMs: typeof row.timeoutMs === "number" ? Number(row.timeoutMs) : void 0,
+        maxRetries: typeof row.maxRetries === "number" ? Number(row.maxRetries) : void 0
       });
-      return `Background task launched.
-
-Task ID: ${task.id}
-Agent: ${agent}
-Status: ${task.status}
-
-Use \`background_output\` with task_id="${task.id}" to get results.`;
     }
   });
-  const background_output = tool({
-    description: `Get background task results after completion notification received.
-
-timeout=0: returns status immediately (no wait)
-timeout=N: waits up to N ms for completion
-
-Returns: results if completed, error if failed, status if running.`,
-    args: {
-      task_id: z6.string().describe("Task ID from background_task"),
-      timeout: z6.number().optional().describe("Wait for completion (in ms, 0=no wait, default: 0)")
-    },
-    async execute(args) {
-      const taskId = String(args.task_id);
-      const timeout = typeof args.timeout === "number" && args.timeout > 0 ? args.timeout : 0;
-      let task = manager.getResult(taskId);
-      if (task && timeout > 0 && task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-        task = await manager.waitForCompletion(taskId, timeout);
-      }
-      if (!task) {
-        return `Task not found: ${taskId}`;
-      }
-      const duration5 = task.completedAt ? `${Math.floor((task.completedAt.getTime() - task.startedAt.getTime()) / 1e3)}s` : `${Math.floor((Date.now() - task.startedAt.getTime()) / 1e3)}s`;
-      let output = `Task: ${task.id}
- Description: ${task.description}
- Status: ${task.status}
- Duration: ${duration5}
-
- ---
-
- `;
-      if (task.status === "completed" && task.result != null) {
-        output += task.result;
-      } else if (task.status === "failed") {
-        output += `Error: ${task.error}`;
-      } else if (task.status === "cancelled") {
-        output += "(Task cancelled)";
-      } else {
-        output += "(Task still running)";
-      }
-      return output;
-    }
-  });
-  const background_cancel = tool({
-    description: `Cancel background task(s).
-
-task_id: cancel specific task
-all=true: cancel all running tasks
-
-Only cancels pending/starting/running tasks.`,
-    args: {
-      task_id: z6.string().optional().describe("Specific task to cancel"),
-      all: z6.boolean().optional().describe("Cancel all running tasks")
-    },
-    async execute(args) {
-      if (args.all === true) {
-        const count = manager.cancel();
-        return `Cancelled ${count} task(s).`;
-      }
-      if (typeof args.task_id === "string") {
-        const count = manager.cancel(args.task_id);
-        return count > 0 ? `Cancelled task ${args.task_id}.` : `Task ${args.task_id} not found or not running.`;
-      }
-      return "Specify task_id or use all=true.";
-    }
-  });
-  return { background_task, background_output, background_cancel };
+  return steps;
 }
-
-// src/node/service.ts
-var NodeService = class {
-  projectDir;
-  constructor(projectDir) {
-    this.projectDir = projectDir;
-  }
-  register(input) {
-    return registerNode(this.projectDir, input);
-  }
-  touchHeartbeat(nodeID) {
-    return touchNodeHeartbeat(this.projectDir, nodeID);
-  }
-  disconnect(nodeID) {
-    markNodeDisconnected(this.projectDir, nodeID);
-  }
-  list() {
-    return listNodes(this.projectDir);
-  }
-  listDevices() {
-    return listDevices(this.projectDir);
-  }
-  describe(nodeID) {
-    return describeNode(this.projectDir, nodeID);
-  }
-  issueToken(nodeID) {
-    return issueNodeToken(this.projectDir, nodeID);
-  }
-  createPairRequest(input) {
-    return createNodePairRequest(this.projectDir, input);
-  }
-  listPairRequests(status) {
-    return listNodePairs(this.projectDir, status);
-  }
-  resolvePairRequest(pairID, status) {
-    return resolveNodePair(this.projectDir, pairID, status);
-  }
-  createInvoke(input) {
-    return createInvokeRequest(this.projectDir, input);
-  }
-  markInvokeSent(invokeID) {
-    return markInvokeSent(this.projectDir, invokeID);
-  }
-  resolveInvoke(invokeID, input) {
-    return resolveInvokeResult(this.projectDir, invokeID, input);
-  }
-  listInvokes(limit = 50) {
-    return listInvokeRequests(this.projectDir, limit);
-  }
-};
-
-// src/node/index.ts
-var nodeServices = /* @__PURE__ */ new Map();
-function getNodeService(projectDir) {
-  const existing = nodeServices.get(projectDir);
-  if (existing) return existing;
-  const created = new NodeService(projectDir);
-  nodeServices.set(projectDir, created);
-  return created;
-}
-
-// src/tools/nodes.ts
-var z7 = tool.schema;
-function createNodeTools(projectDir) {
-  const nodeService = getNodeService(projectDir);
-  const miya_node_register = tool({
-    description: "Register or update a Miya node record.",
+function createAutoflowTools(projectDir, manager) {
+  const miya_autoflow = tool({
+    description: "Persistent autonomous workflow: parallel task execution + verification + iterative fixes until success or hard stop.",
     args: {
-      node_id: z7.string().describe("Node identifier"),
-      device_id: z7.string().describe("Device identifier"),
-      platform: z7.string().optional().describe("Platform name"),
-      type: z7.enum(["cli", "desktop", "mobile", "browser"]).optional().describe("Node runtime type"),
-      capabilities: z7.array(z7.string()).optional().describe("Capability list exposed by this node"),
-      token: z7.string().optional().describe("Optional node token for registration"),
-      permissions: z7.object({
-        screenRecording: z7.boolean().optional(),
-        accessibility: z7.boolean().optional(),
-        filesystem: z7.enum(["none", "read", "full"]).optional(),
-        network: z7.boolean().optional()
-      }).optional().describe("Permission mapping metadata")
+      mode: z6.enum(["start", "run", "status", "stop"]).default("run").describe(
+        "start configures plan, run executes loop, status inspects, stop halts session"
+      ),
+      session_id: z6.string().optional().describe("Target session id (default current session)"),
+      goal: z6.string().optional().describe("Workflow goal summary"),
+      tasks: z6.array(
+        z6.object({
+          id: z6.string().optional(),
+          agent: z6.string(),
+          prompt: z6.string(),
+          description: z6.string(),
+          dependsOn: z6.array(z6.string()).optional(),
+          timeoutMs: z6.number().optional(),
+          maxRetries: z6.number().optional()
+        })
+      ).optional().describe("Planned DAG tasks"),
+      verification_command: z6.string().optional().describe("Verification command after execution"),
+      fix_commands: z6.array(z6.string()).optional().describe(
+        "Fix commands executed round-by-round when verification fails"
+      ),
+      fix_steps: z6.array(
+        z6.object({
+          id: z6.string().optional(),
+          type: z6.enum(["command", "agent_task"]),
+          command: z6.string().optional(),
+          agent: z6.string().optional(),
+          prompt: z6.string().optional(),
+          description: z6.string().optional(),
+          timeoutMs: z6.number().optional(),
+          maxRetries: z6.number().optional()
+        })
+      ).optional().describe(
+        "Structured fix steps; supports command or agent_task per round"
+      ),
+      max_fix_rounds: z6.number().optional().describe("Maximum verification-fix rounds"),
+      max_parallel: z6.number().optional().describe("DAG worker concurrency"),
+      timeout_ms: z6.number().optional().describe("Shell command timeout"),
+      working_directory: z6.string().optional().describe("Shell command cwd"),
+      force_restart: z6.boolean().optional().describe("Reset finished/failed state and rerun from planning"),
+      persistent_enabled: z6.boolean().optional().describe("Enable/disable non-user stop auto resume"),
+      persistent_resume_cooldown_ms: z6.number().optional(),
+      persistent_max_auto_resumes: z6.number().optional(),
+      persistent_max_resume_failures: z6.number().optional(),
+      persistent_resume_timeout_ms: z6.number().optional()
     },
-    async execute(args) {
-      const capabilities = Array.isArray(args.capabilities) ? args.capabilities.map(String) : [];
-      if (args.permissions && typeof args.permissions === "object") {
-        const p = args.permissions;
-        if (p.screenRecording) capabilities.push("perm.screenRecording");
-        if (p.accessibility) capabilities.push("perm.accessibility");
-        if (p.network) capabilities.push("perm.network");
-        if (p.filesystem) capabilities.push(`perm.filesystem.${p.filesystem}`);
-      }
-      const node = nodeService.register({
-        nodeID: String(args.node_id),
-        deviceID: String(args.device_id),
-        type: args.type,
-        platform: args.platform ? String(args.platform) : process.platform,
-        capabilities: [...new Set(capabilities)],
-        token: args.token ? String(args.token) : void 0,
-        permissions: args.permissions && typeof args.permissions === "object" ? args.permissions : void 0
-      });
-      return [
-        `node_id=${node.nodeID}`,
-        `device_id=${node.deviceID}`,
-        `type=${node.type}`,
-        `platform=${node.platform}`,
-        `status=${node.status}`,
-        `connected=${node.connected}`,
-        `paired=${node.paired}`,
-        `permissions=${JSON.stringify(node.permissions)}`,
-        `last_heartbeat=${node.lastHeartbeatAt}`,
-        `capabilities=${node.capabilities.join(",")}`
-      ].join("\n");
-    }
-  });
-  const miya_node_status = tool({
-    description: "Show node status summary, or details for a specific node id when provided.",
-    args: {
-      node_id: z7.string().optional().describe("Optional node identifier")
-    },
-    async execute(args) {
-      const nodeID = args.node_id ? String(args.node_id) : "";
-      if (nodeID) {
-        const node = nodeService.describe(nodeID);
-        if (!node) return `node_not_found=${nodeID}`;
+    async execute(args, ctx) {
+      const sessionID2 = typeof args.session_id === "string" && args.session_id.trim().length > 0 ? args.session_id.trim() : getSessionID(ctx);
+      const mode = String(args.mode ?? "run");
+      if (mode === "status") {
+        const state2 = getAutoflowSession(projectDir, sessionID2);
         return [
-          `node_id=${node.nodeID}`,
-          `device_id=${node.deviceID}`,
-          `type=${node.type}`,
-          `status=${node.status}`,
-          `connected=${node.connected}`,
-          `paired=${node.paired}`,
-          `permissions=${JSON.stringify(node.permissions)}`,
-          `last_heartbeat=${node.lastHeartbeatAt}`,
-          `last_seen=${node.lastSeenAt}`,
-          `capabilities=${node.capabilities.join(",")}`
+          ...formatStateSummary(state2),
+          ...formatPersistentSummary(projectDir, sessionID2)
         ].join("\n");
       }
-      const nodes = nodeService.list();
-      const pending = nodeService.listPairRequests("pending").length;
-      return [
-        `nodes_total=${nodes.length}`,
-        `nodes_connected=${nodes.filter((item) => item.connected).length}`,
-        `nodes_online=${nodes.filter((item) => item.status === "online").length}`,
-        `nodes_paired=${nodes.filter((item) => item.paired).length}`,
-        `nodes_pending_pairs=${pending}`
-      ].join("\n");
-    }
-  });
-  const miya_node_heartbeat = tool({
-    description: "Update node heartbeat timestamp and mark it online.",
-    args: {
-      node_id: z7.string().describe("Node identifier")
-    },
-    async execute(args) {
-      const nodeID = String(args.node_id);
-      const node = nodeService.touchHeartbeat(nodeID);
-      if (!node) return `node_not_found=${nodeID}`;
-      return [
-        `node_id=${node.nodeID}`,
-        `status=${node.status}`,
-        `last_heartbeat=${node.lastHeartbeatAt}`
-      ].join("\n");
-    }
-  });
-  const miya_node_issue_token = tool({
-    description: "Issue or rotate node token for a node. Return token once; store hash only.",
-    args: {
-      node_id: z7.string().describe("Node identifier")
-    },
-    async execute(args) {
-      const nodeID = String(args.node_id);
-      const issued = nodeService.issueToken(nodeID);
-      if (!issued) return `node_not_found=${nodeID}`;
-      return [
-        `node_id=${issued.nodeID}`,
-        `token=${issued.token}`,
-        `issued_at=${issued.issuedAt}`
-      ].join("\n");
-    }
-  });
-  return {
-    miya_node_register,
-    miya_node_status,
-    miya_node_heartbeat,
-    miya_node_issue_token
-  };
-}
-
-// src/ralph/error-analyzer.ts
-function analyzeFailure(output) {
-  const text = output.toLowerCase();
-  if (text.includes("cannot find module") || text.includes("module not found") || text.includes("command not found") || text.includes("is not recognized as an internal or external command")) {
-    return {
-      kind: "dependency_missing",
-      summary: "Dependencies or required binaries are missing.",
-      suggestedFixes: ["npm install", "check PATH and tool installation"]
-    };
-  }
-  if (text.includes("ts2339") || text.includes("type error") || text.includes("typescript")) {
-    return {
-      kind: "type_error",
-      summary: "Type checking failed.",
-      suggestedFixes: ["fix reported TypeScript diagnostics", "run npm run typecheck"]
-    };
-  }
-  if (text.includes("eslint") || text.includes("biome") || text.includes("lint")) {
-    return {
-      kind: "lint_error",
-      summary: "Lint checks failed.",
-      suggestedFixes: ["run npm run lint", "apply formatter and lint fixes"]
-    };
-  }
-  if (text.includes("test failed") || text.includes("failing") || text.includes("assert") || text.includes("expect(")) {
-    return {
-      kind: "test_failure",
-      summary: "Verification tests failed.",
-      suggestedFixes: ["inspect failing test output", "fix logic and rerun tests"]
-    };
-  }
-  if (text.includes("permission denied") || text.includes("eacces")) {
-    return {
-      kind: "permission_denied",
-      summary: "Execution failed due to permission restrictions.",
-      suggestedFixes: ["adjust permissions", "run in allowed directory/context"]
-    };
-  }
-  if (text.includes("timed out") || text.includes("timeout")) {
-    return {
-      kind: "timeout",
-      summary: "Command hit timeout before completion.",
-      suggestedFixes: ["increase timeout", "split the task into smaller steps"]
-    };
-  }
-  return {
-    kind: "unknown",
-    summary: "Verification failed with an unclassified error.",
-    suggestedFixes: ["inspect stdout/stderr and add a targeted fix command"]
-  };
-}
-
-// src/ralph/loop.ts
-import { createHash as createHash16 } from "node:crypto";
-function hashText4(input) {
-  return createHash16("sha256").update(input).digest("hex").slice(0, 16);
-}
-function normalize2(text) {
-  return text.replace(/\s+/g, " ").trim().toLowerCase();
-}
-function levenshteinDistance(a, b) {
-  if (a === b) return 0;
-  const m = a.length;
-  const n = b.length;
-  if (m === 0) return n;
-  if (n === 0) return m;
-  const dp = new Array(n + 1);
-  for (let j = 0; j <= n; j += 1) dp[j] = j;
-  for (let i = 1; i <= m; i += 1) {
-    let prev = dp[0];
-    dp[0] = i;
-    for (let j = 1; j <= n; j += 1) {
-      const temp = dp[j];
-      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
-      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + cost);
-      prev = temp;
-    }
-  }
-  return dp[n];
-}
-function similarity(a, b) {
-  const left = normalize2(a);
-  const right = normalize2(b);
-  if (!left && !right) return 1;
-  if (!left || !right) return 0;
-  const maxLen = Math.max(left.length, right.length);
-  if (maxLen === 0) return 1;
-  return 1 - levenshteinDistance(left, right) / maxLen;
-}
-function parseChangedLineKeys(diffText) {
-  const keys = [];
-  const lines = diffText.split(/\r?\n/);
-  let currentFile = "";
-  for (const line of lines) {
-    if (line.startsWith("+++ b/")) {
-      currentFile = line.slice("+++ b/".length);
-      continue;
-    }
-    if (!line.startsWith("@@") || !currentFile) continue;
-    const match = /@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (!match) continue;
-    const start = Number(match[1]);
-    const count = Number(match[2] ?? "1");
-    const end = start + Math.max(1, count) - 1;
-    for (let lineNumber = start; lineNumber <= end; lineNumber += 1) {
-      keys.push(`${currentFile}:${lineNumber}`);
-    }
-  }
-  return keys;
-}
-function defaultReadDiff(cwd) {
-  const proc = runProcessSync("git", ["diff", "--unified=0"], {
-    cwd
-  });
-  if (proc.exitCode !== 0) return "";
-  return proc.stdout;
-}
-function runCommand3(command, timeoutMs, cwd) {
-  const start = Date.now();
-  const shellArgs = process.platform === "win32" ? ["powershell", "-NoProfile", "-Command", command] : ["sh", "-lc", command];
-  const proc = runProcessSync(shellArgs[0], shellArgs.slice(1), {
-    cwd,
-    timeout: Math.max(1e3, Math.min(timeoutMs, 10 * 60 * 1e3))
-  });
-  return {
-    command,
-    ok: proc.exitCode === 0 && !proc.timedOut,
-    exitCode: proc.exitCode,
-    stdout: proc.stdout,
-    stderr: proc.stderr,
-    durationMs: Date.now() - start
-  };
-}
-function renderFixCommand(template, input) {
-  const stderrTrimmed = input.stderr.trim();
-  const stdoutTrimmed = input.stdout.trim();
-  return template.replaceAll("{{ITERATION}}", String(input.iteration)).replaceAll("{{FAILURE_SUMMARY}}", input.failureSummary).replaceAll("{{LAST_STDERR}}", stderrTrimmed).replaceAll("{{LAST_STDOUT}}", stdoutTrimmed).replaceAll("{{LAST_ERROR}}", stderrTrimmed || stdoutTrimmed || input.failureSummary);
-}
-function pushAttempt(attempts, iteration, type, result) {
-  const attempt = { iteration, type, result };
-  attempts.push(attempt);
-  return attempt;
-}
-function executeRalphLoop(input) {
-  const attempts = [];
-  const maxIterations = Math.max(1, Math.min(input.maxIterations, 30));
-  const budgetMs = Math.max(2e3, Math.min(input.budgetMs ?? 5 * 60 * 1e3, 30 * 60 * 1e3));
-  const stallWindow = Math.max(2, Math.min(input.stallWindow ?? 3, 10));
-  const errorSimilarityThreshold = Math.max(
-    0.5,
-    Math.min(input.errorSimilarityThreshold ?? 0.9, 1)
-  );
-  const sameLineTouchLimit = Math.max(2, Math.min(input.sameLineTouchLimit ?? 5, 30));
-  const run = input.runCommand ?? runCommand3;
-  const readDiff = input.readDiff ?? defaultReadDiff;
-  const fixQueue = [...input.fixCommands ?? []];
-  const lineTouchCounts = /* @__PURE__ */ new Map();
-  const fingerprints = /* @__PURE__ */ new Set();
-  const recentVerifyAttempts = [];
-  const startedAt = Date.now();
-  let taskRan = false;
-  let finalVerification;
-  for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
-    if (Date.now() - startedAt > budgetMs) {
-      return {
-        success: false,
-        iterations: iteration - 1,
-        attempts,
-        summary: `Loop stopped because time budget was exceeded (${budgetMs} ms).`,
-        finalVerification,
-        reason: "budget_exceeded"
-      };
-    }
-    if (!taskRan && input.taskCommand) {
-      const taskResult = run(input.taskCommand, input.timeoutMs, input.workingDirectory);
-      pushAttempt(attempts, iteration, "task", taskResult);
-      taskRan = true;
-    }
-    const verifyResult = run(
-      input.verificationCommand,
-      input.timeoutMs,
-      input.workingDirectory
-    );
-    finalVerification = verifyResult;
-    const verifyAttempt = pushAttempt(attempts, iteration, "verify", verifyResult);
-    if (verifyResult.ok) {
-      return {
-        success: true,
-        iterations: iteration,
-        attempts,
-        summary: `Verification passed at iteration ${iteration}.`,
-        finalVerification,
-        reason: "verified"
-      };
-    }
-    const failure = analyzeFailure(`${verifyResult.stdout}
-${verifyResult.stderr}`);
-    verifyAttempt.failureKind = failure.kind;
-    verifyAttempt.failureSummary = failure.summary;
-    verifyAttempt.stderrHash = hashText4(verifyResult.stderr || verifyResult.stdout);
-    const diffText = readDiff(input.workingDirectory);
-    verifyAttempt.diffHash = hashText4(diffText);
-    const fingerprint = hashText4(
-      [
-        verifyAttempt.stderrHash,
-        verifyAttempt.diffHash,
-        failure.kind
-      ].join("|")
-    );
-    verifyAttempt.fingerprint = fingerprint;
-    if (fingerprints.has(fingerprint)) {
-      return {
-        success: false,
-        iterations: iteration,
-        attempts,
-        summary: `Loop cycle detected at iteration ${iteration}; fingerprint repeated.`,
-        finalVerification,
-        reason: "cycle_detected"
-      };
-    }
-    fingerprints.add(fingerprint);
-    const changedLineKeys = parseChangedLineKeys(diffText);
-    let maxTouches = 0;
-    for (const key of changedLineKeys) {
-      const next = (lineTouchCounts.get(key) ?? 0) + 1;
-      lineTouchCounts.set(key, next);
-      if (next > maxTouches) maxTouches = next;
-    }
-    if (maxTouches >= sameLineTouchLimit) {
-      return {
-        success: false,
-        iterations: iteration,
-        attempts,
-        summary: `Loop stopped due to same-line churn (>= ${sameLineTouchLimit}).`,
-        finalVerification,
-        reason: "same_line_churn"
-      };
-    }
-    if (recentVerifyAttempts.length > 0) {
-      const previous = recentVerifyAttempts[recentVerifyAttempts.length - 1];
-      const score = similarity(
-        `${previous.result.stdout}
-${previous.result.stderr}`,
-        `${verifyResult.stdout}
-${verifyResult.stderr}`
-      );
-      verifyAttempt.errorSimilarity = score;
-      const noProgress = score >= errorSimilarityThreshold && previous.failureKind === verifyAttempt.failureKind && previous.diffHash === verifyAttempt.diffHash;
-      verifyAttempt.noProgress = noProgress;
-    } else {
-      verifyAttempt.errorSimilarity = 0;
-      verifyAttempt.noProgress = false;
-    }
-    recentVerifyAttempts.push(verifyAttempt);
-    if (recentVerifyAttempts.length > stallWindow) {
-      recentVerifyAttempts.shift();
-    }
-    const stalled = recentVerifyAttempts.length >= stallWindow && recentVerifyAttempts.every((attempt) => attempt.noProgress);
-    if (stalled) {
-      return {
-        success: false,
-        iterations: iteration,
-        attempts,
-        summary: `Loop stalled: ${stallWindow} consecutive no-progress iterations.`,
-        finalVerification,
-        reason: "no_progress"
-      };
-    }
-    const nextFixTemplate = fixQueue.shift();
-    const nextFix = nextFixTemplate ? renderFixCommand(nextFixTemplate, {
-      iteration,
-      failureSummary: failure.summary,
-      stderr: verifyResult.stderr,
-      stdout: verifyResult.stdout
-    }) : "";
-    if (!nextFix) {
-      return {
-        success: false,
-        iterations: iteration,
-        attempts,
-        summary: `Verification failed and no fix command remained. Last issue: ${failure.summary}`,
-        finalVerification,
-        reason: "no_fix_command"
-      };
-    }
-    const fixResult = run(nextFix, input.timeoutMs, input.workingDirectory);
-    pushAttempt(attempts, iteration, "fix", fixResult);
-  }
-  return {
-    success: false,
-    iterations: maxIterations,
-    attempts,
-    summary: "Verification did not pass before reaching max iterations.",
-    finalVerification,
-    reason: "max_iterations_reached"
-  };
-}
-
-// src/tools/ralph.ts
-var z8 = tool.schema;
-function createRalphTools(projectDir) {
-  const miya_ralph_loop = tool({
-    description: "Execute a verification-driven self-correction loop with optional task and fix commands.",
-    args: {
-      task_description: z8.string().describe("Human-readable task objective"),
-      verification_command: z8.string().describe("Command used to verify success"),
-      max_iterations: z8.number().default(8),
-      max_retries: z8.number().optional().describe("Alias of max_iterations for retry-oriented workflows"),
-      timeout_ms: z8.number().default(6e4),
-      budget_ms: z8.number().optional().describe("Total loop time budget. Stops once exceeded."),
-      stall_window: z8.number().default(3).describe("Consecutive no-progress window before loop stops"),
-      error_similarity_threshold: z8.number().default(0.9).describe("Error similarity threshold used by stall detection"),
-      same_line_touch_limit: z8.number().default(5).describe("Stop when same line keeps churning above this limit"),
-      task_command: z8.string().optional().describe("Optional command to execute the task before verification"),
-      fix_commands: z8.array(z8.string()).optional().describe("Ordered fix commands executed when verification fails"),
-      working_directory: z8.string().optional().describe("Optional command working directory")
-    },
-    async execute(args) {
-      const result = executeRalphLoop({
-        taskDescription: String(args.task_description),
-        verificationCommand: String(args.verification_command),
-        maxIterations: typeof args.max_retries === "number" ? Number(args.max_retries) : typeof args.max_iterations === "number" ? Number(args.max_iterations) : 8,
-        timeoutMs: typeof args.timeout_ms === "number" ? Number(args.timeout_ms) : 6e4,
-        budgetMs: typeof args.budget_ms === "number" ? Number(args.budget_ms) : void 0,
-        stallWindow: typeof args.stall_window === "number" ? Number(args.stall_window) : void 0,
-        errorSimilarityThreshold: typeof args.error_similarity_threshold === "number" ? Number(args.error_similarity_threshold) : void 0,
-        sameLineTouchLimit: typeof args.same_line_touch_limit === "number" ? Number(args.same_line_touch_limit) : void 0,
-        taskCommand: args.task_command ? String(args.task_command) : void 0,
-        fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands.map(String) : void 0,
-        workingDirectory: args.working_directory ? String(args.working_directory) : void 0
+      if (mode === "stop") {
+        const state2 = stopAutoflowSession(projectDir, sessionID2);
+        return [...formatStateSummary(state2), "autoflow=stopped"].join("\n");
+      }
+      if (typeof args.persistent_enabled === "boolean" || typeof args.persistent_resume_cooldown_ms === "number" || typeof args.persistent_max_auto_resumes === "number" || typeof args.persistent_max_resume_failures === "number" || typeof args.persistent_resume_timeout_ms === "number") {
+        writeAutoflowPersistentConfig(projectDir, {
+          enabled: typeof args.persistent_enabled === "boolean" ? Boolean(args.persistent_enabled) : void 0,
+          resumeCooldownMs: typeof args.persistent_resume_cooldown_ms === "number" ? Number(args.persistent_resume_cooldown_ms) : void 0,
+          maxAutoResumes: typeof args.persistent_max_auto_resumes === "number" ? Number(args.persistent_max_auto_resumes) : void 0,
+          maxConsecutiveResumeFailures: typeof args.persistent_max_resume_failures === "number" ? Number(args.persistent_max_resume_failures) : void 0,
+          resumeTimeoutMs: typeof args.persistent_resume_timeout_ms === "number" ? Number(args.persistent_resume_timeout_ms) : void 0
+        });
+      }
+      if (mode === "start") {
+        const state2 = configureAutoflowSession(projectDir, {
+          sessionID: sessionID2,
+          goal: typeof args.goal === "string" ? args.goal : void 0,
+          tasks: Array.isArray(args.tasks) ? args.tasks : void 0,
+          verificationCommand: typeof args.verification_command === "string" ? args.verification_command : void 0,
+          fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands : void 0,
+          fixSteps: parseFixSteps(args.fix_steps),
+          maxFixRounds: typeof args.max_fix_rounds === "number" ? Number(args.max_fix_rounds) : void 0,
+          phase: "planning"
+        });
+        return [
+          ...formatStateSummary(state2),
+          ...formatPersistentSummary(projectDir, sessionID2),
+          "autoflow=configured"
+        ].join("\n");
+      }
+      const result = await runAutoflow({
+        projectDir,
+        sessionID: sessionID2,
+        manager,
+        goal: typeof args.goal === "string" ? args.goal : void 0,
+        tasks: Array.isArray(args.tasks) ? args.tasks : void 0,
+        verificationCommand: typeof args.verification_command === "string" ? args.verification_command : void 0,
+        fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands : void 0,
+        fixSteps: parseFixSteps(args.fix_steps),
+        maxFixRounds: typeof args.max_fix_rounds === "number" ? Number(args.max_fix_rounds) : void 0,
+        maxParallel: typeof args.max_parallel === "number" ? Number(args.max_parallel) : void 0,
+        timeoutMs: typeof args.timeout_ms === "number" ? Number(args.timeout_ms) : void 0,
+        workingDirectory: typeof args.working_directory === "string" ? args.working_directory : void 0,
+        forceRestart: Boolean(args.force_restart)
       });
       const lines = [
-        `task=${String(args.task_description)}`,
-        `success=${result.success}`,
-        `iterations=${result.iterations}`,
-        `reason=${result.reason ?? "unknown"}`,
-        `termination_reason=${result.reason ?? "unknown"}`,
-        `summary=${result.summary}`
+        `autoflow_success=${result.success}`,
+        `summary=${result.summary}`,
+        ...formatStateSummary(result.state),
+        ...formatPersistentSummary(projectDir, sessionID2)
       ];
-      if (projectDir) {
-        const draft = createSkillDraftFromRalph(projectDir, {
-          taskDescription: String(args.task_description),
-          result
-        });
-        if (draft) {
-          lines.push(`learning_draft_id=${draft.id}`);
-          lines.push(`learning_draft_status=${draft.status}`);
-          lines.push(`learning_draft_confidence=${draft.confidence.toFixed(2)}`);
-        }
+      if (result.dagResult) {
+        lines.push(
+          `dag_total=${result.dagResult.total}`,
+          `dag_completed=${result.dagResult.completed}`,
+          `dag_failed=${result.dagResult.failed}`,
+          `dag_blocked=${result.dagResult.blocked}`
+        );
       }
-      const tailAttempts = result.attempts.slice(-6);
-      if (tailAttempts.length > 0) {
-        lines.push("recent_attempts=");
-        for (const attempt of tailAttempts) {
-          lines.push(
-            [
-              `- #${attempt.iteration}`,
-              attempt.type,
-              `ok=${attempt.result.ok}`,
-              `exit=${attempt.result.exitCode}`,
-              attempt.noProgress ? "no_progress=true" : "",
-              typeof attempt.errorSimilarity === "number" ? `error_similarity=${attempt.errorSimilarity.toFixed(3)}` : "",
-              attempt.failureKind ? `failure=${attempt.failureKind}` : "",
-              attempt.result.stderr.trim() ? `stderr=${attempt.result.stderr.trim().slice(0, 220).replace(/\s+/g, " ")}` : ""
-            ].filter(Boolean).join(" | ")
-          );
-        }
-        const latestVerify = [...tailAttempts].reverse().find((attempt) => attempt.type === "verify");
-        if (latestVerify?.result.stderr?.trim()) {
-          lines.push(
-            `stderr_tail=${latestVerify.result.stderr.trim().slice(0, 300).replace(/\s+/g, " ")}`
-          );
-        }
+      if (result.verification) {
+        lines.push(
+          `verification_ok=${result.verification.ok}`,
+          `verification_exit=${result.verification.exitCode}`,
+          `verification_duration_ms=${result.verification.durationMs}`
+        );
+      }
+      if (result.fixResult) {
+        lines.push(
+          `fix_ok=${result.fixResult.ok}`,
+          `fix_exit=${result.fixResult.exitCode}`,
+          `fix_duration_ms=${result.fixResult.durationMs}`
+        );
+      }
+      if (result.executedFixStep) {
+        lines.push(
+          `fix_step_type=${result.executedFixStep.type}`,
+          `fix_step_id=${result.executedFixStep.id}`
+        );
       }
       return lines.join("\n");
     }
   });
   return {
-    miya_ralph_loop
+    miya_autoflow
+  };
+}
+
+// src/tools/automation.ts
+import * as fs52 from "node:fs";
+import * as path53 from "node:path";
+var z7 = tool.schema;
+function formatJobs(jobs) {
+  if (jobs.length === 0) {
+    return "No jobs configured.";
+  }
+  return jobs.map(
+    (job) => `- ${job.id} | ${job.name} | enabled=${job.enabled} | daily=${job.schedule.time} | next=${job.nextRunAt} | approval=${job.requireApproval}`
+  ).join("\n");
+}
+function parseNaturalSchedule(input) {
+  const text = input.trim();
+  let hour = null;
+  let minute = 0;
+  const chineseMatch = /每天(?:\s*(上午|中午|下午|晚上|凌晨))?\s*(\d{1,2})[:点时]?\s*(\d{1,2})?/.exec(
+    text
+  );
+  if (chineseMatch) {
+    const period = chineseMatch[1];
+    hour = Number(chineseMatch[2]);
+    minute = chineseMatch[3] ? Number(chineseMatch[3]) : 0;
+    if (period === "\u4E0B\u5348" || period === "\u665A\u4E0A") {
+      if (hour < 12) hour += 12;
+    }
+    if (period === "\u4E2D\u5348") {
+      if (hour < 11) hour += 12;
+    }
+    if (period === "\u51CC\u6668" && hour === 12) {
+      hour = 0;
+    }
+  }
+  if (hour === null) {
+    const englishMatch = /(?:every day at|daily\s*(?:at)?)\s*(\d{1,2})(?::(\d{1,2}))?/i.exec(text);
+    if (englishMatch) {
+      hour = Number(englishMatch[1]);
+      minute = englishMatch[2] ? Number(englishMatch[2]) : 0;
+    }
+  }
+  if (hour !== null) {
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  }
+  if (hour === null) return null;
+  const cmdPatterns = [
+    /(?:运行|执行)\s*([^，。,;]+)$/,
+    /(?:run|execute)\s+(.+)$/i
+  ];
+  let command = null;
+  for (const pattern of cmdPatterns) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    command = match[1].trim();
+    break;
+  }
+  if (!command) {
+    return null;
+  }
+  const time5 = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return { time: time5, command };
+}
+function readAutoGitStatus(projectDir) {
+  const file3 = path53.join(projectDir, ".opencode", "miya", "auto-git-push.json");
+  if (!fs52.existsSync(file3)) return {};
+  try {
+    return JSON.parse(fs52.readFileSync(file3, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+function readGatewayStatus(projectDir) {
+  const file3 = path53.join(projectDir, ".opencode", "miya", "gateway.json");
+  if (!fs52.existsSync(file3)) return {};
+  try {
+    return JSON.parse(fs52.readFileSync(file3, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+function createAutomationTools(automationService) {
+  const miya_schedule_daily_command = tool({
+    description: "Create a daily scheduled command job (HH:mm local time) in Miya automation runtime.",
+    args: {
+      name: z7.string().describe("Job name"),
+      time: z7.string().describe("Daily local time, format HH:mm"),
+      command: z7.string().describe("Command to execute"),
+      cwd: z7.string().optional().describe("Working directory for command"),
+      timeout_ms: z7.number().optional().describe("Execution timeout in milliseconds"),
+      require_approval: z7.boolean().optional().describe("Require manual approval for scheduled runs")
+    },
+    async execute(args) {
+      const job = automationService.scheduleDailyCommand({
+        name: String(args.name),
+        time: String(args.time),
+        command: String(args.command),
+        cwd: args.cwd ? String(args.cwd) : void 0,
+        timeoutMs: typeof args.timeout_ms === "number" ? Number(args.timeout_ms) : void 0,
+        requireApproval: typeof args.require_approval === "boolean" ? args.require_approval : false
+      });
+      return `Scheduled job created.
+id=${job.id}
+name=${job.name}
+time=${job.schedule.time}
+next_run=${job.nextRunAt}
+require_approval=${job.requireApproval}`;
+    }
+  });
+  const miya_list_jobs = tool({
+    description: "List Miya automation jobs.",
+    args: {},
+    async execute() {
+      return formatJobs(automationService.listJobs());
+    }
+  });
+  const miya_delete_job = tool({
+    description: "Delete a Miya automation job by id.",
+    args: {
+      job_id: z7.string().describe("Job id to remove")
+    },
+    async execute(args) {
+      const ok = automationService.deleteJob(String(args.job_id));
+      return ok ? `Deleted job ${String(args.job_id)}.` : "Job not found.";
+    }
+  });
+  const miya_set_job_enabled = tool({
+    description: "Enable or disable a Miya automation job.",
+    args: {
+      job_id: z7.string().describe("Job id"),
+      enabled: z7.boolean().describe("Whether job should be enabled")
+    },
+    async execute(args) {
+      const job = automationService.setJobEnabled(
+        String(args.job_id),
+        Boolean(args.enabled)
+      );
+      if (!job) return "Job not found.";
+      return `Job ${job.id} enabled=${job.enabled}, next_run=${job.nextRunAt}`;
+    }
+  });
+  const miya_run_job_now = tool({
+    description: "Run a Miya automation job immediately.",
+    args: {
+      job_id: z7.string().describe("Job id")
+    },
+    async execute(args) {
+      const result = await automationService.runJobNow(String(args.job_id));
+      if (!result) return "Job not found.";
+      return `Run finished.
+status=${result.status}
+exit_code=${result.exitCode}
+timed_out=${result.timedOut}
+stdout:
+${result.stdout || "(empty)"}
+stderr:
+${result.stderr || "(empty)"}`;
+    }
+  });
+  const miya_list_approvals = tool({
+    description: "List pending/finished approval requests for scheduled jobs.",
+    args: {},
+    async execute() {
+      const approvals = automationService.listApprovals();
+      if (approvals.length === 0) return "No approvals found.";
+      return approvals.map(
+        (approval) => `- ${approval.id} | job=${approval.jobId} | status=${approval.status} | requested=${approval.requestedAt}`
+      ).join("\n");
+    }
+  });
+  const miya_approve_job_run = tool({
+    description: "Approve a pending job run request and execute it immediately.",
+    args: {
+      approval_id: z7.string().describe("Approval request id")
+    },
+    async execute(args) {
+      const result = await automationService.approveAndRun(
+        String(args.approval_id)
+      );
+      if (!result) {
+        return "Approval not found or no longer pending.";
+      }
+      return `Approved ${result.approval.id}.
+run_status=${result.result?.status ?? "unknown"}
+exit_code=${result.result?.exitCode ?? "n/a"}
+timed_out=${result.result?.timedOut ?? "n/a"}`;
+    }
+  });
+  const miya_reject_job_run = tool({
+    description: "Reject a pending scheduled job approval request.",
+    args: {
+      approval_id: z7.string().describe("Approval request id")
+    },
+    async execute(args) {
+      const approval = automationService.rejectApproval(
+        String(args.approval_id)
+      );
+      if (!approval) {
+        return "Approval not found or no longer pending.";
+      }
+      return `Rejected ${approval.id}.`;
+    }
+  });
+  const miya_job_history = tool({
+    description: "Show recent Miya job execution history.",
+    args: {
+      limit: z7.number().optional().describe("Maximum records to return (default 20)")
+    },
+    async execute(args) {
+      const limit = typeof args.limit === "number" && args.limit > 0 ? Math.min(200, Number(args.limit)) : 20;
+      const records = automationService.listHistory(limit);
+      if (records.length === 0) return "No history records found.";
+      return records.map(
+        (record3) => `- ${record3.id} | job=${record3.jobName} | trigger=${record3.trigger} | status=${record3.status} | exit=${record3.exitCode} | started=${record3.startedAt}`
+      ).join("\n");
+    }
+  });
+  const miya_status_panel = tool({
+    description: "Show compact Miya runtime status panel for jobs and approvals.",
+    args: {},
+    async execute() {
+      const jobs = automationService.listJobs();
+      const approvals = automationService.listApprovals().filter((item) => item.status === "pending");
+      const history = automationService.listHistory(5);
+      const historyText = history.length === 0 ? "(no runs yet)" : history.map(
+        (item) => `- ${item.startedAt} | ${item.jobName} | ${item.status} | exit=${item.exitCode}`
+      ).join("\n");
+      const safety = getSafetySnapshot(automationService.getProjectDir());
+      const safetyText = safety.recent.length === 0 ? "(none)" : safety.recent.map(
+        (item) => `- ${item.created_at} | ${item.status} | ${item.tier} | ${item.reason} | trace=${item.trace_id}`
+      ).join("\n");
+      const autoGit = readAutoGitStatus(automationService.getProjectDir());
+      const autoGitText = autoGit.status && autoGit.updated_at ? `${autoGit.updated_at} | ${autoGit.status} | reason=${autoGit.reason ?? "n/a"} | trace=${autoGit.trace ?? "n/a"} | target=${autoGit.target_ref ?? "n/a"}` : "(none)";
+      const gateway = readGatewayStatus(automationService.getProjectDir());
+      const gatewayText = gateway.url && gateway.status ? `${gateway.status} | ${gateway.url} | port=${gateway.port ?? "n/a"}` : "(not started)";
+      return `<details>
+<summary>Miya Control Plane</summary>
+
+Miya status
+jobs_total=${jobs.length}
+jobs_enabled=${jobs.filter((job) => job.enabled).length}
+approvals_pending=${approvals.length}
+kill_switch_active=${safety.kill.active}
+kill_switch_reason=${safety.kill.reason ?? "n/a"}
+gateway=${gatewayText}
+auto_git_last=${autoGitText}
+
+Jobs:
+${formatJobs(jobs)}
+
+Pending approvals:
+${approvals.length === 0 ? "(none)" : approvals.map(
+        (item) => `- ${item.id} | job=${item.jobId} | requested=${item.requestedAt}`
+      ).join("\n")}
+
+Recent runs:
+${historyText}
+
+Recent self-approval:
+${safetyText}
+</details>`;
+    }
+  });
+  const miya_schedule_from_text = tool({
+    description: "Create daily schedule from a natural-language request (Chinese/English basic patterns).",
+    args: {
+      request: z7.string().describe("Natural-language automation request"),
+      name: z7.string().optional().describe("Optional job name override")
+    },
+    async execute(args) {
+      const request = String(args.request);
+      const parsed = parseNaturalSchedule(request);
+      if (!parsed) {
+        return "Unable to parse schedule or command. Please include daily time and explicit command.";
+      }
+      const risky = /(股票|证券|买卖|trade|broker|email|mail)/i.test(request);
+      const job = automationService.scheduleDailyCommand({
+        name: args.name ? String(args.name) : `nl-${parsed.time}-${Date.now()}`,
+        time: parsed.time,
+        command: parsed.command,
+        requireApproval: risky
+      });
+      return `Scheduled from natural language.
+id=${job.id}
+time=${job.schedule.time}
+command=${job.action.command}
+require_approval=${job.requireApproval}`;
+    }
+  });
+  return {
+    miya_schedule_daily_command,
+    miya_list_jobs,
+    miya_delete_job,
+    miya_set_job_enabled,
+    miya_run_job_now,
+    miya_list_approvals,
+    miya_approve_job_run,
+    miya_reject_job_run,
+    miya_job_history,
+    miya_status_panel,
+    miya_schedule_from_text
   };
 }
 
@@ -54655,7 +55906,10 @@ function configureAutopilotSession(input) {
   const state2 = getSessionState(input.projectDir, input.sessionID);
   state2.loopEnabled = input.enabled;
   if (typeof input.maxCycles === "number") {
-    state2.maxIterationsPerWindow = Math.max(1, Math.min(20, Math.floor(input.maxCycles)));
+    state2.maxIterationsPerWindow = Math.max(
+      1,
+      Math.min(20, Math.floor(input.maxCycles))
+    );
   }
   if (typeof input.autoContinue === "boolean") {
     state2.autoContinue = input.autoContinue;
@@ -54666,7 +55920,7 @@ function configureAutopilotSession(input) {
   setSessionState(input.projectDir, input.sessionID, state2);
   return state2;
 }
-function runCommand4(command, timeoutMs, cwd) {
+function runCommand3(command, timeoutMs, cwd) {
   const start = Date.now();
   const shellArgs = process.platform === "win32" ? ["powershell", "-NoProfile", "-Command", command] : ["sh", "-lc", command];
   const proc = runProcessSync(shellArgs[0], shellArgs.slice(1), {
@@ -54693,7 +55947,7 @@ function runAutopilot(input) {
   for (const command of input.commands) {
     const cmd = String(command).trim();
     if (!cmd) continue;
-    const result = runCommand4(cmd, input.timeoutMs, input.workingDirectory);
+    const result = runCommand3(cmd, input.timeoutMs, input.workingDirectory);
     execution.push(result);
     if (!result.ok) {
       return {
@@ -54705,7 +55959,7 @@ function runAutopilot(input) {
     }
   }
   if (input.verificationCommand?.trim()) {
-    const verification = runCommand4(
+    const verification = runCommand3(
       input.verificationCommand.trim(),
       input.timeoutMs,
       input.workingDirectory
@@ -54744,8 +55998,8 @@ function summarizeVerification(result) {
 }
 
 // src/tools/autopilot.ts
-var z9 = tool.schema;
-function getSessionID(ctx) {
+var z8 = tool.schema;
+function getSessionID2(ctx) {
   if (ctx && typeof ctx === "object" && "sessionID" in ctx) {
     return String(ctx.sessionID ?? "main");
   }
@@ -54755,21 +56009,21 @@ function createAutopilotTools(projectDir) {
   const miya_autopilot = tool({
     description: "Configure and inspect autopilot loop settings, with lightweight plan generation from goal text.",
     args: {
-      mode: z9.enum(["start", "stop", "status", "run"]).default("start").describe(
+      mode: z8.enum(["start", "stop", "status", "run"]).default("start").describe(
         "start to enable autopilot, stop to disable, status to inspect, run to execute commands end-to-end"
       ),
-      goal: z9.string().optional().describe("Goal text used to build an execution plan when mode=start"),
-      commands: z9.array(z9.string()).optional().describe("Commands executed in sequence when mode=run"),
-      verification_command: z9.string().optional().describe("Optional verification command for mode=run"),
-      timeout_ms: z9.number().optional().describe("Command timeout for mode=run"),
-      working_directory: z9.string().optional().describe("Optional command working directory for mode=run"),
-      session_id: z9.string().optional().describe("Target session id"),
-      max_cycles: z9.number().optional().describe("Max autopilot cycles for the window"),
-      auto_continue: z9.boolean().optional().describe("Whether loops auto-continue"),
-      strict_quality_gate: z9.boolean().optional().describe("Enable strict quality gate before completion")
+      goal: z8.string().optional().describe("Goal text used to build an execution plan when mode=start"),
+      commands: z8.array(z8.string()).optional().describe("Commands executed in sequence when mode=run"),
+      verification_command: z8.string().optional().describe("Optional verification command for mode=run"),
+      timeout_ms: z8.number().optional().describe("Command timeout for mode=run"),
+      working_directory: z8.string().optional().describe("Optional command working directory for mode=run"),
+      session_id: z8.string().optional().describe("Target session id"),
+      max_cycles: z8.number().optional().describe("Max autopilot cycles for the window"),
+      auto_continue: z8.boolean().optional().describe("Whether loops auto-continue"),
+      strict_quality_gate: z8.boolean().optional().describe("Enable strict quality gate before completion")
     },
     async execute(args, ctx) {
-      const sessionID2 = args.session_id && String(args.session_id).trim().length > 0 ? String(args.session_id) : getSessionID(ctx);
+      const sessionID2 = args.session_id && String(args.session_id).trim().length > 0 ? String(args.session_id) : getSessionID2(ctx);
       const mode = String(args.mode);
       if (mode === "status") {
         const state3 = getSessionState(projectDir, sessionID2);
@@ -54847,653 +56101,145 @@ function createAutopilotTools(projectDir) {
   };
 }
 
-// src/tools/autoflow.ts
-var z10 = tool.schema;
-function getSessionID2(ctx) {
-  if (ctx && typeof ctx === "object" && "sessionID" in ctx) {
-    return String(ctx.sessionID ?? "main");
-  }
-  return "main";
-}
-function formatStateSummary(state2) {
-  return [
-    `session=${state2.sessionID}`,
-    `phase=${state2.phase}`,
-    `goal=${state2.goal || "(empty)"}`,
-    `tasks=${state2.planTasks.length}`,
-    `fix_round=${state2.fixRound}/${state2.maxFixRounds}`,
-    `verification_command=${state2.verificationCommand ?? "(none)"}`,
-    `fix_commands=${state2.fixCommands.length}`,
-    `last_error=${state2.lastError ?? "(none)"}`,
-    `recent_verification_fingerprints=${state2.recentVerificationHashes.length}`,
-    `history=${state2.history.length}`
-  ];
-}
-function formatPersistentSummary(projectDir, sessionID2) {
-  const config3 = readAutoflowPersistentConfig(projectDir);
-  const runtime = getAutoflowPersistentRuntimeSnapshot(projectDir, 200).find(
-    (item) => item.sessionID === sessionID2
-  );
-  return [
-    `persistent_enabled=${config3.enabled}`,
-    `persistent_resume_cooldown_ms=${config3.resumeCooldownMs}`,
-    `persistent_max_auto_resumes=${config3.maxAutoResumes}`,
-    `persistent_max_resume_failures=${config3.maxConsecutiveResumeFailures}`,
-    `persistent_resume_timeout_ms=${config3.resumeTimeoutMs}`,
-    `persistent_resume_attempts=${runtime?.resumeAttempts ?? 0}`,
-    `persistent_resume_failures=${runtime?.resumeFailures ?? 0}`,
-    `persistent_user_stopped=${runtime?.userStopped ?? false}`,
-    `persistent_last_outcome_phase=${runtime?.lastOutcomePhase ?? "(none)"}`
-  ];
-}
-function createAutoflowTools(projectDir, manager) {
-  const miya_autoflow = tool({
-    description: "Persistent autonomous workflow: parallel task execution + verification + iterative fixes until success or hard stop.",
-    args: {
-      mode: z10.enum(["start", "run", "status", "stop"]).default("run").describe("start configures plan, run executes loop, status inspects, stop halts session"),
-      session_id: z10.string().optional().describe("Target session id (default current session)"),
-      goal: z10.string().optional().describe("Workflow goal summary"),
-      tasks: z10.array(
-        z10.object({
-          id: z10.string().optional(),
-          agent: z10.string(),
-          prompt: z10.string(),
-          description: z10.string(),
-          dependsOn: z10.array(z10.string()).optional(),
-          timeoutMs: z10.number().optional(),
-          maxRetries: z10.number().optional()
-        })
-      ).optional().describe("Planned DAG tasks"),
-      verification_command: z10.string().optional().describe("Verification command after execution"),
-      fix_commands: z10.array(z10.string()).optional().describe("Fix commands executed round-by-round when verification fails"),
-      max_fix_rounds: z10.number().optional().describe("Maximum verification-fix rounds"),
-      max_parallel: z10.number().optional().describe("DAG worker concurrency"),
-      timeout_ms: z10.number().optional().describe("Shell command timeout"),
-      working_directory: z10.string().optional().describe("Shell command cwd"),
-      force_restart: z10.boolean().optional().describe("Reset finished/failed state and rerun from planning"),
-      persistent_enabled: z10.boolean().optional().describe("Enable/disable non-user stop auto resume"),
-      persistent_resume_cooldown_ms: z10.number().optional(),
-      persistent_max_auto_resumes: z10.number().optional(),
-      persistent_max_resume_failures: z10.number().optional(),
-      persistent_resume_timeout_ms: z10.number().optional()
-    },
-    async execute(args, ctx) {
-      const sessionID2 = typeof args.session_id === "string" && args.session_id.trim().length > 0 ? args.session_id.trim() : getSessionID2(ctx);
-      const mode = String(args.mode ?? "run");
-      if (mode === "status") {
-        const state2 = getAutoflowSession(projectDir, sessionID2);
-        return [...formatStateSummary(state2), ...formatPersistentSummary(projectDir, sessionID2)].join(
-          "\n"
-        );
-      }
-      if (mode === "stop") {
-        const state2 = stopAutoflowSession(projectDir, sessionID2);
-        return [...formatStateSummary(state2), "autoflow=stopped"].join("\n");
-      }
-      if (typeof args.persistent_enabled === "boolean" || typeof args.persistent_resume_cooldown_ms === "number" || typeof args.persistent_max_auto_resumes === "number" || typeof args.persistent_max_resume_failures === "number" || typeof args.persistent_resume_timeout_ms === "number") {
-        writeAutoflowPersistentConfig(projectDir, {
-          enabled: typeof args.persistent_enabled === "boolean" ? Boolean(args.persistent_enabled) : void 0,
-          resumeCooldownMs: typeof args.persistent_resume_cooldown_ms === "number" ? Number(args.persistent_resume_cooldown_ms) : void 0,
-          maxAutoResumes: typeof args.persistent_max_auto_resumes === "number" ? Number(args.persistent_max_auto_resumes) : void 0,
-          maxConsecutiveResumeFailures: typeof args.persistent_max_resume_failures === "number" ? Number(args.persistent_max_resume_failures) : void 0,
-          resumeTimeoutMs: typeof args.persistent_resume_timeout_ms === "number" ? Number(args.persistent_resume_timeout_ms) : void 0
-        });
-      }
-      if (mode === "start") {
-        const state2 = configureAutoflowSession(projectDir, {
-          sessionID: sessionID2,
-          goal: typeof args.goal === "string" ? args.goal : void 0,
-          tasks: Array.isArray(args.tasks) ? args.tasks : void 0,
-          verificationCommand: typeof args.verification_command === "string" ? args.verification_command : void 0,
-          fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands : void 0,
-          maxFixRounds: typeof args.max_fix_rounds === "number" ? Number(args.max_fix_rounds) : void 0,
-          phase: "planning"
-        });
-        return [
-          ...formatStateSummary(state2),
-          ...formatPersistentSummary(projectDir, sessionID2),
-          "autoflow=configured"
-        ].join("\n");
-      }
-      const result = await runAutoflow({
-        projectDir,
-        sessionID: sessionID2,
-        manager,
-        goal: typeof args.goal === "string" ? args.goal : void 0,
-        tasks: Array.isArray(args.tasks) ? args.tasks : void 0,
-        verificationCommand: typeof args.verification_command === "string" ? args.verification_command : void 0,
-        fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands : void 0,
-        maxFixRounds: typeof args.max_fix_rounds === "number" ? Number(args.max_fix_rounds) : void 0,
-        maxParallel: typeof args.max_parallel === "number" ? Number(args.max_parallel) : void 0,
-        timeoutMs: typeof args.timeout_ms === "number" ? Number(args.timeout_ms) : void 0,
-        workingDirectory: typeof args.working_directory === "string" ? args.working_directory : void 0,
-        forceRestart: Boolean(args.force_restart)
-      });
-      const lines = [
-        `autoflow_success=${result.success}`,
-        `summary=${result.summary}`,
-        ...formatStateSummary(result.state),
-        ...formatPersistentSummary(projectDir, sessionID2)
-      ];
-      if (result.dagResult) {
-        lines.push(
-          `dag_total=${result.dagResult.total}`,
-          `dag_completed=${result.dagResult.completed}`,
-          `dag_failed=${result.dagResult.failed}`,
-          `dag_blocked=${result.dagResult.blocked}`
-        );
-      }
-      if (result.verification) {
-        lines.push(
-          `verification_ok=${result.verification.ok}`,
-          `verification_exit=${result.verification.exitCode}`,
-          `verification_duration_ms=${result.verification.durationMs}`
-        );
-      }
-      if (result.fixResult) {
-        lines.push(
-          `fix_ok=${result.fixResult.ok}`,
-          `fix_exit=${result.fixResult.exitCode}`,
-          `fix_duration_ms=${result.fixResult.durationMs}`
-        );
-      }
-      return lines.join("\n");
-    }
-  });
-  return {
-    miya_autoflow
-  };
-}
+// src/tools/background.ts
+var z9 = tool.schema;
+function createBackgroundTools(_ctx, manager, _tmuxConfig, _pluginConfig) {
+  const agentNames = SUBAGENT_NAMES.join(", ");
+  const background_task = tool({
+    description: `Launch background agent task. Returns task_id immediately.
 
-// src/tools/multimodal.ts
-var z11 = tool.schema;
-function createMultimodalTools(projectDir) {
-  const miya_generate_image = tool({
-    description: "Generate an image asset with local multimodal pipeline and persist metadata.",
-    args: {
-      prompt: z11.string().describe("Image prompt"),
-      reference_media_ids: z11.array(z11.string()).optional().describe("Optional reference media ids"),
-      model: z11.string().optional().describe("Image model id"),
-      size: z11.string().optional().describe("Output size (for example 1024x1024)"),
-      register_as_companion_asset: z11.boolean().optional().describe("Also add generated image into companion assets")
-    },
-    async execute(args) {
-      const result = await generateImage(projectDir, {
-        prompt: String(args.prompt),
-        referenceMediaIDs: Array.isArray(args.reference_media_ids) ? args.reference_media_ids.map(String) : void 0,
-        model: args.model ? String(args.model) : void 0,
-        size: args.size ? String(args.size) : void 0,
-        registerAsCompanionAsset: Boolean(args.register_as_companion_asset)
-      });
-      return [
-        `media_id=${result.media.id}`,
-        `file=${result.media.fileName}`,
-        `model=${result.model}`,
-        `size=${result.size}`,
-        `prompt=${result.prompt}`
-      ].join("\n");
-    }
-  });
-  const miya_voice_input = tool({
-    description: "Ingest voice input text/media into Miya voice state and history.",
-    args: {
-      text: z11.string().optional().describe("Recognized text content"),
-      media_id: z11.string().optional().describe("Optional media id for ASR transcript"),
-      source: z11.enum(["wake", "talk", "manual", "media"]).optional(),
-      language: z11.string().optional().describe("Language hint, for example zh-CN")
-    },
-    async execute(args) {
-      const result = ingestVoiceInput(projectDir, {
-        text: args.text ? String(args.text) : void 0,
-        mediaID: args.media_id ? String(args.media_id) : void 0,
-        source: args.source,
-        language: args.language ? String(args.language) : void 0
-      });
-      return [
-        `source=${result.source}`,
-        `media_id=${result.mediaID ?? ""}`,
-        `text=${result.text}`
-      ].join("\n");
-    }
-  });
-  const miya_voice_output = tool({
-    description: "Generate TTS voice output asset with local multimodal pipeline and persist metadata.",
-    args: {
-      text: z11.string().describe("Text to synthesize"),
-      voice: z11.string().optional().describe("Voice profile id or name"),
-      model: z11.string().optional().describe("TTS model id"),
-      format: z11.enum(["wav", "mp3", "ogg"]).optional(),
-      register_as_companion_asset: z11.boolean().optional().describe("Also add generated voice into companion assets")
-    },
-    async execute(args) {
-      const result = await synthesizeVoiceOutput(projectDir, {
-        text: String(args.text),
-        voice: args.voice ? String(args.voice) : void 0,
-        model: args.model ? String(args.model) : void 0,
-        format: args.format,
-        registerAsCompanionAsset: Boolean(args.register_as_companion_asset)
-      });
-      return [
-        `media_id=${result.media.id}`,
-        `file=${result.media.fileName}`,
-        `voice=${result.voice}`,
-        `model=${result.model}`,
-        `format=${result.format}`
-      ].join("\n");
-    }
-  });
-  const miya_vision_analyze = tool({
-    description: "Analyze an image media asset and return metadata-based summary.",
-    args: {
-      media_id: z11.string().describe("Image media id"),
-      question: z11.string().optional().describe("Optional analysis question")
-    },
-    async execute(args) {
-      const result = await analyzeVision(projectDir, {
-        mediaID: String(args.media_id),
-        question: args.question ? String(args.question) : void 0
-      });
-      return [
-        `media_id=${result.mediaID}`,
-        `summary=${result.summary}`,
-        `details=${JSON.stringify(result.details)}`
-      ].join("\n");
-    }
-  });
-  return {
-    miya_generate_image,
-    miya_voice_input,
-    miya_voice_output,
-    miya_vision_analyze
-  };
-}
+Flow: launch \u2192 wait for automatic notification when complete.
 
-// src/tools/soul.ts
-var z12 = tool.schema;
-function createSoulTools(projectDir) {
-  const miya_soul_get = tool({
-    description: "Read current SOUL profile and persona layer.",
-    args: {},
-    async execute() {
-      const profile = loadSoulProfile(projectDir);
-      return [
-        `file=${soulFilePath(projectDir)}`,
-        `name=${profile.name}`,
-        `role=${profile.role}`,
-        `tone=${profile.tone}`,
-        `principles=${profile.principles.length}`,
-        `behavior_rules=${profile.behaviorRules.length}`,
-        `forbidden=${profile.forbidden.length}`,
-        "",
-        soulPersonaLayer(projectDir)
-      ].join("\n");
-    }
-  });
-  const miya_soul_set = tool({
-    description: "Replace SOUL.md content and persist persona profile.",
+Key behaviors:
+- Fire-and-forget: returns task_id in ~1ms
+- Parallel: up to 10 concurrent tasks
+- Auto-notify: parent session receives result when task completes`,
     args: {
-      markdown: z12.string().describe("Full SOUL.md markdown content")
+      description: z9.string().describe("Short description of the task (5-10 words)"),
+      prompt: z9.string().describe("The task prompt for the agent"),
+      agent: z9.string().describe(`Agent to use: ${agentNames}`)
     },
-    async execute(args) {
-      const profile = saveSoulMarkdown(projectDir, String(args.markdown));
-      return [
-        "updated=true",
-        `file=${soulFilePath(projectDir)}`,
-        `name=${profile.name}`,
-        `role=${profile.role}`
-      ].join("\n");
-    }
-  });
-  const miya_soul_reset = tool({
-    description: "Reset SOUL.md to default template.",
-    args: {},
-    async execute() {
-      const profile = saveSoulMarkdown(projectDir, DEFAULT_SOUL_MARKDOWN);
-      return [
-        "reset=true",
-        `file=${soulFilePath(projectDir)}`,
-        `name=${profile.name}`
-      ].join("\n");
-    }
-  });
-  return {
-    miya_soul_get,
-    miya_soul_set,
-    miya_soul_reset
-  };
-}
-
-// src/ultrawork/merger.ts
-function mergeUltraworkResults(manager, taskIDs) {
-  const lines = [];
-  for (const taskID of taskIDs) {
-    const task = manager.getResult(taskID);
-    if (!task) {
-      lines.push(`- ${taskID}: not_found`);
-      continue;
-    }
-    lines.push(
-      `- ${task.id} | ${task.agent} | ${task.status} | ${task.completedAt ? "done" : "running"}`
-    );
-  }
-  return lines.join("\n");
-}
-function formatUltraworkDagResult(result) {
-  const header = [
-    `total=${result.total}`,
-    `completed=${result.completed}`,
-    `failed=${result.failed}`,
-    `blocked=${result.blocked}`
-  ];
-  const lines = result.nodes.map(
-    (node) => `- ${node.nodeID} | ${node.agent} | ${node.status} | retries=${node.retries}${node.error ? ` | error=${node.error}` : ""}`
-  );
-  return [...header, ...lines].join("\n");
-}
-
-// src/tools/ultrawork.ts
-var z13 = tool.schema;
-function sessionID(ctx) {
-  if (ctx && typeof ctx === "object" && "sessionID" in ctx) {
-    return String(ctx.sessionID ?? "main");
-  }
-  return "main";
-}
-function createUltraworkTools(_ctx, manager) {
-  const miya_ultrawork = tool({
-    description: "Launch multiple specialist tasks in parallel and return aggregated status.",
-    args: {
-      tasks: z13.array(
-        z13.object({
-          id: z13.string().optional(),
-          agent: z13.string(),
-          prompt: z13.string(),
-          description: z13.string(),
-          dependsOn: z13.array(z13.string()).optional(),
-          timeoutMs: z13.number().optional(),
-          maxRetries: z13.number().optional()
-        })
-      ).describe("Parallel task list"),
-      mode: z13.enum(["parallel", "dag"]).optional().describe("Scheduling mode: parallel fire-and-merge or DAG dependency scheduling"),
-      max_parallel: z13.number().optional().describe("Max parallel workers when mode=dag")
-    },
-    async execute(args, ctx) {
-      const parentSessionID = sessionID(ctx);
-      const tasks = Array.isArray(args.tasks) ? args.tasks : [];
-      if (args.mode === "dag") {
-        const dagResult = await runUltraworkDag({
-          manager,
-          parentSessionID,
-          tasks,
-          maxParallel: typeof args.max_parallel === "number" ? Number(args.max_parallel) : void 0
-        });
-        return [
-          "mode=dag",
-          formatUltraworkDagResult(dagResult)
-        ].join("\n");
+    async execute(args, toolContext) {
+      if (!toolContext || typeof toolContext !== "object" || !("sessionID" in toolContext)) {
+        throw new Error("Invalid toolContext: missing sessionID");
       }
-      const launched = launchUltraworkTasks({
-        manager,
-        parentSessionID,
-        tasks
-      });
-      const merged = mergeUltraworkResults(manager, launched.map((item) => item.taskID));
-      return [
-        "mode=parallel",
-        `launched=${launched.length}`,
-        ...launched.map((item) => `- ${item.nodeID} -> ${item.taskID} | ${item.agent} | ${item.status}`),
-        "",
-        "status:",
-        merged
-      ].join("\n");
-    }
-  });
-  return {
-    miya_ultrawork
-  };
-}
-
-// src/tools/router.ts
-var z14 = tool.schema;
-var DEFAULT_AVAILABLE_AGENTS = [
-  "1-task-manager",
-  "2-code-search",
-  "3-docs-helper",
-  "4-architecture-advisor",
-  "5-code-fixer",
-  "6-ui-designer",
-  "7-code-simplicity-reviewer"
-];
-function createRouterTools(projectDir) {
-  const miya_route_intent = tool({
-    description: "Classify intent, estimate complexity, and produce runtime routing plan.",
-    args: {
-      text: z14.string().describe("User request text"),
-      session_id: z14.string().optional().describe("Target session id for escalation tracking"),
-      available_agents: z14.array(z14.string()).optional().describe("Optional available agents list"),
-      pinned_agent: z14.string().optional().describe("Optional fixed agent to force route output")
-    },
-    async execute(args) {
-      const text = String(args.text ?? "");
-      const availableAgents = Array.isArray(args.available_agents) ? args.available_agents.map(String) : DEFAULT_AVAILABLE_AGENTS;
-      const sessionID2 = String(args.session_id ?? "main").trim() || "main";
-      const plan = buildRouteExecutionPlan({
-        projectDir,
-        sessionID: sessionID2,
-        text,
-        availableAgents,
-        pinnedAgent: typeof args.pinned_agent === "string" ? args.pinned_agent : void 0
-      });
-      const mode = readRouterModeConfig(projectDir);
-      const session = getRouterSessionState(projectDir, sessionID2);
-      return [
-        `session=${sessionID2}`,
-        `intent=${plan.intent}`,
-        `complexity=${plan.complexity}`,
-        `complexity_score=${plan.complexityScore}`,
-        `route_stage=${plan.stage}`,
-        `selected_agent=${plan.agent}`,
-        `planned_agents=${plan.plannedAgents.join(",")}`,
-        `max_agents=${plan.maxAgents}`,
-        `context_strategy=${plan.contextStrategy}`,
-        `requires_multiple_steps=${plan.requiresMultipleSteps}`,
-        `enable_early_exit=${plan.enableEarlyExit}`,
-        `preferred_agent=${plan.preferredAgent}`,
-        `fallback_agent=${plan.fallbackAgent}`,
-        `feedback_score=${plan.feedbackScore}`,
-        `feedback_samples=${plan.feedbackSamples}`,
-        `eco_mode=${mode.ecoMode}`,
-        `forced_stage=${mode.forcedStage ?? "(none)"}`,
-        `consecutive_failures=${session.consecutiveFailures}`,
-        `reasons=${plan.reasons.join(",")}`
-      ].join("\n");
-    }
-  });
-  const miya_route_feedback = tool({
-    description: "Record route outcome feedback for routing learning.",
-    args: {
-      text: z14.string(),
-      intent: z14.string(),
-      suggested_agent: z14.string(),
-      accepted: z14.boolean()
-    },
-    async execute(args) {
-      const intent = classifyIntent(String(args.intent));
-      const record3 = addRouteFeedback(projectDir, {
-        text: String(args.text),
-        intent,
-        suggestedAgent: String(args.suggested_agent),
-        accepted: Boolean(args.accepted)
-      });
-      return [
-        `saved=true`,
-        `at=${record3.at}`,
-        `intent=${record3.intent}`,
-        `accepted=${record3.accepted}`
-      ].join("\n");
-    }
-  });
-  const miya_route_stats = tool({
-    description: "Show routing acceptance stats and runtime token/cost summary.",
-    args: {},
-    async execute() {
-      const summary = summarizeRouteHistory(projectDir);
-      const cost = getRouteCostSummary(projectDir, 500);
-      return [
-        summary,
-        `cost_records=${cost.totalRecords}`,
-        `tokens_estimate=${cost.totalTokensEstimate}`,
-        `baseline_high_tokens_estimate=${cost.baselineHighTokensEstimate}`,
-        `savings_tokens_estimate=${cost.savingsTokensEstimate}`,
-        `savings_percent_estimate=${cost.savingsPercentEstimate}`,
-        `cost_usd_estimate=${cost.totalCostUsdEstimate}`,
-        `stage_low_records=${cost.byStage.low.records}`,
-        `stage_medium_records=${cost.byStage.medium.records}`,
-        `stage_high_records=${cost.byStage.high.records}`
-      ].join("\n");
-    }
-  });
-  const miya_route_mode = tool({
-    description: "Inspect or update router eco mode and forced stage.",
-    args: {
-      mode: z14.enum(["get", "set"]).default("get"),
-      eco_mode: z14.boolean().optional(),
-      forced_stage: z14.enum(["low", "medium", "high"]).optional(),
-      clear_forced_stage: z14.boolean().optional()
-    },
-    async execute(args) {
-      if (args.mode === "set") {
-        const next = writeRouterModeConfig(projectDir, {
-          ecoMode: typeof args.eco_mode === "boolean" ? Boolean(args.eco_mode) : void 0,
-          forcedStage: args.clear_forced_stage === true ? void 0 : typeof args.forced_stage === "string" ? args.forced_stage : void 0
-        });
-        return [
-          "saved=true",
-          `eco_mode=${next.ecoMode}`,
-          `forced_stage=${next.forcedStage ?? "(none)"}`,
-          `token_multiplier_low=${next.stageTokenMultiplier.low}`,
-          `token_multiplier_medium=${next.stageTokenMultiplier.medium}`,
-          `token_multiplier_high=${next.stageTokenMultiplier.high}`
-        ].join("\n");
+      const agent = String(args.agent);
+      const prompt = String(args.prompt);
+      const description = String(args.description);
+      const parentSessionId = toolContext.sessionID;
+      if (!manager.isAgentAllowed(parentSessionId, agent)) {
+        const allowed = manager.getAllowedSubagents(parentSessionId);
+        return `Agent '${agent}' is not allowed. Allowed agents: ${allowed.join(", ")}`;
       }
-      const current = readRouterModeConfig(projectDir);
-      return [
-        `eco_mode=${current.ecoMode}`,
-        `forced_stage=${current.forcedStage ?? "(none)"}`,
-        `token_multiplier_low=${current.stageTokenMultiplier.low}`,
-        `token_multiplier_medium=${current.stageTokenMultiplier.medium}`,
-        `token_multiplier_high=${current.stageTokenMultiplier.high}`,
-        `cost_per_1k_low=${current.stageCostUsdPer1k.low}`,
-        `cost_per_1k_medium=${current.stageCostUsdPer1k.medium}`,
-        `cost_per_1k_high=${current.stageCostUsdPer1k.high}`
-      ].join("\n");
-    }
-  });
-  const miya_route_cost = tool({
-    description: "Show recent route token/cost records.",
-    args: {
-      limit: z14.number().optional()
-    },
-    async execute(args) {
-      const limit = typeof args.limit === "number" ? Number(args.limit) : 20;
-      const rows = listRouteCostRecords(projectDir, Math.max(1, Math.min(100, limit)));
-      if (rows.length === 0) return "route_cost=empty";
-      return rows.slice(-Math.max(1, Math.min(100, limit))).map(
-        (row) => [
-          `at=${row.at}`,
-          `session=${row.sessionID}`,
-          `intent=${row.intent}`,
-          `complexity=${row.complexity}`,
-          `stage=${row.stage}`,
-          `agent=${row.agent}`,
-          `success=${row.success}`,
-          `tokens=${row.totalTokensEstimate}`,
-          `cost_usd=${row.costUsdEstimate}`
-        ].join(" | ")
-      ).join("\n");
-    }
-  });
-  return {
-    miya_route_intent,
-    miya_route_feedback,
-    miya_route_stats,
-    miya_route_mode,
-    miya_route_cost
-  };
-}
-
-// src/tools/mcp.ts
-var z15 = tool.schema;
-function createMcpTools() {
-  const miya_mcp_capabilities = tool({
-    description: "List builtin MCPs with capability flags (MCP-UI/sampling/service exposure).",
-    args: {
-      disabled_mcps: z15.array(z15.string()).optional().describe("Optional disabled MCP names")
-    },
-    async execute(args) {
-      const mcps = createBuiltinMcps(
-        Array.isArray(args.disabled_mcps) ? args.disabled_mcps.map(String) : []
-      );
-      const lines = Object.entries(mcps).map(([name, config3]) => {
-        const caps = "capabilities" in config3 ? config3.capabilities : void 0;
-        return [
-          `name=${name}`,
-          `type=${config3.type}`,
-          `sampling=${Boolean(caps?.sampling)}`,
-          `mcp_ui=${Boolean(caps?.mcpUi)}`,
-          `service_expose=${Boolean(caps?.serviceExpose)}`
-        ].join(" | ");
+      const task = manager.launch({
+        agent,
+        prompt,
+        description,
+        parentSessionId
       });
-      return lines.length > 0 ? lines.join("\n") : "no_mcp_available";
+      return `Background task launched.
+
+Task ID: ${task.id}
+Agent: ${agent}
+Status: ${task.status}
+
+Use \`background_output\` with task_id="${task.id}" to get results.`;
     }
   });
-  const miya_mcp_service_manifest = tool({
-    description: "Return Miya MCP service exposure manifest used for control-plane integration.",
+  const background_output = tool({
+    description: `Get background task results after completion notification received.
+
+timeout=0: returns status immediately (no wait)
+timeout=N: waits up to N ms for completion
+
+Returns: results if completed, error if failed, status if running.`,
     args: {
-      disabled_mcps: z15.array(z15.string()).optional().describe("Optional disabled MCP names")
+      task_id: z9.string().describe("Task ID from background_task"),
+      timeout: z9.number().optional().describe("Wait for completion (in ms, 0=no wait, default: 0)")
     },
     async execute(args) {
-      return JSON.stringify(
-        buildMcpServiceManifest(
-          Array.isArray(args.disabled_mcps) ? args.disabled_mcps.map(String) : []
-        ),
-        null,
-        2
-      );
+      const taskId = String(args.task_id);
+      const timeout = typeof args.timeout === "number" && args.timeout > 0 ? args.timeout : 0;
+      let task = manager.getResult(taskId);
+      if (task && timeout > 0 && task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
+        task = await manager.waitForCompletion(taskId, timeout);
+      }
+      if (!task) {
+        return `Task not found: ${taskId}`;
+      }
+      const duration5 = task.completedAt ? `${Math.floor((task.completedAt.getTime() - task.startedAt.getTime()) / 1e3)}s` : `${Math.floor((Date.now() - task.startedAt.getTime()) / 1e3)}s`;
+      let output = `Task: ${task.id}
+ Description: ${task.description}
+ Status: ${task.status}
+ Duration: ${duration5}
+
+ ---
+
+ `;
+      if (task.status === "completed" && task.result != null) {
+        output += task.result;
+      } else if (task.status === "failed") {
+        output += `Error: ${task.error}`;
+      } else if (task.status === "cancelled") {
+        output += "(Task cancelled)";
+      } else {
+        output += "(Task still running)";
+      }
+      return output;
     }
   });
-  return {
-    miya_mcp_capabilities,
-    miya_mcp_service_manifest
-  };
+  const background_cancel = tool({
+    description: `Cancel background task(s).
+
+task_id: cancel specific task
+all=true: cancel all running tasks
+
+Only cancels pending/starting/running tasks.`,
+    args: {
+      task_id: z9.string().optional().describe("Specific task to cancel"),
+      all: z9.boolean().optional().describe("Cancel all running tasks")
+    },
+    async execute(args) {
+      if (args.all === true) {
+        const count = manager.cancel();
+        return `Cancelled ${count} task(s).`;
+      }
+      if (typeof args.task_id === "string") {
+        const count = manager.cancel(args.task_id);
+        return count > 0 ? `Cancelled task ${args.task_id}.` : `Task ${args.task_id} not found or not running.`;
+      }
+      return "Specify task_id or use all=true.";
+    }
+  });
+  return { background_task, background_output, background_cancel };
 }
 
 // src/tools/grep/constants.ts
 import { spawnSync as spawnSync8 } from "node:child_process";
-import { existsSync as existsSync49 } from "node:fs";
-import { dirname as dirname37, join as join53 } from "node:path";
+import { existsSync as existsSync51 } from "node:fs";
+import { dirname as dirname37, join as join55 } from "node:path";
 
 // src/tools/grep/downloader.ts
 import {
   chmodSync as chmodSync2,
-  existsSync as existsSync48,
+  existsSync as existsSync50,
   promises as fsPromises2,
-  mkdirSync as mkdirSync43,
+  mkdirSync as mkdirSync44,
   readdirSync as readdirSync5,
   unlinkSync as unlinkSync5
 } from "node:fs";
-import { join as join52 } from "node:path";
+import { join as join54 } from "node:path";
 function getInstallDir() {
   const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
-  return join52(homeDir, ".cache", "miya", "bin");
+  return join54(homeDir, ".cache", "miya", "bin");
 }
 function getRgPath() {
   const isWindows = process.platform === "win32";
-  return join52(getInstallDir(), isWindows ? "rg.exe" : "rg");
+  return join54(getInstallDir(), isWindows ? "rg.exe" : "rg");
 }
 function getInstalledRipgrepPath() {
   const rgPath = getRgPath();
-  return existsSync48(rgPath) ? rgPath : null;
+  return existsSync50(rgPath) ? rgPath : null;
 }
 
 // src/tools/grep/constants.ts
@@ -55512,9 +56258,9 @@ function findExecutable(name) {
 }
 function getDataDir() {
   if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA || process.env.APPDATA || join53(process.env.USERPROFILE || ".", "AppData", "Local");
+    return process.env.LOCALAPPDATA || process.env.APPDATA || join55(process.env.USERPROFILE || ".", "AppData", "Local");
   }
-  return process.env.XDG_DATA_HOME || join53(process.env.HOME || ".", ".local", "share");
+  return process.env.XDG_DATA_HOME || join55(process.env.HOME || ".", ".local", "share");
 }
 function getOpenCodeBundledRg() {
   const execPath = process.execPath;
@@ -55523,15 +56269,15 @@ function getOpenCodeBundledRg() {
   const rgName = isWindows ? "rg.exe" : "rg";
   const candidates = [
     // OpenCode XDG data path (highest priority - where OpenCode installs rg)
-    join53(getDataDir(), "opencode", "bin", rgName),
+    join55(getDataDir(), "opencode", "bin", rgName),
     // Legacy paths relative to execPath
-    join53(execDir, rgName),
-    join53(execDir, "bin", rgName),
-    join53(execDir, "..", "bin", rgName),
-    join53(execDir, "..", "libexec", rgName)
+    join55(execDir, rgName),
+    join55(execDir, "bin", rgName),
+    join55(execDir, "..", "bin", rgName),
+    join55(execDir, "..", "libexec", rgName)
   ];
   for (const candidate of candidates) {
-    if (existsSync49(candidate)) {
+    if (existsSync51(candidate)) {
       return candidate;
     }
   }
@@ -55777,19 +56523,93 @@ var grep = tool({
   }
 });
 
+// src/tools/learning.ts
+var z10 = tool.schema;
+function createLearningTools(projectDir) {
+  const miya_learning_drafts = tool({
+    description: "Inspect/recommend/approve learning skill drafts generated from Ralph + memory-reflect.",
+    args: {
+      mode: z10.enum(["list", "recommend", "accept", "reject", "stats"]).default("stats"),
+      id: z10.string().optional(),
+      query: z10.string().optional(),
+      threshold: z10.number().optional(),
+      limit: z10.number().optional()
+    },
+    async execute(args) {
+      const mode = String(args.mode ?? "stats");
+      if (mode === "list") {
+        const drafts = listSkillDrafts(projectDir, {
+          limit: typeof args.limit === "number" ? Number(args.limit) : 30
+        });
+        if (drafts.length === 0) return "learning_drafts=empty";
+        return drafts.map(
+          (item) => [
+            `id=${item.id}`,
+            `status=${item.status}`,
+            `source=${item.source}`,
+            `confidence=${item.confidence.toFixed(2)}`,
+            `uses=${item.uses}`,
+            `pending_uses=${item.pendingUses}`,
+            `hit_rate=${item.uses > 0 ? (item.hits / item.uses).toFixed(2) : "0.00"}`,
+            `title=${item.title}`
+          ].join(" | ")
+        ).join("\n");
+      }
+      if (mode === "recommend") {
+        const query = String(args.query ?? "").trim();
+        if (!query) return "error=query_required";
+        const result = buildLearningInjection(projectDir, query, {
+          threshold: typeof args.threshold === "number" ? Number(args.threshold) : void 0,
+          limit: typeof args.limit === "number" ? Number(args.limit) : void 0
+        });
+        if (!result.snippet) return "learning_recommendation=none";
+        return [
+          result.snippet,
+          `matched=${result.matchedDraftIDs.join(",")}`
+        ].join("\n");
+      }
+      if (mode === "accept" || mode === "reject") {
+        const id = String(args.id ?? "").trim();
+        if (!id) return "error=id_required";
+        const updated = setSkillDraftStatus(
+          projectDir,
+          id,
+          mode === "accept" ? "accepted" : "rejected"
+        );
+        if (!updated) return "error=draft_not_found";
+        return `updated=true
+id=${updated.id}
+status=${updated.status}`;
+      }
+      const stats = getLearningStats(projectDir);
+      return [
+        `total=${stats.total}`,
+        `draft=${stats.byStatus.draft}`,
+        `recommended=${stats.byStatus.recommended}`,
+        `accepted=${stats.byStatus.accepted}`,
+        `rejected=${stats.byStatus.rejected}`,
+        `uses=${stats.totalUses}`,
+        `pending_uses=${stats.totalPendingUses}`,
+        `hit_rate=${stats.hitRate}`
+      ].join("\n");
+    }
+  });
+  return {
+    miya_learning_drafts
+  };
+}
+
 // src/tools/lsp/client.ts
-var import_node2 = __toESM(require_node(), 1);
-import {
-  spawn as spawn5
-} from "node:child_process";
-import { readFileSync as readFileSync43 } from "node:fs";
+var import_node = __toESM(require_node(), 1);
+import { spawn as spawn5 } from "node:child_process";
+import { readFileSync as readFileSync45 } from "node:fs";
 import { extname as extname3, resolve as resolve5 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // src/tools/lsp/config.ts
-import { existsSync as existsSync50 } from "node:fs";
+import { existsSync as existsSync52 } from "node:fs";
 import { homedir as homedir9 } from "node:os";
-import { join as join54 } from "node:path";
+import { join as join56 } from "node:path";
 
 // src/tools/lsp/constants.ts
 var SEVERITY_MAP = {
@@ -55939,7 +56759,7 @@ function isServerInstalled(command) {
   if (command.length === 0) return false;
   const cmd = command[0];
   if (cmd.includes("/") || cmd.includes("\\")) {
-    return existsSync50(cmd);
+    return existsSync52(cmd);
   }
   const isWindows = process.platform === "win32";
   const ext = isWindows ? ".exe" : "";
@@ -55947,17 +56767,17 @@ function isServerInstalled(command) {
   const pathSeparator = isWindows ? ";" : ":";
   const paths = pathEnv.split(pathSeparator);
   for (const p of paths) {
-    if (existsSync50(join54(p, cmd)) || existsSync50(join54(p, cmd + ext))) {
+    if (existsSync52(join56(p, cmd)) || existsSync52(join56(p, cmd + ext))) {
       return true;
     }
   }
   const cwd = process.cwd();
-  const localBin = join54(cwd, "node_modules", ".bin", cmd);
-  if (existsSync50(localBin) || existsSync50(localBin + ext)) {
+  const localBin = join56(cwd, "node_modules", ".bin", cmd);
+  if (existsSync52(localBin) || existsSync52(localBin + ext)) {
     return true;
   }
-  const globalBin = join54(homedir9(), ".config", "opencode", "bin", cmd);
-  if (existsSync50(globalBin) || existsSync50(globalBin + ext)) {
+  const globalBin = join56(homedir9(), ".config", "opencode", "bin", cmd);
+  if (existsSync52(globalBin) || existsSync52(globalBin + ext)) {
     return true;
   }
   return false;
@@ -56115,9 +56935,9 @@ var LSPClient = class {
     this.proc.on("exit", () => {
       this.processExited = true;
     });
-    this.connection = (0, import_node2.createMessageConnection)(
-      new import_node2.StreamMessageReader(this.proc.stdout),
-      new import_node2.StreamMessageWriter(this.proc.stdin)
+    this.connection = (0, import_node.createMessageConnection)(
+      new import_node.StreamMessageReader(this.proc.stdout),
+      new import_node.StreamMessageWriter(this.proc.stdin)
     );
     this.connection.onNotification(
       "textDocument/publishDiagnostics",
@@ -56201,7 +57021,7 @@ stderr: ${stderr}` : "")
   async openFile(filePath14) {
     const absPath = resolve5(filePath14);
     if (this.openedFiles.has(absPath)) return;
-    const text = readFileSync43(absPath, "utf-8");
+    const text = readFileSync45(absPath, "utf-8");
     const ext = extname3(absPath);
     const languageId = getLanguageId(ext);
     this.connection?.sendNotification("textDocument/didOpen", {
@@ -56282,13 +57102,13 @@ stderr: ${stderr}` : "")
 
 // src/tools/lsp/utils.ts
 import {
-  existsSync as existsSync51,
-  readFileSync as readFileSync44,
+  existsSync as existsSync53,
+  readFileSync as readFileSync46,
   statSync as statSync4,
   unlinkSync as unlinkSync6,
   writeFileSync as writeFileSync35
 } from "node:fs";
-import { dirname as dirname38, extname as extname4, join as join55, resolve as resolve6 } from "node:path";
+import { dirname as dirname38, extname as extname4, join as join57, resolve as resolve6 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 function findWorkspaceRoot(filePath14) {
   let dir = resolve6(filePath14);
@@ -56309,7 +57129,7 @@ function findWorkspaceRoot(filePath14) {
   let prevDir = "";
   while (dir !== prevDir) {
     for (const marker of markers) {
-      if (existsSync51(join55(dir, marker))) {
+      if (existsSync53(join57(dir, marker))) {
         return dir;
       }
     }
@@ -56398,7 +57218,7 @@ function filterDiagnosticsBySeverity(diagnostics, severityFilter) {
 }
 function applyTextEditsToFile(filePath14, edits) {
   try {
-    const content = readFileSync44(filePath14, "utf-8");
+    const content = readFileSync46(filePath14, "utf-8");
     const lines = content.split("\n");
     const sortedEdits = [...edits].sort((a, b) => {
       if (b.range.start.line !== a.range.start.line) {
@@ -56479,7 +57299,7 @@ function applyWorkspaceEdit(edit) {
           try {
             const oldPath = uriToPath(change.oldUri);
             const newPath = uriToPath(change.newUri);
-            const content = readFileSync44(oldPath, "utf-8");
+            const content = readFileSync46(oldPath, "utf-8");
             writeFileSync35(newPath, content, "utf-8");
             unlinkSync6(oldPath);
             result.filesModified.push(newPath);
@@ -56664,311 +57484,1137 @@ var lsp_rename = tool({
   }
 });
 
-// src/tools/automation.ts
-import * as fs51 from "node:fs";
-import * as path52 from "node:path";
-var z16 = tool.schema;
-function formatJobs(jobs) {
-  if (jobs.length === 0) {
-    return "No jobs configured.";
-  }
-  return jobs.map(
-    (job) => `- ${job.id} | ${job.name} | enabled=${job.enabled} | daily=${job.schedule.time} | next=${job.nextRunAt} | approval=${job.requireApproval}`
-  ).join("\n");
-}
-function parseNaturalSchedule(input) {
-  const text = input.trim();
-  let hour = null;
-  let minute = 0;
-  const chineseMatch = /每天(?:\s*(上午|中午|下午|晚上|凌晨))?\s*(\d{1,2})[:点时]?\s*(\d{1,2})?/.exec(
-    text
-  );
-  if (chineseMatch) {
-    const period = chineseMatch[1];
-    hour = Number(chineseMatch[2]);
-    minute = chineseMatch[3] ? Number(chineseMatch[3]) : 0;
-    if (period === "\u4E0B\u5348" || period === "\u665A\u4E0A") {
-      if (hour < 12) hour += 12;
-    }
-    if (period === "\u4E2D\u5348") {
-      if (hour < 11) hour += 12;
-    }
-    if (period === "\u51CC\u6668" && hour === 12) {
-      hour = 0;
-    }
-  }
-  if (hour === null) {
-    const englishMatch = /(?:every day at|daily\s*(?:at)?)\s*(\d{1,2})(?::(\d{1,2}))?/i.exec(
-      text
-    );
-    if (englishMatch) {
-      hour = Number(englishMatch[1]);
-      minute = englishMatch[2] ? Number(englishMatch[2]) : 0;
-    }
-  }
-  if (hour !== null) {
-    if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
-    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-  }
-  if (hour === null) return null;
-  const cmdPatterns = [
-    /(?:运行|执行)\s*([^，。,;]+)$/,
-    /(?:run|execute)\s+(.+)$/i
-  ];
-  let command = null;
-  for (const pattern of cmdPatterns) {
-    const match = pattern.exec(text);
-    if (!match) continue;
-    command = match[1].trim();
-    break;
-  }
-  if (!command) {
-    return null;
-  }
-  const time5 = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  return { time: time5, command };
-}
-function readAutoGitStatus(projectDir) {
-  const file3 = path52.join(projectDir, ".opencode", "miya", "auto-git-push.json");
-  if (!fs51.existsSync(file3)) return {};
-  try {
-    return JSON.parse(fs51.readFileSync(file3, "utf-8"));
-  } catch {
-    return {};
-  }
-}
-function readGatewayStatus(projectDir) {
-  const file3 = path52.join(projectDir, ".opencode", "miya", "gateway.json");
-  if (!fs51.existsSync(file3)) return {};
-  try {
-    return JSON.parse(fs51.readFileSync(file3, "utf-8"));
-  } catch {
-    return {};
-  }
-}
-function createAutomationTools(automationService) {
-  const miya_schedule_daily_command = tool({
-    description: "Create a daily scheduled command job (HH:mm local time) in Miya automation runtime.",
+// src/tools/mcp.ts
+var z11 = tool.schema;
+function createMcpTools() {
+  const miya_mcp_capabilities = tool({
+    description: "List builtin MCPs with capability flags (MCP-UI/sampling/service exposure).",
     args: {
-      name: z16.string().describe("Job name"),
-      time: z16.string().describe("Daily local time, format HH:mm"),
-      command: z16.string().describe("Command to execute"),
-      cwd: z16.string().optional().describe("Working directory for command"),
-      timeout_ms: z16.number().optional().describe("Execution timeout in milliseconds"),
-      require_approval: z16.boolean().optional().describe("Require manual approval for scheduled runs")
+      disabled_mcps: z11.array(z11.string()).optional().describe("Optional disabled MCP names")
     },
     async execute(args) {
-      const job = automationService.scheduleDailyCommand({
-        name: String(args.name),
-        time: String(args.time),
-        command: String(args.command),
-        cwd: args.cwd ? String(args.cwd) : void 0,
-        timeoutMs: typeof args.timeout_ms === "number" ? Number(args.timeout_ms) : void 0,
-        requireApproval: typeof args.require_approval === "boolean" ? args.require_approval : false
-      });
-      return `Scheduled job created.
-id=${job.id}
-name=${job.name}
-time=${job.schedule.time}
-next_run=${job.nextRunAt}
-require_approval=${job.requireApproval}`;
-    }
-  });
-  const miya_list_jobs = tool({
-    description: "List Miya automation jobs.",
-    args: {},
-    async execute() {
-      return formatJobs(automationService.listJobs());
-    }
-  });
-  const miya_delete_job = tool({
-    description: "Delete a Miya automation job by id.",
-    args: {
-      job_id: z16.string().describe("Job id to remove")
-    },
-    async execute(args) {
-      const ok = automationService.deleteJob(String(args.job_id));
-      return ok ? `Deleted job ${String(args.job_id)}.` : "Job not found.";
-    }
-  });
-  const miya_set_job_enabled = tool({
-    description: "Enable or disable a Miya automation job.",
-    args: {
-      job_id: z16.string().describe("Job id"),
-      enabled: z16.boolean().describe("Whether job should be enabled")
-    },
-    async execute(args) {
-      const job = automationService.setJobEnabled(
-        String(args.job_id),
-        Boolean(args.enabled)
+      const mcps = createBuiltinMcps(
+        Array.isArray(args.disabled_mcps) ? args.disabled_mcps.map(String) : []
       );
-      if (!job) return "Job not found.";
-      return `Job ${job.id} enabled=${job.enabled}, next_run=${job.nextRunAt}`;
-    }
-  });
-  const miya_run_job_now = tool({
-    description: "Run a Miya automation job immediately.",
-    args: {
-      job_id: z16.string().describe("Job id")
-    },
-    async execute(args) {
-      const result = await automationService.runJobNow(String(args.job_id));
-      if (!result) return "Job not found.";
-      return `Run finished.
-status=${result.status}
-exit_code=${result.exitCode}
-timed_out=${result.timedOut}
-stdout:
-${result.stdout || "(empty)"}
-stderr:
-${result.stderr || "(empty)"}`;
-    }
-  });
-  const miya_list_approvals = tool({
-    description: "List pending/finished approval requests for scheduled jobs.",
-    args: {},
-    async execute() {
-      const approvals = automationService.listApprovals();
-      if (approvals.length === 0) return "No approvals found.";
-      return approvals.map(
-        (approval) => `- ${approval.id} | job=${approval.jobId} | status=${approval.status} | requested=${approval.requestedAt}`
-      ).join("\n");
-    }
-  });
-  const miya_approve_job_run = tool({
-    description: "Approve a pending job run request and execute it immediately.",
-    args: {
-      approval_id: z16.string().describe("Approval request id")
-    },
-    async execute(args) {
-      const result = await automationService.approveAndRun(
-        String(args.approval_id)
-      );
-      if (!result) {
-        return "Approval not found or no longer pending.";
-      }
-      return `Approved ${result.approval.id}.
-run_status=${result.result?.status ?? "unknown"}
-exit_code=${result.result?.exitCode ?? "n/a"}
-timed_out=${result.result?.timedOut ?? "n/a"}`;
-    }
-  });
-  const miya_reject_job_run = tool({
-    description: "Reject a pending scheduled job approval request.",
-    args: {
-      approval_id: z16.string().describe("Approval request id")
-    },
-    async execute(args) {
-      const approval = automationService.rejectApproval(String(args.approval_id));
-      if (!approval) {
-        return "Approval not found or no longer pending.";
-      }
-      return `Rejected ${approval.id}.`;
-    }
-  });
-  const miya_job_history = tool({
-    description: "Show recent Miya job execution history.",
-    args: {
-      limit: z16.number().optional().describe("Maximum records to return (default 20)")
-    },
-    async execute(args) {
-      const limit = typeof args.limit === "number" && args.limit > 0 ? Math.min(200, Number(args.limit)) : 20;
-      const records = automationService.listHistory(limit);
-      if (records.length === 0) return "No history records found.";
-      return records.map(
-        (record3) => `- ${record3.id} | job=${record3.jobName} | trigger=${record3.trigger} | status=${record3.status} | exit=${record3.exitCode} | started=${record3.startedAt}`
-      ).join("\n");
-    }
-  });
-  const miya_status_panel = tool({
-    description: "Show compact Miya runtime status panel for jobs and approvals.",
-    args: {},
-    async execute() {
-      const jobs = automationService.listJobs();
-      const approvals = automationService.listApprovals().filter((item) => item.status === "pending");
-      const history = automationService.listHistory(5);
-      const historyText = history.length === 0 ? "(no runs yet)" : history.map(
-        (item) => `- ${item.startedAt} | ${item.jobName} | ${item.status} | exit=${item.exitCode}`
-      ).join("\n");
-      const safety = getSafetySnapshot(automationService.getProjectDir());
-      const safetyText = safety.recent.length === 0 ? "(none)" : safety.recent.map(
-        (item) => `- ${item.created_at} | ${item.status} | ${item.tier} | ${item.reason} | trace=${item.trace_id}`
-      ).join("\n");
-      const autoGit = readAutoGitStatus(automationService.getProjectDir());
-      const autoGitText = autoGit.status && autoGit.updated_at ? `${autoGit.updated_at} | ${autoGit.status} | reason=${autoGit.reason ?? "n/a"} | trace=${autoGit.trace ?? "n/a"} | target=${autoGit.target_ref ?? "n/a"}` : "(none)";
-      const gateway = readGatewayStatus(automationService.getProjectDir());
-      const gatewayText = gateway.url && gateway.status ? `${gateway.status} | ${gateway.url} | port=${gateway.port ?? "n/a"}` : "(not started)";
-      return `<details>
-<summary>Miya Control Plane</summary>
-
-Miya status
-jobs_total=${jobs.length}
-jobs_enabled=${jobs.filter((job) => job.enabled).length}
-approvals_pending=${approvals.length}
-kill_switch_active=${safety.kill.active}
-kill_switch_reason=${safety.kill.reason ?? "n/a"}
-gateway=${gatewayText}
-auto_git_last=${autoGitText}
-
-Jobs:
-${formatJobs(jobs)}
-
-Pending approvals:
-${approvals.length === 0 ? "(none)" : approvals.map(
-        (item) => `- ${item.id} | job=${item.jobId} | requested=${item.requestedAt}`
-      ).join("\n")}
-
-Recent runs:
-${historyText}
-
-Recent self-approval:
-${safetyText}
-</details>`;
-    }
-  });
-  const miya_schedule_from_text = tool({
-    description: "Create daily schedule from a natural-language request (Chinese/English basic patterns).",
-    args: {
-      request: z16.string().describe("Natural-language automation request"),
-      name: z16.string().optional().describe("Optional job name override")
-    },
-    async execute(args) {
-      const request = String(args.request);
-      const parsed = parseNaturalSchedule(request);
-      if (!parsed) {
-        return "Unable to parse schedule or command. Please include daily time and explicit command.";
-      }
-      const risky = /(股票|证券|买卖|trade|broker|email|mail)/i.test(request);
-      const job = automationService.scheduleDailyCommand({
-        name: args.name ? String(args.name) : `nl-${parsed.time}-${Date.now()}`,
-        time: parsed.time,
-        command: parsed.command,
-        requireApproval: risky
+      const lines = Object.entries(mcps).map(([name, config3]) => {
+        const caps = "capabilities" in config3 ? config3.capabilities : void 0;
+        return [
+          `name=${name}`,
+          `type=${config3.type}`,
+          `sampling=${Boolean(caps?.sampling)}`,
+          `mcp_ui=${Boolean(caps?.mcpUi)}`,
+          `service_expose=${Boolean(caps?.serviceExpose)}`
+        ].join(" | ");
       });
-      return `Scheduled from natural language.
-id=${job.id}
-time=${job.schedule.time}
-command=${job.action.command}
-require_approval=${job.requireApproval}`;
+      return lines.length > 0 ? lines.join("\n") : "no_mcp_available";
+    }
+  });
+  const miya_mcp_service_manifest = tool({
+    description: "Return Miya MCP service exposure manifest used for control-plane integration.",
+    args: {
+      disabled_mcps: z11.array(z11.string()).optional().describe("Optional disabled MCP names")
+    },
+    async execute(args) {
+      return JSON.stringify(
+        buildMcpServiceManifest(
+          Array.isArray(args.disabled_mcps) ? args.disabled_mcps.map(String) : []
+        ),
+        null,
+        2
+      );
     }
   });
   return {
-    miya_schedule_daily_command,
-    miya_list_jobs,
-    miya_delete_job,
-    miya_set_job_enabled,
-    miya_run_job_now,
-    miya_list_approvals,
-    miya_approve_job_run,
-    miya_reject_job_run,
-    miya_job_history,
-    miya_status_panel,
-    miya_schedule_from_text
+    miya_mcp_capabilities,
+    miya_mcp_service_manifest
+  };
+}
+
+// src/tools/multimodal.ts
+var z12 = tool.schema;
+function createMultimodalTools(projectDir) {
+  const miya_generate_image = tool({
+    description: "Generate an image asset with local multimodal pipeline and persist metadata.",
+    args: {
+      prompt: z12.string().describe("Image prompt"),
+      reference_media_ids: z12.array(z12.string()).optional().describe("Optional reference media ids"),
+      model: z12.string().optional().describe("Image model id"),
+      size: z12.string().optional().describe("Output size (for example 1024x1024)"),
+      register_as_companion_asset: z12.boolean().optional().describe("Also add generated image into companion assets")
+    },
+    async execute(args) {
+      const result = await generateImage(projectDir, {
+        prompt: String(args.prompt),
+        referenceMediaIDs: Array.isArray(args.reference_media_ids) ? args.reference_media_ids.map(String) : void 0,
+        model: args.model ? String(args.model) : void 0,
+        size: args.size ? String(args.size) : void 0,
+        registerAsCompanionAsset: Boolean(args.register_as_companion_asset)
+      });
+      return [
+        `media_id=${result.media.id}`,
+        `file=${result.media.fileName}`,
+        `model=${result.model}`,
+        `size=${result.size}`,
+        `prompt=${result.prompt}`
+      ].join("\n");
+    }
+  });
+  const miya_voice_input = tool({
+    description: "Ingest voice input text/media into Miya voice state and history.",
+    args: {
+      text: z12.string().optional().describe("Recognized text content"),
+      media_id: z12.string().optional().describe("Optional media id for ASR transcript"),
+      source: z12.enum(["wake", "talk", "manual", "media"]).optional(),
+      language: z12.string().optional().describe("Language hint, for example zh-CN")
+    },
+    async execute(args) {
+      const result = ingestVoiceInput(projectDir, {
+        text: args.text ? String(args.text) : void 0,
+        mediaID: args.media_id ? String(args.media_id) : void 0,
+        source: args.source,
+        language: args.language ? String(args.language) : void 0
+      });
+      return [
+        `source=${result.source}`,
+        `media_id=${result.mediaID ?? ""}`,
+        `text=${result.text}`
+      ].join("\n");
+    }
+  });
+  const miya_voice_output = tool({
+    description: "Generate TTS voice output asset with local multimodal pipeline and persist metadata.",
+    args: {
+      text: z12.string().describe("Text to synthesize"),
+      voice: z12.string().optional().describe("Voice profile id or name"),
+      model: z12.string().optional().describe("TTS model id"),
+      format: z12.enum(["wav", "mp3", "ogg"]).optional(),
+      register_as_companion_asset: z12.boolean().optional().describe("Also add generated voice into companion assets")
+    },
+    async execute(args) {
+      const result = await synthesizeVoiceOutput(projectDir, {
+        text: String(args.text),
+        voice: args.voice ? String(args.voice) : void 0,
+        model: args.model ? String(args.model) : void 0,
+        format: args.format,
+        registerAsCompanionAsset: Boolean(args.register_as_companion_asset)
+      });
+      return [
+        `media_id=${result.media.id}`,
+        `file=${result.media.fileName}`,
+        `voice=${result.voice}`,
+        `model=${result.model}`,
+        `format=${result.format}`
+      ].join("\n");
+    }
+  });
+  const miya_vision_analyze = tool({
+    description: "Analyze an image media asset and return metadata-based summary.",
+    args: {
+      media_id: z12.string().describe("Image media id"),
+      question: z12.string().optional().describe("Optional analysis question")
+    },
+    async execute(args) {
+      const result = await analyzeVision(projectDir, {
+        mediaID: String(args.media_id),
+        question: args.question ? String(args.question) : void 0
+      });
+      return [
+        `media_id=${result.mediaID}`,
+        `summary=${result.summary}`,
+        `details=${JSON.stringify(result.details)}`
+      ].join("\n");
+    }
+  });
+  return {
+    miya_generate_image,
+    miya_voice_input,
+    miya_voice_output,
+    miya_vision_analyze
+  };
+}
+
+// src/node/service.ts
+var NodeService = class {
+  projectDir;
+  constructor(projectDir) {
+    this.projectDir = projectDir;
+  }
+  register(input) {
+    return registerNode(this.projectDir, input);
+  }
+  touchHeartbeat(nodeID) {
+    return touchNodeHeartbeat(this.projectDir, nodeID);
+  }
+  disconnect(nodeID) {
+    markNodeDisconnected(this.projectDir, nodeID);
+  }
+  list() {
+    return listNodes(this.projectDir);
+  }
+  listDevices() {
+    return listDevices(this.projectDir);
+  }
+  describe(nodeID) {
+    return describeNode(this.projectDir, nodeID);
+  }
+  issueToken(nodeID) {
+    return issueNodeToken(this.projectDir, nodeID);
+  }
+  createPairRequest(input) {
+    return createNodePairRequest(this.projectDir, input);
+  }
+  listPairRequests(status) {
+    return listNodePairs(this.projectDir, status);
+  }
+  resolvePairRequest(pairID, status) {
+    return resolveNodePair(this.projectDir, pairID, status);
+  }
+  createInvoke(input) {
+    return createInvokeRequest(this.projectDir, input);
+  }
+  markInvokeSent(invokeID) {
+    return markInvokeSent(this.projectDir, invokeID);
+  }
+  resolveInvoke(invokeID, input) {
+    return resolveInvokeResult(this.projectDir, invokeID, input);
+  }
+  listInvokes(limit = 50) {
+    return listInvokeRequests(this.projectDir, limit);
+  }
+};
+
+// src/node/index.ts
+var nodeServices = /* @__PURE__ */ new Map();
+function getNodeService(projectDir) {
+  const existing = nodeServices.get(projectDir);
+  if (existing) return existing;
+  const created = new NodeService(projectDir);
+  nodeServices.set(projectDir, created);
+  return created;
+}
+
+// src/tools/nodes.ts
+var z13 = tool.schema;
+function createNodeTools(projectDir) {
+  const nodeService = getNodeService(projectDir);
+  const miya_node_register = tool({
+    description: "Register or update a Miya node record.",
+    args: {
+      node_id: z13.string().describe("Node identifier"),
+      device_id: z13.string().describe("Device identifier"),
+      platform: z13.string().optional().describe("Platform name"),
+      type: z13.enum(["cli", "desktop", "mobile", "browser"]).optional().describe("Node runtime type"),
+      capabilities: z13.array(z13.string()).optional().describe("Capability list exposed by this node"),
+      token: z13.string().optional().describe("Optional node token for registration"),
+      permissions: z13.object({
+        screenRecording: z13.boolean().optional(),
+        accessibility: z13.boolean().optional(),
+        filesystem: z13.enum(["none", "read", "full"]).optional(),
+        network: z13.boolean().optional()
+      }).optional().describe("Permission mapping metadata")
+    },
+    async execute(args) {
+      const capabilities = Array.isArray(args.capabilities) ? args.capabilities.map(String) : [];
+      if (args.permissions && typeof args.permissions === "object") {
+        const p = args.permissions;
+        if (p.screenRecording) capabilities.push("perm.screenRecording");
+        if (p.accessibility) capabilities.push("perm.accessibility");
+        if (p.network) capabilities.push("perm.network");
+        if (p.filesystem) capabilities.push(`perm.filesystem.${p.filesystem}`);
+      }
+      const node = nodeService.register({
+        nodeID: String(args.node_id),
+        deviceID: String(args.device_id),
+        type: args.type,
+        platform: args.platform ? String(args.platform) : process.platform,
+        capabilities: [...new Set(capabilities)],
+        token: args.token ? String(args.token) : void 0,
+        permissions: args.permissions && typeof args.permissions === "object" ? args.permissions : void 0
+      });
+      return [
+        `node_id=${node.nodeID}`,
+        `device_id=${node.deviceID}`,
+        `type=${node.type}`,
+        `platform=${node.platform}`,
+        `status=${node.status}`,
+        `connected=${node.connected}`,
+        `paired=${node.paired}`,
+        `permissions=${JSON.stringify(node.permissions)}`,
+        `last_heartbeat=${node.lastHeartbeatAt}`,
+        `capabilities=${node.capabilities.join(",")}`
+      ].join("\n");
+    }
+  });
+  const miya_node_status = tool({
+    description: "Show node status summary, or details for a specific node id when provided.",
+    args: {
+      node_id: z13.string().optional().describe("Optional node identifier")
+    },
+    async execute(args) {
+      const nodeID = args.node_id ? String(args.node_id) : "";
+      if (nodeID) {
+        const node = nodeService.describe(nodeID);
+        if (!node) return `node_not_found=${nodeID}`;
+        return [
+          `node_id=${node.nodeID}`,
+          `device_id=${node.deviceID}`,
+          `type=${node.type}`,
+          `status=${node.status}`,
+          `connected=${node.connected}`,
+          `paired=${node.paired}`,
+          `permissions=${JSON.stringify(node.permissions)}`,
+          `last_heartbeat=${node.lastHeartbeatAt}`,
+          `last_seen=${node.lastSeenAt}`,
+          `capabilities=${node.capabilities.join(",")}`
+        ].join("\n");
+      }
+      const nodes = nodeService.list();
+      const pending = nodeService.listPairRequests("pending").length;
+      return [
+        `nodes_total=${nodes.length}`,
+        `nodes_connected=${nodes.filter((item) => item.connected).length}`,
+        `nodes_online=${nodes.filter((item) => item.status === "online").length}`,
+        `nodes_paired=${nodes.filter((item) => item.paired).length}`,
+        `nodes_pending_pairs=${pending}`
+      ].join("\n");
+    }
+  });
+  const miya_node_heartbeat = tool({
+    description: "Update node heartbeat timestamp and mark it online.",
+    args: {
+      node_id: z13.string().describe("Node identifier")
+    },
+    async execute(args) {
+      const nodeID = String(args.node_id);
+      const node = nodeService.touchHeartbeat(nodeID);
+      if (!node) return `node_not_found=${nodeID}`;
+      return [
+        `node_id=${node.nodeID}`,
+        `status=${node.status}`,
+        `last_heartbeat=${node.lastHeartbeatAt}`
+      ].join("\n");
+    }
+  });
+  const miya_node_issue_token = tool({
+    description: "Issue or rotate node token for a node. Return token once; store hash only.",
+    args: {
+      node_id: z13.string().describe("Node identifier")
+    },
+    async execute(args) {
+      const nodeID = String(args.node_id);
+      const issued = nodeService.issueToken(nodeID);
+      if (!issued) return `node_not_found=${nodeID}`;
+      return [
+        `node_id=${issued.nodeID}`,
+        `token=${issued.token}`,
+        `issued_at=${issued.issuedAt}`
+      ].join("\n");
+    }
+  });
+  return {
+    miya_node_register,
+    miya_node_status,
+    miya_node_heartbeat,
+    miya_node_issue_token
+  };
+}
+
+// src/ralph/error-analyzer.ts
+function analyzeFailure(output) {
+  const text = output.toLowerCase();
+  if (text.includes("cannot find module") || text.includes("module not found") || text.includes("command not found") || text.includes("is not recognized as an internal or external command")) {
+    return {
+      kind: "dependency_missing",
+      summary: "Dependencies or required binaries are missing.",
+      suggestedFixes: ["npm install", "check PATH and tool installation"]
+    };
+  }
+  if (text.includes("ts2339") || text.includes("type error") || text.includes("typescript")) {
+    return {
+      kind: "type_error",
+      summary: "Type checking failed.",
+      suggestedFixes: [
+        "fix reported TypeScript diagnostics",
+        "run npm run typecheck"
+      ]
+    };
+  }
+  if (text.includes("eslint") || text.includes("biome") || text.includes("lint")) {
+    return {
+      kind: "lint_error",
+      summary: "Lint checks failed.",
+      suggestedFixes: ["run npm run lint", "apply formatter and lint fixes"]
+    };
+  }
+  if (text.includes("test failed") || text.includes("failing") || text.includes("assert") || text.includes("expect(")) {
+    return {
+      kind: "test_failure",
+      summary: "Verification tests failed.",
+      suggestedFixes: [
+        "inspect failing test output",
+        "fix logic and rerun tests"
+      ]
+    };
+  }
+  if (text.includes("permission denied") || text.includes("eacces")) {
+    return {
+      kind: "permission_denied",
+      summary: "Execution failed due to permission restrictions.",
+      suggestedFixes: [
+        "adjust permissions",
+        "run in allowed directory/context"
+      ]
+    };
+  }
+  if (text.includes("timed out") || text.includes("timeout")) {
+    return {
+      kind: "timeout",
+      summary: "Command hit timeout before completion.",
+      suggestedFixes: ["increase timeout", "split the task into smaller steps"]
+    };
+  }
+  return {
+    kind: "unknown",
+    summary: "Verification failed with an unclassified error.",
+    suggestedFixes: ["inspect stdout/stderr and add a targeted fix command"]
+  };
+}
+
+// src/ralph/loop.ts
+import { createHash as createHash16 } from "node:crypto";
+function hashText4(input) {
+  return createHash16("sha256").update(input).digest("hex").slice(0, 16);
+}
+function normalize2(text) {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+function levenshteinDistance(a, b) {
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = new Array(n + 1);
+  for (let j = 0; j <= n; j += 1) dp[j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j += 1) {
+      const temp = dp[j];
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + cost);
+      prev = temp;
+    }
+  }
+  return dp[n];
+}
+function similarity(a, b) {
+  const left = normalize2(a);
+  const right = normalize2(b);
+  if (!left && !right) return 1;
+  if (!left || !right) return 0;
+  const maxLen = Math.max(left.length, right.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshteinDistance(left, right) / maxLen;
+}
+function parseChangedLineKeys(diffText) {
+  const keys = [];
+  const lines = diffText.split(/\r?\n/);
+  let currentFile = "";
+  for (const line of lines) {
+    if (line.startsWith("+++ b/")) {
+      currentFile = line.slice("+++ b/".length);
+      continue;
+    }
+    if (!line.startsWith("@@") || !currentFile) continue;
+    const match = /@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (!match) continue;
+    const start = Number(match[1]);
+    const count = Number(match[2] ?? "1");
+    const end = start + Math.max(1, count) - 1;
+    for (let lineNumber = start; lineNumber <= end; lineNumber += 1) {
+      keys.push(`${currentFile}:${lineNumber}`);
+    }
+  }
+  return keys;
+}
+function defaultReadDiff(cwd) {
+  const proc = runProcessSync("git", ["diff", "--unified=0"], {
+    cwd
+  });
+  if (proc.exitCode !== 0) return "";
+  return proc.stdout;
+}
+function runCommand4(command, timeoutMs, cwd) {
+  const start = Date.now();
+  const shellArgs = process.platform === "win32" ? ["powershell", "-NoProfile", "-Command", command] : ["sh", "-lc", command];
+  const proc = runProcessSync(shellArgs[0], shellArgs.slice(1), {
+    cwd,
+    timeout: Math.max(1e3, Math.min(timeoutMs, 10 * 60 * 1e3))
+  });
+  return {
+    command,
+    ok: proc.exitCode === 0 && !proc.timedOut,
+    exitCode: proc.exitCode,
+    stdout: proc.stdout,
+    stderr: proc.stderr,
+    durationMs: Date.now() - start
+  };
+}
+function renderFixCommand(template, input) {
+  const stderrTrimmed = input.stderr.trim();
+  const stdoutTrimmed = input.stdout.trim();
+  return template.replaceAll("{{ITERATION}}", String(input.iteration)).replaceAll("{{FAILURE_SUMMARY}}", input.failureSummary).replaceAll("{{LAST_STDERR}}", stderrTrimmed).replaceAll("{{LAST_STDOUT}}", stdoutTrimmed).replaceAll(
+    "{{LAST_ERROR}}",
+    stderrTrimmed || stdoutTrimmed || input.failureSummary
+  );
+}
+function pushAttempt(attempts, iteration, type, result) {
+  const attempt = { iteration, type, result };
+  attempts.push(attempt);
+  return attempt;
+}
+function executeRalphLoop(input) {
+  const attempts = [];
+  const maxIterations = Math.max(1, Math.min(input.maxIterations, 30));
+  const budgetMs = Math.max(
+    2e3,
+    Math.min(input.budgetMs ?? 5 * 60 * 1e3, 30 * 60 * 1e3)
+  );
+  const stallWindow = Math.max(2, Math.min(input.stallWindow ?? 3, 10));
+  const errorSimilarityThreshold = Math.max(
+    0.5,
+    Math.min(input.errorSimilarityThreshold ?? 0.9, 1)
+  );
+  const sameLineTouchLimit = Math.max(
+    2,
+    Math.min(input.sameLineTouchLimit ?? 5, 30)
+  );
+  const run = input.runCommand ?? runCommand4;
+  const readDiff = input.readDiff ?? defaultReadDiff;
+  const fixQueue = [...input.fixCommands ?? []];
+  const lineTouchCounts = /* @__PURE__ */ new Map();
+  const fingerprints = /* @__PURE__ */ new Set();
+  const recentVerifyAttempts = [];
+  const startedAt = Date.now();
+  let taskRan = false;
+  let finalVerification;
+  for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
+    if (Date.now() - startedAt > budgetMs) {
+      return {
+        success: false,
+        iterations: iteration - 1,
+        attempts,
+        summary: `Loop stopped because time budget was exceeded (${budgetMs} ms).`,
+        finalVerification,
+        reason: "budget_exceeded"
+      };
+    }
+    if (!taskRan && input.taskCommand) {
+      const taskResult = run(
+        input.taskCommand,
+        input.timeoutMs,
+        input.workingDirectory
+      );
+      pushAttempt(attempts, iteration, "task", taskResult);
+      taskRan = true;
+    }
+    const verifyResult = run(
+      input.verificationCommand,
+      input.timeoutMs,
+      input.workingDirectory
+    );
+    finalVerification = verifyResult;
+    const verifyAttempt = pushAttempt(
+      attempts,
+      iteration,
+      "verify",
+      verifyResult
+    );
+    if (verifyResult.ok) {
+      return {
+        success: true,
+        iterations: iteration,
+        attempts,
+        summary: `Verification passed at iteration ${iteration}.`,
+        finalVerification,
+        reason: "verified"
+      };
+    }
+    const failure = analyzeFailure(
+      `${verifyResult.stdout}
+${verifyResult.stderr}`
+    );
+    verifyAttempt.failureKind = failure.kind;
+    verifyAttempt.failureSummary = failure.summary;
+    verifyAttempt.stderrHash = hashText4(
+      verifyResult.stderr || verifyResult.stdout
+    );
+    const diffText = readDiff(input.workingDirectory);
+    verifyAttempt.diffHash = hashText4(diffText);
+    const fingerprint = hashText4(
+      [verifyAttempt.stderrHash, verifyAttempt.diffHash, failure.kind].join(
+        "|"
+      )
+    );
+    verifyAttempt.fingerprint = fingerprint;
+    if (fingerprints.has(fingerprint)) {
+      return {
+        success: false,
+        iterations: iteration,
+        attempts,
+        summary: `Loop cycle detected at iteration ${iteration}; fingerprint repeated.`,
+        finalVerification,
+        reason: "cycle_detected"
+      };
+    }
+    fingerprints.add(fingerprint);
+    const changedLineKeys = parseChangedLineKeys(diffText);
+    let maxTouches = 0;
+    for (const key of changedLineKeys) {
+      const next = (lineTouchCounts.get(key) ?? 0) + 1;
+      lineTouchCounts.set(key, next);
+      if (next > maxTouches) maxTouches = next;
+    }
+    if (maxTouches >= sameLineTouchLimit) {
+      return {
+        success: false,
+        iterations: iteration,
+        attempts,
+        summary: `Loop stopped due to same-line churn (>= ${sameLineTouchLimit}).`,
+        finalVerification,
+        reason: "same_line_churn"
+      };
+    }
+    if (recentVerifyAttempts.length > 0) {
+      const previous = recentVerifyAttempts[recentVerifyAttempts.length - 1];
+      const score = similarity(
+        `${previous.result.stdout}
+${previous.result.stderr}`,
+        `${verifyResult.stdout}
+${verifyResult.stderr}`
+      );
+      verifyAttempt.errorSimilarity = score;
+      const noProgress = score >= errorSimilarityThreshold && previous.failureKind === verifyAttempt.failureKind && previous.diffHash === verifyAttempt.diffHash;
+      verifyAttempt.noProgress = noProgress;
+    } else {
+      verifyAttempt.errorSimilarity = 0;
+      verifyAttempt.noProgress = false;
+    }
+    recentVerifyAttempts.push(verifyAttempt);
+    if (recentVerifyAttempts.length > stallWindow) {
+      recentVerifyAttempts.shift();
+    }
+    const stalled = recentVerifyAttempts.length >= stallWindow && recentVerifyAttempts.every((attempt) => attempt.noProgress);
+    if (stalled) {
+      return {
+        success: false,
+        iterations: iteration,
+        attempts,
+        summary: `Loop stalled: ${stallWindow} consecutive no-progress iterations.`,
+        finalVerification,
+        reason: "no_progress"
+      };
+    }
+    const nextFixTemplate = fixQueue.shift();
+    const nextFix = nextFixTemplate ? renderFixCommand(nextFixTemplate, {
+      iteration,
+      failureSummary: failure.summary,
+      stderr: verifyResult.stderr,
+      stdout: verifyResult.stdout
+    }) : "";
+    if (!nextFix) {
+      return {
+        success: false,
+        iterations: iteration,
+        attempts,
+        summary: `Verification failed and no fix command remained. Last issue: ${failure.summary}`,
+        finalVerification,
+        reason: "no_fix_command"
+      };
+    }
+    const fixResult = run(nextFix, input.timeoutMs, input.workingDirectory);
+    pushAttempt(attempts, iteration, "fix", fixResult);
+  }
+  return {
+    success: false,
+    iterations: maxIterations,
+    attempts,
+    summary: "Verification did not pass before reaching max iterations.",
+    finalVerification,
+    reason: "max_iterations_reached"
+  };
+}
+
+// src/tools/ralph.ts
+var z14 = tool.schema;
+function createRalphTools(projectDir) {
+  const miya_ralph_loop = tool({
+    description: "Execute a verification-driven self-correction loop with optional task and fix commands.",
+    args: {
+      task_description: z14.string().describe("Human-readable task objective"),
+      verification_command: z14.string().describe("Command used to verify success"),
+      max_iterations: z14.number().default(8),
+      max_retries: z14.number().optional().describe("Alias of max_iterations for retry-oriented workflows"),
+      timeout_ms: z14.number().default(6e4),
+      budget_ms: z14.number().optional().describe("Total loop time budget. Stops once exceeded."),
+      stall_window: z14.number().default(3).describe("Consecutive no-progress window before loop stops"),
+      error_similarity_threshold: z14.number().default(0.9).describe("Error similarity threshold used by stall detection"),
+      same_line_touch_limit: z14.number().default(5).describe("Stop when same line keeps churning above this limit"),
+      task_command: z14.string().optional().describe("Optional command to execute the task before verification"),
+      fix_commands: z14.array(z14.string()).optional().describe("Ordered fix commands executed when verification fails"),
+      working_directory: z14.string().optional().describe("Optional command working directory")
+    },
+    async execute(args) {
+      const result = executeRalphLoop({
+        taskDescription: String(args.task_description),
+        verificationCommand: String(args.verification_command),
+        maxIterations: typeof args.max_retries === "number" ? Number(args.max_retries) : typeof args.max_iterations === "number" ? Number(args.max_iterations) : 8,
+        timeoutMs: typeof args.timeout_ms === "number" ? Number(args.timeout_ms) : 6e4,
+        budgetMs: typeof args.budget_ms === "number" ? Number(args.budget_ms) : void 0,
+        stallWindow: typeof args.stall_window === "number" ? Number(args.stall_window) : void 0,
+        errorSimilarityThreshold: typeof args.error_similarity_threshold === "number" ? Number(args.error_similarity_threshold) : void 0,
+        sameLineTouchLimit: typeof args.same_line_touch_limit === "number" ? Number(args.same_line_touch_limit) : void 0,
+        taskCommand: args.task_command ? String(args.task_command) : void 0,
+        fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands.map(String) : void 0,
+        workingDirectory: args.working_directory ? String(args.working_directory) : void 0
+      });
+      const lines = [
+        `task=${String(args.task_description)}`,
+        `success=${result.success}`,
+        `iterations=${result.iterations}`,
+        `reason=${result.reason ?? "unknown"}`,
+        `termination_reason=${result.reason ?? "unknown"}`,
+        `summary=${result.summary}`
+      ];
+      if (projectDir) {
+        const draft = createSkillDraftFromRalph(projectDir, {
+          taskDescription: String(args.task_description),
+          result
+        });
+        if (draft) {
+          lines.push(`learning_draft_id=${draft.id}`);
+          lines.push(`learning_draft_status=${draft.status}`);
+          lines.push(
+            `learning_draft_confidence=${draft.confidence.toFixed(2)}`
+          );
+        }
+      }
+      const tailAttempts = result.attempts.slice(-6);
+      if (tailAttempts.length > 0) {
+        lines.push("recent_attempts=");
+        for (const attempt of tailAttempts) {
+          lines.push(
+            [
+              `- #${attempt.iteration}`,
+              attempt.type,
+              `ok=${attempt.result.ok}`,
+              `exit=${attempt.result.exitCode}`,
+              attempt.noProgress ? "no_progress=true" : "",
+              typeof attempt.errorSimilarity === "number" ? `error_similarity=${attempt.errorSimilarity.toFixed(3)}` : "",
+              attempt.failureKind ? `failure=${attempt.failureKind}` : "",
+              attempt.result.stderr.trim() ? `stderr=${attempt.result.stderr.trim().slice(0, 220).replace(/\s+/g, " ")}` : ""
+            ].filter(Boolean).join(" | ")
+          );
+        }
+        const latestVerify = [...tailAttempts].reverse().find((attempt) => attempt.type === "verify");
+        if (latestVerify?.result.stderr?.trim()) {
+          lines.push(
+            `stderr_tail=${latestVerify.result.stderr.trim().slice(0, 300).replace(/\s+/g, " ")}`
+          );
+        }
+      }
+      return lines.join("\n");
+    }
+  });
+  return {
+    miya_ralph_loop
+  };
+}
+
+// src/tools/router.ts
+var z15 = tool.schema;
+var DEFAULT_AVAILABLE_AGENTS = [
+  "1-task-manager",
+  "2-code-search",
+  "3-docs-helper",
+  "4-architecture-advisor",
+  "5-code-fixer",
+  "6-ui-designer",
+  "7-code-simplicity-reviewer"
+];
+function createRouterTools(projectDir) {
+  const miya_route_intent = tool({
+    description: "Classify intent, estimate complexity, and produce runtime routing plan.",
+    args: {
+      text: z15.string().describe("User request text"),
+      session_id: z15.string().optional().describe("Target session id for escalation tracking"),
+      available_agents: z15.array(z15.string()).optional().describe("Optional available agents list"),
+      pinned_agent: z15.string().optional().describe("Optional fixed agent to force route output"),
+      source: z15.string().optional().describe("Source channel for source-aware routing policy")
+    },
+    async execute(args) {
+      const text = String(args.text ?? "");
+      const availableAgents = Array.isArray(args.available_agents) ? args.available_agents.map(String) : DEFAULT_AVAILABLE_AGENTS;
+      const sessionID2 = String(args.session_id ?? "main").trim() || "main";
+      const plan = buildRouteExecutionPlan({
+        projectDir,
+        sessionID: sessionID2,
+        text,
+        availableAgents,
+        pinnedAgent: typeof args.pinned_agent === "string" ? args.pinned_agent : void 0,
+        source: typeof args.source === "string" ? args.source : void 0
+      });
+      const mode = readRouterModeConfig(projectDir);
+      const session = getRouterSessionState(projectDir, sessionID2);
+      return [
+        `session=${sessionID2}`,
+        `intent=${plan.intent}`,
+        `complexity=${plan.complexity}`,
+        `complexity_score=${plan.complexityScore}`,
+        `route_stage=${plan.stage}`,
+        `selected_agent=${plan.agent}`,
+        `planned_agents=${plan.plannedAgents.join(",")}`,
+        `max_agents=${plan.maxAgents}`,
+        `context_strategy=${plan.contextStrategy}`,
+        `requires_multiple_steps=${plan.requiresMultipleSteps}`,
+        `enable_early_exit=${plan.enableEarlyExit}`,
+        `preferred_agent=${plan.preferredAgent}`,
+        `fallback_agent=${plan.fallbackAgent}`,
+        `feedback_score=${plan.feedbackScore}`,
+        `feedback_samples=${plan.feedbackSamples}`,
+        `eco_mode=${mode.ecoMode}`,
+        `execution_mode=${plan.executionMode}`,
+        `orchestration_reason=${plan.orchestrationReason}`,
+        `forced_stage=${mode.forcedStage ?? "(none)"}`,
+        `auto_parallel_enabled=${mode.autoParallelEnabled}`,
+        `auto_parallel_min_complexity=${mode.autoParallelMinComplexity}`,
+        `auto_parallel_max_agents=${mode.autoParallelMaxAgents}`,
+        `source_allowlist=${mode.sourceAllowlist.join(",")}`,
+        `consecutive_failures=${session.consecutiveFailures}`,
+        `reasons=${plan.reasons.join(",")}`
+      ].join("\n");
+    }
+  });
+  const miya_route_feedback = tool({
+    description: "Record route outcome feedback for routing learning.",
+    args: {
+      text: z15.string(),
+      intent: z15.string(),
+      suggested_agent: z15.string(),
+      accepted: z15.boolean()
+    },
+    async execute(args) {
+      const intent = classifyIntent(String(args.intent));
+      const record3 = addRouteFeedback(projectDir, {
+        text: String(args.text),
+        intent,
+        suggestedAgent: String(args.suggested_agent),
+        accepted: Boolean(args.accepted)
+      });
+      return [
+        `saved=true`,
+        `at=${record3.at}`,
+        `intent=${record3.intent}`,
+        `accepted=${record3.accepted}`
+      ].join("\n");
+    }
+  });
+  const miya_route_stats = tool({
+    description: "Show routing acceptance stats and runtime token/cost summary.",
+    args: {},
+    async execute() {
+      const summary = summarizeRouteHistory(projectDir);
+      const cost = getRouteCostSummary(projectDir, 500);
+      const usage = summarizeRouteUsage(projectDir, 500);
+      return [
+        summary,
+        `cost_records=${cost.totalRecords}`,
+        `tokens_estimate=${cost.totalTokensEstimate}`,
+        `baseline_high_tokens_estimate=${cost.baselineHighTokensEstimate}`,
+        `savings_tokens_estimate=${cost.savingsTokensEstimate}`,
+        `savings_percent_estimate=${cost.savingsPercentEstimate}`,
+        `cost_usd_estimate=${cost.totalCostUsdEstimate}`,
+        `stage_low_records=${cost.byStage.low.records}`,
+        `stage_medium_records=${cost.byStage.medium.records}`,
+        `stage_high_records=${cost.byStage.high.records}`,
+        `actual_records=${usage.totalRecords}`,
+        `actual_tokens=${usage.actualTokens}`,
+        `actual_cost_usd=${usage.actualCostUsd}`,
+        `estimate_tokens=${usage.estimatedTokens}`,
+        `estimate_cost_usd=${usage.estimatedCostUsd}`,
+        `token_delta=${usage.tokenDelta}`,
+        `token_delta_percent=${usage.tokenDeltaPercent}`,
+        `cost_delta_usd=${usage.costDeltaUsd}`
+      ].join("\n");
+    }
+  });
+  const miya_route_mode = tool({
+    description: "Inspect or update router eco mode and forced stage.",
+    args: {
+      mode: z15.enum(["get", "set"]).default("get"),
+      eco_mode: z15.boolean().optional(),
+      forced_stage: z15.enum(["low", "medium", "high"]).optional(),
+      clear_forced_stage: z15.boolean().optional(),
+      auto_parallel_enabled: z15.boolean().optional(),
+      auto_parallel_min_complexity: z15.enum(["low", "medium", "high"]).optional(),
+      auto_parallel_max_agents: z15.number().optional(),
+      source_allowlist: z15.array(z15.string()).optional()
+    },
+    async execute(args) {
+      if (args.mode === "set") {
+        const next = writeRouterModeConfig(projectDir, {
+          ecoMode: typeof args.eco_mode === "boolean" ? Boolean(args.eco_mode) : void 0,
+          forcedStage: args.clear_forced_stage === true ? void 0 : typeof args.forced_stage === "string" ? args.forced_stage : void 0,
+          autoParallelEnabled: typeof args.auto_parallel_enabled === "boolean" ? Boolean(args.auto_parallel_enabled) : void 0,
+          autoParallelMinComplexity: typeof args.auto_parallel_min_complexity === "string" ? args.auto_parallel_min_complexity : void 0,
+          autoParallelMaxAgents: typeof args.auto_parallel_max_agents === "number" ? Number(args.auto_parallel_max_agents) : void 0,
+          sourceAllowlist: Array.isArray(args.source_allowlist) ? args.source_allowlist.map(String) : void 0
+        });
+        return [
+          "saved=true",
+          `eco_mode=${next.ecoMode}`,
+          `forced_stage=${next.forcedStage ?? "(none)"}`,
+          `token_multiplier_low=${next.stageTokenMultiplier.low}`,
+          `token_multiplier_medium=${next.stageTokenMultiplier.medium}`,
+          `token_multiplier_high=${next.stageTokenMultiplier.high}`,
+          `auto_parallel_enabled=${next.autoParallelEnabled}`,
+          `auto_parallel_min_complexity=${next.autoParallelMinComplexity}`,
+          `auto_parallel_max_agents=${next.autoParallelMaxAgents}`,
+          `source_allowlist=${next.sourceAllowlist.join(",")}`
+        ].join("\n");
+      }
+      const current = readRouterModeConfig(projectDir);
+      return [
+        `eco_mode=${current.ecoMode}`,
+        `forced_stage=${current.forcedStage ?? "(none)"}`,
+        `token_multiplier_low=${current.stageTokenMultiplier.low}`,
+        `token_multiplier_medium=${current.stageTokenMultiplier.medium}`,
+        `token_multiplier_high=${current.stageTokenMultiplier.high}`,
+        `cost_per_1k_low=${current.stageCostUsdPer1k.low}`,
+        `cost_per_1k_medium=${current.stageCostUsdPer1k.medium}`,
+        `cost_per_1k_high=${current.stageCostUsdPer1k.high}`,
+        `auto_parallel_enabled=${current.autoParallelEnabled}`,
+        `auto_parallel_min_complexity=${current.autoParallelMinComplexity}`,
+        `auto_parallel_max_agents=${current.autoParallelMaxAgents}`,
+        `source_allowlist=${current.sourceAllowlist.join(",")}`
+      ].join("\n");
+    }
+  });
+  const miya_route_cost = tool({
+    description: "Show recent route token/cost records.",
+    args: {
+      limit: z15.number().optional()
+    },
+    async execute(args) {
+      const limit = typeof args.limit === "number" ? Number(args.limit) : 20;
+      const rows = listRouteCostRecords(
+        projectDir,
+        Math.max(1, Math.min(100, limit))
+      );
+      if (rows.length === 0) return "route_cost=empty";
+      return rows.slice(-Math.max(1, Math.min(100, limit))).map(
+        (row) => [
+          `at=${row.at}`,
+          `session=${row.sessionID}`,
+          `intent=${row.intent}`,
+          `complexity=${row.complexity}`,
+          `stage=${row.stage}`,
+          `agent=${row.agent}`,
+          `success=${row.success}`,
+          `tokens=${row.totalTokensEstimate}`,
+          `cost_usd=${row.costUsdEstimate}`
+        ].join(" | ")
+      ).join("\n");
+    }
+  });
+  const miya_route_usage = tool({
+    description: "Show recent route estimated-vs-actual usage records.",
+    args: {
+      limit: z15.number().optional()
+    },
+    async execute(args) {
+      const limit = typeof args.limit === "number" ? Number(args.limit) : 20;
+      const rows = listRouteUsageRecords(
+        projectDir,
+        Math.max(1, Math.min(100, limit))
+      );
+      if (rows.length === 0) return "route_usage=empty";
+      return rows.map(
+        (row) => [
+          `at=${row.at}`,
+          `session=${row.sessionID}`,
+          `stage=${row.stage}`,
+          `agent=${row.agent}`,
+          `est_tokens=${row.estimatedTokens}`,
+          `act_tokens=${row.actualTotalTokens}`,
+          `est_cost=${row.estimatedCostUsd}`,
+          `act_cost=${row.actualCostUsd}`
+        ].join(" | ")
+      ).join("\n");
+    }
+  });
+  return {
+    miya_route_intent,
+    miya_route_feedback,
+    miya_route_stats,
+    miya_route_mode,
+    miya_route_cost,
+    miya_route_usage
+  };
+}
+
+// src/tools/soul.ts
+var z16 = tool.schema;
+function createSoulTools(projectDir) {
+  const miya_soul_get = tool({
+    description: "Read current SOUL profile and persona layer.",
+    args: {},
+    async execute() {
+      const profile = loadSoulProfile(projectDir);
+      return [
+        `file=${soulFilePath(projectDir)}`,
+        `name=${profile.name}`,
+        `role=${profile.role}`,
+        `tone=${profile.tone}`,
+        `principles=${profile.principles.length}`,
+        `behavior_rules=${profile.behaviorRules.length}`,
+        `forbidden=${profile.forbidden.length}`,
+        "",
+        soulPersonaLayer(projectDir)
+      ].join("\n");
+    }
+  });
+  const miya_soul_set = tool({
+    description: "Replace SOUL.md content and persist persona profile.",
+    args: {
+      markdown: z16.string().describe("Full SOUL.md markdown content")
+    },
+    async execute(args) {
+      const profile = saveSoulMarkdown(projectDir, String(args.markdown));
+      return [
+        "updated=true",
+        `file=${soulFilePath(projectDir)}`,
+        `name=${profile.name}`,
+        `role=${profile.role}`
+      ].join("\n");
+    }
+  });
+  const miya_soul_reset = tool({
+    description: "Reset SOUL.md to default template.",
+    args: {},
+    async execute() {
+      const profile = saveSoulMarkdown(projectDir, DEFAULT_SOUL_MARKDOWN);
+      return [
+        "reset=true",
+        `file=${soulFilePath(projectDir)}`,
+        `name=${profile.name}`
+      ].join("\n");
+    }
+  });
+  return {
+    miya_soul_get,
+    miya_soul_set,
+    miya_soul_reset
+  };
+}
+
+// src/ultrawork/merger.ts
+function mergeUltraworkResults(manager, taskIDs) {
+  const lines = [];
+  for (const taskID of taskIDs) {
+    const task = manager.getResult(taskID);
+    if (!task) {
+      lines.push(`- ${taskID}: not_found`);
+      continue;
+    }
+    lines.push(
+      `- ${task.id} | ${task.agent} | ${task.status} | ${task.completedAt ? "done" : "running"}`
+    );
+  }
+  return lines.join("\n");
+}
+function formatUltraworkDagResult(result) {
+  const header = [
+    `total=${result.total}`,
+    `completed=${result.completed}`,
+    `failed=${result.failed}`,
+    `blocked=${result.blocked}`
+  ];
+  const lines = result.nodes.map(
+    (node) => `- ${node.nodeID} | ${node.agent} | ${node.status} | retries=${node.retries}${node.error ? ` | error=${node.error}` : ""}`
+  );
+  return [...header, ...lines].join("\n");
+}
+
+// src/tools/ultrawork.ts
+var z17 = tool.schema;
+function sessionID(ctx) {
+  if (ctx && typeof ctx === "object" && "sessionID" in ctx) {
+    return String(ctx.sessionID ?? "main");
+  }
+  return "main";
+}
+function createUltraworkTools(_ctx, manager) {
+  const miya_ultrawork = tool({
+    description: "Launch multiple specialist tasks in parallel and return aggregated status.",
+    args: {
+      tasks: z17.array(
+        z17.object({
+          id: z17.string().optional(),
+          agent: z17.string(),
+          prompt: z17.string(),
+          description: z17.string(),
+          dependsOn: z17.array(z17.string()).optional(),
+          timeoutMs: z17.number().optional(),
+          maxRetries: z17.number().optional()
+        })
+      ).describe("Parallel task list"),
+      mode: z17.enum(["parallel", "dag"]).optional().describe(
+        "Scheduling mode: parallel fire-and-merge or DAG dependency scheduling"
+      ),
+      max_parallel: z17.number().optional().describe("Max parallel workers when mode=dag")
+    },
+    async execute(args, ctx) {
+      const parentSessionID = sessionID(ctx);
+      const tasks = Array.isArray(args.tasks) ? args.tasks : [];
+      if (args.mode === "dag") {
+        const dagResult = await runUltraworkDag({
+          manager,
+          parentSessionID,
+          tasks,
+          maxParallel: typeof args.max_parallel === "number" ? Number(args.max_parallel) : void 0
+        });
+        return ["mode=dag", formatUltraworkDagResult(dagResult)].join("\n");
+      }
+      const launched = launchUltraworkTasks({
+        manager,
+        parentSessionID,
+        tasks
+      });
+      const merged = mergeUltraworkResults(
+        manager,
+        launched.map((item) => item.taskID)
+      );
+      return [
+        "mode=parallel",
+        `launched=${launched.length}`,
+        ...launched.map(
+          (item) => `- ${item.nodeID} -> ${item.taskID} | ${item.agent} | ${item.status}`
+        ),
+        "",
+        "status:",
+        merged
+      ].join("\n");
+    }
+  });
+  return {
+    miya_ultrawork
   };
 }
 
 // src/tools/workflow.ts
-var z17 = tool.schema;
+var z18 = tool.schema;
 function sid(ctx) {
   if (ctx && typeof ctx === "object" && "sessionID" in ctx) {
     return String(ctx.sessionID);
@@ -56992,11 +58638,11 @@ function createWorkflowTools(projectDir) {
   const save_work = tool({
     description: "Persist current workflow checkpoint to .opencode/cowork-saves",
     args: {
-      label: z17.string().optional().describe("Checkpoint label"),
-      done: z17.array(z17.string()).optional().describe("Completed items"),
-      missing: z17.array(z17.string()).optional().describe("Still missing items"),
-      unresolved: z17.array(z17.string()).optional().describe("Known unresolved issues or risks"),
-      notes: z17.string().optional().describe("Extra notes")
+      label: z18.string().optional().describe("Checkpoint label"),
+      done: z18.array(z18.string()).optional().describe("Completed items"),
+      missing: z18.array(z18.string()).optional().describe("Still missing items"),
+      unresolved: z18.array(z18.string()).optional().describe("Known unresolved issues or risks"),
+      notes: z18.string().optional().describe("Extra notes")
     },
     async execute(args, toolContext) {
       const sessionID2 = sid(toolContext);
@@ -57016,10 +58662,10 @@ Label: ${record3.label}`;
   const miya_iteration_done = tool({
     description: "Mark one autopilot cycle as completed, persist a checkpoint, and enforce the internal max-cycle guard.",
     args: {
-      done: z17.array(z17.string()).optional().describe("Completed items"),
-      missing: z17.array(z17.string()).optional().describe("Still missing items"),
-      unresolved: z17.array(z17.string()).optional().describe("Known unresolved issues or risks"),
-      notes: z17.string().optional().describe("Extra notes")
+      done: z18.array(z18.string()).optional().describe("Completed items"),
+      missing: z18.array(z18.string()).optional().describe("Still missing items"),
+      unresolved: z18.array(z18.string()).optional().describe("Known unresolved issues or risks"),
+      notes: z18.string().optional().describe("Extra notes")
     },
     async execute(args, toolContext) {
       const sessionID2 = sid(toolContext);
@@ -57042,7 +58688,10 @@ Label: ${record3.label}`;
       state2.lastDone = done;
       state2.lastMissing = missing;
       state2.lastUnresolved = unresolved;
-      const window = Math.max(0, state2.iterationCompleted - state2.windowStartIteration);
+      const window = Math.max(
+        0,
+        state2.iterationCompleted - state2.windowStartIteration
+      );
       const limit = state2.maxIterationsPerWindow;
       const capped = state2.loopEnabled && window >= limit;
       state2.awaitingConfirmation = capped;
@@ -57076,8 +58725,8 @@ Label: ${record3.label}`;
   const load_work = tool({
     description: "Load a saved checkpoint from .opencode/cowork-saves with branch safety check",
     args: {
-      id: z17.string().describe("Checkpoint id (filename without .json)"),
-      confirm_branch_mismatch: z17.boolean().optional().describe("Set true to proceed when saved branch != current branch")
+      id: z18.string().describe("Checkpoint id (filename without .json)"),
+      confirm_branch_mismatch: z18.boolean().optional().describe("Set true to proceed when saved branch != current branch")
     },
     async execute(args) {
       const record3 = loadSaveRecord(projectDir, String(args.id));
@@ -57102,8 +58751,8 @@ Notes: ${record3.notes ?? "(none)"}`;
   const check_work = tool({
     description: "Check completion status for one checkpoint or all checkpoints in .opencode/cowork-saves",
     args: {
-      id: z17.string().optional().describe("Checkpoint id to inspect"),
-      all: z17.boolean().optional().describe("Check all checkpoints")
+      id: z18.string().optional().describe("Checkpoint id to inspect"),
+      all: z18.boolean().optional().describe("Check all checkpoints")
     },
     async execute(args) {
       if (args.id) {
@@ -57130,10 +58779,10 @@ ${lines.join("\n")}`;
   const quality_gate = tool({
     description: "Hard quality gate evaluation. Passes only when all three scores meet threshold.",
     args: {
-      architecture_score: z17.number().min(0).max(10),
-      docs_score: z17.number().min(0).max(10),
-      domain_score: z17.number().min(0).max(10),
-      threshold: z17.number().min(0).max(10).optional()
+      architecture_score: z18.number().min(0).max(10),
+      docs_score: z18.number().min(0).max(10),
+      domain_score: z18.number().min(0).max(10),
+      threshold: z18.number().min(0).max(10).optional()
     },
     async execute(args) {
       const threshold = typeof args.threshold === "number" ? args.threshold : 9.2;
@@ -57158,7 +58807,7 @@ domain=${x}`;
   const cancel_work = tool({
     description: "Cancel loop-mode for current session and reset loop guard counters.",
     args: {
-      reason: z17.string().optional()
+      reason: z18.string().optional()
     },
     async execute(args, toolContext) {
       const sessionID2 = sid(toolContext);
@@ -57195,7 +58844,7 @@ domain=${x}`;
   const strict_quality_gate_set = tool({
     description: "Enable or disable strict quality gate mode for this session.",
     args: {
-      enabled: z17.boolean()
+      enabled: z18.boolean()
     },
     async execute(args, toolContext) {
       const sessionID2 = toolContext && typeof toolContext === "object" && "sessionID" in toolContext ? String(toolContext.sessionID) : "unknown";
@@ -57220,98 +58869,6 @@ domain=${x}`;
   };
 }
 
-// src/tools/learning.ts
-var z18 = tool.schema;
-function createLearningTools(projectDir) {
-  const miya_learning_drafts = tool({
-    description: "Inspect/recommend/approve learning skill drafts generated from Ralph + memory-reflect.",
-    args: {
-      mode: z18.enum(["list", "recommend", "accept", "reject", "stats"]).default("stats"),
-      id: z18.string().optional(),
-      query: z18.string().optional(),
-      threshold: z18.number().optional(),
-      limit: z18.number().optional()
-    },
-    async execute(args) {
-      const mode = String(args.mode ?? "stats");
-      if (mode === "list") {
-        const drafts = listSkillDrafts(projectDir, {
-          limit: typeof args.limit === "number" ? Number(args.limit) : 30
-        });
-        if (drafts.length === 0) return "learning_drafts=empty";
-        return drafts.map(
-          (item) => [
-            `id=${item.id}`,
-            `status=${item.status}`,
-            `source=${item.source}`,
-            `confidence=${item.confidence.toFixed(2)}`,
-            `uses=${item.uses}`,
-            `hit_rate=${item.uses > 0 ? (item.hits / item.uses).toFixed(2) : "0.00"}`,
-            `title=${item.title}`
-          ].join(" | ")
-        ).join("\n");
-      }
-      if (mode === "recommend") {
-        const query = String(args.query ?? "").trim();
-        if (!query) return "error=query_required";
-        const result = buildLearningInjection(projectDir, query, {
-          threshold: typeof args.threshold === "number" ? Number(args.threshold) : void 0,
-          limit: typeof args.limit === "number" ? Number(args.limit) : void 0
-        });
-        if (!result.snippet) return "learning_recommendation=none";
-        return [result.snippet, `matched=${result.matchedDraftIDs.join(",")}`].join("\n");
-      }
-      if (mode === "accept" || mode === "reject") {
-        const id = String(args.id ?? "").trim();
-        if (!id) return "error=id_required";
-        const updated = setSkillDraftStatus(projectDir, id, mode === "accept" ? "accepted" : "rejected");
-        if (!updated) return "error=draft_not_found";
-        return `updated=true
-id=${updated.id}
-status=${updated.status}`;
-      }
-      const stats = getLearningStats(projectDir);
-      return [
-        `total=${stats.total}`,
-        `draft=${stats.byStatus.draft}`,
-        `recommended=${stats.byStatus.recommended}`,
-        `accepted=${stats.byStatus.accepted}`,
-        `rejected=${stats.byStatus.rejected}`,
-        `uses=${stats.totalUses}`,
-        `hit_rate=${stats.hitRate}`
-      ].join("\n");
-    }
-  });
-  return {
-    miya_learning_drafts
-  };
-}
-
-// src/config/runtime-merge.ts
-function mergePluginAgentConfigs(existingAgents, pluginAgents) {
-  const next = {
-    ...existingAgents ?? {}
-  };
-  for (const [agentName, pluginAgent] of Object.entries(pluginAgents)) {
-    const existing = next[agentName];
-    if (!existing || typeof existing !== "object") {
-      next[agentName] = { ...pluginAgent };
-      continue;
-    }
-    const pluginPermission = pluginAgent.permission && typeof pluginAgent.permission === "object" && !Array.isArray(pluginAgent.permission) ? pluginAgent.permission : {};
-    const existingPermission = existing.permission && typeof existing.permission === "object" && !Array.isArray(existing.permission) ? existing.permission : {};
-    next[agentName] = {
-      ...pluginAgent,
-      ...existing,
-      permission: {
-        ...pluginPermission,
-        ...existingPermission
-      }
-    };
-  }
-  return next;
-}
-
 // src/index.ts
 function isPlainObject3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57331,25 +58888,25 @@ function deepMergeObject(base, override) {
 var autoUiOpenAtByDir = /* @__PURE__ */ new Map();
 var dockLaunchAtByDir = /* @__PURE__ */ new Map();
 function resolveMiyaRoot(projectDir) {
-  const nestedRoot = path53.join(projectDir, "miya-src");
-  if (fs52.existsSync(path53.join(nestedRoot, "src", "index.ts"))) {
+  const nestedRoot = path54.join(projectDir, "miya-src");
+  if (fs53.existsSync(path54.join(nestedRoot, "src", "index.ts"))) {
     return nestedRoot;
   }
-  if (fs52.existsSync(path53.join(projectDir, "src", "index.ts"))) {
+  if (fs53.existsSync(path54.join(projectDir, "src", "index.ts"))) {
     return projectDir;
   }
   return nestedRoot;
 }
 function autoUiOpenGuardFile(projectDir) {
-  return path53.join(projectDir, ".opencode", "miya", "ui-auto-open.guard.json");
+  return path54.join(projectDir, ".opencode", "miya", "ui-auto-open.guard.json");
 }
 function dockLaunchGuardFile(projectDir) {
-  return path53.join(projectDir, ".opencode", "miya", "dock-launch.guard.json");
+  return path54.join(projectDir, ".opencode", "miya", "dock-launch.guard.json");
 }
 function readLaunchGuard(file3) {
-  if (!fs52.existsSync(file3)) return { atMs: 0, pid: 0 };
+  if (!fs53.existsSync(file3)) return { atMs: 0, pid: 0 };
   try {
-    const parsed = JSON.parse(fs52.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs53.readFileSync(file3, "utf-8"));
     const atMs = Number(parsed?.atMs ?? 0);
     const pid = Number(parsed?.pid ?? 0);
     return {
@@ -57364,8 +58921,8 @@ function readLastAutoUiOpen(projectDir) {
   return readLaunchGuard(autoUiOpenGuardFile(projectDir));
 }
 function writeLaunchGuard(file3, atMs, pid) {
-  fs52.mkdirSync(path53.dirname(file3), { recursive: true });
-  fs52.writeFileSync(
+  fs53.mkdirSync(path54.dirname(file3), { recursive: true });
+  fs53.writeFileSync(
     file3,
     `${JSON.stringify({ atMs, pid, at: new Date(atMs).toISOString() }, null, 2)}
 `,
@@ -57417,17 +58974,17 @@ function openUrlSilently(url3) {
 function launchDockSilently(projectDir) {
   if (process.platform !== "win32") return;
   const miyaRoot = resolveMiyaRoot(projectDir);
-  const pidFile = path53.join(miyaRoot, "tools", "miya-dock", "miya-dock.pid");
-  if (fs52.existsSync(pidFile)) {
+  const pidFile = path54.join(miyaRoot, "tools", "miya-dock", "miya-dock.pid");
+  if (fs53.existsSync(pidFile)) {
     try {
-      const pid = Number(fs52.readFileSync(pidFile, "utf-8").trim());
+      const pid = Number(fs53.readFileSync(pidFile, "utf-8").trim());
       if (isPidAlive2(pid)) return;
     } catch {
     }
   }
-  const dockScript = path53.join(miyaRoot, "tools", "miya-dock", "miya-dock.ps1");
-  const bat = path53.join(miyaRoot, "tools", "miya-dock", "miya-launch.bat");
-  if (!fs52.existsSync(dockScript) && !fs52.existsSync(bat)) return;
+  const dockScript = path54.join(miyaRoot, "tools", "miya-dock", "miya-dock.ps1");
+  const bat = path54.join(miyaRoot, "tools", "miya-dock", "miya-launch.bat");
+  if (!fs53.existsSync(dockScript) && !fs53.existsSync(bat)) return;
   const now = Date.now();
   const memLast = dockLaunchAtByDir.get(projectDir) ?? 0;
   const persisted = readLastDockLaunch(projectDir);
@@ -57438,7 +58995,7 @@ function launchDockSilently(projectDir) {
   }
   dockLaunchAtByDir.set(projectDir, now);
   writeLastDockLaunchAt(projectDir, now);
-  const child = fs52.existsSync(dockScript) ? spawn6(
+  const child = fs53.existsSync(dockScript) ? spawn6(
     "powershell.exe",
     [
       "-NoLogo",
@@ -57468,15 +59025,25 @@ function launchDockSilently(projectDir) {
   child.unref();
 }
 function gatewayTerminalLockFile(projectDir) {
-  return path53.join(projectDir, ".opencode", "miya", "gateway-terminal.lock.json");
+  return path54.join(
+    projectDir,
+    ".opencode",
+    "miya",
+    "gateway-terminal.lock.json"
+  );
 }
 function gatewayTerminalLaunchGuardFile(projectDir) {
-  return path53.join(projectDir, ".opencode", "miya", "gateway-terminal-launch.guard.json");
+  return path54.join(
+    projectDir,
+    ".opencode",
+    "miya",
+    "gateway-terminal-launch.guard.json"
+  );
 }
 function writeLastGatewayTerminalLaunchAt(projectDir, atMs) {
   const file3 = gatewayTerminalLaunchGuardFile(projectDir);
-  fs52.mkdirSync(path53.dirname(file3), { recursive: true });
-  fs52.writeFileSync(
+  fs53.mkdirSync(path54.dirname(file3), { recursive: true });
+  fs53.writeFileSync(
     file3,
     `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
 `,
@@ -57485,9 +59052,9 @@ function writeLastGatewayTerminalLaunchAt(projectDir, atMs) {
 }
 function readGatewayTerminalOwnerPid(projectDir) {
   const file3 = gatewayTerminalLockFile(projectDir);
-  if (!fs52.existsSync(file3)) return 0;
+  if (!fs53.existsSync(file3)) return 0;
   try {
-    const parsed = JSON.parse(fs52.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs53.readFileSync(file3, "utf-8"));
     const pid = Number(parsed.pid ?? 0);
     return Number.isFinite(pid) ? pid : 0;
   } catch {
@@ -57495,15 +59062,15 @@ function readGatewayTerminalOwnerPid(projectDir) {
   }
 }
 function gatewayStateFile(projectDir) {
-  return path53.join(projectDir, ".opencode", "miya", "gateway.json");
+  return path54.join(projectDir, ".opencode", "miya", "gateway.json");
 }
 function gatewayOwnerFile(projectDir) {
-  return path53.join(projectDir, ".opencode", "miya", "gateway-owner.json");
+  return path54.join(projectDir, ".opencode", "miya", "gateway-owner.json");
 }
 function readPidFromJson(file3, key) {
-  if (!fs52.existsSync(file3)) return 0;
+  if (!fs53.existsSync(file3)) return 0;
   try {
-    const parsed = JSON.parse(fs52.readFileSync(file3, "utf-8"));
+    const parsed = JSON.parse(fs53.readFileSync(file3, "utf-8"));
     const pid = Number(parsed[key] ?? 0);
     return Number.isFinite(pid) ? pid : 0;
   } catch {
@@ -57543,9 +59110,9 @@ function launchGatewayTerminalDetached(projectDir) {
   const nodeBinary = resolveGatewayTerminalNodeBinary();
   if (!nodeBinary) return;
   const miyaRoot = resolveMiyaRoot(projectDir);
-  const distCli = path53.join(miyaRoot, "dist", "cli", "index.js");
-  const srcCli = path53.join(miyaRoot, "src", "cli", "index.ts");
-  const script = fs52.existsSync(distCli) && fs52.statSync(distCli).isFile() ? `"${nodeBinary}" "${distCli}" gateway terminal --workspace "${projectDir}"` : fs52.existsSync(srcCli) && fs52.statSync(srcCli).isFile() ? `"${nodeBinary}" --import tsx "${srcCli}" gateway terminal --workspace "${projectDir}"` : "";
+  const distCli = path54.join(miyaRoot, "dist", "cli", "index.js");
+  const srcCli = path54.join(miyaRoot, "src", "cli", "index.ts");
+  const script = fs53.existsSync(distCli) && fs53.statSync(distCli).isFile() ? `"${nodeBinary}" "${distCli}" gateway terminal --workspace "${projectDir}"` : fs53.existsSync(srcCli) && fs53.statSync(srcCli).isFile() ? `"${nodeBinary}" --import tsx "${srcCli}" gateway terminal --workspace "${projectDir}"` : "";
   if (!script) return;
   writeLastGatewayTerminalLaunchAt(projectDir, now);
   const cmdLine = `start "miya-gateway" cmd /k ${script}`;
@@ -57556,6 +59123,35 @@ function launchGatewayTerminalDetached(projectDir) {
     windowsHide: true
   });
   child.unref();
+}
+function resolveGatewayLifecycleMode(dashboardConfig) {
+  const envRaw = process.env.MIYA_GATEWAY_LIFECYCLE_MODE?.trim().toLowerCase();
+  if (envRaw === "terminal" || envRaw === "terminal_legacy") {
+    return "terminal_legacy";
+  }
+  if (envRaw === "service_only") {
+    return "service_only";
+  }
+  if (envRaw === "service_shell") {
+    return "service_shell";
+  }
+  if (process.platform === "win32" && process.env.MIYA_GATEWAY_TERMINAL_AUTO_START === "1") {
+    return "terminal_legacy";
+  }
+  const configRaw = typeof dashboardConfig.gatewayStartMode === "string" ? dashboardConfig.gatewayStartMode.trim().toLowerCase() : "";
+  if (configRaw === "terminal_legacy" || configRaw === "terminal") {
+    return "terminal_legacy";
+  }
+  if (configRaw === "service_only") {
+    return "service_only";
+  }
+  if (configRaw === "service_shell") {
+    return "service_shell";
+  }
+  if (process.platform === "win32" && dashboardConfig.gatewayTerminalAutoStart === true) {
+    return "terminal_legacy";
+  }
+  return process.platform === "win32" ? "service_shell" : "service_only";
 }
 function shouldAutoOpenUi(projectDir, cooldownMs) {
   const last = autoUiOpenAtByDir.get(projectDir) ?? 0;
@@ -57652,16 +59248,26 @@ var MiyaPlugin = async (ctx) => {
   }
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config3);
   const dashboardConfig = config3.ui?.dashboard ?? {};
-  const gatewayTerminalAutoStart = process.platform === "win32" && process.env.MIYA_GATEWAY_TERMINAL_AUTO_START !== "0" && dashboardConfig.gatewayTerminalAutoStart !== false;
-  if (gatewayTerminalAutoStart) {
+  const gatewayLifecycleMode = resolveGatewayLifecycleMode(dashboardConfig);
+  if (process.platform === "win32" && gatewayLifecycleMode === "terminal_legacy") {
     launchGatewayTerminalDetached(ctx.directory);
   } else {
     startGatewayWithLog(ctx.directory);
   }
+  log("[miya] gateway startup mode resolved", {
+    mode: gatewayLifecycleMode,
+    platform: process.platform
+  });
   const gatewayOwner = isGatewayOwner(ctx.directory);
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === "0";
-  const autoOpenCooldownMs = typeof dashboardConfig.autoOpenCooldownMs === "number" ? Math.max(1e4, Math.min(24 * 6e4, Math.floor(Number(dashboardConfig.autoOpenCooldownMs)))) : 2 * 6e4;
+  const autoOpenCooldownMs = typeof dashboardConfig.autoOpenCooldownMs === "number" ? Math.max(
+    1e4,
+    Math.min(
+      24 * 6e4,
+      Math.floor(Number(dashboardConfig.autoOpenCooldownMs))
+    )
+  ) : 2 * 6e4;
   const dockAutoLaunch = process.env.MIYA_DOCK_AUTO_LAUNCH === "1" || dashboardConfig.dockAutoLaunch === true || process.platform === "win32" && dashboardConfig.dockAutoLaunch !== false;
   const interactiveSession = isInteractiveSession();
   const allowAutoOpenWithoutTty = process.env.MIYA_AUTO_UI_OPEN_NO_TTY === "1" || process.platform === "win32" && process.env.MIYA_AUTO_UI_OPEN_NO_TTY !== "0";
@@ -57672,7 +59278,9 @@ var MiyaPlugin = async (ctx) => {
         const state2 = ensureGatewayRunning(ctx.directory);
         const healthy = await probeGatewayAlive(state2.url, 1500);
         if (!healthy) {
-          log("[miya] auto ui open skipped: gateway unhealthy", { url: state2.url });
+          log("[miya] auto ui open skipped: gateway unhealthy", {
+            url: state2.url
+          });
           return;
         }
         if (dockAutoLaunch) {
@@ -57724,12 +59332,15 @@ var MiyaPlugin = async (ctx) => {
       if (status !== "completed" && status !== "failed" && status !== "degraded" && status !== "canceled") {
         return;
       }
-      const jobID = String(event.payload?.jobID ?? event.snapshot.activeJobID ?? "").trim();
+      const jobID = String(
+        event.payload?.jobID ?? event.snapshot.activeJobID ?? ""
+      ).trim();
       const phase = String(event.payload?.phase ?? "").trim();
       const progress = Number(event.payload?.progress ?? 0);
       const messageParts = [`job=${jobID || "unknown"}`, `status=${status}`];
       if (phase) messageParts.push(`phase=${phase}`);
-      if (Number.isFinite(progress)) messageParts.push(`progress=${Math.floor(progress)}%`);
+      if (Number.isFinite(progress))
+        messageParts.push(`progress=${Math.floor(progress)}%`);
       void ctx.client.tui.showToast({
         query: { directory: ctx.directory },
         body: {
@@ -57791,7 +59402,9 @@ var MiyaPlugin = async (ctx) => {
   const slashCommandBridgeHook = createSlashCommandBridgeHook();
   const postReadNudgeHook = createPostReadNudgeHook();
   const postWriteSimplicityHook = createPostWriteSimplicityHook();
-  const contextGovernorHook = createContextGovernorHook(config3.contextGovernance);
+  const contextGovernorHook = createContextGovernorHook(
+    config3.contextGovernance
+  );
   const slimCompatEnabled = config3.slimCompat?.enabled ?? true;
   const postWriteSimplicityEnabled = slimCompatEnabled && (config3.slimCompat?.enablePostWriteSimplicityNudge ?? true);
   const onPermissionAsked = async (input, output) => {
@@ -57811,7 +59424,9 @@ var MiyaPlugin = async (ctx) => {
     const callID = typeof input.callID === "string" ? input.callID : void 0;
     const argSummary = [];
     if (output.args && typeof output.args === "object") {
-      for (const [key, value] of Object.entries(output.args)) {
+      for (const [key, value] of Object.entries(
+        output.args
+      )) {
         if (typeof value === "string") {
           argSummary.push(`${key}=${value.slice(0, 180)}`);
           continue;
@@ -57827,7 +59442,9 @@ var MiyaPlugin = async (ctx) => {
       permission: tool2
     });
     if (intakeGate.intercept) {
-      throw new Error("miya_intake_gate_blocked:write_after_websearch_requires_revalidation");
+      throw new Error(
+        "miya_intake_gate_blocked:write_after_websearch_requires_revalidation"
+      );
     }
     const safety = await handlePermissionAsk(ctx.directory, {
       sessionID: sessionID2,
@@ -58018,7 +59635,9 @@ var MiyaPlugin = async (ctx) => {
         };
       }
       if (!commandConfig.miya_gateway_start) {
-        commandConfig.miya_gateway_start = { ...commandConfig["miya-gateway-start"] };
+        commandConfig.miya_gateway_start = {
+          ...commandConfig["miya-gateway-start"]
+        };
       }
       if (!commandConfig.miya_gateway_shutdown) {
         commandConfig.miya_gateway_shutdown = {
@@ -58046,7 +59665,10 @@ var MiyaPlugin = async (ctx) => {
       const configAgent = opencodeConfig.agent;
       const existingProvider = isPlainObject3(opencodeConfig.provider) ? opencodeConfig.provider : {};
       const pluginProvider = isPlainObject3(config3.provider) ? config3.provider : {};
-      opencodeConfig.provider = deepMergeObject(existingProvider, pluginProvider);
+      opencodeConfig.provider = deepMergeObject(
+        existingProvider,
+        pluginProvider
+      );
       ensureLegacyModelAliases(opencodeConfig);
       const sanitizeResult = sanitizeConfiguredAgentModels(opencodeConfig);
       if (sanitizeResult.adjusted.length > 0) {
@@ -58160,9 +59782,18 @@ var MiyaPlugin = async (ctx) => {
         input,
         output
       );
-      await loopGuardHook["experimental.chat.messages.transform"](input, output);
-      await phaseReminderHook["experimental.chat.messages.transform"](input, output);
-      await contextGovernorHook["experimental.chat.messages.transform"](input, output);
+      await loopGuardHook["experimental.chat.messages.transform"](
+        input,
+        output
+      );
+      await phaseReminderHook["experimental.chat.messages.transform"](
+        input,
+        output
+      );
+      await contextGovernorHook["experimental.chat.messages.transform"](
+        input,
+        output
+      );
     },
     // Nudge after file reads to encourage delegation + track websearch usage for intake gate
     "tool.execute.before": async (input, output) => {

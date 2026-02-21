@@ -1,4 +1,5 @@
 import type { Plugin } from "@opencode-ai/plugin"
+import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
@@ -341,20 +342,30 @@ async function runGit(
   args: string[],
   options?: { trim?: boolean; env?: Record<string, string> },
 ): Promise<GitResult> {
-  const proc = Bun.spawn({
-    cmd: ["git", ...args],
+  const proc = spawn("git", args, {
     cwd: projectDir,
-    stdout: "pipe",
-    stderr: "pipe",
     env: {
       ...process.env,
       MIYA_AUTO_GIT_SOURCE: "auto-git-push",
       ...(options?.env ?? {}),
     },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   })
-  const code = await proc.exited
-  const stdoutRaw = await new Response(proc.stdout).text()
-  const stderrRaw = await new Response(proc.stderr).text()
+  const stdoutChunks: Buffer[] = []
+  const stderrChunks: Buffer[] = []
+  proc.stdout?.on("data", (chunk) => {
+    stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
+  })
+  proc.stderr?.on("data", (chunk) => {
+    stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
+  })
+  const code = await new Promise<number>((resolve) => {
+    proc.on("close", (exitCode) => resolve(exitCode ?? 1))
+    proc.on("error", () => resolve(1))
+  })
+  const stdoutRaw = Buffer.concat(stdoutChunks).toString("utf-8")
+  const stderrRaw = Buffer.concat(stderrChunks).toString("utf-8")
   const trim = options?.trim ?? true
   return {
     ok: code === 0,

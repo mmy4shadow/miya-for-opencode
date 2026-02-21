@@ -111,6 +111,15 @@ export const SETTINGS_REGISTRY: MiyaSettingEntry[] = [
     description: '启动时自动拉起 Windows Dock（默认关闭，避免反复拉起）。',
   }),
   entry({
+    key: 'ui.dashboard.gatewayStartMode',
+    type: 'enum',
+    enumValues: ['service_shell', 'service_only', 'terminal_legacy'],
+    defaultValue: 'service_shell',
+    risk: 'LOW',
+    description:
+      'Gateway 启动模式：service_shell（默认后台服务）、service_only（仅服务）或 terminal_legacy（旧终端模式）。',
+  }),
+  entry({
     key: 'ui.dashboard.autoOpenCooldownMs',
     type: 'integer',
     minimum: 10000,

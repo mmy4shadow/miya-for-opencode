@@ -393,6 +393,57 @@ function launchGatewayTerminalDetached(projectDir: string): void {
   child.unref();
 }
 
+type GatewayLifecycleMode =
+  | 'service_shell'
+  | 'service_only'
+  | 'terminal_legacy';
+
+function resolveGatewayLifecycleMode(
+  dashboardConfig: Record<string, unknown>,
+): GatewayLifecycleMode {
+  const envRaw = process.env.MIYA_GATEWAY_LIFECYCLE_MODE?.trim().toLowerCase();
+  if (envRaw === 'terminal' || envRaw === 'terminal_legacy') {
+    return 'terminal_legacy';
+  }
+  if (envRaw === 'service_only') {
+    return 'service_only';
+  }
+  if (envRaw === 'service_shell') {
+    return 'service_shell';
+  }
+
+  // Backward compatibility: explicit enable keeps legacy terminal boot path.
+  if (
+    process.platform === 'win32' &&
+    process.env.MIYA_GATEWAY_TERMINAL_AUTO_START === '1'
+  ) {
+    return 'terminal_legacy';
+  }
+
+  const configRaw =
+    typeof dashboardConfig.gatewayStartMode === 'string'
+      ? dashboardConfig.gatewayStartMode.trim().toLowerCase()
+      : '';
+  if (configRaw === 'terminal_legacy' || configRaw === 'terminal') {
+    return 'terminal_legacy';
+  }
+  if (configRaw === 'service_only') {
+    return 'service_only';
+  }
+  if (configRaw === 'service_shell') {
+    return 'service_shell';
+  }
+
+  if (
+    process.platform === 'win32' &&
+    dashboardConfig.gatewayTerminalAutoStart === true
+  ) {
+    return 'terminal_legacy';
+  }
+
+  return process.platform === 'win32' ? 'service_shell' : 'service_only';
+}
+
 function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
   const last = autoUiOpenAtByDir.get(projectDir) ?? 0;
   const persisted = readLastAutoUiOpen(projectDir);
@@ -535,15 +586,19 @@ const MiyaPlugin: Plugin = async (ctx) => {
     ((config.ui as Record<string, unknown> | undefined)?.dashboard as
       | Record<string, unknown>
       | undefined) ?? {};
-  const gatewayTerminalAutoStart =
+  const gatewayLifecycleMode = resolveGatewayLifecycleMode(dashboardConfig);
+  if (
     process.platform === 'win32' &&
-    process.env.MIYA_GATEWAY_TERMINAL_AUTO_START !== '0' &&
-    dashboardConfig.gatewayTerminalAutoStart !== false;
-  if (gatewayTerminalAutoStart) {
+    gatewayLifecycleMode === 'terminal_legacy'
+  ) {
     launchGatewayTerminalDetached(ctx.directory);
   } else {
     startGatewayWithLog(ctx.directory);
   }
+  log('[miya] gateway startup mode resolved', {
+    mode: gatewayLifecycleMode,
+    platform: process.platform,
+  });
   const gatewayOwner = isGatewayOwner(ctx.directory);
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === '0';
