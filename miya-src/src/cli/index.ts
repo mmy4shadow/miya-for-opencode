@@ -148,14 +148,26 @@ function formatGatewayConsoleLine(raw: string): string {
   return `${clock} ${coloredMessage}`;
 }
 
-function resolveGatewayCliScript(workspace: string): string | null {
+interface GatewayCliRuntime {
+  scriptPath: string;
+  useTsxLoader: boolean;
+}
+
+function resolveGatewayCliRuntime(workspace: string): GatewayCliRuntime | null {
   const distCli = path.join(workspace, 'dist', 'cli', 'index.js');
   if (fs.existsSync(distCli)) {
-    return distCli;
+    return { scriptPath: distCli, useTsxLoader: false };
   }
   const selfCli = resolveCliScriptPath();
   if (selfCli.endsWith('.js')) {
-    return selfCli;
+    return { scriptPath: selfCli, useTsxLoader: false };
+  }
+  if (selfCli.endsWith('.ts')) {
+    return { scriptPath: selfCli, useTsxLoader: true };
+  }
+  const workspaceSrcCli = path.join(workspace, 'src', 'cli', 'index.ts');
+  if (fs.existsSync(workspaceSrcCli)) {
+    return { scriptPath: workspaceSrcCli, useTsxLoader: true };
   }
   return null;
 }
@@ -275,13 +287,17 @@ function quoteForCmd(value: string): string {
 function renderGatewayAutostartScript(input: {
   workspace: string;
   nodeBinary: string;
-  cliScript: string;
+  cliRuntime: GatewayCliRuntime;
   mode: 'serve' | 'terminal' | 'service_shell';
 }): string {
-  const nodeArgs =
+  const commandPrefix = [
+    quoteForCmd(input.nodeBinary),
+    ...(input.cliRuntime.useTsxLoader ? ['--import tsx'] : []),
+    quoteForCmd(input.cliRuntime.scriptPath),
+  ].join(' ');
+  const commandArgs =
     input.mode === 'service_shell'
       ? [
-          quoteForCmd(input.cliScript),
           'gateway start',
           '--force',
           `--workspace ${quoteForCmd(input.workspace)}`,
@@ -289,7 +305,6 @@ function renderGatewayAutostartScript(input: {
           .filter(Boolean)
           .join(' ')
       : [
-          quoteForCmd(input.cliScript),
           `gateway ${input.mode}`,
           `--workspace ${quoteForCmd(input.workspace)}`,
         ]
@@ -302,7 +317,7 @@ function renderGatewayAutostartScript(input: {
     'set "MIYA_AUTO_UI_OPEN=0"',
     'set "MIYA_DOCK_AUTO_LAUNCH=0"',
     'set "MIYA_GATEWAY_CLI_START_ENABLE=1"',
-    `${quoteForCmd(input.nodeBinary)} ${nodeArgs}`,
+    `${commandPrefix} ${commandArgs}`,
     'endlocal',
     '',
   ].join('\r\n');
@@ -707,8 +722,8 @@ async function runGatewayStart(cwd: string): Promise<GatewayStartResult> {
       detail: 'Cannot resolve a runnable Node.js binary.',
     };
   }
-  const cliScript = resolveGatewayCliScript(workspace);
-  if (!cliScript) {
+  const cliRuntime = resolveGatewayCliRuntime(workspace);
+  if (!cliRuntime) {
     writeGatewayStartGuard(workspace, {
       status: 'failed',
       updatedAt: new Date().toISOString(),
@@ -719,10 +734,17 @@ async function runGatewayStart(cwd: string): Promise<GatewayStartResult> {
       workspace,
       reason: 'cli_js_not_found',
       detail:
-        'Cannot resolve dist/cli/index.js for node startup. Run `npm run build` first.',
+        'Cannot resolve gateway CLI script for node startup (dist or src entry).',
     };
   }
-  const nodeArgs = [cliScript, 'gateway', 'serve', '--workspace', workspace];
+  const nodeArgs = [
+    ...(cliRuntime.useTsxLoader ? ['--import', 'tsx'] : []),
+    cliRuntime.scriptPath,
+    'gateway',
+    'serve',
+    '--workspace',
+    workspace,
+  ];
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -1090,8 +1112,8 @@ async function runGatewayShell(
       return 1;
     }
     const nodeBinary = resolveNodeBinary();
-    const cliScript = resolveGatewayCliScript(workspace);
-    if (!nodeBinary || !cliScript) {
+    const cliRuntime = resolveGatewayCliRuntime(workspace);
+    if (!nodeBinary || !cliRuntime) {
       console.log(
         JSON.stringify(
           {
@@ -1111,7 +1133,13 @@ async function runGatewayShell(
       [
         '/d',
         '/k',
-        `"${nodeBinary}" "${cliScript}" gateway terminal --workspace "${workspace}"`,
+        [
+          `"${nodeBinary}"`,
+          ...(cliRuntime.useTsxLoader ? ['--import tsx'] : []),
+          `"${cliRuntime.scriptPath}"`,
+          'gateway terminal',
+          `--workspace "${workspace}"`,
+        ].join(' '),
       ],
       {
         cwd: workspace,
@@ -1326,8 +1354,8 @@ async function runGatewayAutostart(
       );
       return 1;
     }
-    const cliScript = resolveGatewayCliScript(workspace);
-    if (!cliScript) {
+    const cliRuntime = resolveGatewayCliRuntime(workspace);
+    if (!cliRuntime) {
       console.log(
         JSON.stringify(
           {
@@ -1335,7 +1363,7 @@ async function runGatewayAutostart(
             action,
             reason: 'cli_js_not_found',
             detail:
-              'Cannot resolve dist/cli/index.js for node autostart. Run `npm run build` first.',
+              'Cannot resolve gateway CLI script for autostart (dist or src entry).',
           },
           null,
           2,
@@ -1346,7 +1374,7 @@ async function runGatewayAutostart(
     const scriptText = renderGatewayAutostartScript({
       workspace,
       nodeBinary,
-      cliScript,
+      cliRuntime,
       mode,
     });
     if (!fs.existsSync(path.dirname(launcherFile))) {
@@ -1387,7 +1415,8 @@ async function runGatewayAutostart(
           startupDir,
           workspace,
           nodeBinary,
-          cliScript,
+          cliScript: cliRuntime.scriptPath,
+          cliLoader: cliRuntime.useTsxLoader ? 'tsx' : 'node',
         },
         null,
         2,
