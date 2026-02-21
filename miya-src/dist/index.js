@@ -3291,7 +3291,7 @@ var require_node = __commonJS({
 });
 
 // src/index.ts
-import { spawn as spawn6 } from "node:child_process";
+import { spawn as spawn6, spawnSync as spawnSync9 } from "node:child_process";
 import * as fs50 from "node:fs";
 import * as path51 from "node:path";
 
@@ -3647,6 +3647,9 @@ function evaluateSave(record3) {
 var KNOWN_AGENT_NAMES = new Set(ALL_AGENT_NAMES);
 var AGENT_RUNTIME_VERSION = 1;
 var MAX_WRITE_RETRIES = 4;
+var LEGACY_MODEL_REWRITE = {
+  "openrouter/minimax/z-ai/glm-5": "openrouter/z-ai/glm-5"
+};
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -3663,19 +3666,24 @@ function normalizeAgentName(name) {
   return KNOWN_AGENT_NAMES.has(canonical) ? canonical : null;
 }
 function normalizeModelRef(value) {
-  if (typeof value === "string") {
-    const text = value.trim();
+  const normalizeRefText = (input) => {
+    const text = LEGACY_MODEL_REWRITE[input.trim()] ?? input.trim();
     const slash = text.indexOf("/");
     if (slash <= 0 || slash >= text.length - 1) {
       return null;
     }
     return text;
+  };
+  if (typeof value === "string") {
+    return normalizeRefText(value);
   }
   if (isObject(value)) {
-    const providerID = String(value.providerID ?? "").trim();
+    const providerID = String(value.providerID ?? value.provider ?? "").trim();
     const modelID = String(value.modelID ?? "").trim();
-    if (!providerID || !modelID) return null;
-    return `${providerID}/${modelID}`;
+    if (providerID && modelID) {
+      return normalizeRefText(`${providerID}/${modelID}`);
+    }
+    return normalizeRefText(modelID);
   }
   return null;
 }
@@ -3967,7 +3975,10 @@ function applyPersistedAgentModelOverrides(config3, projectDir) {
 function normalizeSelectionFromDraft(draft, source) {
   const agentName = normalizeAgentName(String(draft.agentName ?? ""));
   if (!agentName) return null;
-  const model = normalizeModelRef(draft.model);
+  const model = normalizeModelRef(draft.model) ?? normalizeModelRef({
+    providerID: draft.modelProviderID ?? draft.providerID,
+    modelID: draft.modelID
+  });
   const variant = normalizeStringValue(draft.variant);
   const providerID = normalizeProviderID(draft.providerID) ?? (model ? normalizeProviderID(model.split("/")[0]) : void 0);
   const options = normalizeOptions(draft.options);
@@ -3989,33 +4000,101 @@ function normalizeSelectionFromDraft(draft, source) {
     source
   };
 }
+function applyAgentPatchField(draft, field, value) {
+  if (field === "model") {
+    draft.model = value;
+    return true;
+  }
+  if (field === "model.providerID") {
+    draft.modelProviderID = value;
+    return true;
+  }
+  if (field === "model.modelID" || field === "modelID") {
+    draft.modelID = value;
+    return true;
+  }
+  if (field === "variant") {
+    draft.variant = value;
+    return true;
+  }
+  if (field === "providerID" || field === "provider") {
+    draft.providerID = value;
+    return true;
+  }
+  if (field === "options") {
+    draft.options = value;
+    return true;
+  }
+  if (field === "apiKey" || field === "options.apiKey") {
+    draft.apiKey = value;
+    return true;
+  }
+  if (field === "baseURL" || field === "options.baseURL") {
+    draft.baseURL = value;
+    return true;
+  }
+  return false;
+}
 function parseAgentPatchSet(setMap, source, activeAgentHint) {
   const drafts = /* @__PURE__ */ new Map();
   const providerDrafts = /* @__PURE__ */ new Map();
-  let defaultAgentFromPatch;
+  let defaultAgentFromPatch = "";
   for (const [rawKey, value] of Object.entries(setMap)) {
     const key = rawKey.trim();
     if (!key) continue;
+    if (key === "default_agent" || key === "defaultAgent") {
+      defaultAgentFromPatch = String(value ?? "");
+      break;
+    }
     const parts = key.split(".");
-    if ((parts[0] === "default_agent" || parts[0] === "defaultAgent") && typeof value === "string") {
+    if (parts.length > 0 && (parts[0] === "default_agent" || parts[0] === "defaultAgent") && typeof value === "string") {
       defaultAgentFromPatch = value;
+      break;
+    }
+  }
+  const activeAgentFromHint = normalizeAgentName(String(defaultAgentFromPatch || activeAgentHint || "")) ?? void 0;
+  const getOrCreateDraft = (agentNameRaw) => {
+    const agentName = normalizeAgentName(agentNameRaw);
+    if (!agentName) return null;
+    const existing = drafts.get(agentName);
+    if (existing) return existing;
+    const created = { agentName };
+    drafts.set(agentName, created);
+    return created;
+  };
+  for (const [rawKey, value] of Object.entries(setMap)) {
+    const key = rawKey.trim();
+    if (!key) continue;
+    if (key === "default_agent" || key === "defaultAgent") continue;
+    const parts = key.split(".");
+    if (parts[0] === "default_agent" || parts[0] === "defaultAgent") {
       continue;
     }
     if (parts[0] === "agent" || parts[0] === "agents") {
-      if (parts.length < 3) continue;
-      const agentNameRaw = parts[1] ?? "";
-      const field = parts.slice(2).join(".");
-      const draft = drafts.get(agentNameRaw) ?? {
-        agentName: agentNameRaw
-      };
-      if (field === "model") draft.model = value;
-      if (field === "variant") draft.variant = value;
-      if (field === "providerID") draft.providerID = value;
-      if (field === "options") draft.options = value;
-      if (field === "apiKey") draft.apiKey = value;
-      if (field === "baseURL") draft.baseURL = value;
-      drafts.set(agentNameRaw, draft);
+      if (parts.length >= 3) {
+        const directDraft = getOrCreateDraft(parts[1] ?? "");
+        if (directDraft) {
+          applyAgentPatchField(directDraft, parts.slice(2).join("."), value);
+          continue;
+        }
+        if (!activeAgentFromHint) continue;
+        const activeDraft = getOrCreateDraft(activeAgentFromHint);
+        if (!activeDraft) continue;
+        applyAgentPatchField(activeDraft, parts.slice(1).join("."), value);
+        continue;
+      }
+      if (parts.length === 2 && activeAgentFromHint) {
+        const draft = getOrCreateDraft(activeAgentFromHint);
+        if (!draft) continue;
+        applyAgentPatchField(draft, parts[1] ?? "", value);
+      }
       continue;
+    }
+    if (activeAgentFromHint) {
+      const draft = getOrCreateDraft(activeAgentFromHint);
+      if (draft && applyAgentPatchField(draft, key, value)) {
+        continue;
+      }
     }
     if (parts[0] === "provider" && parts.length >= 3) {
       const providerID = String(parts[1] ?? "").trim();
@@ -4036,12 +4115,11 @@ function parseAgentPatchSet(setMap, source, activeAgentHint) {
       providerDrafts.set(providerID, draft);
     }
   }
-  const activeAgentFromHint = normalizeAgentName(String(defaultAgentFromPatch ?? activeAgentHint ?? "")) ?? void 0;
   if (providerDrafts.size > 0) {
     for (const providerPatch of providerDrafts.values()) {
       let targetDraft;
       for (const draft of drafts.values()) {
-        const modelProvider = normalizeModelRef(draft.model)?.split("/")[0];
+        const modelProvider = normalizeModelRef(draft.model)?.split("/")[0] ?? normalizeProviderID(draft.modelProviderID);
         const explicitProvider = normalizeProviderID(draft.providerID);
         if (modelProvider === providerPatch.providerID || explicitProvider === providerPatch.providerID) {
           targetDraft = draft;
@@ -4107,7 +4185,11 @@ function extractAgentModelSelectionsFromEvent(event) {
   const properties = event.properties;
   if (!isObject(properties)) return [];
   const extractFromEvent = (source, scope, fallbackAgent, activeAgent = false) => {
-    const agentName = normalizeAgentName(String(scope.agent ?? scope.agentName ?? scope.newAgent ?? fallbackAgent ?? "")) ?? null;
+    const agentName = normalizeAgentName(
+      String(
+        scope.agent ?? scope.agentName ?? scope.newAgent ?? scope.activeAgent ?? scope.currentAgent ?? scope.selectedAgent ?? scope.defaultAgent ?? fallbackAgent ?? ""
+      )
+    ) ?? null;
     if (!agentName) return null;
     const model = normalizeModelRef(scope.model ?? scope.selectedModel ?? scope.agentModel);
     const variant = normalizeStringValue(scope.variant);
@@ -4167,8 +4249,9 @@ function extractAgentModelSelectionsFromEvent(event) {
     "agent.updated",
     "agent.config.saved"
   ].includes(eventType)) {
+    const info = isObject(properties.info) ? properties.info : {};
     const activeAgentHint = String(
-      properties.activeAgent ?? properties.currentAgent ?? properties.agent ?? properties.default_agent ?? ""
+      properties.activeAgent ?? properties.currentAgent ?? properties.selectedAgent ?? properties.agent ?? properties.defaultAgent ?? properties.default_agent ?? info.activeAgent ?? info.currentAgent ?? info.selectedAgent ?? info.agent ?? info.defaultAgent ?? info.default_agent ?? ""
     );
     const patchRaw = properties.patch;
     if (isObject(patchRaw) && isObject(patchRaw.set)) {
@@ -18303,6 +18386,7 @@ var DEFAULT_SOUL_MARKDOWN = `# SOUL.md
 ## \u884C\u4E3A\u51C6\u5219
 - \u81EA\u52A8\u5224\u65AD\u201C\u5DE5\u4F5C\u6A21\u5F0F/\u5BF9\u8BDD\u6A21\u5F0F\u201D\uFF0C\u4E0D\u8981\u6C42\u7528\u6237\u624B\u52A8\u5207\u6362
 - \u5DE5\u4F5C\u6A21\u5F0F\u4E0B\u4E25\u8C28\u6267\u884C\uFF0C\u5BF9\u8BDD\u6A21\u5F0F\u4E0B\u4FDD\u6301\u4EBA\u5473
+- \u5BF9\u8BDD\u6A21\u5F0F\u4F18\u5148\u77ED\u53E5\u3001\u81EA\u7136\u53E3\u8BED\u3001\u5C11\u6A21\u677F\u5316\u63AA\u8F9E\uFF0C\u51CF\u5C11\u5197\u957F\u5BA2\u5957\u4E0E\u91CD\u590D
 - \u6240\u6709\u9AD8\u98CE\u9669\u52A8\u4F5C\u5FC5\u987B\u53EF\u8FFD\u6EAF
 - \u4FEE\u6539\u540E\u540C\u6B65\u7ED9\u51FA\u7ED3\u679C\u4E0E\u4E0B\u4E00\u6B65\u5EFA\u8BAE
 
@@ -56607,53 +56691,56 @@ function deepMergeObject(base, override) {
 }
 var autoUiOpenAtByDir = /* @__PURE__ */ new Map();
 var dockLaunchAtByDir = /* @__PURE__ */ new Map();
+function resolveMiyaRoot(projectDir) {
+  const nestedRoot = path51.join(projectDir, "miya-src");
+  if (fs50.existsSync(path51.join(nestedRoot, "src", "index.ts"))) {
+    return nestedRoot;
+  }
+  if (fs50.existsSync(path51.join(projectDir, "src", "index.ts"))) {
+    return projectDir;
+  }
+  return nestedRoot;
+}
 function autoUiOpenGuardFile(projectDir) {
   return path51.join(projectDir, ".opencode", "miya", "ui-auto-open.guard.json");
 }
 function dockLaunchGuardFile(projectDir) {
   return path51.join(projectDir, ".opencode", "miya", "dock-launch.guard.json");
 }
-function readLastAutoUiOpenAt(projectDir) {
-  const file3 = autoUiOpenGuardFile(projectDir);
-  if (!fs50.existsSync(file3)) return 0;
+function readLaunchGuard(file3) {
+  if (!fs50.existsSync(file3)) return { atMs: 0, pid: 0 };
   try {
     const parsed = JSON.parse(fs50.readFileSync(file3, "utf-8"));
     const atMs = Number(parsed?.atMs ?? 0);
-    return Number.isFinite(atMs) ? atMs : 0;
+    const pid = Number(parsed?.pid ?? 0);
+    return {
+      atMs: Number.isFinite(atMs) ? atMs : 0,
+      pid: Number.isFinite(pid) ? pid : 0
+    };
   } catch {
-    return 0;
+    return { atMs: 0, pid: 0 };
   }
+}
+function readLastAutoUiOpen(projectDir) {
+  return readLaunchGuard(autoUiOpenGuardFile(projectDir));
+}
+function writeLaunchGuard(file3, atMs, pid) {
+  fs50.mkdirSync(path51.dirname(file3), { recursive: true });
+  fs50.writeFileSync(
+    file3,
+    `${JSON.stringify({ atMs, pid, at: new Date(atMs).toISOString() }, null, 2)}
+`,
+    "utf-8"
+  );
 }
 function writeLastAutoUiOpenAt(projectDir, atMs) {
-  const file3 = autoUiOpenGuardFile(projectDir);
-  fs50.mkdirSync(path51.dirname(file3), { recursive: true });
-  fs50.writeFileSync(
-    file3,
-    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
-`,
-    "utf-8"
-  );
+  writeLaunchGuard(autoUiOpenGuardFile(projectDir), atMs, process.pid);
 }
-function readLastDockLaunchAt(projectDir) {
-  const file3 = dockLaunchGuardFile(projectDir);
-  if (!fs50.existsSync(file3)) return 0;
-  try {
-    const parsed = JSON.parse(fs50.readFileSync(file3, "utf-8"));
-    const atMs = Number(parsed?.atMs ?? 0);
-    return Number.isFinite(atMs) ? atMs : 0;
-  } catch {
-    return 0;
-  }
+function readLastDockLaunch(projectDir) {
+  return readLaunchGuard(dockLaunchGuardFile(projectDir));
 }
 function writeLastDockLaunchAt(projectDir, atMs) {
-  const file3 = dockLaunchGuardFile(projectDir);
-  fs50.mkdirSync(path51.dirname(file3), { recursive: true });
-  fs50.writeFileSync(
-    file3,
-    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
-`,
-    "utf-8"
-  );
+  writeLaunchGuard(dockLaunchGuardFile(projectDir), atMs, process.pid);
 }
 function isPidAlive2(pid) {
   if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -56690,13 +56777,8 @@ function openUrlSilently(url3) {
 }
 function launchDockSilently(projectDir) {
   if (process.platform !== "win32") return;
-  const pidFile = path51.join(
-    projectDir,
-    "miya-src",
-    "tools",
-    "miya-dock",
-    "miya-dock.pid"
-  );
+  const miyaRoot = resolveMiyaRoot(projectDir);
+  const pidFile = path51.join(miyaRoot, "tools", "miya-dock", "miya-dock.pid");
   if (fs50.existsSync(pidFile)) {
     try {
       const pid = Number(fs50.readFileSync(pidFile, "utf-8").trim());
@@ -56704,14 +56786,15 @@ function launchDockSilently(projectDir) {
     } catch {
     }
   }
-  const dockScript = path51.join(projectDir, "miya-src", "tools", "miya-dock", "miya-dock.ps1");
-  const bat = path51.join(projectDir, "miya-src", "tools", "miya-dock", "miya-launch.bat");
+  const dockScript = path51.join(miyaRoot, "tools", "miya-dock", "miya-dock.ps1");
+  const bat = path51.join(miyaRoot, "tools", "miya-dock", "miya-launch.bat");
   if (!fs50.existsSync(dockScript) && !fs50.existsSync(bat)) return;
   const now = Date.now();
   const memLast = dockLaunchAtByDir.get(projectDir) ?? 0;
-  const persistedLast = readLastDockLaunchAt(projectDir);
+  const persisted = readLastDockLaunch(projectDir);
   const cooldownMs = 5 * 6e4;
-  if (now - memLast < 15e3 || now - persistedLast < cooldownMs) {
+  const throttleByPersisted = persisted.atMs > 0 && isPidAlive2(persisted.pid) && now - persisted.atMs < cooldownMs;
+  if (now - memLast < 15e3 || throttleByPersisted) {
     return;
   }
   dockLaunchAtByDir.set(projectDir, now);
@@ -56745,13 +56828,85 @@ function launchDockSilently(projectDir) {
   });
   child.unref();
 }
+function gatewayTerminalLockFile(projectDir) {
+  return path51.join(projectDir, ".opencode", "miya", "gateway-terminal.lock.json");
+}
+function gatewayTerminalLaunchGuardFile(projectDir) {
+  return path51.join(projectDir, ".opencode", "miya", "gateway-terminal-launch.guard.json");
+}
+function writeLastGatewayTerminalLaunchAt(projectDir, atMs) {
+  const file3 = gatewayTerminalLaunchGuardFile(projectDir);
+  fs50.mkdirSync(path51.dirname(file3), { recursive: true });
+  fs50.writeFileSync(
+    file3,
+    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}
+`,
+    "utf-8"
+  );
+}
+function readGatewayTerminalOwnerPid(projectDir) {
+  const file3 = gatewayTerminalLockFile(projectDir);
+  if (!fs50.existsSync(file3)) return 0;
+  try {
+    const parsed = JSON.parse(fs50.readFileSync(file3, "utf-8"));
+    const pid = Number(parsed.pid ?? 0);
+    return Number.isFinite(pid) ? pid : 0;
+  } catch {
+    return 0;
+  }
+}
+function resolveGatewayTerminalNodeBinary() {
+  const candidates = [
+    process.env.MIYA_NODE_BIN?.trim() || null,
+    process.execPath,
+    process.platform === "win32" ? "node.exe" : "node"
+  ].filter((item) => Boolean(item));
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync9(candidate, ["--version"], {
+        stdio: "ignore",
+        timeout: 2e3,
+        windowsHide: true
+      });
+      if (probe.status === 0) return candidate;
+    } catch {
+    }
+  }
+  return null;
+}
+function launchGatewayTerminalDetached(projectDir) {
+  if (process.platform !== "win32") return;
+  const lockPid = readGatewayTerminalOwnerPid(projectDir);
+  if (isPidAlive2(lockPid)) return;
+  const now = Date.now();
+  const last = readLaunchGuard(gatewayTerminalLaunchGuardFile(projectDir));
+  if (last.atMs > 0 && now - last.atMs < 2e4) return;
+  const nodeBinary = resolveGatewayTerminalNodeBinary();
+  if (!nodeBinary) return;
+  const miyaRoot = resolveMiyaRoot(projectDir);
+  const distCli = path51.join(miyaRoot, "dist", "cli", "index.js");
+  const srcCli = path51.join(miyaRoot, "src", "cli", "index.ts");
+  const script = fs50.existsSync(distCli) && fs50.statSync(distCli).isFile() ? `"${nodeBinary}" "${distCli}" gateway terminal --workspace "${projectDir}"` : fs50.existsSync(srcCli) && fs50.statSync(srcCli).isFile() ? `"${nodeBinary}" --import tsx "${srcCli}" gateway terminal --workspace "${projectDir}"` : "";
+  if (!script) return;
+  writeLastGatewayTerminalLaunchAt(projectDir, now);
+  const cmdLine = `start "miya-gateway" cmd /k ${script}`;
+  const child = spawn6("cmd.exe", ["/d", "/c", cmdLine], {
+    cwd: projectDir,
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
+}
 function shouldAutoOpenUi(projectDir, cooldownMs) {
   const last = autoUiOpenAtByDir.get(projectDir) ?? 0;
-  const persistedLast = readLastAutoUiOpenAt(projectDir);
+  const persisted = readLastAutoUiOpen(projectDir);
   const now = Date.now();
   const minCooldownMs = Math.max(1e4, Math.min(cooldownMs, 24 * 6e4));
   if (now - last < 1e4) return false;
-  if (now - persistedLast < minCooldownMs) return false;
+  if (persisted.atMs > 0 && isPidAlive2(persisted.pid) && now - persisted.atMs < minCooldownMs) {
+    return false;
+  }
   autoUiOpenAtByDir.set(projectDir, now);
   writeLastAutoUiOpenAt(projectDir, now);
   return true;
@@ -56770,7 +56925,7 @@ function parseModelRef(model) {
     modelID: text.slice(slash + 1)
   };
 }
-var LEGACY_MODEL_REWRITE = {
+var LEGACY_MODEL_REWRITE2 = {
   "openrouter/minimax/z-ai/glm-5": "openrouter/z-ai/glm-5"
 };
 function providerHasModel(providerMap, model) {
@@ -56789,7 +56944,7 @@ function sanitizeConfiguredAgentModels(opencodeConfig) {
   for (const [agentName, rawAgent] of Object.entries(agentMap)) {
     if (!isPlainObject3(rawAgent)) continue;
     const modelRaw = typeof rawAgent.model === "string" ? rawAgent.model.trim() : "";
-    const model = LEGACY_MODEL_REWRITE[modelRaw] ?? modelRaw;
+    const model = LEGACY_MODEL_REWRITE2[modelRaw] ?? modelRaw;
     if (!model) continue;
     if (model !== modelRaw) {
       rawAgent.model = model;
@@ -56822,52 +56977,58 @@ var MiyaPlugin = async (ctx) => {
     startTmuxCheck();
   }
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config3);
-  startGatewayWithLog(ctx.directory);
-  const gatewayOwner = isGatewayOwner(ctx.directory);
   const dashboardConfig = config3.ui?.dashboard ?? {};
+  const gatewayTerminalAutoStart = process.platform === "win32" && process.env.MIYA_GATEWAY_TERMINAL_AUTO_START !== "0" && dashboardConfig.gatewayTerminalAutoStart !== false;
+  if (gatewayTerminalAutoStart) {
+    launchGatewayTerminalDetached(ctx.directory);
+  } else {
+    startGatewayWithLog(ctx.directory);
+  }
+  const gatewayOwner = isGatewayOwner(ctx.directory);
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === "0";
   const autoOpenCooldownMs = typeof dashboardConfig.autoOpenCooldownMs === "number" ? Math.max(1e4, Math.min(24 * 6e4, Math.floor(Number(dashboardConfig.autoOpenCooldownMs)))) : 2 * 6e4;
-  const dockAutoLaunch = process.env.MIYA_DOCK_AUTO_LAUNCH === "1" || dashboardConfig.dockAutoLaunch === true;
+  const dockAutoLaunch = process.env.MIYA_DOCK_AUTO_LAUNCH === "1" || dashboardConfig.dockAutoLaunch === true || process.platform === "win32" && dashboardConfig.dockAutoLaunch !== false;
   const interactiveSession = isInteractiveSession();
-  const allowAutoOpenWithoutTty = process.env.MIYA_AUTO_UI_OPEN_NO_TTY === "1";
+  const allowAutoOpenWithoutTty = process.env.MIYA_AUTO_UI_OPEN_NO_TTY === "1" || process.platform === "win32" && process.env.MIYA_AUTO_UI_OPEN_NO_TTY !== "0";
   const canAutoOpenInSession = interactiveSession || allowAutoOpenWithoutTty;
+  if (autoOpenEnabled && !autoOpenBlockedByEnv && canAutoOpenInSession && shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)) {
+    setTimeout(async () => {
+      try {
+        const state2 = ensureGatewayRunning(ctx.directory);
+        const healthy = await probeGatewayAlive(state2.url, 1500);
+        if (!healthy) {
+          log("[miya] auto ui open skipped: gateway unhealthy", { url: state2.url });
+          return;
+        }
+        if (dockAutoLaunch) {
+          launchDockSilently(ctx.directory);
+        } else {
+          openUrlSilently(state2.url);
+        }
+        log("[miya] auto ui open triggered", {
+          url: state2.url,
+          dockAutoLaunch,
+          cooldownMs: autoOpenCooldownMs
+        });
+      } catch (error92) {
+        log("[miya] auto ui open failed", {
+          error: error92 instanceof Error ? error92.message : String(error92)
+        });
+      }
+    }, 1200);
+  } else {
+    log("[miya] auto ui open skipped", {
+      autoOpenEnabled,
+      autoOpenBlockedByEnv,
+      interactiveSession,
+      canAutoOpenInSession,
+      cooldownMs: autoOpenCooldownMs
+    });
+  }
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);
     log("[miya-launcher] daemon bootstrap", daemonLaunch);
-    if (autoOpenEnabled && !autoOpenBlockedByEnv && canAutoOpenInSession && shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)) {
-      setTimeout(async () => {
-        try {
-          const state2 = ensureGatewayRunning(ctx.directory);
-          const healthy = await probeGatewayAlive(state2.url, 1500);
-          if (!healthy) {
-            log("[miya] auto ui open skipped: gateway unhealthy", { url: state2.url });
-            return;
-          }
-          if (dockAutoLaunch) {
-            launchDockSilently(ctx.directory);
-          }
-          openUrlSilently(state2.url);
-          log("[miya] auto ui open triggered", {
-            url: state2.url,
-            dockAutoLaunch,
-            cooldownMs: autoOpenCooldownMs
-          });
-        } catch (error92) {
-          log("[miya] auto ui open failed", {
-            error: error92 instanceof Error ? error92.message : String(error92)
-          });
-        }
-      }, 1200);
-    } else {
-      log("[miya] auto ui open skipped", {
-        autoOpenEnabled,
-        autoOpenBlockedByEnv,
-        interactiveSession,
-        canAutoOpenInSession,
-        cooldownMs: autoOpenCooldownMs
-      });
-    }
     setTimeout(async () => {
       try {
         const daemon = getLauncherDaemonSnapshot(ctx.directory);
@@ -57054,7 +57215,14 @@ var MiyaPlugin = async (ctx) => {
     mcp: mcps,
     config: async (opencodeConfig) => {
       const persistedRuntime = readPersistedAgentRuntime(ctx.directory);
-      opencodeConfig.default_agent = persistedRuntime.activeAgentId ?? "1-task-manager";
+      const existingDefaultAgent = normalizeAgentName(
+        String(
+          opencodeConfig.default_agent ?? opencodeConfig.defaultAgent ?? ""
+        )
+      ) ?? void 0;
+      if (!existingDefaultAgent) {
+        opencodeConfig.default_agent = persistedRuntime.activeAgentId ?? "1-task-manager";
+      }
       const commandConfig = opencodeConfig.command ?? {};
       opencodeConfig.command = commandConfig;
       if (!commandConfig.miya) {
@@ -57099,11 +57267,13 @@ var MiyaPlugin = async (ctx) => {
           template: "MANDATORY: Call tool `miya_kill_status` once. Then summarize latest `miya_status_panel` in 5 lines max."
         };
       }
-      commandConfig["miya-gateway-start"] = {
-        description: "Start Miya Gateway and print runtime URL",
-        agent: "1-task-manager",
-        template: "MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only."
-      };
+      if (!commandConfig["miya-gateway-start"]) {
+        commandConfig["miya-gateway-start"] = {
+          description: "Start Miya Gateway and print runtime URL",
+          agent: "1-task-manager",
+          template: "MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only."
+        };
+      }
       if (!commandConfig["miya-gateway-shutdown"]) {
         commandConfig["miya-gateway-shutdown"] = {
           description: "Stop Miya Gateway runtime",

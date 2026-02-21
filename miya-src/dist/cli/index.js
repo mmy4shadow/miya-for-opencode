@@ -200,19 +200,24 @@ function normalizeAgentName(name) {
   return KNOWN_AGENT_NAMES.has(canonical) ? canonical : null;
 }
 function normalizeModelRef(value) {
-  if (typeof value === "string") {
-    const text = value.trim();
+  const normalizeRefText = (input) => {
+    const text = LEGACY_MODEL_REWRITE[input.trim()] ?? input.trim();
     const slash = text.indexOf("/");
     if (slash <= 0 || slash >= text.length - 1) {
       return null;
     }
     return text;
+  };
+  if (typeof value === "string") {
+    return normalizeRefText(value);
   }
   if (isObject(value)) {
-    const providerID = String(value.providerID ?? "").trim();
+    const providerID = String(value.providerID ?? value.provider ?? "").trim();
     const modelID = String(value.modelID ?? "").trim();
-    if (!providerID || !modelID) return null;
-    return `${providerID}/${modelID}`;
+    if (providerID && modelID) {
+      return normalizeRefText(`${providerID}/${modelID}`);
+    }
+    return normalizeRefText(modelID);
   }
   return null;
 }
@@ -455,7 +460,7 @@ function removePersistedAgentRuntimeSelection(projectDir, agentName, options) {
   }
   return false;
 }
-var KNOWN_AGENT_NAMES, AGENT_RUNTIME_VERSION, MAX_WRITE_RETRIES;
+var KNOWN_AGENT_NAMES, AGENT_RUNTIME_VERSION, MAX_WRITE_RETRIES, LEGACY_MODEL_REWRITE;
 var init_agent_model_persistence = __esm({
   "src/config/agent-model-persistence.ts"() {
     "use strict";
@@ -464,6 +469,9 @@ var init_agent_model_persistence = __esm({
     KNOWN_AGENT_NAMES = new Set(ALL_AGENT_NAMES);
     AGENT_RUNTIME_VERSION = 1;
     MAX_WRITE_RETRIES = 4;
+    LEGACY_MODEL_REWRITE = {
+      "openrouter/minimax/z-ai/glm-5": "openrouter/z-ai/glm-5"
+    };
   }
 });
 

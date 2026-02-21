@@ -7,6 +7,9 @@ import type { PluginConfig } from './schema';
 const KNOWN_AGENT_NAMES = new Set<string>(ALL_AGENT_NAMES as readonly string[]);
 const AGENT_RUNTIME_VERSION = 1;
 const MAX_WRITE_RETRIES = 4;
+const LEGACY_MODEL_REWRITE: Record<string, string> = {
+  'openrouter/minimax/z-ai/glm-5': 'openrouter/z-ai/glm-5',
+};
 
 interface AgentRuntimeEntry {
   model?: string;
@@ -57,6 +60,8 @@ export interface AgentModelSelectionFromEvent {
 interface AgentPatchDraft {
   agentName: string;
   model?: unknown;
+  modelProviderID?: unknown;
+  modelID?: unknown;
   variant?: unknown;
   providerID?: unknown;
   options?: unknown;
@@ -100,20 +105,26 @@ export function normalizeAgentName(name: string): string | null {
 }
 
 export function normalizeModelRef(value: unknown): string | null {
-  if (typeof value === 'string') {
-    const text = value.trim();
+  const normalizeRefText = (input: string): string | null => {
+    const text = LEGACY_MODEL_REWRITE[input.trim()] ?? input.trim();
     const slash = text.indexOf('/');
     if (slash <= 0 || slash >= text.length - 1) {
       return null;
     }
     return text;
+  };
+
+  if (typeof value === 'string') {
+    return normalizeRefText(value);
   }
 
   if (isObject(value)) {
-    const providerID = String(value.providerID ?? '').trim();
+    const providerID = String(value.providerID ?? value.provider ?? '').trim();
     const modelID = String(value.modelID ?? '').trim();
-    if (!providerID || !modelID) return null;
-    return `${providerID}/${modelID}`;
+    if (providerID && modelID) {
+      return normalizeRefText(`${providerID}/${modelID}`);
+    }
+    return normalizeRefText(modelID);
   }
 
   return null;
@@ -523,7 +534,12 @@ function normalizeSelectionFromDraft(
 ): AgentModelSelectionFromEvent | null {
   const agentName = normalizeAgentName(String(draft.agentName ?? ''));
   if (!agentName) return null;
-  const model = normalizeModelRef(draft.model);
+  const model =
+    normalizeModelRef(draft.model) ??
+    normalizeModelRef({
+      providerID: draft.modelProviderID ?? draft.providerID,
+      modelID: draft.modelID,
+    });
   const variant = normalizeStringValue(draft.variant);
   const providerID =
     normalizeProviderID(draft.providerID) ??
@@ -548,6 +564,42 @@ function normalizeSelectionFromDraft(
   };
 }
 
+function applyAgentPatchField(draft: AgentPatchDraft, field: string, value: unknown): boolean {
+  if (field === 'model') {
+    draft.model = value;
+    return true;
+  }
+  if (field === 'model.providerID') {
+    draft.modelProviderID = value;
+    return true;
+  }
+  if (field === 'model.modelID' || field === 'modelID') {
+    draft.modelID = value;
+    return true;
+  }
+  if (field === 'variant') {
+    draft.variant = value;
+    return true;
+  }
+  if (field === 'providerID' || field === 'provider') {
+    draft.providerID = value;
+    return true;
+  }
+  if (field === 'options') {
+    draft.options = value;
+    return true;
+  }
+  if (field === 'apiKey' || field === 'options.apiKey') {
+    draft.apiKey = value;
+    return true;
+  }
+  if (field === 'baseURL' || field === 'options.baseURL') {
+    draft.baseURL = value;
+    return true;
+  }
+  return false;
+}
+
 function parseAgentPatchSet(
   setMap: Record<string, unknown>,
   source: string,
@@ -555,31 +607,74 @@ function parseAgentPatchSet(
 ): AgentModelSelectionFromEvent[] {
   const drafts = new Map<string, AgentPatchDraft>();
   const providerDrafts = new Map<string, ProviderPatchDraft>();
-  let defaultAgentFromPatch: string | undefined;
+  let defaultAgentFromPatch = '';
   for (const [rawKey, value] of Object.entries(setMap)) {
     const key = rawKey.trim();
     if (!key) continue;
+    if (key === 'default_agent' || key === 'defaultAgent') {
+      defaultAgentFromPatch = String(value ?? '');
+      break;
+    }
     const parts = key.split('.');
-    if ((parts[0] === 'default_agent' || parts[0] === 'defaultAgent') && typeof value === 'string') {
+    if (
+      parts.length > 0 &&
+      (parts[0] === 'default_agent' || parts[0] === 'defaultAgent') &&
+      typeof value === 'string'
+    ) {
       defaultAgentFromPatch = value;
+      break;
+    }
+  }
+  const activeAgentFromHint =
+    normalizeAgentName(String(defaultAgentFromPatch || activeAgentHint || '')) ?? undefined;
+
+  const getOrCreateDraft = (agentNameRaw: string): AgentPatchDraft | null => {
+    const agentName = normalizeAgentName(agentNameRaw);
+    if (!agentName) return null;
+    const existing = drafts.get(agentName);
+    if (existing) return existing;
+    const created: AgentPatchDraft = { agentName };
+    drafts.set(agentName, created);
+    return created;
+  };
+
+  for (const [rawKey, value] of Object.entries(setMap)) {
+    const key = rawKey.trim();
+    if (!key) continue;
+    if (key === 'default_agent' || key === 'defaultAgent') continue;
+    const parts = key.split('.');
+    if (parts[0] === 'default_agent' || parts[0] === 'defaultAgent') {
       continue;
     }
+
     if (parts[0] === 'agent' || parts[0] === 'agents') {
-      if (parts.length < 3) continue;
-      const agentNameRaw = parts[1] ?? '';
-      const field = parts.slice(2).join('.');
-      const draft = drafts.get(agentNameRaw) ?? {
-        agentName: agentNameRaw,
-      };
-      if (field === 'model') draft.model = value;
-      if (field === 'variant') draft.variant = value;
-      if (field === 'providerID') draft.providerID = value;
-      if (field === 'options') draft.options = value;
-      if (field === 'apiKey') draft.apiKey = value;
-      if (field === 'baseURL') draft.baseURL = value;
-      drafts.set(agentNameRaw, draft);
+      if (parts.length >= 3) {
+        const directDraft = getOrCreateDraft(parts[1] ?? '');
+        if (directDraft) {
+          applyAgentPatchField(directDraft, parts.slice(2).join('.'), value);
+          continue;
+        }
+        if (!activeAgentFromHint) continue;
+        const activeDraft = getOrCreateDraft(activeAgentFromHint);
+        if (!activeDraft) continue;
+        applyAgentPatchField(activeDraft, parts.slice(1).join('.'), value);
+        continue;
+      }
+      if (parts.length === 2 && activeAgentFromHint) {
+        const draft = getOrCreateDraft(activeAgentFromHint);
+        if (!draft) continue;
+        applyAgentPatchField(draft, parts[1] ?? '', value);
+      }
       continue;
     }
+
+    if (activeAgentFromHint) {
+      const draft = getOrCreateDraft(activeAgentFromHint);
+      if (draft && applyAgentPatchField(draft, key, value)) {
+        continue;
+      }
+    }
+
     if (parts[0] === 'provider' && parts.length >= 3) {
       const providerID = String(parts[1] ?? '').trim();
       if (!providerID) continue;
@@ -600,13 +695,13 @@ function parseAgentPatchSet(
     }
   }
 
-  const activeAgentFromHint =
-    normalizeAgentName(String(defaultAgentFromPatch ?? activeAgentHint ?? '')) ?? undefined;
   if (providerDrafts.size > 0) {
     for (const providerPatch of providerDrafts.values()) {
       let targetDraft: AgentPatchDraft | undefined;
       for (const draft of drafts.values()) {
-        const modelProvider = normalizeModelRef(draft.model)?.split('/')[0];
+        const modelProvider =
+          normalizeModelRef(draft.model)?.split('/')[0] ??
+          normalizeProviderID(draft.modelProviderID);
         const explicitProvider = normalizeProviderID(draft.providerID);
         if (modelProvider === providerPatch.providerID || explicitProvider === providerPatch.providerID) {
           targetDraft = draft;
@@ -699,7 +794,19 @@ export function extractAgentModelSelectionsFromEvent(
     activeAgent = false,
   ): AgentModelSelectionFromEvent | null => {
     const agentName =
-      normalizeAgentName(String(scope.agent ?? scope.agentName ?? scope.newAgent ?? fallbackAgent ?? '')) ??
+      normalizeAgentName(
+        String(
+          scope.agent ??
+            scope.agentName ??
+            scope.newAgent ??
+            scope.activeAgent ??
+            scope.currentAgent ??
+            scope.selectedAgent ??
+            scope.defaultAgent ??
+            fallbackAgent ??
+            '',
+        ),
+      ) ??
       null;
     if (!agentName) return null;
 
@@ -771,8 +878,21 @@ export function extractAgentModelSelectionsFromEvent(
       'agent.config.saved',
     ].includes(eventType)
   ) {
+    const info = isObject(properties.info) ? properties.info : {};
     const activeAgentHint = String(
-      properties.activeAgent ?? properties.currentAgent ?? properties.agent ?? properties.default_agent ?? '',
+      properties.activeAgent ??
+        properties.currentAgent ??
+        properties.selectedAgent ??
+        properties.agent ??
+        properties.defaultAgent ??
+        properties.default_agent ??
+        info.activeAgent ??
+        info.currentAgent ??
+        info.selectedAgent ??
+        info.agent ??
+        info.defaultAgent ??
+        info.default_agent ??
+        '',
     );
     const patchRaw = properties.patch;
     if (isObject(patchRaw) && isObject(patchRaw.set)) {

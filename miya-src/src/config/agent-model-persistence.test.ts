@@ -42,6 +42,9 @@ describe('agent-model-persistence', () => {
         modelID: 'gpt-5.1-codex-mini',
       }),
     ).toBe('openai/gpt-5.1-codex-mini');
+    expect(normalizeModelRef('openrouter/minimax/z-ai/glm-5')).toBe(
+      'openrouter/z-ai/glm-5',
+    );
     expect(normalizeModelRef('invalid-model')).toBeNull();
   });
 
@@ -251,6 +254,48 @@ describe('agent-model-persistence', () => {
     expect(byAgent['3-docs-helper']?.model).toBe('openrouter/moonshotai/kimi-k2.5');
     expect(byAgent['3-docs-helper']?.activeAgentId).toBe('5-code-fixer');
     expect(byAgent['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
+  });
+
+  test('extracts active-agent relative settings patch without cross-agent overwrite', () => {
+    const extracted = extractAgentModelSelectionsFromEvent({
+      type: 'settings.saved',
+      properties: {
+        activeAgent: '1-task-manager',
+        patch: {
+          set: {
+            'agent.model': 'openrouter/moonshotai/kimi-k2.5',
+            'agent.providerID': 'openrouter',
+          },
+        },
+      },
+    });
+
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0]?.agentName).toBe('1-task-manager');
+    expect(extracted[0]?.model).toBe('openrouter/moonshotai/kimi-k2.5');
+    expect(extracted[0]?.activeAgentId).toBe('1-task-manager');
+  });
+
+  test('extracts nested model fields with selectedAgent hint', () => {
+    const extracted = extractAgentModelSelectionsFromEvent({
+      type: 'settings.saved',
+      properties: {
+        selectedAgent: '5-code-fixer',
+        patch: {
+          set: {
+            'agent.model.providerID': 'openrouter',
+            'agent.model.modelID': 'z-ai/glm-5',
+            'provider.openrouter.options.baseURL': 'https://openrouter.example/v1',
+          },
+        },
+      },
+    });
+
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0]?.agentName).toBe('5-code-fixer');
+    expect(extracted[0]?.model).toBe('openrouter/z-ai/glm-5');
+    expect(extracted[0]?.providerID).toBe('openrouter');
+    expect(extracted[0]?.baseURL).toBe('https://openrouter.example/v1');
   });
 
   test('syncs persisted runtime from opencode config snapshot', () => {

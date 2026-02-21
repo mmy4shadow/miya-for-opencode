@@ -1,5 +1,5 @@
 import type { Plugin } from '@opencode-ai/plugin';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getAgentConfigs } from './agents';
@@ -8,6 +8,7 @@ import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
 import {
   extractAgentModelSelectionsFromEvent,
+  normalizeAgentName,
   persistAgentRuntimeFromConfigSnapshot,
   persistAgentRuntimeSelection,
   readPersistedAgentRuntime,
@@ -94,6 +95,22 @@ function deepMergeObject(
 const autoUiOpenAtByDir = new Map<string, number>();
 const dockLaunchAtByDir = new Map<string, number>();
 
+interface LaunchGuardState {
+  atMs: number;
+  pid: number;
+}
+
+function resolveMiyaRoot(projectDir: string): string {
+  const nestedRoot = path.join(projectDir, 'miya-src');
+  if (fs.existsSync(path.join(nestedRoot, 'src', 'index.ts'))) {
+    return nestedRoot;
+  }
+  if (fs.existsSync(path.join(projectDir, 'src', 'index.ts'))) {
+    return projectDir;
+  }
+  return nestedRoot;
+}
+
 function autoUiOpenGuardFile(projectDir: string): string {
   return path.join(projectDir, '.opencode', 'miya', 'ui-auto-open.guard.json');
 }
@@ -102,48 +119,44 @@ function dockLaunchGuardFile(projectDir: string): string {
   return path.join(projectDir, '.opencode', 'miya', 'dock-launch.guard.json');
 }
 
-function readLastAutoUiOpenAt(projectDir: string): number {
-  const file = autoUiOpenGuardFile(projectDir);
-  if (!fs.existsSync(file)) return 0;
+function readLaunchGuard(file: string): LaunchGuardState {
+  if (!fs.existsSync(file)) return { atMs: 0, pid: 0 };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown; pid?: unknown };
     const atMs = Number(parsed?.atMs ?? 0);
-    return Number.isFinite(atMs) ? atMs : 0;
+    const pid = Number(parsed?.pid ?? 0);
+    return {
+      atMs: Number.isFinite(atMs) ? atMs : 0,
+      pid: Number.isFinite(pid) ? pid : 0,
+    };
   } catch {
-    return 0;
+    return { atMs: 0, pid: 0 };
   }
+}
+
+function readLastAutoUiOpen(projectDir: string): LaunchGuardState {
+  return readLaunchGuard(autoUiOpenGuardFile(projectDir));
+}
+
+function writeLaunchGuard(file: string, atMs: number, pid: number): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ atMs, pid, at: new Date(atMs).toISOString() }, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 function writeLastAutoUiOpenAt(projectDir: string, atMs: number): void {
-  const file = autoUiOpenGuardFile(projectDir);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(
-    file,
-    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}\n`,
-    'utf-8',
-  );
+  writeLaunchGuard(autoUiOpenGuardFile(projectDir), atMs, process.pid);
 }
 
-function readLastDockLaunchAt(projectDir: string): number {
-  const file = dockLaunchGuardFile(projectDir);
-  if (!fs.existsSync(file)) return 0;
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown };
-    const atMs = Number(parsed?.atMs ?? 0);
-    return Number.isFinite(atMs) ? atMs : 0;
-  } catch {
-    return 0;
-  }
+function readLastDockLaunch(projectDir: string): LaunchGuardState {
+  return readLaunchGuard(dockLaunchGuardFile(projectDir));
 }
 
 function writeLastDockLaunchAt(projectDir: string, atMs: number): void {
-  const file = dockLaunchGuardFile(projectDir);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(
-    file,
-    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}\n`,
-    'utf-8',
-  );
+  writeLaunchGuard(dockLaunchGuardFile(projectDir), atMs, process.pid);
 }
 
 function isPidAlive(pid: number): boolean {
@@ -183,27 +196,24 @@ function openUrlSilently(url: string): void {
 
 function launchDockSilently(projectDir: string): void {
   if (process.platform !== 'win32') return;
-  const pidFile = path.join(
-    projectDir,
-    'miya-src',
-    'tools',
-    'miya-dock',
-    'miya-dock.pid',
-  );
+  const miyaRoot = resolveMiyaRoot(projectDir);
+  const pidFile = path.join(miyaRoot, 'tools', 'miya-dock', 'miya-dock.pid');
   if (fs.existsSync(pidFile)) {
     try {
       const pid = Number(fs.readFileSync(pidFile, 'utf-8').trim());
       if (isPidAlive(pid)) return;
     } catch {}
   }
-  const dockScript = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-dock.ps1');
-  const bat = path.join(projectDir, 'miya-src', 'tools', 'miya-dock', 'miya-launch.bat');
+  const dockScript = path.join(miyaRoot, 'tools', 'miya-dock', 'miya-dock.ps1');
+  const bat = path.join(miyaRoot, 'tools', 'miya-dock', 'miya-launch.bat');
   if (!fs.existsSync(dockScript) && !fs.existsSync(bat)) return;
   const now = Date.now();
   const memLast = dockLaunchAtByDir.get(projectDir) ?? 0;
-  const persistedLast = readLastDockLaunchAt(projectDir);
+  const persisted = readLastDockLaunch(projectDir);
   const cooldownMs = 5 * 60_000;
-  if (now - memLast < 15_000 || now - persistedLast < cooldownMs) {
+  const throttleByPersisted =
+    persisted.atMs > 0 && isPidAlive(persisted.pid) && now - persisted.atMs < cooldownMs;
+  if (now - memLast < 15_000 || throttleByPersisted) {
     return;
   }
   dockLaunchAtByDir.set(projectDir, now);
@@ -240,13 +250,103 @@ function launchDockSilently(projectDir: string): void {
   child.unref();
 }
 
+function gatewayTerminalLockFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'gateway-terminal.lock.json');
+}
+
+function gatewayTerminalLaunchGuardFile(projectDir: string): string {
+  return path.join(projectDir, '.opencode', 'miya', 'gateway-terminal-launch.guard.json');
+}
+
+function readLastGatewayTerminalLaunchAt(projectDir: string): number {
+  return readLaunchGuard(gatewayTerminalLaunchGuardFile(projectDir)).atMs;
+}
+
+function writeLastGatewayTerminalLaunchAt(projectDir: string, atMs: number): void {
+  const file = gatewayTerminalLaunchGuardFile(projectDir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ atMs, pid: process.pid, at: new Date(atMs).toISOString() }, null, 2)}\n`,
+    'utf-8',
+  );
+}
+
+function readGatewayTerminalOwnerPid(projectDir: string): number {
+  const file = gatewayTerminalLockFile(projectDir);
+  if (!fs.existsSync(file)) return 0;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { pid?: unknown };
+    const pid = Number(parsed.pid ?? 0);
+    return Number.isFinite(pid) ? pid : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function resolveGatewayTerminalNodeBinary(): string | null {
+  const candidates = [
+    process.env.MIYA_NODE_BIN?.trim() || null,
+    process.execPath,
+    process.platform === 'win32' ? 'node.exe' : 'node',
+  ].filter((item): item is string => Boolean(item));
+
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync(candidate, ['--version'], {
+        stdio: 'ignore',
+        timeout: 2_000,
+        windowsHide: true,
+      });
+      if (probe.status === 0) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
+function launchGatewayTerminalDetached(projectDir: string): void {
+  if (process.platform !== 'win32') return;
+  const lockPid = readGatewayTerminalOwnerPid(projectDir);
+  if (isPidAlive(lockPid)) return;
+
+  const now = Date.now();
+  const last = readLaunchGuard(gatewayTerminalLaunchGuardFile(projectDir));
+  if (last.atMs > 0 && now - last.atMs < 20_000) return;
+
+  const nodeBinary = resolveGatewayTerminalNodeBinary();
+  if (!nodeBinary) return;
+
+  const miyaRoot = resolveMiyaRoot(projectDir);
+  const distCli = path.join(miyaRoot, 'dist', 'cli', 'index.js');
+  const srcCli = path.join(miyaRoot, 'src', 'cli', 'index.ts');
+  const script =
+    fs.existsSync(distCli) && fs.statSync(distCli).isFile()
+      ? `"${nodeBinary}" "${distCli}" gateway terminal --workspace "${projectDir}"`
+      : fs.existsSync(srcCli) && fs.statSync(srcCli).isFile()
+        ? `"${nodeBinary}" --import tsx "${srcCli}" gateway terminal --workspace "${projectDir}"`
+        : '';
+  if (!script) return;
+
+  writeLastGatewayTerminalLaunchAt(projectDir, now);
+  const cmdLine = `start "miya-gateway" cmd /k ${script}`;
+  const child = spawn('cmd.exe', ['/d', '/c', cmdLine], {
+    cwd: projectDir,
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
+
 function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
   const last = autoUiOpenAtByDir.get(projectDir) ?? 0;
-  const persistedLast = readLastAutoUiOpenAt(projectDir);
+  const persisted = readLastAutoUiOpen(projectDir);
   const now = Date.now();
   const minCooldownMs = Math.max(10_000, Math.min(cooldownMs, 24 * 60_000));
   if (now - last < 10_000) return false;
-  if (now - persistedLast < minCooldownMs) return false;
+  if (persisted.atMs > 0 && isPidAlive(persisted.pid) && now - persisted.atMs < minCooldownMs) {
+    return false;
+  }
   autoUiOpenAtByDir.set(projectDir, now);
   writeLastAutoUiOpenAt(projectDir, now);
   return true;
@@ -341,12 +441,20 @@ const MiyaPlugin: Plugin = async (ctx) => {
   }
 
   const backgroundManager = new BackgroundTaskManager(ctx, tmuxConfig, config);
-  startGatewayWithLog(ctx.directory);
-  const gatewayOwner = isGatewayOwner(ctx.directory);
   const dashboardConfig =
     ((config.ui as Record<string, unknown> | undefined)?.dashboard as
       | Record<string, unknown>
       | undefined) ?? {};
+  const gatewayTerminalAutoStart =
+    process.platform === 'win32' &&
+    process.env.MIYA_GATEWAY_TERMINAL_AUTO_START !== '0' &&
+    dashboardConfig.gatewayTerminalAutoStart !== false;
+  if (gatewayTerminalAutoStart) {
+    launchGatewayTerminalDetached(ctx.directory);
+  } else {
+    startGatewayWithLog(ctx.directory);
+  }
+  const gatewayOwner = isGatewayOwner(ctx.directory);
   const autoOpenEnabled = dashboardConfig.openOnStart !== false;
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === '0';
   const autoOpenCooldownMs =
@@ -355,51 +463,56 @@ const MiyaPlugin: Plugin = async (ctx) => {
       : 2 * 60_000;
   const dockAutoLaunch =
     process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
-    dashboardConfig.dockAutoLaunch === true;
+    dashboardConfig.dockAutoLaunch === true ||
+    (process.platform === 'win32' && dashboardConfig.dockAutoLaunch !== false);
   const interactiveSession = isInteractiveSession();
-  const allowAutoOpenWithoutTty = process.env.MIYA_AUTO_UI_OPEN_NO_TTY === '1';
+  const allowAutoOpenWithoutTty =
+    process.env.MIYA_AUTO_UI_OPEN_NO_TTY === '1' ||
+    (process.platform === 'win32' && process.env.MIYA_AUTO_UI_OPEN_NO_TTY !== '0');
   const canAutoOpenInSession = interactiveSession || allowAutoOpenWithoutTty;
+  if (
+    autoOpenEnabled &&
+    !autoOpenBlockedByEnv &&
+    canAutoOpenInSession &&
+    shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
+  ) {
+    setTimeout(async () => {
+      try {
+        const state = ensureGatewayRunning(ctx.directory);
+        const healthy = await probeGatewayAlive(state.url, 1_500);
+        if (!healthy) {
+          log('[miya] auto ui open skipped: gateway unhealthy', { url: state.url });
+          return;
+        }
+        if (dockAutoLaunch) {
+          launchDockSilently(ctx.directory);
+        } else {
+          openUrlSilently(state.url);
+        }
+        log('[miya] auto ui open triggered', {
+          url: state.url,
+          dockAutoLaunch,
+          cooldownMs: autoOpenCooldownMs,
+        });
+      } catch (error) {
+        log('[miya] auto ui open failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }, 1_200);
+  } else {
+    log('[miya] auto ui open skipped', {
+      autoOpenEnabled,
+      autoOpenBlockedByEnv,
+      interactiveSession,
+      canAutoOpenInSession,
+      cooldownMs: autoOpenCooldownMs,
+    });
+  }
+
   if (gatewayOwner) {
     const daemonLaunch = ensureMiyaLauncher(ctx.directory);
     log('[miya-launcher] daemon bootstrap', daemonLaunch);
-    if (
-      autoOpenEnabled &&
-      !autoOpenBlockedByEnv &&
-      canAutoOpenInSession &&
-      shouldAutoOpenUi(ctx.directory, autoOpenCooldownMs)
-    ) {
-      setTimeout(async () => {
-        try {
-          const state = ensureGatewayRunning(ctx.directory);
-          const healthy = await probeGatewayAlive(state.url, 1_500);
-          if (!healthy) {
-            log('[miya] auto ui open skipped: gateway unhealthy', { url: state.url });
-            return;
-          }
-          if (dockAutoLaunch) {
-            launchDockSilently(ctx.directory);
-          }
-          openUrlSilently(state.url);
-          log('[miya] auto ui open triggered', {
-            url: state.url,
-            dockAutoLaunch,
-            cooldownMs: autoOpenCooldownMs,
-          });
-        } catch (error) {
-          log('[miya] auto ui open failed', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }, 1_200);
-    } else {
-      log('[miya] auto ui open skipped', {
-        autoOpenEnabled,
-        autoOpenBlockedByEnv,
-        interactiveSession,
-        canAutoOpenInSession,
-        cooldownMs: autoOpenCooldownMs,
-      });
-    }
     setTimeout(async () => {
       try {
         const daemon = getLauncherDaemonSnapshot(ctx.directory);
@@ -654,8 +767,18 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
     config: async (opencodeConfig: Record<string, unknown>) => {
       const persistedRuntime = readPersistedAgentRuntime(ctx.directory);
-      (opencodeConfig as { default_agent?: string }).default_agent =
-        persistedRuntime.activeAgentId ?? '1-task-manager';
+      const existingDefaultAgent =
+        normalizeAgentName(
+          String(
+            (opencodeConfig as { default_agent?: unknown; defaultAgent?: unknown }).default_agent ??
+              (opencodeConfig as { defaultAgent?: unknown }).defaultAgent ??
+              '',
+          ),
+        ) ?? undefined;
+      if (!existingDefaultAgent) {
+        (opencodeConfig as { default_agent?: string }).default_agent =
+          persistedRuntime.activeAgentId ?? '1-task-manager';
+      }
 
       // Register Miya control-plane commands in the command palette.
       const commandConfig = (opencodeConfig.command ?? {}) as Record<
@@ -718,12 +841,14 @@ const MiyaPlugin: Plugin = async (ctx) => {
         };
       }
 
-      commandConfig['miya-gateway-start'] = {
-        description: 'Start Miya Gateway and print runtime URL',
-        agent: '1-task-manager',
-        template:
-          'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
-      };
+      if (!commandConfig['miya-gateway-start']) {
+        commandConfig['miya-gateway-start'] = {
+          description: 'Start Miya Gateway and print runtime URL',
+          agent: '1-task-manager',
+          template:
+            'MANDATORY: Call tool `miya_gateway_start` exactly once. Return only tool output. If tool call fails, return exact error text only.',
+        };
+      }
 
       if (!commandConfig['miya-gateway-shutdown']) {
         commandConfig['miya-gateway-shutdown'] = {
