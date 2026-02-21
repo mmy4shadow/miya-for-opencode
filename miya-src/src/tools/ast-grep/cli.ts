@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { spawn } from 'bun';
+import { runProcess } from '../../utils';
 import {
   DEFAULT_MAX_MATCHES,
   DEFAULT_MAX_OUTPUT_BYTES,
@@ -104,30 +104,18 @@ export async function runSg(options: RunOptions): Promise<SgResult> {
 
   const timeout = DEFAULT_TIMEOUT_MS;
 
-  const proc = spawn([cliPath, ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    const id = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`Search timeout after ${timeout}ms`));
-    }, timeout);
-    proc.exited.then(() => clearTimeout(id));
-  });
-
   let stdout: string;
   let stderr: string;
   let exitCode: number;
 
   try {
-    stdout = await Promise.race([
-      new Response(proc.stdout).text(),
-      timeoutPromise,
-    ]);
-    stderr = await new Response(proc.stderr).text();
-    exitCode = await proc.exited;
+    const result = await runProcess(cliPath, args, { timeoutMs: timeout });
+    if (result.timedOut) {
+      throw new Error(`Search timeout after ${timeout}ms`);
+    }
+    stdout = result.stdout;
+    stderr = result.stderr;
+    exitCode = result.exitCode;
   } catch (e) {
     const error = e as Error;
     if (error.message?.includes('timeout')) {
@@ -158,7 +146,7 @@ export async function runSg(options: RunOptions): Promise<SgResult> {
           error:
             `ast-grep CLI binary not found.\n\n` +
             `Auto-download failed. Manual install options:\n` +
-            `  bun add -D @ast-grep/cli\n` +
+            `  npm install -D @ast-grep/cli\n` +
             `  cargo install ast-grep --locked\n` +
             `  brew install ast-grep`,
         };

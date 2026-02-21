@@ -1,4 +1,5 @@
 import { getSessionState, setSessionState } from '../workflow';
+import { runProcessSync } from '../utils';
 import { attachCommandSteps, createAutopilotPlan } from './planner';
 import type {
   AutopilotCommandResult,
@@ -40,19 +41,17 @@ function runCommand(
       ? ['powershell', '-NoProfile', '-Command', command]
       : ['sh', '-lc', command];
 
-  const proc = Bun.spawnSync(shellArgs, {
+  const proc = runProcessSync(shellArgs[0], shellArgs.slice(1), {
     cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
     timeout: Math.max(1000, Math.min(timeoutMs, 10 * 60 * 1000)),
   });
 
   return {
     command,
-    ok: proc.exitCode === 0,
+    ok: proc.exitCode === 0 && !proc.timedOut,
     exitCode: proc.exitCode,
-    stdout: Buffer.from(proc.stdout).toString('utf-8'),
-    stderr: Buffer.from(proc.stderr).toString('utf-8'),
+    stdout: proc.stdout,
+    stderr: proc.stderr,
     durationMs: Date.now() - start,
   };
 }

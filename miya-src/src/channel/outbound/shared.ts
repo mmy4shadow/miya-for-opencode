@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import { getMiyaVisionTempDir } from '../../model/paths';
+import { runProcess } from '../../utils';
 
 export interface DesktopOutboundResult {
   sent: boolean;
@@ -285,8 +286,16 @@ exit 0
 }
 `.trim();
 
-  const proc = Bun.spawn(
-    ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
+  const result = await runProcess(
+    'powershell',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script,
+    ],
     {
       env: {
         ...process.env,
@@ -299,20 +308,13 @@ exit 0
         MIYA_EVIDENCE_DIR: evidenceDir,
       },
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      timeoutMs: 15_000,
     },
   );
-  let timedOut = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    try {
-      proc.kill('SIGTERM');
-    } catch {}
-  }, 15_000);
-  const exitCode = await proc.exited;
-  clearTimeout(timeout);
-  const stdout = (await new Response(proc.stdout).text()).trim();
-  const stderr = (await new Response(proc.stderr).text()).trim();
+  const timedOut = result.timedOut;
+  const exitCode = result.exitCode;
+  const stdout = result.stdout.trim();
+  const stderr = result.stderr.trim();
   const signal = stdout || stderr;
   const precheck = safeValueFromSignal(signal, 'pre') ?? 'failed';
   const postcheck = safeValueFromSignal(signal, 'post') ?? 'failed';

@@ -12,7 +12,7 @@ export function analyzeFailure(output: string): RalphFailureAnalysis {
     return {
       kind: 'dependency_missing',
       summary: 'Dependencies or required binaries are missing.',
-      suggestedFixes: ['bun install', 'npm install', 'check PATH and tool installation'],
+      suggestedFixes: ['npm install', 'check PATH and tool installation'],
     };
   }
 
@@ -24,7 +24,7 @@ export function analyzeFailure(output: string): RalphFailureAnalysis {
     return {
       kind: 'type_error',
       summary: 'Type checking failed.',
-      suggestedFixes: ['fix reported TypeScript diagnostics', 'run bun run typecheck'],
+      suggestedFixes: ['fix reported TypeScript diagnostics', 'run npm run typecheck'],
     };
   }
 
@@ -36,7 +36,7 @@ export function analyzeFailure(output: string): RalphFailureAnalysis {
     return {
       kind: 'lint_error',
       summary: 'Lint checks failed.',
-      suggestedFixes: ['run bun run lint', 'apply formatter and lint fixes'],
+      suggestedFixes: ['run npm run lint', 'apply formatter and lint fixes'],
     };
   }
 

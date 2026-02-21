@@ -1,13 +1,14 @@
 import {
   chmodSync,
   existsSync,
+  promises as fsPromises,
   mkdirSync,
   readdirSync,
   unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { spawn } from 'bun';
 import { extractZip } from '../../utils';
+import { runProcess } from '../../utils/process';
 
 export function findFileRecursive(
   dir: string,
@@ -63,7 +64,7 @@ async function downloadFile(url: string, destPath: string): Promise<void> {
   }
 
   const buffer = await response.arrayBuffer();
-  await Bun.write(destPath, buffer);
+  await fsPromises.writeFile(destPath, Buffer.from(buffer));
 }
 
 async function extractTarGz(
@@ -78,16 +79,11 @@ async function extractTarGz(
     args.push('--wildcards', '*/rg');
   }
 
-  const proc = spawn(args, {
+  const result = await runProcess(args[0], args.slice(1), {
     cwd: destDir,
-    stdout: 'pipe',
-    stderr: 'pipe',
   });
-
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`Failed to extract tar.gz: ${stderr}`);
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to extract tar.gz: ${result.stderr}`);
   }
 }
 

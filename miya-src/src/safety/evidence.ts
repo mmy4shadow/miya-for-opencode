@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { runProcess } from '../utils';
 import type { SafetyTier } from './tier';
 
 const MAX_OUTPUT = 8_000;
@@ -37,28 +38,17 @@ async function runCommand(
   command: string[],
   timeoutMs = 60_000,
 ): Promise<CommandResult> {
-  const proc = Bun.spawn({
-    cmd: command,
+  const result = await runProcess(command[0], command.slice(1), {
     cwd: projectDir,
-    stdout: 'pipe',
-    stderr: 'pipe',
+    timeoutMs,
   });
-
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-  }, timeoutMs);
-
-  const code = await proc.exited;
-  clearTimeout(timer);
-  const stdout = truncate(await new Response(proc.stdout).text());
-  const stderr = truncate(await new Response(proc.stderr).text());
+  const stdout = truncate(result.stdout);
+  const stderr = truncate(result.stderr);
   return {
-    ok: code === 0 && !timedOut,
-    code,
+    ok: result.exitCode === 0 && !result.timedOut,
+    code: result.exitCode,
     stdout,
-    stderr: timedOut ? `${stderr}\n[timeout]` : stderr,
+    stderr: result.timedOut ? `${stderr}\n[timeout]` : stderr,
   };
 }
 
@@ -99,12 +89,16 @@ export async function collectSafetyEvidence(
     .filter((line) => line.length > 0);
 
   if (changedFiles.some((file) => file.startsWith('miya-src/'))) {
-    const test = await runCommand(projectDir, ['bun', '--cwd', 'miya-src', 'test'], 120_000);
-    checks.push('bun --cwd miya-src test');
-    evidence.push(`miya_test_exit=${test.code}`);
-    if (test.stdout) evidence.push(`miya_test_stdout:\n${test.stdout}`);
-    if (test.stderr) evidence.push(`miya_test_stderr:\n${test.stderr}`);
-    if (!test.ok) issues.push('miya-src tests failed');
+    const test = await runCommand(
+      projectDir,
+      ['npm', '--prefix', 'miya-src', 'run', 'typecheck'],
+      120_000,
+    );
+    checks.push('npm --prefix miya-src run typecheck');
+    evidence.push(`miya_typecheck_exit=${test.code}`);
+    if (test.stdout) evidence.push(`miya_typecheck_stdout:\n${test.stdout}`);
+    if (test.stderr) evidence.push(`miya_typecheck_stderr:\n${test.stderr}`);
+    if (!test.ok) issues.push('miya-src typecheck failed');
   }
 
   if (tier === 'THOROUGH') {

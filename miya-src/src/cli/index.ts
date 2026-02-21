@@ -146,21 +146,23 @@ function formatGatewayConsoleLine(raw: string): string {
   return `${clock} ${coloredMessage}`;
 }
 
-function resolveGatewayCliEntry(workspace: string): {
-  scriptPath: string;
-  needsTsx: boolean;
-} {
-  const sourceCli = path.join(workspace, 'src', 'cli', 'index.ts');
-  if (fs.existsSync(sourceCli)) {
-    return { scriptPath: sourceCli, needsTsx: true };
+function resolveGatewayCliScript(workspace: string): string | null {
+  const distCli = path.join(workspace, 'dist', 'cli', 'index.js');
+  if (fs.existsSync(distCli)) {
+    return distCli;
   }
-  return { scriptPath: resolveCliScriptPath(), needsTsx: false };
+  const selfCli = resolveCliScriptPath();
+  if (selfCli.endsWith('.js')) {
+    return selfCli;
+  }
+  return null;
 }
 
 function startGatewayLogTail(file: string, onLine: (line: string) => void): () => void {
   let cursor = 0;
   let partial = '';
   let timer: NodeJS.Timeout | undefined;
+  const maxChunkBytes = 256 * 1024;
 
   const consume = (chunk: string): void => {
     partial += chunk;
@@ -179,15 +181,20 @@ function startGatewayLogTail(file: string, onLine: (line: string) => void): () =
       partial = '';
     }
     if (stat.size === cursor) return;
-    const length = stat.size - cursor;
-    if (length <= 0) return;
+    let remaining = stat.size - cursor;
+    if (remaining <= 0) return;
 
     const fd = fs.openSync(file, 'r');
     try {
-      const chunk = Buffer.alloc(length);
-      fs.readSync(fd, chunk, 0, length, cursor);
-      cursor = stat.size;
-      consume(chunk.toString('utf-8'));
+      while (remaining > 0) {
+        const chunkSize = Math.min(remaining, maxChunkBytes);
+        const chunk = Buffer.alloc(chunkSize);
+        const bytesRead = fs.readSync(fd, chunk, 0, chunkSize, cursor);
+        if (bytesRead <= 0) break;
+        cursor += bytesRead;
+        remaining -= bytesRead;
+        consume(chunk.subarray(0, bytesRead).toString('utf-8'));
+      }
     } finally {
       fs.closeSync(fd);
     }
@@ -223,6 +230,20 @@ function gatewayAutostartScriptPath(): string {
   return path.join(startup, 'miya-gateway-terminal.cmd');
 }
 
+function gatewayAutostartVbsPath(): string {
+  const startup = windowsStartupDir();
+  if (!startup) return '';
+  return path.join(startup, 'miya-gateway-autostart.vbs');
+}
+
+function gatewayAutostartLauncherPath(workspace: string): string {
+  return path.join(workspace, '.opencode', 'miya', 'autostart', 'miya-gateway-autostart.cmd');
+}
+
+function gatewayAutostartMetaFile(workspace: string): string {
+  return path.join(workspace, '.opencode', 'miya', 'autostart', 'gateway-autostart.json');
+}
+
 function quoteForCmd(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
@@ -231,12 +252,11 @@ function renderGatewayAutostartScript(input: {
   workspace: string;
   nodeBinary: string;
   cliScript: string;
-  needsTsx: boolean;
+  mode: 'serve' | 'terminal';
 }): string {
   const nodeArgs = [
-    input.needsTsx ? '--import tsx' : '',
     quoteForCmd(input.cliScript),
-    'gateway terminal',
+    `gateway ${input.mode}`,
     `--workspace ${quoteForCmd(input.workspace)}`,
   ]
     .filter(Boolean)
@@ -252,6 +272,65 @@ function renderGatewayAutostartScript(input: {
     'endlocal',
     '',
   ].join('\r\n');
+}
+
+function renderGatewayAutostartVbs(launcherPath: string): string {
+  const escaped = launcherPath.replace(/"/g, '""');
+  return [
+    'Set shell = CreateObject("WScript.Shell")',
+    `shell.Run Chr(34) & "${escaped}" & Chr(34), 0, False`,
+    'Set shell = Nothing',
+    '',
+  ].join('\r\n');
+}
+
+function readAutostartMode(workspace: string): 'serve' | 'terminal' | 'unknown' {
+  const file = gatewayAutostartMetaFile(workspace);
+  if (!fs.existsSync(file)) return 'unknown';
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { mode?: unknown };
+    if (parsed.mode === 'serve' || parsed.mode === 'terminal') return parsed.mode;
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function terminalLockFilePath(workspace: string): string {
+  return path.join(workspace, '.opencode', 'miya', 'gateway-terminal.lock.json');
+}
+
+function acquireTerminalLock(workspace: string): { ok: boolean; ownerPid?: number } {
+  const lockFile = terminalLockFilePath(workspace);
+  if (fs.existsSync(lockFile)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(lockFile, 'utf-8')) as { pid?: unknown };
+      const pid = Number(parsed.pid);
+      if (Number.isFinite(pid) && pid > 0 && isPidAlive(pid)) {
+        return { ok: false, ownerPid: pid };
+      }
+    } catch {}
+  }
+  if (!fs.existsSync(path.dirname(lockFile))) {
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  }
+  fs.writeFileSync(
+    lockFile,
+    `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }, null, 2)}\n`,
+    'utf-8',
+  );
+  return { ok: true };
+}
+
+function releaseTerminalLock(workspace: string): void {
+  const lockFile = terminalLockFilePath(workspace);
+  try {
+    const parsed = JSON.parse(fs.readFileSync(lockFile, 'utf-8')) as { pid?: unknown };
+    if (Number(parsed.pid) !== process.pid) return;
+  } catch {}
+  try {
+    fs.unlinkSync(lockFile);
+  } catch {}
 }
 
 function runtimeGatewayFile(cwd: string): string {
@@ -273,6 +352,7 @@ interface GatewayStartResult {
     | 'guard_starting'
     | 'guard_cooldown'
     | 'node_not_found'
+    | 'cli_js_not_found'
     | 'spawn_failed'
     | 'start_timeout';
   detail?: string;
@@ -305,6 +385,11 @@ function writeGatewayStartGuard(cwd: string, guard: GatewayStartGuard): void {
 }
 
 function resolveWorkspaceDir(cwd: string): string {
+  const hasRuntimeState = fs.existsSync(path.join(cwd, '.opencode', 'miya'));
+  const hasSourceEntry = fs.existsSync(path.join(cwd, 'src', 'index.ts'));
+  if (hasRuntimeState || hasSourceEntry) {
+    return cwd;
+  }
   const nested = path.join(cwd, 'miya-src');
   if (fs.existsSync(path.join(nested, 'src', 'index.ts'))) {
     return nested;
@@ -460,10 +545,21 @@ async function runGatewayStart(cwd: string): Promise<GatewayStartResult> {
       detail: 'Cannot resolve a runnable Node.js binary.',
     };
   }
-  const sourceCliScript = path.join(workspace, 'src', 'cli', 'index.ts');
-  const cliScript = fs.existsSync(sourceCliScript) ? sourceCliScript : resolveCliScriptPath();
+  const cliScript = resolveGatewayCliScript(workspace);
+  if (!cliScript) {
+    writeGatewayStartGuard(workspace, {
+      status: 'failed',
+      updatedAt: new Date().toISOString(),
+      cooldownUntil: new Date(Date.now() + 60_000).toISOString(),
+    });
+    return {
+      ok: false,
+      workspace,
+      reason: 'cli_js_not_found',
+      detail: 'Cannot resolve dist/cli/index.js for node startup. Run `npm run build` first.',
+    };
+  }
   const nodeArgs = [
-    ...(cliScript.endsWith('.ts') ? ['--import', 'tsx'] : []),
     cliScript,
     'gateway',
     'serve',
@@ -655,6 +751,22 @@ async function runGatewayServe(cwd: string, args: string[]): Promise<number> {
 
 async function runGatewayTerminal(cwd: string, args: string[]): Promise<number> {
   const workspace = readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const lock = acquireTerminalLock(workspace);
+  if (!lock.ok) {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          skipped: true,
+          reason: 'terminal_already_running',
+          ownerPid: lock.ownerPid ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
   const { ensureGatewayRunning, stopGateway, isGatewayOwner } = await import('../gateway');
   let ownRuntime = false;
 
@@ -702,6 +814,7 @@ async function runGatewayTerminal(cwd: string, args: string[]): Promise<number> 
   await new Promise<void>((resolve) => {
     const stop = () => {
       stopTail();
+      releaseTerminalLock(workspace);
       if (ownRuntime) {
         try {
           stopGateway(workspace);
@@ -718,27 +831,38 @@ async function runGatewayTerminal(cwd: string, args: string[]): Promise<number> 
 async function runGatewayAutostart(cwd: string, args: string[]): Promise<number> {
   const action = args[0] ?? 'status';
   const workspace = readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const modeRaw = (readFlagValue(args, '--mode') ?? 'serve').trim().toLowerCase();
+  const mode: 'serve' | 'terminal' = modeRaw === 'terminal' ? 'terminal' : 'serve';
   const startupDir = windowsStartupDir();
   if (!startupDir) {
     console.error('gateway_autostart_unsupported_platform');
     return 2;
   }
-  const scriptFile = gatewayAutostartScriptPath();
-  if (!scriptFile) {
+  const legacyScriptFile = gatewayAutostartScriptPath();
+  const startupVbs = gatewayAutostartVbsPath();
+  const launcherFile = gatewayAutostartLauncherPath(workspace);
+  const metaFile = gatewayAutostartMetaFile(workspace);
+  if (!startupVbs) {
     console.error('gateway_autostart_startup_dir_unavailable');
     return 2;
   }
 
   if (action === 'status') {
-    const exists = fs.existsSync(scriptFile);
+    const exists = fs.existsSync(startupVbs);
+    const launcherExists = fs.existsSync(launcherFile);
+    const legacyExists = fs.existsSync(legacyScriptFile);
     console.log(
       JSON.stringify(
         {
           ok: true,
           action,
           exists,
+          launcherExists,
+          legacyExists,
+          mode: readAutostartMode(workspace),
           startupDir,
-          scriptFile,
+          startupVbs,
+          launcherFile,
           workspace,
         },
         null,
@@ -749,16 +873,28 @@ async function runGatewayAutostart(cwd: string, args: string[]): Promise<number>
   }
 
   if (action === 'remove' || action === 'uninstall') {
+    const existed = fs.existsSync(startupVbs) || fs.existsSync(launcherFile) || fs.existsSync(legacyScriptFile);
     try {
-      fs.unlinkSync(scriptFile);
+      fs.unlinkSync(startupVbs);
+    } catch {}
+    try {
+      fs.unlinkSync(launcherFile);
+    } catch {}
+    try {
+      fs.unlinkSync(metaFile);
+    } catch {}
+    try {
+      fs.unlinkSync(legacyScriptFile);
     } catch {}
     console.log(
       JSON.stringify(
         {
           ok: true,
           action: 'remove',
-          removed: true,
-          scriptFile,
+          removed: existed,
+          startupVbs,
+          launcherFile,
+          legacyScriptFile,
         },
         null,
         2,
@@ -784,29 +920,63 @@ async function runGatewayAutostart(cwd: string, args: string[]): Promise<number>
       );
       return 1;
     }
-    const entry = resolveGatewayCliEntry(workspace);
+    const cliScript = resolveGatewayCliScript(workspace);
+    if (!cliScript) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            reason: 'cli_js_not_found',
+            detail: 'Cannot resolve dist/cli/index.js for node autostart. Run `npm run build` first.',
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
     const scriptText = renderGatewayAutostartScript({
       workspace,
       nodeBinary,
-      cliScript: entry.scriptPath,
-      needsTsx: entry.needsTsx,
+      cliScript,
+      mode,
     });
-    if (!fs.existsSync(path.dirname(scriptFile))) {
-      fs.mkdirSync(path.dirname(scriptFile), { recursive: true });
+    if (!fs.existsSync(path.dirname(launcherFile))) {
+      fs.mkdirSync(path.dirname(launcherFile), { recursive: true });
     }
-    fs.writeFileSync(scriptFile, scriptText, 'utf-8');
+    fs.writeFileSync(launcherFile, scriptText, 'utf-8');
+    fs.writeFileSync(startupVbs, renderGatewayAutostartVbs(launcherFile), 'utf-8');
+    fs.writeFileSync(
+      metaFile,
+      `${JSON.stringify(
+        {
+          mode,
+          installedAt: new Date().toISOString(),
+          launcherFile,
+          startupVbs,
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+    try {
+      fs.unlinkSync(legacyScriptFile);
+    } catch {}
     console.log(
       JSON.stringify(
         {
           ok: true,
           action,
           installed: true,
-          scriptFile,
+          mode,
+          startupVbs,
+          launcherFile,
           startupDir,
           workspace,
           nodeBinary,
-          cliScript: entry.scriptPath,
-          needsTsx: entry.needsTsx,
+          cliScript,
         },
         null,
         2,

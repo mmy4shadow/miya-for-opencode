@@ -1,5 +1,5 @@
 import { release } from 'node:os';
-import { spawn, spawnSync } from 'bun';
+import { runProcess, runProcessSync } from './process';
 
 const WINDOWS_BUILD_WITH_TAR = 17134;
 
@@ -16,10 +16,7 @@ function getWindowsBuildNumber(): number | null {
 
 function isPwshAvailable(): boolean {
   if (process.platform !== 'win32') return false;
-  const result = spawnSync(['where', 'pwsh'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
+  const result = runProcessSync('where', ['pwsh']);
   return result.exitCode === 0;
 }
 
@@ -47,56 +44,35 @@ export async function extractZip(
   archivePath: string,
   destDir: string,
 ): Promise<void> {
-  let proc: ReturnType<typeof spawn>;
+  let result: Awaited<ReturnType<typeof runProcess>>;
 
   if (process.platform === 'win32') {
     const extractor = getWindowsZipExtractor();
 
     switch (extractor) {
       case 'tar':
-        proc = spawn(['tar', '-xf', archivePath, '-C', destDir], {
-          stdout: 'ignore',
-          stderr: 'pipe',
-        });
+        result = await runProcess('tar', ['-xf', archivePath, '-C', destDir]);
         break;
       case 'pwsh':
-        proc = spawn(
-          [
-            'pwsh',
-            '-Command',
-            `Expand-Archive -Path '${escapePowerShellPath(archivePath)}' -DestinationPath '${escapePowerShellPath(destDir)}' -Force`,
-          ],
-          {
-            stdout: 'ignore',
-            stderr: 'pipe',
-          },
-        );
+        result = await runProcess('pwsh', [
+          '-Command',
+          `Expand-Archive -Path '${escapePowerShellPath(archivePath)}' -DestinationPath '${escapePowerShellPath(destDir)}' -Force`,
+        ]);
         break;
       default:
-        proc = spawn(
-          [
-            'powershell',
-            '-Command',
-            `Expand-Archive -Path '${escapePowerShellPath(archivePath)}' -DestinationPath '${escapePowerShellPath(destDir)}' -Force`,
-          ],
-          {
-            stdout: 'ignore',
-            stderr: 'pipe',
-          },
-        );
+        result = await runProcess('powershell', [
+          '-Command',
+          `Expand-Archive -Path '${escapePowerShellPath(archivePath)}' -DestinationPath '${escapePowerShellPath(destDir)}' -Force`,
+        ]);
         break;
     }
   } else {
-    proc = spawn(['unzip', '-o', archivePath, '-d', destDir], {
-      stdout: 'ignore',
-      stderr: 'pipe',
-    });
+    result = await runProcess('unzip', ['-o', archivePath, '-d', destDir]);
   }
 
-  const exitCode = await proc.exited;
-
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr as ReadableStream).text();
-    throw new Error(`zip extraction failed (exit ${exitCode}): ${stderr}`);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `zip extraction failed (exit ${result.exitCode}): ${result.stderr}`,
+    );
   }
 }

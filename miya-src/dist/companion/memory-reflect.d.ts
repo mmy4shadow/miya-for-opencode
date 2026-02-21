@@ -1,13 +1,4 @@
-import { type CompanionMemoryVector } from './memory-vector';
-export interface MemoryShortTermLog {
-    id: string;
-    sessionID: string;
-    sender: 'user' | 'assistant' | 'system';
-    text: string;
-    at: string;
-    messageHash: string;
-    processedAt?: string;
-}
+import type { CompanionMemoryVector, MemoryShortTermLog } from './memory-types';
 export interface ReflectResult {
     jobID: string;
     processedLogs: number;
@@ -17,6 +8,7 @@ export interface ReflectResult {
     generatedPreferences: number;
     createdMemories: CompanionMemoryVector[];
     archivedLogs: number;
+    auditID: string;
 }
 export interface ReflectStatus {
     pendingLogs: number;
@@ -37,6 +29,7 @@ export declare function reflectCompanionMemory(projectDir: string, input?: {
     maxLogs?: number;
     idempotencyKey?: string;
     cooldownMinutes?: number;
+    policyHash?: string;
 }): ReflectResult;
 export declare function maybeAutoReflectCompanionMemory(projectDir: string, input?: {
     idleMinutes?: number;

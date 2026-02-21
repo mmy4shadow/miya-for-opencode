@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { getMediaItem } from '../media/store';
+import { runProcess } from '../utils';
 import { readOcrCoordinateCache, writeOcrCoordinateCache } from './ocr-cache';
 import type { VisionAnalyzeInput, VisionAnalyzeResult } from './types';
 
@@ -23,17 +24,8 @@ function summarizeFromMetadata(metadata: Record<string, unknown> | undefined): s
 
 async function commandExists(command: string): Promise<boolean> {
   const probe = process.platform === 'win32' ? ['where', command] : ['which', command];
-  const proc = Bun.spawn(probe, { stdout: 'pipe', stderr: 'pipe' });
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    try {
-      proc.kill();
-    } catch {}
-  }, 3000);
-  const code = await proc.exited;
-  clearTimeout(timer);
-  return !timedOut && code === 0;
+  const result = await runProcess(probe[0], probe.slice(1), { timeoutMs: 3000 });
+  return !result.timedOut && result.exitCode === 0;
 }
 
 async function runTesseractOcr(imagePath: string): Promise<string> {
@@ -42,18 +34,9 @@ async function runTesseractOcr(imagePath: string): Promise<string> {
     process.platform === 'win32'
       ? ['tesseract', imagePath, 'stdout', '--psm', '6']
       : ['tesseract', imagePath, 'stdout', '--psm', '6'];
-  const proc = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    try {
-      proc.kill();
-    } catch {}
-  }, 8000);
-  const code = await proc.exited;
-  clearTimeout(timer);
-  if (timedOut || code !== 0) return '';
-  return (await new Response(proc.stdout).text()).trim();
+  const result = await runProcess(args[0], args.slice(1), { timeoutMs: 8000 });
+  if (result.timedOut || result.exitCode !== 0) return '';
+  return result.stdout.trim();
 }
 
 async function runRemoteVisionInference(

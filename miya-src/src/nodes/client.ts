@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getMiyaClient } from '../daemon';
+import { runProcessSync } from '../utils';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export interface NodeHostOptions {
@@ -166,17 +167,15 @@ function runShellCommand(
     process.platform === 'win32'
       ? ['powershell', '-NoProfile', '-Command', command]
       : ['sh', '-lc', command];
-  const proc = Bun.spawnSync(cmd, {
-    stdout: 'pipe',
-    stderr: 'pipe',
+  const proc = runProcessSync(cmd[0], cmd.slice(1), {
     timeout: Math.max(1000, Math.min(timeoutMs, 10 * 60 * 1000)),
   });
 
   return {
-    ok: proc.exitCode === 0,
+    ok: proc.exitCode === 0 && !proc.timedOut,
     exitCode: proc.exitCode,
-    stdout: Buffer.from(proc.stdout).toString('utf-8'),
-    stderr: Buffer.from(proc.stderr).toString('utf-8'),
+    stdout: proc.stdout,
+    stderr: proc.stderr,
   };
 }
 

@@ -22,6 +22,12 @@ export interface MiyaSession {
         opencodeSessionID: string;
         agent: string;
     };
+    recovery?: {
+        recoverable: boolean;
+        reasonCode?: string;
+        from?: 'autoflow' | 'daemon' | 'session';
+        updatedAt: string;
+    };
     queue: MiyaQueuedMessage[];
     createdAt: string;
     updatedAt: string;
@@ -42,3 +48,9 @@ export declare function enqueueSessionMessage(projectDir: string, sessionID: str
     source: string;
 }): MiyaQueuedMessage;
 export declare function dequeueSessionMessage(projectDir: string, sessionID: string): MiyaQueuedMessage | null;
+export declare function setSessionRecoveryReason(projectDir: string, input: {
+    sessionID: string;
+    recoverable: boolean;
+    reasonCode: string;
+    from?: 'autoflow' | 'daemon' | 'session';
+}): MiyaSession;

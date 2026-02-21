@@ -1,46 +1,29 @@
-export interface CompanionMemoryVector {
-    id: string;
-    text: string;
-    memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
-    source: string;
-    embedding: number[];
-    score: number;
-    confidence: number;
-    tier: 'L1' | 'L2' | 'L3';
-    sourceMessageID?: string;
-    sourceType?: 'manual' | 'conversation' | 'reflect' | 'direct_correction';
-    status: 'pending' | 'active' | 'superseded';
-    conflictKey?: string;
-    conflictWizardID?: string;
-    supersededBy?: string;
-    accessCount: number;
-    isArchived: boolean;
-    createdAt: string;
-    updatedAt: string;
-    lastAccessedAt: string;
-}
-export interface CompanionMemoryCorrection {
-    id: string;
-    conflictKey: string;
-    candidateMemoryID: string;
-    existingMemoryIDs: string[];
-    status: 'pending' | 'resolved' | 'rejected';
-    createdAt: string;
-    updatedAt: string;
-}
+import type { CompanionMemoryCorrection, CompanionMemoryVector } from './memory-types';
+export type { CompanionMemoryVector } from './memory-types';
 export declare function decayCompanionMemoryVectors(projectDir: string, halfLifeDays?: number): {
     updated: number;
     items: CompanionMemoryVector[];
+};
+export declare function autoCleanupCompanionMemoryVectors(projectDir: string, input?: {
+    maxActive?: number;
+    maxPendingAgeDays?: number;
+    minQualityToKeep?: number;
+}): {
+    archived: number;
+    superseded: number;
+    retained: number;
 };
 export declare function upsertCompanionMemoryVector(projectDir: string, input: {
     text: string;
     source?: string;
     activate?: boolean;
     confidence?: number;
-    tier?: 'L1' | 'L2' | 'L3';
+    tier?: 'L0' | 'L1' | 'L2' | 'L3';
     sourceMessageID?: string;
     sourceType?: 'manual' | 'conversation' | 'reflect' | 'direct_correction';
     memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
+    domain?: 'work' | 'relationship' | 'personal' | 'system';
+    evidenceRef?: CompanionMemoryVector['evidenceRef'];
 }): CompanionMemoryVector;
 export declare function searchCompanionMemoryVectors(projectDir: string, query: string, limit?: number, options?: {
     threshold?: number;
@@ -48,9 +31,15 @@ export declare function searchCompanionMemoryVectors(projectDir: string, query: 
     alpha?: number;
     beta?: number;
     gamma?: number;
+    domain?: 'work' | 'relationship' | 'personal' | 'system';
+    mode?: 'hybrid' | 'vector' | 'keyword';
 }): Array<CompanionMemoryVector & {
     similarity: number;
     rankScore: number;
+    quality: number;
+    vectorScore: number;
+    lexicalScore: number;
+    relationScore: number;
 }>;
 export declare function listCompanionMemoryVectors(projectDir: string): CompanionMemoryVector[];
 export declare function listPendingCompanionMemoryVectors(projectDir: string): CompanionMemoryVector[];
@@ -60,8 +49,8 @@ export declare function updateCompanionMemoryVector(projectDir: string, input: {
     text?: string;
     memoryKind?: 'Fact' | 'Insight' | 'UserPreference';
     confidence?: number;
-    tier?: 'L1' | 'L2' | 'L3';
-    status?: 'pending' | 'active' | 'superseded';
+    tier?: 'L0' | 'L1' | 'L2' | 'L3';
+    status?: 'pending' | 'candidate' | 'active' | 'superseded' | 'archived';
 }): CompanionMemoryVector | null;
 export declare function archiveCompanionMemoryVector(projectDir: string, input: {
     memoryID: string;

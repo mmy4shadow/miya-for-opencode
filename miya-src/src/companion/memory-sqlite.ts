@@ -27,16 +27,6 @@ interface SqlDatabase {
 
 function createSqlDatabase(file: string): SqlDatabase {
   try {
-    const bunSqlite = require('bun:sqlite') as {
-      Database: new (
-        dbPath: string,
-        options?: { create?: boolean; strict?: boolean },
-      ) => SqlDatabase;
-    };
-    return new bunSqlite.Database(file, { create: true, strict: false });
-  } catch {}
-
-  try {
     const nodeSqlite = require('node:sqlite') as {
       DatabaseSync: new (
         dbPath: string,
@@ -80,7 +70,7 @@ function createSqlDatabase(file: string): SqlDatabase {
     };
   } catch {}
 
-  throw new Error('sqlite_runtime_unavailable');
+  throw new Error('sqlite_runtime_unavailable:requires_node_sqlite');
 }
 
 function nowIso(): string {

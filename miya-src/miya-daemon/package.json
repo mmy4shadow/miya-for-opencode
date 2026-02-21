@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Miya daemon runtime package",
   "scripts": {
-    "start": "bun ../src/daemon/host.ts",
+    "start": "tsx ../src/daemon/host.ts",
     "typecheck": "tsc -p ../tsconfig.json --noEmit"
   }
 }

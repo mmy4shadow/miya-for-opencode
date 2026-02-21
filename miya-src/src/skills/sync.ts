@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { runProcessSync } from '../utils';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export interface SourcePack {
@@ -179,15 +180,13 @@ function writeState(
 }
 
 function runGit(args: string[], cwd: string): GitCommandResult {
-  const proc = Bun.spawnSync(['git', ...args], {
+  const proc = runProcessSync('git', args, {
     cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
   });
   return {
     exitCode: proc.exitCode,
-    stdout: Buffer.from(proc.stdout).toString('utf-8').trim(),
-    stderr: Buffer.from(proc.stderr).toString('utf-8').trim(),
+    stdout: proc.stdout.trim(),
+    stderr: proc.stderr.trim(),
   };
 }
 

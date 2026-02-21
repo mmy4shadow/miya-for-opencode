@@ -1,5 +1,5 @@
-import { spawn } from 'bun';
 import type { TmuxConfig, TmuxLayout } from '../config/schema';
+import { runProcess } from './process';
 import { log } from './logger';
 
 let tmuxPath: string | null = null;
@@ -72,18 +72,14 @@ async function findTmuxPath(): Promise<string | null> {
   const cmd = isWindows ? 'where' : 'which';
 
   try {
-    const proc = spawn([cmd, 'tmux'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-
-    const exitCode = await proc.exited;
+    const lookup = await runProcess(cmd, ['tmux']);
+    const exitCode = lookup.exitCode;
     if (exitCode !== 0) {
       log("[tmux] findTmuxPath: 'which tmux' failed", { exitCode });
       return null;
     }
 
-    const stdout = await new Response(proc.stdout).text();
+    const stdout = lookup.stdout;
     const path = stdout.trim().split('\n')[0];
     if (!path) {
       log('[tmux] findTmuxPath: no path in output');
@@ -91,11 +87,8 @@ async function findTmuxPath(): Promise<string | null> {
     }
 
     // Verify it works
-    const verifyProc = spawn([path, '-V'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const verifyExit = await verifyProc.exited;
+    const verify = await runProcess(path, ['-V']);
+    const verifyExit = verify.exitCode;
     if (verifyExit !== 0) {
       log('[tmux] findTmuxPath: tmux -V failed', { path, verifyExit });
       return null;
@@ -140,32 +133,21 @@ async function applyLayout(
 ): Promise<void> {
   try {
     // Apply the layout
-    const layoutProc = spawn([tmux, 'select-layout', layout], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    await layoutProc.exited;
+    await runProcess(tmux, ['select-layout', layout]);
 
     // For main-* layouts, set the main pane size
     if (layout === 'main-horizontal' || layout === 'main-vertical') {
       const sizeOption =
         layout === 'main-horizontal' ? 'main-pane-height' : 'main-pane-width';
 
-      const sizeProc = spawn(
-        [tmux, 'set-window-option', sizeOption, `${mainPaneSize}%`],
-        {
-          stdout: 'pipe',
-          stderr: 'pipe',
-        },
-      );
-      await sizeProc.exited;
+      await runProcess(tmux, [
+        'set-window-option',
+        sizeOption,
+        `${mainPaneSize}%`,
+      ]);
 
       // Reapply layout to use the new size
-      const reapplyProc = spawn([tmux, 'select-layout', layout], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      });
-      await reapplyProc.exited;
+      await runProcess(tmux, ['select-layout', layout]);
     }
 
     log('[tmux] applyLayout: applied', { layout, mainPaneSize });
@@ -248,14 +230,10 @@ export async function spawnTmuxPane(
 
     log('[tmux] spawnTmuxPane: executing', { tmux, args, opencodeCmd });
 
-    const proc = spawn([tmux, ...args], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-
-    const exitCode = await proc.exited;
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
+    const result = await runProcess(tmux, args);
+    const exitCode = result.exitCode;
+    const stdout = result.stdout;
+    const stderr = result.stderr;
     const paneId = stdout.trim(); // e.g., "%42"
 
     log('[tmux] spawnTmuxPane: split result', {
@@ -266,11 +244,13 @@ export async function spawnTmuxPane(
 
     if (exitCode === 0 && paneId) {
       // Rename the pane for visibility
-      const renameProc = spawn(
-        [tmux, 'select-pane', '-t', paneId, '-T', description.slice(0, 30)],
-        { stdout: 'ignore', stderr: 'ignore' },
-      );
-      await renameProc.exited;
+      await runProcess(tmux, [
+        'select-pane',
+        '-t',
+        paneId,
+        '-T',
+        description.slice(0, 30),
+      ]);
 
       // Apply layout to auto-rebalance all panes
       const layout = config.layout ?? 'main-vertical';
@@ -309,13 +289,9 @@ export async function closeTmuxPane(paneId: string): Promise<boolean> {
   }
 
   try {
-    const proc = spawn([tmux, 'kill-pane', '-t', paneId], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-
-    const exitCode = await proc.exited;
-    const stderr = await new Response(proc.stderr).text();
+    const result = await runProcess(tmux, ['kill-pane', '-t', paneId]);
+    const exitCode = result.exitCode;
+    const stderr = result.stderr;
 
     log('[tmux] closeTmuxPane: result', { exitCode, stderr: stderr.trim() });
 

@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Miya OpenCode plugin workspace package",
   "scripts": {
-    "build": "bun build ../src/index.ts --outdir ../dist --target bun --format esm",
+    "build": "node ../tools/build.mjs",
     "typecheck": "tsc -p ../tsconfig.json --noEmit"
   }
 }

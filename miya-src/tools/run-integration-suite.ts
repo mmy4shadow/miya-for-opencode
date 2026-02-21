@@ -1,5 +1,6 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -26,23 +27,26 @@ function ensureReportDir(cwd: string): string {
 async function main(): Promise<void> {
   const startedAt = nowIso();
   const startedMs = Date.now();
-  const command = ['bun', 'test', '--max-concurrency=1', 'src/integration'];
-  const proc = Bun.spawn({
-    cmd: command,
+  const command = ['tsx', '--test', 'src/integration/**/*.test.ts'];
+  const proc = spawn(command[0], command.slice(1), {
     cwd: process.cwd(),
-    env: {
-      ...process.env,
-      MIYA_RUN_INTEGRATION: '1',
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
+    env: { ...process.env, MIYA_RUN_INTEGRATION: '1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
+  proc.stdout.setEncoding('utf8');
+  proc.stderr.setEncoding('utf8');
 
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  let stdout = '';
+  let stderr = '';
+  proc.stdout.on('data', (chunk: string) => {
+    stdout += chunk;
+  });
+  proc.stderr.on('data', (chunk: string) => {
+    stderr += chunk;
+  });
+  const exitCode = await new Promise<number>((resolve) => {
+    proc.on('close', (code) => resolve(code ?? -1));
+  });
 
   const reportDir = ensureReportDir(process.cwd());
   const reportFile = path.join(reportDir, 'integration-latest.json');

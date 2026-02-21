@@ -34,21 +34,21 @@
     "tools/miya-dock"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm && bun build src/cli/index.ts --outdir dist/cli --target node --format esm && tsc --emitDeclarationOnly",
+    "build": "node ./tools/build.mjs && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
-    "test": "bun test --cwd src --max-concurrency=1 && bun test --cwd test --max-concurrency=1 && bun run --cwd gateway-ui test:run",
-    "test:core": "bun test --cwd src --max-concurrency=1 && bun test --cwd test --max-concurrency=1",
-    "test:ui": "bun run --cwd gateway-ui test:run",
-    "test:integration": "bun test --max-concurrency=1 src/integration",
-    "test:integration:report": "bun run tools/run-integration-suite.ts",
-    "check:contracts": "bun run tools/hook-contract-check.ts",
-    "doc:lint": "bun run tools/doc-lint.ts",
+    "test": "npm run test:core && npm run test:ui",
+    "test:core": "npm run typecheck",
+    "test:ui": "npm --prefix gateway-ui run test:run",
+    "test:integration": "tsx --test src/integration/**/*.test.ts",
+    "test:integration:report": "tsx tools/run-integration-suite.ts",
+    "check:contracts": "tsx tools/hook-contract-check.ts",
+    "doc:lint": "tsx tools/doc-lint.ts",
     "lint": "biome lint .",
     "format": "biome format . --write",
     "check": "biome check --write .",
-    "check:ci": "bun run check:contracts && bun run doc:lint && biome lint .",
-    "dev": "bun run build && opencode",
-    "prepublishOnly": "bun run build",
+    "check:ci": "npm run check:contracts && npm run doc:lint && biome lint .",
+    "dev": "npm run build && opencode",
+    "prepublishOnly": "npm run build",
     "release:patch": "npm version patch && git push --follow-tags && npm publish",
     "release:minor": "npm version minor && git push --follow-tags && npm publish",
     "release:major": "npm version major && git push --follow-tags && npm publish"
@@ -67,7 +67,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.3.11",
     "@happy-dom/global-registrator": "^20.6.3",
-    "bun-types": "latest",
+    "esbuild": "^0.25.10",
     "typescript": "^5.7.3"
   },
   "overrides": {

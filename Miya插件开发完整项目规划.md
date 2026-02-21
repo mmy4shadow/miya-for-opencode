@@ -517,7 +517,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
    - 插件侧只允许依赖 daemon 通信接口（如 `MiyaClient`/RPC schema），不允许依赖 `service.ts` 业务实现。  
    - 插件侧调用语义统一为 `method + params` 请求，不得出现“本地函数直调 daemon 业务”的路径。
 2. **host.ts 升级为独立 Server（The Server）**  
-   - `host.ts` 必须作为独立 Node/Bun 入口运行，负责实例化 `MiyaDaemonService`、维护 job 生命周期、处理路由分发与响应。  
+   - `host.ts` 必须作为独立 Node 入口运行，负责实例化 `MiyaDaemonService`、维护 job 生命周期、处理路由分发与响应。  
    - 所有训练/推理/桌控/隔离进程执行都在 daemon 进程内落地。  
    - 插件只拿结果与事件流，不承担 daemon 业务执行。
 3. **Launcher 生命周期点火（The Launcher）**  
@@ -703,7 +703,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 
 在生成式 AI 辅助编程的早期阶段，开发者主要依赖单一的 LLM 上下文窗口来处理所有任务。这种“单体架构”面临着显著的认知过载问题：当同一个模型需要同时兼顾代码编写、架构设计、文档检索和情感陪伴时，其注意力机制（Attention Mechanism）会变得分散，导致“幻觉”频发和上下文丢失。
 
-Miya 项目提出的“Gateway \+ 6 大 Agent”架构，实际上是一种**微服务化**的智能体设计模式。这种模式将复杂的软件工程任务解耦为六个正交的维度，通过一个中央网关进行流量分发。这种设计深受 Nanobot 项目的启发 1，后者证明了通过精简的代码（约 4000 行 Python）和高效的路由逻辑，可以实现比庞大的单体 Agent 更敏捷的响应速度。与此同时，Miya 的每一个 Agent 都并非孤立存在，它们共享 opencode 的底层运行时（Bun Runtime）和文件系统权限，通过 Oh-my-opencode 验证过的编排逻辑 2 进行协作。
+Miya 项目提出的“Gateway \+ 6 大 Agent”架构，实际上是一种**微服务化**的智能体设计模式。这种模式将复杂的软件工程任务解耦为六个正交的维度，通过一个中央网关进行流量分发。这种设计深受 Nanobot 项目的启发 1，后者证明了通过精简的代码（约 4000 行 Python）和高效的路由逻辑，可以实现比庞大的单体 Agent 更敏捷的响应速度。与此同时，Miya 的每一个 Agent 都并非孤立存在，它们共享 opencode 的底层运行时（Node Runtime）和文件系统权限，通过 Oh-my-opencode 验证过的编排逻辑 2 进行协作。
 
 ### **1.3 系统总架构（精简版 OpenClaw：网页 GATEWAY + 本机 Node Host + 本地训练/推理）**
 
@@ -820,7 +820,7 @@ Miya 项目提出的“Gateway \+ 6 大 Agent”架构，实际上是一种**微
 
 Miya 插件将构建在 opencode 平台之上。opencode 本身是一个基于 Go 和 TypeScript 的高性能终端 AI 代理平台，它通过 **Model Context Protocol (MCP)** 标准化了工具调用接口 7。
 
-* **运行时环境：** 我们将使用 **Bun** 作为主要的 JavaScript/TypeScript 运行时。Bun 的启动速度比 Node.js 快数倍，这对于 CLI 工具的响应延迟至关重要。opencode 插件系统原生支持 Bun，这意味着我们可以直接使用 TypeScript 编写代码而无需繁琐的编译步骤。  
+* **运行时环境：** 统一使用 **Node.js** 作为主要 JavaScript/TypeScript 运行时。CLI/Gateway/Daemon 启动链路以 `node + esbuild/tsc + tsx` 为主，不再依赖 Bun 运行时。  
 * **开发语言：** **TypeScript** 是必须的。在多智能体系统中，类型安全（Type Safety）是防止 Agent 之间传递错误数据的防火墙。通过 Zod 库定义严格的工具输入输出 Schema，我们可以确保 Task Manager 传给 Code Fixer 的参数结构永远是正确的。  
 * **协议标准：** **MCP (Model Context Protocol)** 是连接外部世界的桥梁。Docs-Helper 将通过 MCP 连接到浏览器（如 Playwright）或搜索引擎（如 Exa/Tavily）；Code-Search 将通过 MCP 连接到本地的文件系统索引器（如 ripgrep 或 AST-grep）。
 

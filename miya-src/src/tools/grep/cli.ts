@@ -1,4 +1,4 @@
-import { spawn } from 'bun';
+import { runProcess } from '../../utils';
 import {
   DEFAULT_MAX_COLUMNS,
   DEFAULT_MAX_COUNT,
@@ -151,26 +151,14 @@ export async function runRg(options: GrepOptions): Promise<GrepResult> {
 
   const paths = options.paths?.length ? options.paths : ['.'];
   args.push(...paths);
-  const proc = spawn([cli.path, ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    const id = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`Search timeout after ${timeout}ms`));
-    }, timeout);
-    proc.exited.then(() => clearTimeout(id));
-  });
-
   try {
-    const stdout = await Promise.race([
-      new Response(proc.stdout).text(),
-      timeoutPromise,
-    ]);
-    const stderr = await new Response(proc.stderr).text();
-    const exitCode = await proc.exited;
+    const result = await runProcess(cli.path, args, { timeoutMs: timeout });
+    if (result.timedOut) {
+      throw new Error(`Search timeout after ${timeout}ms`);
+    }
+    const stdout = result.stdout;
+    const stderr = result.stderr;
+    const exitCode = result.exitCode;
 
     const truncated = stdout.length >= DEFAULT_MAX_OUTPUT_BYTES;
     const outputToProcess = truncated
@@ -226,24 +214,12 @@ export async function runRgCount(
     options.timeout ?? DEFAULT_TIMEOUT_MS,
     DEFAULT_TIMEOUT_MS,
   );
-  const proc = spawn([cli.path, ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    const id = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`Search timeout after ${timeout}ms`));
-    }, timeout);
-    proc.exited.then(() => clearTimeout(id));
-  });
-
   try {
-    const stdout = await Promise.race([
-      new Response(proc.stdout).text(),
-      timeoutPromise,
-    ]);
+    const result = await runProcess(cli.path, args, { timeoutMs: timeout });
+    if (result.timedOut) {
+      throw new Error(`Search timeout after ${timeout}ms`);
+    }
+    const stdout = result.stdout;
     return parseCountOutput(stdout);
   } catch (e) {
     throw new Error(

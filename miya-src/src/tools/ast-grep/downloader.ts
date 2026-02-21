@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, promises as fsPromises, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -96,7 +96,7 @@ export async function downloadAstGrep(
 
     const archivePath = join(cacheDir, assetName);
     const arrayBuffer = await response.arrayBuffer();
-    await Bun.write(archivePath, arrayBuffer);
+    await fsPromises.writeFile(archivePath, Buffer.from(arrayBuffer));
 
     await extractZip(archivePath, cacheDir);
 

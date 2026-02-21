@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { runProcessSync } from '../utils';
 import { analyzeFailure } from './error-analyzer';
 import type {
   RalphAttempt,
@@ -72,13 +73,11 @@ function parseChangedLineKeys(diffText: string): string[] {
 }
 
 function defaultReadDiff(cwd?: string): string {
-  const proc = Bun.spawnSync(['git', 'diff', '--unified=0'], {
+  const proc = runProcessSync('git', ['diff', '--unified=0'], {
     cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
   });
   if (proc.exitCode !== 0) return '';
-  return Buffer.from(proc.stdout).toString('utf-8');
+  return proc.stdout;
 }
 
 function runCommand(
@@ -92,19 +91,17 @@ function runCommand(
       ? ['powershell', '-NoProfile', '-Command', command]
       : ['sh', '-lc', command];
 
-  const proc = Bun.spawnSync(shellArgs, {
+  const proc = runProcessSync(shellArgs[0], shellArgs.slice(1), {
     cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
     timeout: Math.max(1000, Math.min(timeoutMs, 10 * 60 * 1000)),
   });
 
   return {
     command,
-    ok: proc.exitCode === 0,
+    ok: proc.exitCode === 0 && !proc.timedOut,
     exitCode: proc.exitCode,
-    stdout: Buffer.from(proc.stdout).toString('utf-8'),
-    stderr: Buffer.from(proc.stderr).toString('utf-8'),
+    stdout: proc.stdout,
+    stderr: proc.stderr,
     durationMs: Date.now() - start,
   };
 }
