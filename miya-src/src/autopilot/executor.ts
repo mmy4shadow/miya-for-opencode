@@ -1,5 +1,5 @@
-import { getSessionState, setSessionState } from '../workflow';
 import { runProcessSync } from '../utils';
+import { getSessionState, setSessionState } from '../workflow';
 import { attachCommandSteps, createAutopilotPlan } from './planner';
 import type {
   AutopilotCommandResult,
@@ -18,7 +18,10 @@ export function configureAutopilotSession(input: {
   const state = getSessionState(input.projectDir, input.sessionID);
   state.loopEnabled = input.enabled;
   if (typeof input.maxCycles === 'number') {
-    state.maxIterationsPerWindow = Math.max(1, Math.min(20, Math.floor(input.maxCycles)));
+    state.maxIterationsPerWindow = Math.max(
+      1,
+      Math.min(20, Math.floor(input.maxCycles)),
+    );
   }
   if (typeof input.autoContinue === 'boolean') {
     state.autoContinue = input.autoContinue;

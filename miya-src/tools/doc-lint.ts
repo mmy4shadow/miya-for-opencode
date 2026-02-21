@@ -12,7 +12,10 @@ const PLANNING_PATH_MIGRATIONS = new Map<string, string>([
   ['miya-src/src/memory/*', 'miya-src/src/companion/*'],
   ['miya-src/src/memory/', 'miya-src/src/companion/'],
   ['miya-src/src/memory', 'miya-src/src/companion'],
-  ['miya-src/src/agents/orchestrator.ts', 'miya-src/src/agents/1-task-manager.ts'],
+  [
+    'miya-src/src/agents/orchestrator.ts',
+    'miya-src/src/agents/1-task-manager.ts',
+  ],
 ]);
 
 function requireFile(path: string, code: string): void {

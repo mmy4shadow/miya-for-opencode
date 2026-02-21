@@ -1,5 +1,8 @@
-import { describe, expect, test } from 'bun:test';
-import { getLauncherBackpressureStats, getLauncherDaemonSnapshot } from './launcher';
+import { describe, expect, test } from 'vitest';
+import {
+  getLauncherBackpressureStats,
+  getLauncherDaemonSnapshot,
+} from './launcher';
 
 describe('daemon launcher snapshot', () => {
   test('returns empty snapshot when launcher is not started', () => {

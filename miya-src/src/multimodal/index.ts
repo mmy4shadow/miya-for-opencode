@@ -1,7 +1,4 @@
 export { generateImage } from './image';
-export { analyzeVision } from './vision';
-export { loadDesktopOcrRegressionCases, runDesktopOcrRegression } from './vision-regression';
-export { ingestVoiceInput, synthesizeVoiceOutput } from './voice';
 export { detectMultimodalIntent, type MultimodalIntent } from './intent';
 export type {
   GenerateImageInput,
@@ -13,3 +10,9 @@ export type {
   VoiceOutputInput,
   VoiceOutputResult,
 } from './types';
+export { analyzeVision } from './vision';
+export {
+  loadDesktopOcrRegressionCases,
+  runDesktopOcrRegression,
+} from './vision-regression';
+export { ingestVoiceInput, synthesizeVoiceOutput } from './voice';

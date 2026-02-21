@@ -122,7 +122,10 @@ function renderFixCommand(
     .replaceAll('{{FAILURE_SUMMARY}}', input.failureSummary)
     .replaceAll('{{LAST_STDERR}}', stderrTrimmed)
     .replaceAll('{{LAST_STDOUT}}', stdoutTrimmed)
-    .replaceAll('{{LAST_ERROR}}', stderrTrimmed || stdoutTrimmed || input.failureSummary);
+    .replaceAll(
+      '{{LAST_ERROR}}',
+      stderrTrimmed || stdoutTrimmed || input.failureSummary,
+    );
 }
 
 function pushAttempt(
@@ -139,13 +142,19 @@ function pushAttempt(
 export function executeRalphLoop(input: RalphLoopInput): RalphLoopResult {
   const attempts: RalphAttempt[] = [];
   const maxIterations = Math.max(1, Math.min(input.maxIterations, 30));
-  const budgetMs = Math.max(2000, Math.min(input.budgetMs ?? 5 * 60 * 1000, 30 * 60 * 1000));
+  const budgetMs = Math.max(
+    2000,
+    Math.min(input.budgetMs ?? 5 * 60 * 1000, 30 * 60 * 1000),
+  );
   const stallWindow = Math.max(2, Math.min(input.stallWindow ?? 3, 10));
   const errorSimilarityThreshold = Math.max(
     0.5,
     Math.min(input.errorSimilarityThreshold ?? 0.9, 1),
   );
-  const sameLineTouchLimit = Math.max(2, Math.min(input.sameLineTouchLimit ?? 5, 30));
+  const sameLineTouchLimit = Math.max(
+    2,
+    Math.min(input.sameLineTouchLimit ?? 5, 30),
+  );
 
   const run = input.runCommand ?? runCommand;
   const readDiff = input.readDiff ?? defaultReadDiff;
@@ -171,7 +180,11 @@ export function executeRalphLoop(input: RalphLoopInput): RalphLoopResult {
     }
 
     if (!taskRan && input.taskCommand) {
-      const taskResult = run(input.taskCommand, input.timeoutMs, input.workingDirectory);
+      const taskResult = run(
+        input.taskCommand,
+        input.timeoutMs,
+        input.workingDirectory,
+      );
       pushAttempt(attempts, iteration, 'task', taskResult);
       taskRan = true;
     }
@@ -182,7 +195,12 @@ export function executeRalphLoop(input: RalphLoopInput): RalphLoopResult {
       input.workingDirectory,
     );
     finalVerification = verifyResult;
-    const verifyAttempt = pushAttempt(attempts, iteration, 'verify', verifyResult);
+    const verifyAttempt = pushAttempt(
+      attempts,
+      iteration,
+      'verify',
+      verifyResult,
+    );
 
     if (verifyResult.ok) {
       return {
@@ -195,19 +213,21 @@ export function executeRalphLoop(input: RalphLoopInput): RalphLoopResult {
       };
     }
 
-    const failure = analyzeFailure(`${verifyResult.stdout}\n${verifyResult.stderr}`);
+    const failure = analyzeFailure(
+      `${verifyResult.stdout}\n${verifyResult.stderr}`,
+    );
     verifyAttempt.failureKind = failure.kind;
     verifyAttempt.failureSummary = failure.summary;
-    verifyAttempt.stderrHash = hashText(verifyResult.stderr || verifyResult.stdout);
+    verifyAttempt.stderrHash = hashText(
+      verifyResult.stderr || verifyResult.stdout,
+    );
 
     const diffText = readDiff(input.workingDirectory);
     verifyAttempt.diffHash = hashText(diffText);
     const fingerprint = hashText(
-      [
-        verifyAttempt.stderrHash,
-        verifyAttempt.diffHash,
-        failure.kind,
-      ].join('|'),
+      [verifyAttempt.stderrHash, verifyAttempt.diffHash, failure.kind].join(
+        '|',
+      ),
     );
     verifyAttempt.fingerprint = fingerprint;
 

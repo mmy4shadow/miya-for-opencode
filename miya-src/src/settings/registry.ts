@@ -702,8 +702,10 @@ function leafSchema(entryValue: MiyaSettingEntry): Record<string, unknown> {
   if (entryValue.type === 'boolean') return { type: 'boolean' };
   if (entryValue.type === 'integer') {
     const schema: Record<string, unknown> = { type: 'integer' };
-    if (typeof entryValue.minimum === 'number') schema.minimum = entryValue.minimum;
-    if (typeof entryValue.maximum === 'number') schema.maximum = entryValue.maximum;
+    if (typeof entryValue.minimum === 'number')
+      schema.minimum = entryValue.minimum;
+    if (typeof entryValue.maximum === 'number')
+      schema.maximum = entryValue.maximum;
     return schema;
   }
   if (entryValue.type === 'string') return { type: 'string' };

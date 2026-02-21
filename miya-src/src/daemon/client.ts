@@ -1,6 +1,10 @@
-import { daemonInvoke, ensureMiyaLauncher } from './launcher';
 import type { ResourceTaskKind } from '../resource-scheduler';
-import type { PsycheConsultResult, PsycheOutcomeResult, SentinelSignals } from './psyche';
+import { daemonInvoke, ensureMiyaLauncher } from './launcher';
+import type {
+  PsycheConsultResult,
+  PsycheOutcomeResult,
+  SentinelSignals,
+} from './psyche';
 
 interface IsolatedProcessInput {
   kind: ResourceTaskKind;
@@ -31,13 +35,23 @@ export class MiyaClient {
     profileDir: string;
     references: string[];
     size: string;
-  }): Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }> {
+  }): Promise<{
+    outputPath: string;
+    tier: 'lora' | 'embedding' | 'reference';
+    degraded: boolean;
+    message: string;
+  }> {
     return daemonInvoke(
       this.projectDir,
       'daemon.flux.generate',
       input as unknown as Record<string, unknown>,
       240_000,
-    ) as Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }>;
+    ) as Promise<{
+      outputPath: string;
+      tier: 'lora' | 'embedding' | 'reference';
+      degraded: boolean;
+      message: string;
+    }>;
   }
 
   async runSovitsTts(input: {
@@ -46,13 +60,23 @@ export class MiyaClient {
     profileDir: string;
     voice: string;
     format: 'wav' | 'mp3' | 'ogg';
-  }): Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }> {
+  }): Promise<{
+    outputPath: string;
+    tier: 'lora' | 'embedding' | 'reference';
+    degraded: boolean;
+    message: string;
+  }> {
     return daemonInvoke(
       this.projectDir,
       'daemon.sovits.tts',
       input as unknown as Record<string, unknown>,
       180_000,
-    ) as Promise<{ outputPath: string; tier: 'lora' | 'embedding' | 'reference'; degraded: boolean; message: string }>;
+    ) as Promise<{
+      outputPath: string;
+      tier: 'lora' | 'embedding' | 'reference';
+      degraded: boolean;
+      message: string;
+    }>;
   }
 
   async runFluxTraining(input: {
@@ -108,7 +132,12 @@ export class MiyaClient {
   }
 
   async requestTrainingCancel(jobID: string): Promise<void> {
-    await daemonInvoke(this.projectDir, 'daemon.training.cancel', { jobID }, 15_000);
+    await daemonInvoke(
+      this.projectDir,
+      'daemon.training.cancel',
+      { jobID },
+      15_000,
+    );
   }
 
   async getPythonRuntimeStatus(): Promise<unknown> {

@@ -1,6 +1,4 @@
-/// <reference types="bun-types" />
-
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import {
   generateAntigravityMixedPreset,
   generateLiteConfig,
@@ -127,7 +125,9 @@ describe('providers', () => {
     expect(config.preset).toBe('anthropic');
     const agents = (config.presets as any).anthropic;
     expect(agents['1-task-manager'].model).toBe('anthropic/claude-opus-4-6');
-    expect(agents['4-architecture-advisor'].model).toBe('anthropic/claude-opus-4-6');
+    expect(agents['4-architecture-advisor'].model).toBe(
+      'anthropic/claude-opus-4-6',
+    );
     expect(agents['2-code-search'].model).toBe('anthropic/claude-haiku-4-5');
   });
 
@@ -185,7 +185,9 @@ describe('providers', () => {
     ]);
     expect(chains['1-task-manager']).toContain('openai/gpt-5.3-codex');
     expect(chains['1-task-manager']).toContain('kimi-for-coding/k2p5');
-    expect(chains['1-task-manager']).toContain('google/antigravity-gemini-3-flash');
+    expect(chains['1-task-manager']).toContain(
+      'google/antigravity-gemini-3-flash',
+    );
     expect(chains['1-task-manager']).toContain('chutes/kimi-k2.5');
     expect(chains['1-task-manager']).toContain('opencode/glm-4.7-free');
   });
@@ -328,7 +330,9 @@ describe('providers', () => {
 
     const agents = (config.presets as any)['zen-free'];
     expect(agents['1-task-manager'].model).toBe('opencode/glm-4.7-free');
-    expect(agents['4-architecture-advisor'].model).toBe('opencode/glm-4.7-free');
+    expect(agents['4-architecture-advisor'].model).toBe(
+      'opencode/glm-4.7-free',
+    );
     expect(agents['6-ui-designer'].model).toBe('opencode/glm-4.7-free');
     expect(agents['2-code-search'].model).toBe('opencode/gpt-5-nano');
     expect(agents['3-docs-helper'].model).toBe('opencode/gpt-5-nano');
@@ -375,15 +379,23 @@ describe('providers', () => {
       expect(agents['1-task-manager'].model).toBe('kimi-for-coding/k2p5');
 
       // Oracle should use OpenAI
-      expect(agents['4-architecture-advisor'].model).toBe('openai/gpt-5.3-codex');
+      expect(agents['4-architecture-advisor'].model).toBe(
+        'openai/gpt-5.3-codex',
+      );
       expect(agents['4-architecture-advisor'].variant).toBe('high');
 
       // Explorer/Librarian/Designer use Antigravity Flash; Fixer prefers OpenAI
-      expect(agents['2-code-search'].model).toBe('google/antigravity-gemini-3-flash');
+      expect(agents['2-code-search'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
       expect(agents['2-code-search'].variant).toBe('low');
-      expect(agents['3-docs-helper'].model).toBe('google/antigravity-gemini-3-flash');
+      expect(agents['3-docs-helper'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
       expect(agents['3-docs-helper'].variant).toBe('low');
-      expect(agents['6-ui-designer'].model).toBe('google/antigravity-gemini-3-flash');
+      expect(agents['6-ui-designer'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
       expect(agents['6-ui-designer'].variant).toBe('medium');
       expect(agents['5-code-fixer'].model).toBe('openai/gpt-5.3-codex');
       expect(agents['5-code-fixer'].variant).toBe('low');
@@ -408,13 +420,23 @@ describe('providers', () => {
       expect(agents['1-task-manager'].model).toBe('kimi-for-coding/k2p5');
 
       // Oracle should use Antigravity (no OpenAI)
-      expect(agents['4-architecture-advisor'].model).toBe('google/antigravity-gemini-3-pro');
+      expect(agents['4-architecture-advisor'].model).toBe(
+        'google/antigravity-gemini-3-pro',
+      );
 
       // Others should use Antigravity Flash
-      expect(agents['2-code-search'].model).toBe('google/antigravity-gemini-3-flash');
-      expect(agents['3-docs-helper'].model).toBe('google/antigravity-gemini-3-flash');
-      expect(agents['6-ui-designer'].model).toBe('google/antigravity-gemini-3-flash');
-      expect(agents['5-code-fixer'].model).toBe('google/antigravity-gemini-3-flash');
+      expect(agents['2-code-search'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
+      expect(agents['3-docs-helper'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
+      expect(agents['6-ui-designer'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
+      expect(agents['5-code-fixer'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
     });
 
     test('generateLiteConfig generates antigravity-mixed-openai preset when OpenAI + Antigravity', () => {
@@ -438,13 +460,21 @@ describe('providers', () => {
       );
 
       // Oracle should use OpenAI
-      expect(agents['4-architecture-advisor'].model).toBe('openai/gpt-5.3-codex');
+      expect(agents['4-architecture-advisor'].model).toBe(
+        'openai/gpt-5.3-codex',
+      );
       expect(agents['4-architecture-advisor'].variant).toBe('high');
 
       // Explorer/Librarian/Designer use Antigravity Flash; Fixer prefers OpenAI
-      expect(agents['2-code-search'].model).toBe('google/antigravity-gemini-3-flash');
-      expect(agents['3-docs-helper'].model).toBe('google/antigravity-gemini-3-flash');
-      expect(agents['6-ui-designer'].model).toBe('google/antigravity-gemini-3-flash');
+      expect(agents['2-code-search'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
+      expect(agents['3-docs-helper'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
+      expect(agents['6-ui-designer'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
       expect(agents['5-code-fixer'].model).toBe('openai/gpt-5.3-codex');
     });
 
@@ -467,11 +497,21 @@ describe('providers', () => {
       expect(agents['1-task-manager'].model).toBe(
         'google/antigravity-gemini-3-flash',
       );
-      expect(agents['4-architecture-advisor'].model).toBe('google/antigravity-gemini-3-pro');
-      expect(agents['2-code-search'].model).toBe('google/antigravity-gemini-3-flash');
-      expect(agents['3-docs-helper'].model).toBe('google/antigravity-gemini-3-flash');
-      expect(agents['6-ui-designer'].model).toBe('google/antigravity-gemini-3-flash');
-      expect(agents['5-code-fixer'].model).toBe('google/antigravity-gemini-3-flash');
+      expect(agents['4-architecture-advisor'].model).toBe(
+        'google/antigravity-gemini-3-pro',
+      );
+      expect(agents['2-code-search'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
+      expect(agents['3-docs-helper'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
+      expect(agents['6-ui-designer'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
+      expect(agents['5-code-fixer'].model).toBe(
+        'google/antigravity-gemini-3-flash',
+      );
     });
 
     test('generateAntigravityMixedPreset respects Kimi for 1-task-manager', () => {
@@ -485,7 +525,9 @@ describe('providers', () => {
         installCustomSkills: false,
       });
 
-      expect((preset['1-task-manager'] as any).model).toBe('kimi-for-coding/k2p5');
+      expect((preset['1-task-manager'] as any).model).toBe(
+        'kimi-for-coding/k2p5',
+      );
     });
 
     test('generateAntigravityMixedPreset respects OpenAI for 4-architecture-advisor', () => {
@@ -499,7 +541,9 @@ describe('providers', () => {
         installCustomSkills: false,
       });
 
-      expect((preset['4-architecture-advisor'] as any).model).toBe('openai/gpt-5.3-codex');
+      expect((preset['4-architecture-advisor'] as any).model).toBe(
+        'openai/gpt-5.3-codex',
+      );
       expect((preset['4-architecture-advisor'] as any).variant).toBe('high');
     });
 
@@ -523,7 +567,9 @@ describe('providers', () => {
       expect((preset['6-ui-designer'] as any).model).toBe(
         'google/antigravity-gemini-3-flash',
       );
-      expect((preset['5-code-fixer'] as any).model).toBe('openai/gpt-5.3-codex');
+      expect((preset['5-code-fixer'] as any).model).toBe(
+        'openai/gpt-5.3-codex',
+      );
     });
   });
 });

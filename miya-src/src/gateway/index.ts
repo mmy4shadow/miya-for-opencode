@@ -1,108 +1,22 @@
-import { type PluginInput, type ToolDefinition, tool } from '@opencode-ai/plugin';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import { createServer } from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  type PluginInput,
+  type ToolDefinition,
+  tool,
+} from '@opencode-ai/plugin';
 import WebSocket, { WebSocketServer } from 'ws';
+import {
+  getAutoflowPersistentRuntimeSnapshot,
+  listAutoflowSessions,
+  readAutoflowPersistentConfig,
+} from '../autoflow';
 import type { MiyaAutomationService } from '../automation';
 import type { BackgroundTaskManager } from '../background';
-import { readChannelStore } from '../channel';
-import { getContactTier, listContactTiers, setContactTier } from '../channel';
-import {
-  type ChannelInboundMessage,
-  ChannelRuntime,
-  listOutboundAudit,
-  isChannelName,
-  parseDiscordInbound,
-  parseGoogleChatInbound,
-  parseIMessageInbound,
-  parseSignalInbound,
-  parseSlackInbound,
-  parseTelegramInbound,
-  parseTeamsInbound,
-  parseWhatsappInbound,
-  type ChannelName,
-} from '../channel';
-import {
-  activateKillSwitch,
-  findApprovalToken,
-  listRecentSelfApprovalRecords,
-  readKillSwitch,
-  releaseKillSwitch,
-  saveApprovalToken,
-} from '../safety/store';
-import {
-  isDomainExecutionAllowed,
-  readSafetyState,
-  transitionSafetyState,
-} from '../safety/state-machine';
-import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
-import type { SafetyTier } from '../safety/tier';
-import {
-  assertPolicyHash,
-  currentPolicyHash,
-  isDomainRunning,
-  isPolicyDomain,
-  POLICY_DOMAINS,
-  type PolicyDomain,
-  readPolicy,
-} from '../policy';
-import { evaluateOutboundDecisionFusion } from '../policy/decision-fusion';
-import { appendPolicyIncident, listPolicyIncidents } from '../policy/incident';
-import {
-  createInvokeRequest,
-  createNodePairRequest,
-  describeNode,
-  issueNodeToken,
-  listDevices,
-  listInvokeRequests,
-  listNodePairs,
-  listNodes,
-  markInvokeSent,
-  markNodeDisconnected,
-  registerNode,
-  resolveInvokeResult,
-  resolveNodePair,
-  touchNodeHeartbeat,
-} from '../nodes';
-import { listMediaItems, getMediaItem, ingestMedia, runMediaGc } from '../media/store';
-import {
-  ensureMiyaLauncher,
-  getLauncherBackpressureStats,
-  getLauncherDaemonSnapshot,
-  getMiyaClient,
-  subscribeLauncherEvents,
-} from '../daemon';
-import {
-  appendGuestConversation,
-  initOwnerIdentity,
-  readOwnerIdentityState,
-  resolveInteractionMode,
-  rotateOwnerSecrets,
-  setInteractionMode,
-  updateVoiceprintThresholds,
-  verifyOwnerPasswordOnly,
-  verifyOwnerSecrets,
-} from '../security/owner-identity';
-import {
-  approveOwnerSyncToken,
-  consumeOwnerSyncToken,
-  detectOwnerSyncTokenFromText,
-  issueOwnerSyncToken,
-  verifyOwnerSyncToken,
-} from '../security/owner-sync';
-import { readConfig, applyConfigPatch, validateConfigPatch } from '../settings';
-import {
-  appendVoiceHistory,
-  clearVoiceHistory,
-  patchVoiceState,
-  readVoiceState,
-} from '../voice/state';
-import { readPersistedAgentRuntime } from '../config/agent-model-persistence';
-import { listProviderOverrideAudits } from '../config/provider-override-audit';
-import { AgentModelRuntimeApi } from './agent-model-api';
 import {
   closeCanvasDoc,
   getCanvasDoc,
@@ -112,23 +26,28 @@ import {
   renderCanvasDoc,
 } from '../canvas/state';
 import {
-  addCompanionAsset,
-  patchCompanionProfile,
-  readCompanionProfile,
-  resetCompanionProfile,
-  syncCompanionProfileMemoryFacts,
-} from '../companion/store';
+  type ChannelInboundMessage,
+  type ChannelName,
+  ChannelRuntime,
+  getContactTier,
+  isChannelName,
+  listOutboundAudit,
+  parseDiscordInbound,
+  parseGoogleChatInbound,
+  parseIMessageInbound,
+  parseSignalInbound,
+  parseSlackInbound,
+  parseTeamsInbound,
+  parseTelegramInbound,
+  parseWhatsappInbound,
+  readChannelStore,
+} from '../channel';
 import {
-  archiveCompanionMemoryVector,
-  confirmCompanionMemoryVector,
-  decayCompanionMemoryVectors,
-  listCompanionMemoryCorrections,
-  listCompanionMemoryVectors,
-  listPendingCompanionMemoryVectors,
-  searchCompanionMemoryVectors,
-  updateCompanionMemoryVector,
-  upsertCompanionMemoryVector,
-} from '../companion/memory-vector';
+  appendShortTermMemoryLog,
+  maybeAutoReflectCompanionMemory,
+  maybeReflectOnSessionEnd,
+  reflectCompanionMemory,
+} from '../companion/memory-reflect';
 import {
   buildMemoryPack,
   getCompanionMemorySqliteStats,
@@ -136,12 +55,14 @@ import {
   listMemoryEvents,
   resolveContextFsUri,
 } from '../companion/memory-sqlite';
+import { listPendingCompanionMemoryVectors } from '../companion/memory-vector';
 import {
-  appendShortTermMemoryLog,
-  maybeAutoReflectCompanionMemory,
-  maybeReflectOnSessionEnd,
-  reflectCompanionMemory,
-} from '../companion/memory-reflect';
+  addCompanionAsset,
+  patchCompanionProfile,
+  readCompanionProfile,
+  resetCompanionProfile,
+  syncCompanionProfileMemoryFacts,
+} from '../companion/store';
 import {
   cancelCompanionWizardTraining,
   getCompanionProfileCurrentDir,
@@ -159,24 +80,105 @@ import {
   submitWizardVoice,
   wizardChecklist,
 } from '../companion/wizard';
-import { generateImage, synthesizeVoiceOutput, detectMultimodalIntent } from '../multimodal';
-import { getResourceScheduler, calculateVramBudget, decideModelSwapAction } from '../resource-scheduler';
+import { readPersistedAgentRuntime } from '../config/agent-model-persistence';
+import { listProviderOverrideAudits } from '../config/provider-override-audit';
+import {
+  ensureMiyaLauncher,
+  getLauncherBackpressureStats,
+  getLauncherDaemonSnapshot,
+  getMiyaClient,
+  subscribeLauncherEvents,
+} from '../daemon';
+import {
+  buildLearningInjection,
+  getLearningStats,
+  listSkillDrafts,
+  markSkillDraftPendingUsage,
+  settleSkillDraftUsage,
+} from '../learning';
+import { buildMcpServiceManifest, createBuiltinMcps } from '../mcp';
+import {
+  getMediaItem,
+  ingestMedia,
+  listMediaItems,
+  runMediaGc,
+} from '../media/store';
+import {
+  detectMultimodalIntent,
+  generateImage,
+  synthesizeVoiceOutput,
+} from '../multimodal';
+import {
+  listDevices,
+  listInvokeRequests,
+  listNodePairs,
+  listNodes,
+  markNodeDisconnected,
+} from '../nodes';
+import {
+  assertPolicyHash,
+  currentPolicyHash,
+  isDomainRunning,
+  isPolicyDomain,
+  POLICY_DOMAINS,
+  type PolicyDomain,
+  readPolicy,
+} from '../policy';
+import { evaluateOutboundDecisionFusion } from '../policy/decision-fusion';
+import { appendPolicyIncident, listPolicyIncidents } from '../policy/incident';
+import {
+  calculateVramBudget,
+  decideModelSwapAction,
+  getResourceScheduler,
+} from '../resource-scheduler';
+import {
+  appendRouteUsageRecord,
+  buildRouteExecutionPlan,
+  getRouteCostSummary,
+  listRouteCostRecords,
+  listRouteUsageRecords,
+  prepareRoutePayload,
+  readRouterModeConfig,
+  recordRouteExecutionOutcome,
+  summarizeRouteUsage,
+} from '../router';
+import { buildRequestHash, requiredTierForRequest } from '../safety/risk';
+import {
+  isDomainExecutionAllowed,
+  readSafetyState,
+  transitionSafetyState,
+} from '../safety/state-machine';
+import {
+  activateKillSwitch,
+  findApprovalToken,
+  listRecentSelfApprovalRecords,
+  readKillSwitch,
+  releaseKillSwitch,
+  saveApprovalToken,
+} from '../safety/store';
+import type { SafetyTier } from '../safety/tier';
+import {
+  appendGuestConversation,
+  readOwnerIdentityState,
+  resolveInteractionMode,
+  verifyOwnerPasswordOnly,
+  verifyOwnerSecrets,
+} from '../security/owner-identity';
+import {
+  approveOwnerSyncToken,
+  consumeOwnerSyncToken,
+  detectOwnerSyncTokenFromText,
+  issueOwnerSyncToken,
+  verifyOwnerSyncToken,
+} from '../security/owner-sync';
 import {
   dequeueSessionMessage,
   enqueueSessionMessage,
   getSession,
   listSessions,
-  setSessionPolicy,
   upsertSession,
 } from '../sessions';
-import {
-  buildRouteExecutionPlan,
-  getRouteCostSummary,
-  listRouteCostRecords,
-  prepareRoutePayload,
-  recordRouteExecutionOutcome,
-  readRouterModeConfig,
-} from '../router';
+import { applyConfigPatch, readConfig, validateConfigPatch } from '../settings';
 import { discoverSkills } from '../skills/loader';
 import { listEnabledSkills, setSkillEnabled } from '../skills/state';
 import {
@@ -186,41 +188,47 @@ import {
   pullSourcePack,
   rollbackSourcePack,
 } from '../skills/sync';
-import { buildMcpServiceManifest, createBuiltinMcps } from '../mcp';
 import { log } from '../utils/logger';
+import { readVoiceState } from '../voice/state';
 import { getMiyaRuntimeDir, getSessionState } from '../workflow';
-import {
-  buildLearningInjection,
-  getLearningStats,
-  listSkillDrafts,
-  setSkillDraftStatus,
-} from '../learning';
-import {
-  readAutoflowPersistentConfig,
-  getAutoflowPersistentRuntimeSnapshot,
-  listAutoflowSessions,
-} from '../autoflow';
-import { createControlUiRequestOptions, handleControlUiHttpRequest } from './control-ui';
-import { normalizeControlUiBasePath } from './control-ui-shared';
+import { AgentModelRuntimeApi } from './agent-model-api';
 import { formatGatewayStateWithRuntime } from './bootstrap';
+import {
+  createControlUiRequestOptions,
+  handleControlUiHttpRequest,
+} from './control-ui';
+import { normalizeControlUiBasePath } from './control-ui-shared';
 import {
   reserveGatewayPort,
   sendNodeResponse,
   toNodeRequest,
 } from './http-router';
-import {
-  applyNegotiationBudget,
-  type NegotiationBudget,
-  type NegotiationBudgetState,
-  type NegotiationFixability,
-} from './negotiation-budget';
 import { registerChannelMethods } from './methods/channels';
 import { registerMemoryMethods } from './methods/memory';
 import { registerNodeMethods } from './methods/nodes';
 import { registerCoreSessionMethods } from './methods/registry';
 import { registerSecurityMethods } from './methods/security';
 import { registerVoiceMethods } from './methods/voice';
+import {
+  applyNegotiationBudget,
+  type NegotiationBudget,
+  type NegotiationBudgetState,
+  type NegotiationFixability,
+} from './negotiation-budget';
+import {
+  type AutoParallelStats,
+  executeAutoParallelWorkflow,
+} from './orchestration/auto-parallel';
 import { isProcessAlive } from './ownership-lock';
+import {
+  type GatewayClientRole,
+  type GatewayMethodContext,
+  GatewayMethodRegistry,
+  parseIncomingFrame,
+  toEventFrame,
+  toPongFrame,
+  toResponseFrame,
+} from './protocol';
 import { renderConsoleHtml } from './render/console';
 import { renderWebChatHtml } from './render/webchat';
 import { sanitizeGatewayContext } from './sanitizer';
@@ -232,15 +240,6 @@ import {
   trustModeFile,
   writeJsonAtomic,
 } from './state-files';
-import {
-  GatewayMethodRegistry,
-  parseIncomingFrame,
-  toEventFrame,
-  toPongFrame,
-  toResponseFrame,
-  type GatewayClientRole,
-  type GatewayMethodContext,
-} from './protocol';
 import { normalizeWsInput } from './ws-runtime';
 
 const z = tool.schema;
@@ -311,6 +310,7 @@ interface GatewayRuntime {
   daemonLauncherUnsubscribe?: () => void;
   startupSelfCheck?: StartupSelfCheckResult;
   negotiationBudgets: Map<string, NegotiationBudgetState>;
+  autoParallel: AutoParallelStats;
   nexus: {
     sessionId: string;
     activeTool?: string;
@@ -343,7 +343,10 @@ interface DoctorIssue {
 }
 
 interface StartupSelfCheckItem {
-  name: 'opencode.debug.config' | 'opencode.debug.skill' | 'opencode.debug.paths';
+  name:
+    | 'opencode.debug.config'
+    | 'opencode.debug.skill'
+    | 'opencode.debug.paths';
   ok: boolean;
   exitCode: number;
   durationMs: number;
@@ -432,12 +435,15 @@ interface GatewaySnapshot {
         lastOutcomeSummary?: string;
       }>;
     };
+    autoParallel: AutoParallelStats;
   };
   routing: {
     ecoMode: boolean;
     forcedStage?: string;
     cost: ReturnType<typeof getRouteCostSummary>;
     recent: ReturnType<typeof listRouteCostRecords>;
+    usage: ReturnType<typeof summarizeRouteUsage>;
+    usageRecent: ReturnType<typeof listRouteUsageRecords>;
   };
   learning: {
     stats: ReturnType<typeof getLearningStats>;
@@ -514,6 +520,7 @@ interface GatewaySnapshot {
       pendingVectors: number;
     };
     router: ReturnType<typeof getRouteCostSummary>;
+    routerUsage: ReturnType<typeof summarizeRouteUsage>;
   };
   health: {
     overall: 'ok' | 'degraded';
@@ -542,7 +549,11 @@ function fallbackMemorySqliteStats(
   projectDir: string,
 ): ReturnType<typeof getCompanionMemorySqliteStats> {
   return {
-    sqlitePath: path.join(getMiyaRuntimeDir(projectDir), 'memory', 'memories.sqlite'),
+    sqlitePath: path.join(
+      getMiyaRuntimeDir(projectDir),
+      'memory',
+      'memories.sqlite',
+    ),
     memoryCount: 0,
     candidateCount: 0,
     activeCount: 0,
@@ -593,7 +604,10 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function resolveKillSwitchMode(projectDir: string, kill: ReturnType<typeof readKillSwitch>): 'all_stop' | 'outbound_only' | 'desktop_only' | 'off' {
+function resolveKillSwitchMode(
+  projectDir: string,
+  kill: ReturnType<typeof readKillSwitch>,
+): 'all_stop' | 'outbound_only' | 'desktop_only' | 'off' {
   if (kill.active) return 'all_stop';
   const outbound = isDomainExecutionAllowed(projectDir, 'outbound_send');
   const desktop = isDomainExecutionAllowed(projectDir, 'desktop_control');
@@ -610,7 +624,8 @@ function resolvePsycheApprovalMode(input: {
   mode: TrustModeConfig;
 }): 'silent_audit' | 'toast_gate' | 'modal_approval' {
   if (input.decision !== 'allow') return 'modal_approval';
-  if (input.urgency === 'high' || input.urgency === 'critical') return 'modal_approval';
+  if (input.urgency === 'high' || input.urgency === 'critical')
+    return 'modal_approval';
   if (input.trust.minScore >= input.mode.silentMin) return 'silent_audit';
   if (input.trust.minScore <= input.mode.modalMax) return 'modal_approval';
   return 'toast_gate';
@@ -632,7 +647,11 @@ function appendNexusInsight(
   }
 }
 
-function shouldEmitThrottledLog(cache: Map<string, number>, key: string, windowMs: number): boolean {
+function shouldEmitThrottledLog(
+  cache: Map<string, number>,
+  key: string,
+  windowMs: number,
+): boolean {
   const now = Date.now();
   const last = cache.get(key) ?? 0;
   if (now - last < windowMs) return false;
@@ -670,9 +689,26 @@ const DEFAULT_LEARNING_GATE: LearningGateConfig = {
 function normalizeTrustMode(input?: Partial<TrustModeConfig>): TrustModeConfig {
   const silentMinRaw = Number(input?.silentMin ?? DEFAULT_TRUST_MODE.silentMin);
   const modalMaxRaw = Number(input?.modalMax ?? DEFAULT_TRUST_MODE.modalMax);
-  const silentMin = Math.max(0, Math.min(100, Number.isFinite(silentMinRaw) ? silentMinRaw : DEFAULT_TRUST_MODE.silentMin));
-  const modalMax = Math.max(0, Math.min(100, Number.isFinite(modalMaxRaw) ? modalMaxRaw : DEFAULT_TRUST_MODE.modalMax));
-  const correctedSilentMin = Math.max(Math.ceil(modalMax), Math.round(silentMin));
+  const silentMin = Math.max(
+    0,
+    Math.min(
+      100,
+      Number.isFinite(silentMinRaw)
+        ? silentMinRaw
+        : DEFAULT_TRUST_MODE.silentMin,
+    ),
+  );
+  const modalMax = Math.max(
+    0,
+    Math.min(
+      100,
+      Number.isFinite(modalMaxRaw) ? modalMaxRaw : DEFAULT_TRUST_MODE.modalMax,
+    ),
+  );
+  const correctedSilentMin = Math.max(
+    Math.ceil(modalMax),
+    Math.round(silentMin),
+  );
   return {
     silentMin: correctedSilentMin,
     modalMax: Math.round(modalMax),
@@ -688,13 +724,18 @@ function readTrustModeConfig(projectDir: string): TrustModeConfig {
   });
 }
 
-function writeTrustModeConfig(projectDir: string, config: TrustModeConfig): TrustModeConfig {
+function writeTrustModeConfig(
+  projectDir: string,
+  config: TrustModeConfig,
+): TrustModeConfig {
   const normalized = normalizeTrustMode(config);
   writeJsonAtomic(trustModeFile(projectDir), normalized);
   return normalized;
 }
 
-function normalizePsycheMode(input?: Partial<PsycheModeConfig>): PsycheModeConfig {
+function normalizePsycheMode(
+  input?: Partial<PsycheModeConfig>,
+): PsycheModeConfig {
   return {
     resonanceEnabled:
       typeof input?.resonanceEnabled === 'boolean'
@@ -712,13 +753,20 @@ function readPsycheModeConfig(projectDir: string): PsycheModeConfig {
   if (!raw) return DEFAULT_PSYCHE_MODE;
   return normalizePsycheMode({
     resonanceEnabled:
-      typeof raw.resonanceEnabled === 'boolean' ? raw.resonanceEnabled : undefined,
+      typeof raw.resonanceEnabled === 'boolean'
+        ? raw.resonanceEnabled
+        : undefined,
     captureProbeEnabled:
-      typeof raw.captureProbeEnabled === 'boolean' ? raw.captureProbeEnabled : undefined,
+      typeof raw.captureProbeEnabled === 'boolean'
+        ? raw.captureProbeEnabled
+        : undefined,
   });
 }
 
-function writePsycheModeConfig(projectDir: string, config: Partial<PsycheModeConfig>): PsycheModeConfig {
+function writePsycheModeConfig(
+  projectDir: string,
+  config: Partial<PsycheModeConfig>,
+): PsycheModeConfig {
   const current = readPsycheModeConfig(projectDir);
   const normalized = normalizePsycheMode({
     ...current,
@@ -728,7 +776,9 @@ function writePsycheModeConfig(projectDir: string, config: Partial<PsycheModeCon
   return normalized;
 }
 
-function normalizeLearningGate(input?: Partial<LearningGateConfig>): LearningGateConfig {
+function normalizeLearningGate(
+  input?: Partial<LearningGateConfig>,
+): LearningGateConfig {
   return {
     candidateMode:
       input?.candidateMode === 'silent_audit' ? 'silent_audit' : 'toast_gate',
@@ -767,12 +817,15 @@ function writeLearningGateConfig(
   return normalized;
 }
 
-function resolvePsycheConsultEnabled(projectDir: string, mode: PsycheModeConfig): boolean {
+function resolvePsycheConsultEnabled(
+  projectDir: string,
+  mode: PsycheModeConfig,
+): boolean {
   if (process.env.MIYA_PSYCHE_CONSULT_ENABLE === '1') return true;
   if (process.env.MIYA_PSYCHE_CONSULT_ENABLE === '0') return false;
   const config = readConfig(projectDir);
-  const configured =
-    (config.automation as Record<string, unknown> | undefined)?.psycheConsultEnabled;
+  const configured = (config.automation as Record<string, unknown> | undefined)
+    ?.psycheConsultEnabled;
   if (typeof configured === 'boolean') return configured;
   return mode.resonanceEnabled;
 }
@@ -792,7 +845,9 @@ function readGatewayOwnerLock(projectDir: string): GatewayOwnerLock | null {
   return { pid, token, updatedAt, startedAt };
 }
 
-function describeOwnerLock(lock: GatewayOwnerLock | null): Record<string, unknown> {
+function describeOwnerLock(
+  lock: GatewayOwnerLock | null,
+): Record<string, unknown> {
   if (!lock) return { exists: false };
   return {
     exists: true,
@@ -837,7 +892,10 @@ function writeOwnerLock(projectDir: string, token: string): GatewayOwnerLock {
     pid: process.pid,
     token,
     updatedAt: nowIso(),
-    startedAt: existing?.pid === process.pid && existing.token === token ? existing.startedAt : nowIso(),
+    startedAt:
+      existing?.pid === process.pid && existing.token === token
+        ? existing.startedAt
+        : nowIso(),
   };
   writeJsonAtomic(file, lock);
   return lock;
@@ -861,7 +919,10 @@ function removeOwnerLock(projectDir: string): void {
   }
 }
 
-function acquireGatewayOwner(projectDir: string): { owned: boolean; owner?: GatewayOwnerLock } {
+function acquireGatewayOwner(projectDir: string): {
+  owned: boolean;
+  owner?: GatewayOwnerLock;
+} {
   const existingToken = ownerTokens.get(projectDir) ?? randomUUID();
   ownerTokens.set(projectDir, existingToken);
   const lockFile = gatewayOwnerLockFile(projectDir);
@@ -909,7 +970,9 @@ function readGatewayStateFile(projectDir: string): GatewayState | null {
   };
 }
 
-function describeGatewayState(state: GatewayState | null): Record<string, unknown> {
+function describeGatewayState(
+  state: GatewayState | null,
+): Record<string, unknown> {
   if (!state) return { exists: false };
   return {
     exists: true,
@@ -932,10 +995,15 @@ export function isGatewayOwner(projectDir: string): boolean {
   const token = ownerTokens.get(projectDir);
   const lock = readGatewayOwnerLock(projectDir);
   if (!token || !lock) return false;
-  return lock.pid === process.pid && lock.token === token && isOwnerLockFresh(lock);
+  return (
+    lock.pid === process.pid && lock.token === token && isOwnerLockFresh(lock)
+  );
 }
 
-export async function probeGatewayAlive(url: string, timeoutMs = 800): Promise<boolean> {
+export async function probeGatewayAlive(
+  url: string,
+  timeoutMs = 800,
+): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -969,7 +1037,9 @@ function resolveGatewayListenOptions(projectDir: string): {
   const rawPort = Number(gateway.port);
   const hostname = rawHost || '127.0.0.1';
   const port =
-    Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535 ? Math.floor(rawPort) : 0;
+    Number.isFinite(rawPort) && rawPort > 0 && rawPort <= 65535
+      ? Math.floor(rawPort)
+      : 0;
   return { hostname, port };
 }
 
@@ -980,7 +1050,8 @@ function logControlUiFallback(
   responseStatus: number,
 ): void {
   const logKey = `${projectDir}:control-ui-fallback`;
-  if (!shouldEmitThrottledLog(controlUiFallbackLoggedAtByDir, logKey, 10_000)) return;
+  if (!shouldEmitThrottledLog(controlUiFallbackLoggedAtByDir, logKey, 10_000))
+    return;
   log('[gateway] control-ui fallback to built-in console', {
     projectDir,
     pathname,
@@ -996,7 +1067,10 @@ function logControlUiFallback(
   });
 }
 
-function toGatewayState(projectDir: string, runtime: GatewayRuntime): GatewayState {
+function toGatewayState(
+  projectDir: string,
+  runtime: GatewayRuntime,
+): GatewayState {
   const host = String(runtime.server.hostname || '127.0.0.1') || '127.0.0.1';
   return {
     url: `http://${host}:${gatewayPort(runtime)}`,
@@ -1012,7 +1086,10 @@ function writeGatewayState(projectDir: string, state: GatewayState): void {
   writeJsonAtomic(file, state);
 }
 
-function syncGatewayState(projectDir: string, runtime: GatewayRuntime): GatewayState {
+function syncGatewayState(
+  projectDir: string,
+  runtime: GatewayRuntime,
+): GatewayState {
   const state = toGatewayState(projectDir, runtime);
   writeGatewayState(projectDir, state);
   return state;
@@ -1099,7 +1176,9 @@ function runStartupSelfCheck(projectDir: string): StartupSelfCheckResult {
       encoding: 'utf-8',
       timeout: 8_000,
     });
-    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim().slice(0, 2_000);
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+      .trim()
+      .slice(0, 2_000);
     checks.push({
       name,
       ok: result.status === 0 && !result.error,
@@ -1173,7 +1252,10 @@ function shouldBypassIntentGuard(source: string): boolean {
   return /^policy:|^system:/.test(source);
 }
 
-function buildSessionPayloadByMode(mode: 'owner' | 'guest' | 'unknown', text: string): {
+function buildSessionPayloadByMode(
+  mode: 'owner' | 'guest' | 'unknown',
+  text: string,
+): {
   payload: string;
   redacted: boolean;
 } {
@@ -1206,7 +1288,10 @@ function buildSessionPayloadByMode(mode: 'owner' | 'guest' | 'unknown', text: st
       payload: [contextEnvelopeByMode(mode), text].join('\n'),
     };
   }
-  return { redacted: false, payload: [contextEnvelopeByMode(mode), text].join('\n') };
+  return {
+    redacted: false,
+    payload: [contextEnvelopeByMode(mode), text].join('\n'),
+  };
 }
 
 async function enforceCriticalIntentGuard(
@@ -1228,8 +1313,10 @@ async function enforceCriticalIntentGuard(
     },
     semanticSummary: {
       trigger: 'critical_intent_guard',
-      keyAssertion: 'Message matched critical injection / exfiltration intent pattern.',
-      recovery: 'Use OpenCode local password to unlock and manually resume domains.',
+      keyAssertion:
+        'Message matched critical injection / exfiltration intent pattern.',
+      recovery:
+        'Use OpenCode local password to unlock and manually resume domains.',
     },
     semanticTags: ['recipient_mismatch'],
     details: {
@@ -1270,7 +1357,11 @@ function collectStringValues(input: unknown, maxItems = 40): string[] {
 }
 
 function shouldGuardMethod(method: string): boolean {
-  if (method.startsWith('policy.') || method.startsWith('gateway.') || method.startsWith('doctor.')) {
+  if (
+    method.startsWith('policy.') ||
+    method.startsWith('gateway.') ||
+    method.startsWith('doctor.')
+  ) {
     return false;
   }
   return true;
@@ -1346,14 +1437,21 @@ const UI_ALLOWED_METHODS = new Set<string>([
   'intervention.annotate',
 ]);
 
-function assertConsoleMethodAllowed(method: string, context: GatewayMethodContext): void {
+function assertConsoleMethodAllowed(
+  method: string,
+  context: GatewayMethodContext,
+): void {
   if (context.role !== 'ui') return;
   if (UI_ALLOWED_METHODS.has(method)) return;
   throw new Error(`console_method_forbidden:${method}`);
 }
 
 function interventionAuditFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'audit', 'intervention.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'audit',
+    'intervention.jsonl',
+  );
 }
 
 function appendInterventionAudit(
@@ -1397,11 +1495,13 @@ async function invokeGatewayMethod(
   if (shouldGuardMethod(method)) {
     const texts = collectStringValues(params);
     for (const text of texts) {
-      if (await enforceCriticalIntentGuard(projectDir, {
-        sessionID: parseText(params.sessionID) || 'main',
-        text,
-        source: `method:${method}`,
-      })) {
+      if (
+        await enforceCriticalIntentGuard(projectDir, {
+          sessionID: parseText(params.sessionID) || 'main',
+          text,
+          source: `method:${method}`,
+        })
+      ) {
         throw new Error('kill_switch_triggered_by_critical_intent');
       }
     }
@@ -1433,7 +1533,9 @@ interface GatewayPythonRuntimeStatus {
   };
 }
 
-function parseExecSpec(raw: string): { command: string; args: string[] } | null {
+function parseExecSpec(
+  raw: string,
+): { command: string; args: string[] } | null {
   const input = raw.trim();
   if (!input) return null;
   const tokens: string[] = [];
@@ -1463,12 +1565,18 @@ function parseExecSpec(raw: string): { command: string; args: string[] } | null 
 async function verifyVoiceprintWithLocalModel(
   projectDir: string,
   input: { mediaPath?: string; speakerHint?: string; speakerScore?: number },
-): Promise<{ mode: 'owner' | 'guest' | 'unknown'; score?: number; source: string }> {
+): Promise<{
+  mode: 'owner' | 'guest' | 'unknown';
+  score?: number;
+  source: string;
+}> {
   const config = readConfig(projectDir);
   const strictFromConfig =
-    ((config.security as Record<string, unknown> | undefined)?.voiceprint as
-      | Record<string, unknown>
-      | undefined)?.strict !== false;
+    (
+      (config.security as Record<string, unknown> | undefined)?.voiceprint as
+        | Record<string, unknown>
+        | undefined
+    )?.strict !== false;
   const strict =
     process.env.MIYA_VOICEPRINT_STRICT !== undefined
       ? process.env.MIYA_VOICEPRINT_STRICT !== '0'
@@ -1480,12 +1588,17 @@ async function verifyVoiceprintWithLocalModel(
   const audioPath = (input.mediaPath ?? '').trim();
   const cmdRaw = String(process.env.MIYA_VOICEPRINT_VERIFY_CMD ?? '').trim();
   if (!audioPath || !fs.existsSync(audioPath)) {
-    return { mode: strict ? 'unknown' : hintMode, score: input.speakerScore, source: 'no_audio' };
+    return {
+      mode: strict ? 'unknown' : hintMode,
+      score: input.speakerScore,
+      source: 'no_audio',
+    };
   }
   if (!cmdRaw) {
     return {
       mode: strict ? 'unknown' : hintMode,
-      score: typeof input.speakerScore === 'number' ? input.speakerScore : undefined,
+      score:
+        typeof input.speakerScore === 'number' ? input.speakerScore : undefined,
       source: 'strict_no_cmd',
     };
   }
@@ -1493,7 +1606,8 @@ async function verifyVoiceprintWithLocalModel(
   if (!spec) {
     return {
       mode: strict ? 'unknown' : hintMode,
-      score: typeof input.speakerScore === 'number' ? input.speakerScore : undefined,
+      score:
+        typeof input.speakerScore === 'number' ? input.speakerScore : undefined,
       source: 'strict_invalid_cmd',
     };
   }
@@ -1526,8 +1640,17 @@ async function verifyVoiceprintWithLocalModel(
       command: spec.command,
       args,
       timeoutMs: 45_000,
-      resource: { priority: 90, vramMB: 0, modelID: 'local:eres2net', modelVramMB: 0 },
-      metadata: { stage: 'security.voiceprint.verify', audioPath, compute: 'cpu' },
+      resource: {
+        priority: 90,
+        vramMB: 0,
+        modelID: 'local:eres2net',
+        modelVramMB: 0,
+      },
+      metadata: {
+        stage: 'security.voiceprint.verify',
+        audioPath,
+        compute: 'cpu',
+      },
     });
     if (result.exitCode !== 0) {
       return {
@@ -1548,12 +1671,20 @@ async function verifyVoiceprintWithLocalModel(
       mode?: 'owner' | 'guest' | 'unknown';
     };
     const score =
-      typeof parsed.speaker_score === 'number' ? Number(parsed.speaker_score) : input.speakerScore;
+      typeof parsed.speaker_score === 'number'
+        ? Number(parsed.speaker_score)
+        : input.speakerScore;
     const liveness =
-      typeof parsed.liveness_score === 'number' ? Number(parsed.liveness_score) : undefined;
+      typeof parsed.liveness_score === 'number'
+        ? Number(parsed.liveness_score)
+        : undefined;
     const sampleDuration =
-      typeof parsed.sample_duration_sec === 'number' ? Number(parsed.sample_duration_sec) : undefined;
-    const diarization = Array.isArray(parsed.diarization) ? parsed.diarization : [];
+      typeof parsed.sample_duration_sec === 'number'
+        ? Number(parsed.sample_duration_sec)
+        : undefined;
+    const diarization = Array.isArray(parsed.diarization)
+      ? parsed.diarization
+      : [];
     const ownerSegments = diarization.filter(
       (seg) => String(seg.speaker ?? '').toLowerCase() === 'owner',
     ).length;
@@ -1561,9 +1692,11 @@ async function verifyVoiceprintWithLocalModel(
     const diarizationLooksOwner =
       diarization.length === 0
         ? true
-        : ownerSegments / diarization.length >= thresholds.ownerMinDiarizationRatio;
+        : ownerSegments / diarization.length >=
+          thresholds.ownerMinDiarizationRatio;
     const sampleDurationOk =
-      typeof sampleDuration !== 'number' || sampleDuration >= thresholds.minSampleDurationSec;
+      typeof sampleDuration !== 'number' ||
+      sampleDuration >= thresholds.minSampleDurationSec;
     const mode =
       parsed.mode && ['owner', 'guest', 'unknown'].includes(parsed.mode)
         ? parsed.mode
@@ -1571,13 +1704,14 @@ async function verifyVoiceprintWithLocalModel(
           ? 'unknown'
           : typeof score === 'number'
             ? score >= thresholds.ownerMinScore &&
-                (liveness ?? 1) >= thresholds.ownerMinLiveness &&
-                diarizationLooksOwner
-            ? 'owner'
+              (liveness ?? 1) >= thresholds.ownerMinLiveness &&
+              diarizationLooksOwner
+              ? 'owner'
               : score < thresholds.guestMaxScore ||
-                  (typeof liveness === 'number' && liveness < thresholds.guestMaxLiveness)
-              ? 'guest'
-              : 'unknown'
+                  (typeof liveness === 'number' &&
+                    liveness < thresholds.guestMaxLiveness)
+                ? 'guest'
+                : 'unknown'
             : 'unknown';
     return { mode, score, source: 'voiceprint_cmd' };
   } catch {
@@ -1593,17 +1727,20 @@ function normalizeRuntimeDependencyRecommendations(
   status: GatewayPythonRuntimeStatus,
 ): GatewayDependencyRecommendation[] {
   const fromPlan = Array.isArray(status.repairPlan?.recommendations)
-    ? status.repairPlan?.recommendations ?? []
+    ? (status.repairPlan?.recommendations ?? [])
     : [];
   if (fromPlan.length > 0) return fromPlan;
-  const issues = Array.isArray(status.diagnostics?.issues) ? status.diagnostics?.issues : [];
+  const issues = Array.isArray(status.diagnostics?.issues)
+    ? status.diagnostics?.issues
+    : [];
   const fallback: GatewayDependencyRecommendation[] = [];
   if (issues.some((issue) => issue.startsWith('torch_not_installed'))) {
     fallback.push({
       package: 'torch',
       recommendedVersion: '>=2.2.0',
       reason: 'PyTorch runtime is required by FLUX/GPT-SoVITS tasks.',
-      command: 'pip install "torch>=2.2.0" "torchvision>=0.17.0" "torchaudio>=2.2.0"',
+      command:
+        'pip install "torch>=2.2.0" "torchvision>=0.17.0" "torchaudio>=2.2.0"',
     });
   }
   if (issues.some((issue) => issue.startsWith('ffmpeg_missing'))) {
@@ -1626,8 +1763,12 @@ function normalizeRuntimeDependencyRecommendations(
   return fallback;
 }
 
-function buildDependencyAssistPrompt(status: GatewayPythonRuntimeStatus): string {
-  const issues = Array.isArray(status.diagnostics?.issues) ? status.diagnostics?.issues : [];
+function buildDependencyAssistPrompt(
+  status: GatewayPythonRuntimeStatus,
+): string {
+  const issues = Array.isArray(status.diagnostics?.issues)
+    ? status.diagnostics?.issues
+    : [];
   const recommendations = normalizeRuntimeDependencyRecommendations(status);
   const recommendationLines = recommendations
     .map(
@@ -1649,10 +1790,16 @@ async function maybeTriggerDependencyAssist(
   projectDir: string,
   runtime: GatewayRuntime,
   status: GatewayPythonRuntimeStatus,
-): Promise<{ triggered: boolean; routed?: { delivered: boolean; queued: boolean; reason?: string } }> {
-  const issueType = status.repairPlan?.issueType ?? status.trainingDisabledReason ?? 'ok';
+): Promise<{
+  triggered: boolean;
+  routed?: { delivered: boolean; queued: boolean; reason?: string };
+}> {
+  const issueType =
+    status.repairPlan?.issueType ?? status.trainingDisabledReason ?? 'ok';
   if (issueType !== 'dependency_fault') return { triggered: false };
-  const prompt = status.repairPlan?.opencodeAssistPrompt || buildDependencyAssistPrompt(status);
+  const prompt =
+    status.repairPlan?.opencodeAssistPrompt ||
+    buildDependencyAssistPrompt(status);
   const digest = hashText(prompt);
   if (runtime.dependencyAssistHashes.has(digest)) {
     return { triggered: false };
@@ -1671,7 +1818,10 @@ function deriveRiskLevel(input: {
   factorIntentSuspicious: boolean;
   factorRecipientIsMe: boolean;
 }): 'LOW' | 'MEDIUM' | 'HIGH' {
-  if (input.containsSensitive && (input.factorIntentSuspicious || !input.factorRecipientIsMe)) {
+  if (
+    input.containsSensitive &&
+    (input.factorIntentSuspicious || !input.factorRecipientIsMe)
+  ) {
     return 'HIGH';
   }
   if (input.containsSensitive || input.factorIntentSuspicious) {
@@ -1689,7 +1839,10 @@ interface ApprovalTicketSummary {
   tier: string;
 }
 
-function requirePolicyHash(projectDir: string, providedHash: string | undefined): string {
+function requirePolicyHash(
+  projectDir: string,
+  providedHash: string | undefined,
+): string {
   const policyGuard = assertPolicyHash(projectDir, providedHash);
   if (!policyGuard.ok) {
     throw new Error(`${policyGuard.reason}:expected=${policyGuard.hash}`);
@@ -1698,7 +1851,10 @@ function requirePolicyHash(projectDir: string, providedHash: string | undefined)
 }
 
 function requireDomainRunning(projectDir: string, domain: PolicyDomain): void {
-  if (!isDomainRunning(projectDir, domain) || !isDomainExecutionAllowed(projectDir, domain)) {
+  if (
+    !isDomainRunning(projectDir, domain) ||
+    !isDomainExecutionAllowed(projectDir, domain)
+  ) {
     throw new Error(`domain_paused:${domain}`);
   }
 }
@@ -1721,7 +1877,15 @@ interface GuardedOutboundCheckInput {
   captureLimitations?: string[];
   psycheSignals?: {
     idleSec?: number;
-    foreground?: 'ide' | 'terminal' | 'browser' | 'player' | 'game' | 'chat' | 'other' | 'unknown';
+    foreground?:
+      | 'ide'
+      | 'terminal'
+      | 'browser'
+      | 'player'
+      | 'game'
+      | 'chat'
+      | 'other'
+      | 'unknown';
     foregroundTitle?: string;
     fullscreen?: boolean;
     audioActive?: boolean;
@@ -1813,12 +1977,18 @@ async function sendChannelMessageGuarded(
   requireDomainRunning(projectDir, 'desktop_control');
   const identity = readOwnerIdentityState(projectDir);
   const localPhysicalConfirmed = Boolean(input.confirmation?.physicalConfirmed);
-  const localPasswordVerified = verifyOwnerPasswordOnly(projectDir, input.confirmation?.password);
+  const localPasswordVerified = verifyOwnerPasswordOnly(
+    projectDir,
+    input.confirmation?.password,
+  );
   const localGuestOverride =
     (identity.mode === 'guest' || identity.mode === 'unknown') &&
     localPhysicalConfirmed &&
     localPasswordVerified;
-  if ((identity.mode === 'guest' || identity.mode === 'unknown') && !localGuestOverride) {
+  if (
+    (identity.mode === 'guest' || identity.mode === 'unknown') &&
+    !localGuestOverride
+  ) {
     return {
       sent: false,
       message: 'outbound_blocked:guest_mode',
@@ -1834,16 +2004,23 @@ async function sendChannelMessageGuarded(
   const factorRecipientIsMe =
     typeof factorRecipientIsMeInput === 'boolean'
       ? factorRecipientIsMeInput
-      : getContactTier(projectDir, input.channel, input.destination) === 'owner';
+      : getContactTier(projectDir, input.channel, input.destination) ===
+        'owner';
   const containsSensitive = containsSensitiveText(input.text);
   const factorIntentSuspicious = inferIntentSuspicious(input.text);
-  const confidenceIntentRaw = factorIntentSuspicious ? 0.35 : containsSensitive ? 0.75 : 0.95;
+  const confidenceIntentRaw = factorIntentSuspicious
+    ? 0.35
+    : containsSensitive
+      ? 0.75
+      : 0.95;
   const riskLevel = deriveRiskLevel({
     containsSensitive,
     factorIntentSuspicious,
     factorRecipientIsMe,
   });
-  const captureLimitations = Array.isArray(input.outboundCheck?.captureLimitations)
+  const captureLimitations = Array.isArray(
+    input.outboundCheck?.captureLimitations,
+  )
     ? input.outboundCheck.captureLimitations
     : [];
   let evidenceConfidence =
@@ -1880,7 +2057,9 @@ async function sendChannelMessageGuarded(
     }
     const ownerSyncRequired = process.env.MIYA_OWNER_SYNC_REQUIRED !== '0';
     if (ownerSyncRequired && !localGuestOverride) {
-      const providedOwnerSyncToken = String(input.confirmation?.ownerSyncToken ?? '').trim();
+      const providedOwnerSyncToken = String(
+        input.confirmation?.ownerSyncToken ?? '',
+      ).trim();
       if (!providedOwnerSyncToken) {
         const pending = issueOwnerSyncToken(projectDir, {
           action: 'outbound.high_risk.send',
@@ -1892,8 +2071,7 @@ async function sendChannelMessageGuarded(
           requiresConfirmation: true,
           ownerSyncRequired: true,
           ownerSyncToken: pending.token,
-          ownerSyncInstruction:
-            `请用本人档在 QQ/微信 回复: 同意 ${pending.token}（10分钟内有效）`,
+          ownerSyncInstruction: `请用本人档在 QQ/微信 回复: 同意 ${pending.token}（10分钟内有效）`,
           policyHash: currentPolicyHash(projectDir),
         };
       }
@@ -1913,8 +2091,7 @@ async function sendChannelMessageGuarded(
           requiresConfirmation: true,
           ownerSyncRequired: true,
           ownerSyncToken: pending.token,
-          ownerSyncInstruction:
-            `请用本人档在 QQ/微信 回复: 同意 ${pending.token}（10分钟内有效）`,
+          ownerSyncInstruction: `请用本人档在 QQ/微信 回复: 同意 ${pending.token}（10分钟内有效）`,
           policyHash: currentPolicyHash(projectDir),
         };
       }
@@ -1960,9 +2137,14 @@ async function sendChannelMessageGuarded(
       policyHash: resolvedPolicyHash,
       pausedDomains: ['outbound_send', 'desktop_control'],
       statusByDomain: {
-        outbound_send: safetyState.domains.outbound_send === 'running' ? 'running' : 'paused',
+        outbound_send:
+          safetyState.domains.outbound_send === 'running'
+            ? 'running'
+            : 'paused',
         desktop_control:
-          safetyState.domains.desktop_control === 'running' ? 'running' : 'paused',
+          safetyState.domains.desktop_control === 'running'
+            ? 'running'
+            : 'paused',
       },
       semanticSummary: {
         trigger: 'decision_fusion_hard',
@@ -2005,7 +2187,8 @@ async function sendChannelMessageGuarded(
         trigger: 'decision_fusion_soft',
         keyAssertion:
           'Decision fusion matched in gray zone (0.5 <= confidence <= 0.85), manual confirmation required.',
-        recovery: 'Confirm outbound intent in OpenCode, then retry with explicit approval.',
+        recovery:
+          'Confirm outbound intent in OpenCode, then retry with explicit approval.',
       },
       semanticTags: ['recipient_mismatch'],
       details: {
@@ -2032,7 +2215,10 @@ async function sendChannelMessageGuarded(
   }
 
   const psycheMode = runtime.nexus.psycheMode;
-  const psycheConsultEnabled = resolvePsycheConsultEnabled(projectDir, psycheMode);
+  const psycheConsultEnabled = resolvePsycheConsultEnabled(
+    projectDir,
+    psycheMode,
+  );
   if (!psycheMode.resonanceEnabled && !userInitiated) {
     runtime.nexus.guardianSafeHoldReason = 'resonance_disabled';
     appendNexusInsight(runtime, {
@@ -2081,22 +2267,25 @@ async function sendChannelMessageGuarded(
     };
   }
   runtime.nexus.guardianSafeHoldReason = undefined;
-  let psycheConsult:
-    | {
-        auditID: string;
-        intent: string;
-        urgency: 'low' | 'medium' | 'high' | 'critical';
-        channel?: string;
-        userInitiated: boolean;
-        state: 'FOCUS' | 'CONSUME' | 'PLAY' | 'AWAY' | 'UNKNOWN';
-      }
-    | null = null;
+  let psycheConsult: {
+    auditID: string;
+    intent: string;
+    urgency: 'low' | 'medium' | 'high' | 'critical';
+    channel?: string;
+    userInitiated: boolean;
+    state: 'FOCUS' | 'CONSUME' | 'PLAY' | 'AWAY' | 'UNKNOWN';
+  } | null = null;
   if (psycheConsultEnabled) {
     try {
       const daemon = getMiyaClient(projectDir);
       const consult = await daemon.psycheConsult({
         intent: `outbound.send.${input.channel}`,
-        urgency: riskLevel === 'HIGH' ? 'high' : riskLevel === 'MEDIUM' ? 'medium' : 'low',
+        urgency:
+          riskLevel === 'HIGH'
+            ? 'high'
+            : riskLevel === 'MEDIUM'
+              ? 'medium'
+              : 'low',
         channel: input.channel,
         userInitiated,
         allowScreenProbe: psycheMode.captureProbeEnabled,
@@ -2189,7 +2378,8 @@ async function sendChannelMessageGuarded(
               source: `session:${input.sessionID}`,
               action: `outbound.send.${input.channel}`,
               evidenceConfidence,
-              highRiskRollback: riskLevel === 'HIGH' && consult.decision === 'deny',
+              highRiskRollback:
+                riskLevel === 'HIGH' && consult.decision === 'deny',
             },
           });
         } catch {}
@@ -2267,7 +2457,8 @@ async function sendChannelMessageGuarded(
       `payload_sha256=${payloadHash}`,
     ],
   });
-  if (!outboundTicket.ok) throw new Error(`approval_required:${outboundTicket.reason}`);
+  if (!outboundTicket.ok)
+    throw new Error(`approval_required:${outboundTicket.reason}`);
   const desktopTicket = resolveApprovalTicket({
     projectDir,
     sessionID: input.sessionID,
@@ -2278,7 +2469,8 @@ async function sendChannelMessageGuarded(
       `payload_sha256=${payloadHash}`,
     ],
   });
-  if (!desktopTicket.ok) throw new Error(`approval_required:${desktopTicket.reason}`);
+  if (!desktopTicket.ok)
+    throw new Error(`approval_required:${desktopTicket.reason}`);
 
   const sendFingerprint = hashText(
     `${input.channel}|${input.destination}|${payloadHash}|${Math.floor(Date.now() / 60000)}`,
@@ -2321,13 +2513,16 @@ async function sendChannelMessageGuarded(
         userInitiated: psycheConsult.userInitiated,
         state: psycheConsult.state,
         delivered: Boolean((result as { sent?: boolean }).sent),
-        blockedReason: (result as { sent?: boolean }).sent ? undefined : String(result.message ?? ''),
+        blockedReason: (result as { sent?: boolean }).sent
+          ? undefined
+          : String(result.message ?? ''),
         trust: {
           target: `${input.channel}:${input.destination}`,
           source: `session:${input.sessionID}`,
           action: `outbound.send.${input.channel}`,
           evidenceConfidence,
-          highRiskRollback: riskLevel === 'HIGH' && !(result as { sent?: boolean }).sent,
+          highRiskRollback:
+            riskLevel === 'HIGH' && !(result as { sent?: boolean }).sent,
         },
       });
     } catch {}
@@ -2357,9 +2552,14 @@ async function sendChannelMessageGuarded(
       policyHash: resolvedPolicyHash,
       pausedDomains: ['outbound_send', 'desktop_control'],
       statusByDomain: {
-        outbound_send: safetyState.domains.outbound_send === 'running' ? 'running' : 'paused',
+        outbound_send:
+          safetyState.domains.outbound_send === 'running'
+            ? 'running'
+            : 'paused',
         desktop_control:
-          safetyState.domains.desktop_control === 'running' ? 'running' : 'paused',
+          safetyState.domains.desktop_control === 'running'
+            ? 'running'
+            : 'paused',
       },
       semanticSummary: {
         trigger: violationType,
@@ -2476,7 +2676,11 @@ function collectDoctorIssues(
 
   const channelStore = readChannelStore(projectDir);
   for (const channel of Object.values(channelStore.channels)) {
-    if (channel.enabled && channel.name !== 'webchat' && channel.allowlist.length === 0) {
+    if (
+      channel.enabled &&
+      channel.name !== 'webchat' &&
+      channel.allowlist.length === 0
+    ) {
       issues.push({
         code: `channel_allowlist_empty_${channel.name}`,
         severity: 'warn',
@@ -2506,7 +2710,11 @@ function collectDoctorIssues(
     });
   }
 
-  if (base.voice.enabled && base.voice.wakeWordEnabled && !base.voice.talkMode) {
+  if (
+    base.voice.enabled &&
+    base.voice.wakeWordEnabled &&
+    !base.voice.talkMode
+  ) {
     issues.push({
       code: 'voice_wake_without_talk_mode',
       severity: 'info',
@@ -2527,7 +2735,10 @@ function collectDoctorIssues(
   return issues;
 }
 
-function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnapshot {
+function buildSnapshot(
+  projectDir: string,
+  runtime: GatewayRuntime,
+): GatewaySnapshot {
   const deps = depsOf(projectDir);
   const kill = readKillSwitch(projectDir);
   const jobs = deps.automationService?.listJobs() ?? [];
@@ -2541,7 +2752,10 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const devices = listDevices(projectDir);
   const invokes = listInvokeRequests(projectDir, 40);
   const enabledSkills = listEnabledSkills(projectDir);
-  const discoveredSkills = discoverSkills(projectDir, deps.extraSkillDirs ?? []);
+  const discoveredSkills = discoverSkills(
+    projectDir,
+    deps.extraSkillDirs ?? [],
+  );
   const mediaRecent = listMediaItems(projectDir, 20);
   const voice = readVoiceState(projectDir);
   const canvas = readCanvasState(projectDir);
@@ -2554,22 +2768,31 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   }
   const autoflowSessions = listAutoflowSessions(projectDir, 30);
   const autoflowPersistentConfig = readAutoflowPersistentConfig(projectDir);
-  const autoflowPersistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, 30);
+  const autoflowPersistentSessions = getAutoflowPersistentRuntimeSnapshot(
+    projectDir,
+    30,
+  );
   const routingMode = readRouterModeConfig(projectDir);
   const routingCost = getRouteCostSummary(projectDir, 500);
   const routingRecent = listRouteCostRecords(projectDir, 20);
+  const routingUsage = summarizeRouteUsage(projectDir, 500);
+  const routingUsageRecent = listRouteUsageRecords(projectDir, 20);
   const memoryObservability = readMemoryObservability(projectDir);
   const learningStats = getLearningStats(projectDir);
-  const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map((item) => ({
-    id: item.id,
-    status: item.status,
-    source: item.source,
-    confidence: item.confidence,
-    uses: item.uses,
-    hitRate: item.uses > 0 ? Number((item.hits / item.uses).toFixed(3)) : 0,
-    title: item.title,
-  }));
-  runtime.nexus.pendingTickets = approvals.filter((item) => item.status === 'pending').length;
+  const learningTopDrafts = listSkillDrafts(projectDir, { limit: 8 }).map(
+    (item) => ({
+      id: item.id,
+      status: item.status,
+      source: item.source,
+      confidence: item.confidence,
+      uses: item.uses,
+      hitRate: item.uses > 0 ? Number((item.hits / item.uses).toFixed(3)) : 0,
+      title: item.title,
+    }),
+  );
+  runtime.nexus.pendingTickets = approvals.filter(
+    (item) => item.status === 'pending',
+  ).length;
   runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, kill);
 
   const base: Omit<GatewaySnapshot, 'doctor'> = {
@@ -2610,16 +2833,18 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
     jobs: {
       total: jobs.length,
       enabled: jobs.filter((item) => item.enabled).length,
-      pendingApprovals: approvals.filter((item) => item.status === 'pending').length,
+      pendingApprovals: approvals.filter((item) => item.status === 'pending')
+        .length,
       recentRuns,
     },
     loop: getSessionState(projectDir, 'main'),
     autoflow: {
-      active: autoflowSessions.filter((item) =>
-        item.phase === 'planning' ||
-        item.phase === 'execution' ||
-        item.phase === 'verification' ||
-        item.phase === 'fixing',
+      active: autoflowSessions.filter(
+        (item) =>
+          item.phase === 'planning' ||
+          item.phase === 'execution' ||
+          item.phase === 'verification' ||
+          item.phase === 'fixing',
       ).length,
       sessions: autoflowSessions.map((item) => {
         const phaseProgress =
@@ -2637,11 +2862,16 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
                       ? 100
                       : 0;
         const fixProgress =
-          item.maxFixRounds > 0 ? Math.min(20, Math.floor((item.fixRound / item.maxFixRounds) * 20)) : 0;
+          item.maxFixRounds > 0
+            ? Math.min(20, Math.floor((item.fixRound / item.maxFixRounds) * 20))
+            : 0;
         const retryReason = [...item.history]
           .reverse()
-          .find((row) => row.event === 'verification_failed' || row.event === 'execution_failed')
-          ?.summary;
+          .find(
+            (row) =>
+              row.event === 'verification_failed' ||
+              row.event === 'execution_failed',
+          )?.summary;
         return {
           sessionID: item.sessionID,
           phase: item.phase,
@@ -2659,7 +2889,8 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
         enabled: autoflowPersistentConfig.enabled,
         resumeCooldownMs: autoflowPersistentConfig.resumeCooldownMs,
         maxAutoResumes: autoflowPersistentConfig.maxAutoResumes,
-        maxConsecutiveResumeFailures: autoflowPersistentConfig.maxConsecutiveResumeFailures,
+        maxConsecutiveResumeFailures:
+          autoflowPersistentConfig.maxConsecutiveResumeFailures,
         resumeTimeoutMs: autoflowPersistentConfig.resumeTimeoutMs,
         sessions: autoflowPersistentSessions.map((item) => ({
           sessionID: item.sessionID,
@@ -2670,12 +2901,15 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
           lastOutcomeSummary: item.lastOutcomeSummary,
         })),
       },
+      autoParallel: runtime.autoParallel,
     },
     routing: {
       ecoMode: routingMode.ecoMode,
       forcedStage: routingMode.forcedStage,
       cost: routingCost,
       recent: routingRecent,
+      usage: routingUsage,
+      usageRecent: routingUsageRecent,
     },
     learning: {
       stats: learningStats,
@@ -2684,9 +2918,12 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
     background: listBackground(projectDir),
     sessions: {
       total: sessions.length,
-      active: sessions.filter((item) => item.policy.activation === 'active').length,
-      queued: sessions.filter((item) => item.policy.activation === 'queued').length,
-      muted: sessions.filter((item) => item.policy.activation === 'muted').length,
+      active: sessions.filter((item) => item.policy.activation === 'active')
+        .length,
+      queued: sessions.filter((item) => item.policy.activation === 'queued')
+        .length,
+      muted: sessions.filter((item) => item.policy.activation === 'muted')
+        .length,
       items: sessions.slice(0, 100),
     },
     channels: {
@@ -2737,6 +2974,7 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
         pendingVectors: memoryObservability.pendingVectors,
       },
       router: routingCost,
+      routerUsage: routingUsage,
     },
     health: {
       overall: 'ok',
@@ -2749,7 +2987,9 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
   const hasErrors = doctorIssues.some((item) => item.severity === 'error');
   base.health = {
     overall:
-      hasErrors || (runtime.startupSelfCheck && runtime.startupSelfCheck.overall === 'degraded')
+      hasErrors ||
+      (runtime.startupSelfCheck &&
+        runtime.startupSelfCheck.overall === 'degraded')
         ? 'degraded'
         : 'ok',
     startupSelfCheck: runtime.startupSelfCheck,
@@ -2765,7 +3005,11 @@ function buildSnapshot(projectDir: string, runtime: GatewayRuntime): GatewaySnap
 }
 
 function daemonProgressAuditFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'audit', 'daemon-job-progress.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'audit',
+    'daemon-job-progress.jsonl',
+  );
 }
 
 function appendDaemonProgressAudit(
@@ -2787,7 +3031,11 @@ function appendDaemonProgressAudit(
 }
 
 function gatewayMethodAuditFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'audit', 'gateway-methods.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'audit',
+    'gateway-methods.jsonl',
+  );
 }
 
 function appendGatewayMethodAudit(
@@ -2817,6 +3065,51 @@ function appendGatewayMethodAudit(
   );
 }
 
+function extractUsageFromPromptResult(result: unknown): {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+} {
+  const stack: unknown[] = [result];
+  const seen = new Set<unknown>();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalTokens = 0;
+  let costUsd = 0;
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || typeof current !== 'object') continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const row = current as Record<string, unknown>;
+    if (typeof row.inputTokens === 'number')
+      inputTokens += Number(row.inputTokens);
+    if (typeof row.prompt_tokens === 'number')
+      inputTokens += Number(row.prompt_tokens);
+    if (typeof row.outputTokens === 'number')
+      outputTokens += Number(row.outputTokens);
+    if (typeof row.completion_tokens === 'number')
+      outputTokens += Number(row.completion_tokens);
+    if (typeof row.totalTokens === 'number')
+      totalTokens += Number(row.totalTokens);
+    if (typeof row.total_tokens === 'number')
+      totalTokens += Number(row.total_tokens);
+    if (typeof row.costUsd === 'number') costUsd += Number(row.costUsd);
+    if (typeof row.cost_usd === 'number') costUsd += Number(row.cost_usd);
+    for (const value of Object.values(row)) {
+      if (value && typeof value === 'object') stack.push(value);
+    }
+  }
+  if (totalTokens === 0) totalTokens = inputTokens + outputTokens;
+  return {
+    inputTokens: Math.max(0, Math.floor(inputTokens)),
+    outputTokens: Math.max(0, Math.floor(outputTokens)),
+    totalTokens: Math.max(0, Math.floor(totalTokens)),
+    costUsd: Number(Math.max(0, costUsd).toFixed(6)),
+  };
+}
+
 async function routeSessionMessage(
   projectDir: string,
   input: {
@@ -2832,8 +3125,10 @@ async function routeSessionMessage(
     '4-architecture-advisor',
     '5-code-fixer',
     '6-ui-designer',
+    '7-code-simplicity-reviewer',
   ];
   const deps = depsOf(projectDir);
+  const runtime = runtimes.get(projectDir);
   if (await enforceCriticalIntentGuard(projectDir, input)) {
     return {
       delivered: false,
@@ -2855,7 +3150,9 @@ async function routeSessionMessage(
   });
   if (interactionMode === 'guest') {
     appendGuestConversation(projectDir, {
-      text: payload.redacted ? '[redacted_sensitive_guest_request]' : input.text,
+      text: payload.redacted
+        ? '[redacted_sensitive_guest_request]'
+        : input.text,
       source: input.source,
       sessionID: input.sessionID,
     });
@@ -2870,7 +3167,10 @@ async function routeSessionMessage(
       agent: '1-task-manager',
     });
 
-  if (session.policy.activation !== 'active' || session.policy.reply !== 'auto') {
+  if (
+    session.policy.activation !== 'active' ||
+    session.policy.reply !== 'auto'
+  ) {
     enqueueSessionMessage(projectDir, input.sessionID, {
       text: safeText,
       source: input.source,
@@ -2905,11 +3205,17 @@ async function routeSessionMessage(
     text: safeText,
     availableAgents,
     pinnedAgent,
+    source: input.source,
   });
   const learning = buildLearningInjection(projectDir, safeText, {
     threshold: 0.66,
     limit: 2,
   });
+  if (learning.matchedDraftIDs.length > 0) {
+    for (const draftID of learning.matchedDraftIDs) {
+      markSkillDraftPendingUsage(projectDir, draftID);
+    }
+  }
   const enrichedText = learning.snippet
     ? `${learning.snippet}\n\n---\n\n${safeText}`
     : safeText;
@@ -2917,10 +3223,87 @@ async function routeSessionMessage(
     text: enrichedText,
     stage: plan.stage,
   });
-  const routedAgents = buildRoutedAgentSequence(plan, availableAgents, safeText);
+  let actualInputTokens = 0;
+  let actualOutputTokens = 0;
+  let actualTotalTokens = 0;
+  let actualCostUsd = 0;
+  const routedAgents = buildRoutedAgentSequence(
+    plan,
+    availableAgents,
+    safeText,
+  );
   let lastAttemptedAgent = routedAgents[0] ?? plan.agent;
+  const backgroundManager = depsOf(projectDir).backgroundManager;
 
   try {
+    if (plan.executionMode === 'auto_parallel' && backgroundManager) {
+      if (runtime) runtime.autoParallel.triggered += 1;
+      const autoParallel = await executeAutoParallelWorkflow({
+        projectDir,
+        sessionID: input.sessionID,
+        text: payloadPlan.text,
+        plan,
+        manager: backgroundManager,
+      });
+      if (runtime && autoParallel.flow.dagResult) {
+        runtime.autoParallel.totalDagNodes += autoParallel.flow.dagResult.total;
+        runtime.autoParallel.totalDagCompleted +=
+          autoParallel.flow.dagResult.completed;
+      }
+      if (runtime) {
+        if (autoParallel.ok) {
+          runtime.autoParallel.succeeded += 1;
+        } else {
+          runtime.autoParallel.failed += 1;
+        }
+      }
+      recordRouteExecutionOutcome({
+        projectDir,
+        sessionID: input.sessionID,
+        intent: plan.intent,
+        complexity: plan.complexity,
+        stage: plan.stage,
+        agent: lastAttemptedAgent,
+        success: autoParallel.ok,
+        inputTokens: payloadPlan.inputTokens,
+        outputTokensEstimate: payloadPlan.outputTokensEstimate,
+        totalTokensEstimate: payloadPlan.totalTokensEstimate,
+        baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
+        costUsdEstimate: payloadPlan.costUsdEstimate,
+      });
+      appendRouteUsageRecord(projectDir, {
+        sessionID: input.sessionID,
+        intent: plan.intent,
+        complexity: plan.complexity,
+        stage: plan.stage,
+        agent: lastAttemptedAgent,
+        estimatedTokens: payloadPlan.totalTokensEstimate,
+        estimatedCostUsd: payloadPlan.costUsdEstimate,
+        actualInputTokens: payloadPlan.inputTokens,
+        actualOutputTokens: payloadPlan.outputTokensEstimate,
+        actualTotalTokens: payloadPlan.totalTokensEstimate,
+        actualCostUsd: payloadPlan.costUsdEstimate,
+      });
+      if (learning.matchedDraftIDs.length > 0) {
+        for (const draftID of learning.matchedDraftIDs) {
+          settleSkillDraftUsage(projectDir, draftID, autoParallel.ok);
+        }
+      }
+      if (autoParallel.ok) {
+        dequeueSessionMessage(projectDir, input.sessionID);
+        return { delivered: true, queued: false };
+      }
+      enqueueSessionMessage(projectDir, input.sessionID, {
+        text: safeText,
+        source: input.source,
+      });
+      return {
+        delivered: false,
+        queued: true,
+        reason: `auto_parallel_failed:${autoParallel.summary}`,
+      };
+    }
+
     for (let index = 0; index < routedAgents.length; index++) {
       const agent = routedAgents[index];
       if (!agent) continue;
@@ -2933,7 +3316,7 @@ async function routeSessionMessage(
         total: routedAgents.length,
         contextStrategy: plan.contextStrategy,
       });
-      await client.session.prompt({
+      const promptResult = await client.session.prompt({
         path: { id: session.routing.opencodeSessionID },
         body: {
           agent,
@@ -2941,6 +3324,11 @@ async function routeSessionMessage(
         },
         query: { directory: projectDir },
       });
+      const usage = extractUsageFromPromptResult(promptResult);
+      actualInputTokens += usage.inputTokens;
+      actualOutputTokens += usage.outputTokens;
+      actualTotalTokens += usage.totalTokens;
+      actualCostUsd += usage.costUsd;
     }
     recordRouteExecutionOutcome({
       projectDir,
@@ -2956,11 +3344,20 @@ async function routeSessionMessage(
       baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
       costUsdEstimate: payloadPlan.costUsdEstimate,
     });
-    if (learning.matchedDraftIDs.length > 0) {
-      for (const draftID of learning.matchedDraftIDs) {
-        setSkillDraftStatus(projectDir, draftID, undefined, { hit: true });
-      }
-    }
+    appendRouteUsageRecord(projectDir, {
+      sessionID: input.sessionID,
+      intent: plan.intent,
+      complexity: plan.complexity,
+      stage: plan.stage,
+      agent: lastAttemptedAgent,
+      estimatedTokens: payloadPlan.totalTokensEstimate,
+      estimatedCostUsd: payloadPlan.costUsdEstimate,
+      actualInputTokens: actualInputTokens || payloadPlan.inputTokens,
+      actualOutputTokens:
+        actualOutputTokens || payloadPlan.outputTokensEstimate,
+      actualTotalTokens: actualTotalTokens || payloadPlan.totalTokensEstimate,
+      actualCostUsd: actualCostUsd || payloadPlan.costUsdEstimate,
+    });
     dequeueSessionMessage(projectDir, input.sessionID);
     return { delivered: true, queued: false };
   } catch (error) {
@@ -2978,9 +3375,23 @@ async function routeSessionMessage(
       baselineHighTokensEstimate: payloadPlan.baselineHighTokensEstimate,
       costUsdEstimate: payloadPlan.costUsdEstimate,
     });
+    appendRouteUsageRecord(projectDir, {
+      sessionID: input.sessionID,
+      intent: plan.intent,
+      complexity: plan.complexity,
+      stage: plan.stage,
+      agent: lastAttemptedAgent,
+      estimatedTokens: payloadPlan.totalTokensEstimate,
+      estimatedCostUsd: payloadPlan.costUsdEstimate,
+      actualInputTokens: actualInputTokens || payloadPlan.inputTokens,
+      actualOutputTokens:
+        actualOutputTokens || payloadPlan.outputTokensEstimate,
+      actualTotalTokens: actualTotalTokens || payloadPlan.totalTokensEstimate,
+      actualCostUsd: actualCostUsd || payloadPlan.costUsdEstimate,
+    });
     if (learning.matchedDraftIDs.length > 0) {
       for (const draftID of learning.matchedDraftIDs) {
-        setSkillDraftStatus(projectDir, draftID, undefined, { hit: false });
+        settleSkillDraftUsage(projectDir, draftID, false);
       }
     }
     enqueueSessionMessage(projectDir, input.sessionID, {
@@ -3006,9 +3417,12 @@ function buildRoutedAgentSequence(
   availableAgents: string[],
   originalText: string,
 ): string[] {
-  const source = plan.plannedAgents.length > 0 ? plan.plannedAgents : [plan.agent];
+  const source =
+    plan.plannedAgents.length > 0 ? plan.plannedAgents : [plan.agent];
   const filtered = source.filter((agent) => availableAgents.includes(agent));
-  const unique = filtered.filter((agent, index, arr) => arr.indexOf(agent) === index);
+  const unique = filtered.filter(
+    (agent, index, arr) => arr.indexOf(agent) === index,
+  );
   const base = unique.length > 0 ? unique : [plan.agent];
 
   if (plan.complexity === 'low') {
@@ -3054,8 +3468,12 @@ function shouldEarlyExitForMediumTask(text: string): boolean {
     '登录页面',
   ];
 
-  const hasQuickFixSignal = quickFixSignals.some((token) => normalized.includes(token));
-  const hasMultiStepSignal = multiStepSignals.some((token) => normalized.includes(token));
+  const hasQuickFixSignal = quickFixSignals.some((token) =>
+    normalized.includes(token),
+  );
+  const hasMultiStepSignal = multiStepSignals.some((token) =>
+    normalized.includes(token),
+  );
   return hasQuickFixSignal && !hasMultiStepSignal;
 }
 
@@ -3091,7 +3509,9 @@ function resolveApprovalTicket(input: {
   sessionID: string;
   permission: string;
   patterns: string[];
-}): { ok: true; ticket: ApprovalTicketSummary } | { ok: false; reason: string } {
+}):
+  | { ok: true; ticket: ApprovalTicketSummary }
+  | { ok: false; reason: string } {
   const kill = readKillSwitch(input.projectDir);
   if (kill.active) {
     return { ok: false, reason: 'kill_switch_active' };
@@ -3112,7 +3532,12 @@ function resolveApprovalTicket(input: {
     },
     false,
   );
-  const token = findApprovalToken(input.projectDir, input.sessionID, [requestHash], tier);
+  const token = findApprovalToken(
+    input.projectDir,
+    input.sessionID,
+    [requestHash],
+    tier,
+  );
   if (token) {
     return {
       ok: true,
@@ -3185,7 +3610,11 @@ function hasEventSubscribers(runtime: GatewayRuntime, event: string): boolean {
   return false;
 }
 
-function publishFrame(runtime: GatewayRuntime, event: string, frame: unknown): void {
+function publishFrame(
+  runtime: GatewayRuntime,
+  event: string,
+  frame: unknown,
+): void {
   let encoded: string | null = null;
   for (const ws of runtime.wsClients) {
     if (ws.readyState !== WebSocket.OPEN) continue;
@@ -3200,7 +3629,10 @@ function publishFrame(runtime: GatewayRuntime, event: string, frame: unknown): v
   }
 }
 
-function emitWizardProgress(runtime: GatewayRuntime, payload: Record<string, unknown>): void {
+function emitWizardProgress(
+  runtime: GatewayRuntime,
+  payload: Record<string, unknown>,
+): void {
   publishGatewayEvent(runtime, 'companion.wizard.progress', payload);
 }
 
@@ -3260,7 +3692,11 @@ async function runWizardTrainingWorker(
   if (!queued) return;
   runtime.wizardRunnerBusy = true;
   try {
-    const runningState = markTrainingJobRunning(projectDir, queued.job.id, queued.sessionId);
+    const runningState = markTrainingJobRunning(
+      projectDir,
+      queued.job.id,
+      queued.sessionId,
+    );
     emitWizardProgress(runtime, {
       sessionId: queued.sessionId,
       jobID: queued.job.id,
@@ -3270,7 +3706,10 @@ async function runWizardTrainingWorker(
       step: runningState.state,
     });
     const daemon = getMiyaClient(projectDir);
-    const profileDir = getCompanionProfileCurrentDir(projectDir, queued.sessionId);
+    const profileDir = getCompanionProfileCurrentDir(
+      projectDir,
+      queued.sessionId,
+    );
     if (queued.job.type === 'training.image') {
       const photosDir = path.join(profileDir, 'photos');
       const result = await daemon.runFluxTraining({
@@ -3279,7 +3718,11 @@ async function runWizardTrainingWorker(
         jobID: queued.job.id,
         checkpointPath: queued.job.checkpointPath,
       });
-      if (result.status === 'failed' && result.checkpointPath && queued.job.attempts < 3) {
+      if (
+        result.status === 'failed' &&
+        result.checkpointPath &&
+        queued.job.attempts < 3
+      ) {
         const requeued = requeueTrainingJob(projectDir, {
           sessionId: queued.sessionId,
           jobID: queued.job.id,
@@ -3315,14 +3758,22 @@ async function runWizardTrainingWorker(
       return;
     }
 
-    const voiceSamplePath = path.join(profileDir, 'voice', 'original_sample.wav');
+    const voiceSamplePath = path.join(
+      profileDir,
+      'voice',
+      'original_sample.wav',
+    );
     const result = await daemon.runSovitsTraining({
       profileDir,
       voiceSamplePath,
       jobID: queued.job.id,
       checkpointPath: queued.job.checkpointPath,
     });
-    if (result.status === 'failed' && result.checkpointPath && queued.job.attempts < 3) {
+    if (
+      result.status === 'failed' &&
+      result.checkpointPath &&
+      queued.job.attempts < 3
+    ) {
       const requeued = requeueTrainingJob(projectDir, {
         sessionId: queued.sessionId,
         jobID: queued.job.id,
@@ -3360,10 +3811,7 @@ async function runWizardTrainingWorker(
   }
 }
 
-function ensureWsData(
-  runtime: GatewayRuntime,
-  ws: WebSocket,
-): GatewayWsData {
+function ensureWsData(runtime: GatewayRuntime, ws: WebSocket): GatewayWsData {
   const existing = runtime.wsMeta.get(ws);
   if (existing) {
     return existing;
@@ -3420,15 +3868,21 @@ async function onInboundMessage(
   maybeBroadcast(projectDir, runtime);
 }
 
-function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMethodRegistry {
+function createMethods(
+  projectDir: string,
+  runtime: GatewayRuntime,
+): GatewayMethodRegistry {
   const config = readConfig(projectDir);
-  const backpressure = (config.runtime as Record<string, unknown> | undefined)?.backpressure as
-    | Record<string, unknown>
-    | undefined;
+  const backpressure = (config.runtime as Record<string, unknown> | undefined)
+    ?.backpressure as Record<string, unknown> | undefined;
   const maxInFlight =
-    typeof backpressure?.max_in_flight === 'number' ? Number(backpressure.max_in_flight) : undefined;
+    typeof backpressure?.max_in_flight === 'number'
+      ? Number(backpressure.max_in_flight)
+      : undefined;
   const maxQueued =
-    typeof backpressure?.max_queued === 'number' ? Number(backpressure.max_queued) : undefined;
+    typeof backpressure?.max_queued === 'number'
+      ? Number(backpressure.max_queued)
+      : undefined;
   const queueTimeoutMs =
     typeof backpressure?.queue_timeout_ms === 'number'
       ? Number(backpressure.queue_timeout_ms)
@@ -3440,18 +3894,27 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
   const agentRuntimeApi = new AgentModelRuntimeApi(projectDir);
 
-  methods.register('gateway.status.get', async () => buildSnapshot(projectDir, runtime));
+  methods.register('gateway.status.get', async () =>
+    buildSnapshot(projectDir, runtime),
+  );
   methods.register('autoflow.status.get', async (params) => {
     const limit = typeof params.limit === 'number' ? Number(params.limit) : 30;
-    const sessions = listAutoflowSessions(projectDir, Math.max(1, Math.min(200, limit)));
+    const sessions = listAutoflowSessions(
+      projectDir,
+      Math.max(1, Math.min(200, limit)),
+    );
     const persistentConfig = readAutoflowPersistentConfig(projectDir);
-    const persistentSessions = getAutoflowPersistentRuntimeSnapshot(projectDir, Math.max(1, Math.min(200, limit)));
+    const persistentSessions = getAutoflowPersistentRuntimeSnapshot(
+      projectDir,
+      Math.max(1, Math.min(200, limit)),
+    );
     return {
-      active: sessions.filter((item) =>
-        item.phase === 'planning' ||
-        item.phase === 'execution' ||
-        item.phase === 'verification' ||
-        item.phase === 'fixing',
+      active: sessions.filter(
+        (item) =>
+          item.phase === 'planning' ||
+          item.phase === 'execution' ||
+          item.phase === 'verification' ||
+          item.phase === 'fixing',
       ).length,
       sessions,
       persistent: {
@@ -3466,7 +3929,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     return {
       mode,
       cost: getRouteCostSummary(projectDir, Math.max(1, Math.min(1000, limit))),
-      recent: listRouteCostRecords(projectDir, Math.max(1, Math.min(100, limit))),
+      recent: listRouteCostRecords(
+        projectDir,
+        Math.max(1, Math.min(100, limit)),
+      ),
     };
   });
   methods.register('learning.drafts.stats', async () => ({
@@ -3493,8 +3959,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const query = parseText(params.query);
     if (!query) throw new Error('query_required');
     const threshold =
-      typeof params.threshold === 'number' ? Number(params.threshold) : undefined;
-    const limit = typeof params.limit === 'number' ? Number(params.limit) : undefined;
+      typeof params.threshold === 'number'
+        ? Number(params.threshold)
+        : undefined;
+    const limit =
+      typeof params.limit === 'number' ? Number(params.limit) : undefined;
     return buildLearningInjection(projectDir, query, {
       threshold,
       limit,
@@ -3507,7 +3976,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     }, 20);
     return { ok: true, state };
   });
-  methods.register('doctor.run', async () => buildSnapshot(projectDir, runtime).doctor);
+  methods.register(
+    'doctor.run',
+    async () => buildSnapshot(projectDir, runtime).doctor,
+  );
   methods.register('gateway.backpressure.stats', async () => ({
     ...runtime.methods.stats(),
     updatedAt: nowIso(),
@@ -3517,11 +3989,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     updatedAt: nowIso(),
   }));
   methods.register('gateway.audit.tail', async (params) => {
-    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 100;
+    const limitRaw =
+      typeof params.limit === 'number' ? Number(params.limit) : 100;
     const limit = Math.max(1, Math.min(1000, Math.floor(limitRaw)));
     const file = gatewayMethodAuditFile(projectDir);
     if (!fs.existsSync(file)) return [];
-    const lines = fs.readFileSync(file, 'utf-8').trim().split(/\r?\n/).filter(Boolean);
+    const lines = fs
+      .readFileSync(file, 'utf-8')
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
     return lines
       .slice(Math.max(0, lines.length - limit))
       .map((line) => {
@@ -3536,8 +4013,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('gateway.pressure.run', async (params) => {
     const concurrencyRaw =
       typeof params.concurrency === 'number' ? Number(params.concurrency) : 10;
-    const roundsRaw = typeof params.rounds === 'number' ? Number(params.rounds) : 1;
-    const timeoutMs = typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : 20_000;
+    const roundsRaw =
+      typeof params.rounds === 'number' ? Number(params.rounds) : 1;
+    const timeoutMs =
+      typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : 20_000;
     const concurrency = Math.max(1, Math.min(100, Math.floor(concurrencyRaw)));
     const rounds = Math.max(1, Math.min(20, Math.floor(roundsRaw)));
     const startedAtMs = Date.now();
@@ -3585,9 +4064,11 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     };
   });
   methods.register('gateway.startup.probe.run', async (params) => {
-    const roundsRaw = typeof params.rounds === 'number' ? Number(params.rounds) : 20;
+    const roundsRaw =
+      typeof params.rounds === 'number' ? Number(params.rounds) : 20;
     const rounds = Math.max(1, Math.min(100, Math.floor(roundsRaw)));
-    const waitMsRaw = typeof params.waitMs === 'number' ? Number(params.waitMs) : 250;
+    const waitMsRaw =
+      typeof params.waitMs === 'number' ? Number(params.waitMs) : 250;
     const waitMs = Math.max(50, Math.min(5_000, Math.floor(waitMsRaw)));
     if (params.refreshDebug === true) {
       runtime.startupSelfCheck = runStartupSelfCheck(projectDir);
@@ -3629,7 +4110,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
   methods.register('config.center.get', async () => readConfig(projectDir));
   methods.register('provider.override.audit.list', async (params) => {
-    const limitRaw = typeof params.limit === 'number' ? Number(params.limit) : 50;
+    const limitRaw =
+      typeof params.limit === 'number' ? Number(params.limit) : 50;
     const limit = Math.max(1, Math.min(500, Math.floor(limitRaw)));
     return listProviderOverrideAudits(projectDir, limit);
   });
@@ -3637,7 +4119,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('agent.runtime.set', async (params) => {
     const agentName = parseText(params.agentName || params.agent);
     const model = params.model;
-    const activate = typeof params.activate === 'boolean' ? params.activate : true;
+    const activate =
+      typeof params.activate === 'boolean' ? params.activate : true;
     if (!agentName) throw new Error('invalid_agent_name');
     if (typeof model !== 'string' || model.trim().length === 0) {
       throw new Error('invalid_model_ref');
@@ -3660,7 +4143,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('agent.runtime.reset', async (params) => {
     const agentName = parseText(params.agentName || params.agent);
     if (!agentName) throw new Error('invalid_agent_name');
-    const clearActive = typeof params.clearActive === 'boolean' ? params.clearActive : true;
+    const clearActive =
+      typeof params.clearActive === 'boolean' ? params.clearActive : true;
     const activeAgentId = parseText(params.activeAgentId) || undefined;
     const result = agentRuntimeApi.reset({
       agentName,
@@ -3678,7 +4162,9 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requireDomainRunning(projectDir, 'fs_write');
     const validation = validateConfigPatch(projectDir, params.patch);
     if (!validation.ok) {
-      throw new Error(`config_validation_failed:${validation.errors.join('|')}`);
+      throw new Error(
+        `config_validation_failed:${validation.errors.join('|')}`,
+      );
     }
     const applied = applyConfigPatch(projectDir, validation);
     return {
@@ -3698,7 +4184,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     wizardPromptByState,
   });
 
-  methods.register('cron.list', async () => depsOf(projectDir).automationService?.listJobs() ?? []);
+  methods.register(
+    'cron.list',
+    async () => depsOf(projectDir).automationService?.listJobs() ?? [],
+  );
   methods.register('cron.runs.list', async (params) => {
     const limit =
       typeof params.limit === 'number' && params.limit > 0
@@ -3721,9 +4210,14 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       time,
       command,
       cwd: parseText(params.cwd) || undefined,
-      timeoutMs: typeof params.timeoutMs === 'number' ? Number(params.timeoutMs) : undefined,
+      timeoutMs:
+        typeof params.timeoutMs === 'number'
+          ? Number(params.timeoutMs)
+          : undefined,
       requireApproval:
-        typeof params.requireApproval === 'boolean' ? params.requireApproval : false,
+        typeof params.requireApproval === 'boolean'
+          ? params.requireApproval
+          : false,
     });
   });
   methods.register('cron.remove', async (params) => {
@@ -3741,7 +4235,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!service) throw new Error('automation_service_unavailable');
     const policyHash = parseText(params.policyHash) || undefined;
     const jobID = parseText(params.jobID);
-    if (!jobID || typeof params.enabled !== 'boolean') throw new Error('invalid_cron_update_args');
+    if (!jobID || typeof params.enabled !== 'boolean')
+      throw new Error('invalid_cron_update_args');
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'fs_write');
     return service.setJobEnabled(jobID, params.enabled);
@@ -3756,7 +4251,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     requireDomainRunning(projectDir, 'local_build');
     return service.runJobNow(jobID);
   });
-  methods.register('cron.approvals.list', async () => depsOf(projectDir).automationService?.listApprovals() ?? []);
+  methods.register(
+    'cron.approvals.list',
+    async () => depsOf(projectDir).automationService?.listApprovals() ?? [],
+  );
   methods.register('cron.approvals.approve', async (params) => {
     const service = depsOf(projectDir).automationService;
     if (!service) throw new Error('automation_service_unavailable');
@@ -3784,7 +4282,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     runtime,
     parseText,
     parseChannel,
-    sendChannelMessageGuarded: (input) => sendChannelMessageGuarded(projectDir, runtime, input),
+    sendChannelMessageGuarded: (input) =>
+      sendChannelMessageGuarded(projectDir, runtime, input),
   });
 
   registerSecurityMethods({
@@ -3802,10 +4301,15 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
   methods.register('daemon.python.env.status', async () => {
     const daemon = getMiyaClient(projectDir);
-    const status = (await daemon.getPythonRuntimeStatus()) as GatewayPythonRuntimeStatus | null;
+    const status =
+      (await daemon.getPythonRuntimeStatus()) as GatewayPythonRuntimeStatus | null;
     if (!status) return null;
     const recommendations = normalizeRuntimeDependencyRecommendations(status);
-    const assist = await maybeTriggerDependencyAssist(projectDir, runtime, status);
+    const assist = await maybeTriggerDependencyAssist(
+      projectDir,
+      runtime,
+      status,
+    );
     return {
       ...status,
       repairPlan: {
@@ -3817,18 +4321,21 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   });
   methods.register('daemon.python.env.repair.plan', async (params) => {
     const daemon = getMiyaClient(projectDir);
-    const status = (await daemon.getPythonRuntimeStatus()) as GatewayPythonRuntimeStatus | null;
+    const status =
+      (await daemon.getPythonRuntimeStatus()) as GatewayPythonRuntimeStatus | null;
     if (!status) throw new Error('python_runtime_status_unavailable');
     const recommendations = normalizeRuntimeDependencyRecommendations(status);
     const prompt =
-      status.repairPlan?.opencodeAssistPrompt || buildDependencyAssistPrompt(status);
+      status.repairPlan?.opencodeAssistPrompt ||
+      buildDependencyAssistPrompt(status);
     const route = await routeSessionMessage(projectDir, {
       sessionID: parseText(params.sessionID) || 'main',
       source: 'daemon.python.env.repair.plan',
       text: prompt,
     });
     return {
-      issueType: status.repairPlan?.issueType ?? status.trainingDisabledReason ?? 'ok',
+      issueType:
+        status.repairPlan?.issueType ?? status.trainingDisabledReason ?? 'ok',
       warnings: status.repairPlan?.warnings ?? [],
       conflicts: status.repairPlan?.conflicts ?? [],
       oneShotCommand: status.repairPlan?.oneShotCommand,
@@ -4016,7 +4523,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         },
       });
     }
-    runtime.nexus.killSwitchMode = resolveKillSwitchMode(projectDir, readKillSwitch(projectDir));
+    runtime.nexus.killSwitchMode = resolveKillSwitchMode(
+      projectDir,
+      readKillSwitch(projectDir),
+    );
     appendNexusInsight(runtime, {
       text: `KillSwitch mode -> ${runtime.nexus.killSwitchMode}`,
     });
@@ -4032,10 +4542,17 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('intervention.approve', async (params, context) => {
     const sessionID = parseText(params.sessionID) || 'main';
     const permission = parseText(params.permission) || 'external_message';
-    const action = parseText(params.action) || `intervention_approve:${permission}`;
-    const tierText = normalizeApprovalTier(parseText(params.tier).toLowerCase());
-    const patternsRaw = Array.isArray(params.patterns) ? params.patterns : ['*'];
-    const patterns = patternsRaw.map((item) => String(item).trim()).filter(Boolean);
+    const action =
+      parseText(params.action) || `intervention_approve:${permission}`;
+    const tierText = normalizeApprovalTier(
+      parseText(params.tier).toLowerCase(),
+    );
+    const patternsRaw = Array.isArray(params.patterns)
+      ? params.patterns
+      : ['*'];
+    const patterns = patternsRaw
+      .map((item) => String(item).trim())
+      .filter(Boolean);
     const normalizedPatterns = patterns.length > 0 ? patterns : ['*'];
     const requestHash = buildRequestHash(
       {
@@ -4239,7 +4756,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('learning.gate.set', async (params) => {
     const next = writeLearningGateConfig(projectDir, {
       candidateMode:
-        params.candidateMode === 'silent_audit' || params.candidateMode === 'toast_gate'
+        params.candidateMode === 'silent_audit' ||
+        params.candidateMode === 'toast_gate'
           ? params.candidateMode
           : undefined,
       persistentRequiresApproval:
@@ -4289,9 +4807,14 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
 
   methods.register('skills.status', async () => ({
     enabled: listEnabledSkills(projectDir),
-    discovered: discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []),
+    discovered: discoverSkills(
+      projectDir,
+      depsOf(projectDir).extraSkillDirs ?? [],
+    ),
   }));
-  methods.register('miya.sync.list', async () => listEcosystemBridge(projectDir));
+  methods.register('miya.sync.list', async () =>
+    listEcosystemBridge(projectDir),
+  );
   methods.register('miya.sync.diff', async (params) => {
     const sourcePackID = parseText(params.sourcePackID);
     if (!sourcePackID) throw new Error('invalid_source_pack_id');
@@ -4329,7 +4852,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       projectDir,
       sessionID,
       permission: 'skills_install',
-      patterns: [`sourcePackID=${sourcePackID}`, `revision=${revision ?? 'latest'}`],
+      patterns: [
+        `sourcePackID=${sourcePackID}`,
+        `revision=${revision ?? 'latest'}`,
+      ],
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
     return applySourcePack(projectDir, sourcePackID, { revision });
@@ -4381,11 +4907,18 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
   methods.register('skills.enable', async (params) => {
     const skillID = parseText(params.skillID);
     if (!skillID) throw new Error('invalid_skill_id');
-    const discovered = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []);
-    const descriptor = discovered.find((item) => item.id === skillID || item.name === skillID);
+    const discovered = discoverSkills(
+      projectDir,
+      depsOf(projectDir).extraSkillDirs ?? [],
+    );
+    const descriptor = discovered.find(
+      (item) => item.id === skillID || item.name === skillID,
+    );
     if (!descriptor) throw new Error(`skill_not_found:${skillID}`);
     if (!descriptor.gate.loadable) {
-      throw new Error(`skill_not_loadable:${descriptor.gate.reasons.join('|')}`);
+      throw new Error(
+        `skill_not_loadable:${descriptor.gate.reasons.join('|')}`,
+      );
     }
     return { enabled: setSkillEnabled(projectDir, descriptor.id, true) };
   });
@@ -4412,7 +4945,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     });
     if (!token.ok) throw new Error(`approval_required:${token.reason}`);
 
-    const root = path.join(os.homedir(), '.config', 'opencode', 'miya', 'skills');
+    const root = path.join(
+      os.homedir(),
+      '.config',
+      'opencode',
+      'miya',
+      'skills',
+    );
     fs.mkdirSync(root, { recursive: true });
     const name =
       targetName ||
@@ -4423,7 +4962,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ?.replace(/\.git$/i, '') ||
       `skill-${Date.now().toString(36)}`;
     const target = path.join(root, name);
-    if (fs.existsSync(target)) return { ok: false, message: `target_exists:${target}` };
+    if (fs.existsSync(target))
+      return { ok: false, message: `target_exists:${target}` };
 
     const proc = spawnSync('git', ['clone', '--depth', '1', repo, target], {
       encoding: 'utf-8',
@@ -4435,9 +4975,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         message: String(proc.stderr || '').trim() || 'git_clone_failed',
       };
     }
-    const installed = discoverSkills(projectDir, depsOf(projectDir).extraSkillDirs ?? []).find(
-      (item) => path.resolve(item.dir) === path.resolve(target),
-    );
+    const installed = discoverSkills(
+      projectDir,
+      depsOf(projectDir).extraSkillDirs ?? [],
+    ).find((item) => path.resolve(item.dir) === path.resolve(target));
     if (!installed) {
       fs.rmSync(target, { recursive: true, force: true });
       return {
@@ -4497,7 +5038,8 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const source = parseText(params.source);
     const mimeType = parseText(params.mimeType);
     const fileName = parseText(params.fileName);
-    if (!source || !mimeType || !fileName) throw new Error('invalid_media_ingest_args');
+    if (!source || !mimeType || !fileName)
+      throw new Error('invalid_media_ingest_args');
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'fs_write');
     if (
@@ -4516,8 +5058,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       fileName,
       contentBase64: parseText(params.contentBase64) || undefined,
       sizeBytes:
-        typeof params.sizeBytes === 'number' ? Number(params.sizeBytes) : undefined,
-      ttlHours: typeof params.ttlHours === 'number' ? Number(params.ttlHours) : undefined,
+        typeof params.sizeBytes === 'number'
+          ? Number(params.sizeBytes)
+          : undefined,
+      ttlHours:
+        typeof params.ttlHours === 'number'
+          ? Number(params.ttlHours)
+          : undefined,
       metadata:
         params.metadata && typeof params.metadata === 'object'
           ? (params.metadata as Record<string, unknown>)
@@ -4575,11 +5122,20 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!title) throw new Error('invalid_canvas_title');
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'fs_write');
-    if (type && type !== 'text' && type !== 'markdown' && type !== 'json' && type !== 'html') {
+    if (
+      type &&
+      type !== 'text' &&
+      type !== 'markdown' &&
+      type !== 'json' &&
+      type !== 'html'
+    ) {
       throw new Error('invalid_canvas_type');
     }
     const docType =
-      type === 'text' || type === 'markdown' || type === 'json' || type === 'html'
+      type === 'text' ||
+      type === 'markdown' ||
+      type === 'json' ||
+      type === 'html'
         ? type
         : undefined;
     return openCanvasDoc(projectDir, {
@@ -4609,10 +5165,16 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!docID) throw new Error('invalid_doc_id');
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'fs_write');
-    return closeCanvasDoc(projectDir, docID, parseText(params.actor) || 'gateway');
+    return closeCanvasDoc(
+      projectDir,
+      docID,
+      parseText(params.actor) || 'gateway',
+    );
   });
 
-  methods.register('companion.status', async () => readCompanionProfile(projectDir));
+  methods.register('companion.status', async () =>
+    readCompanionProfile(projectDir),
+  );
   methods.register('companion.wizard.start', async (params) => {
     const sessionId = parseText(params.sessionID) || 'wizard:companion';
     const session = upsertSession(projectDir, {
@@ -4643,7 +5205,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     };
   });
   methods.register('companion.wizard.status', async (params) => {
-    const wizard = readCompanionWizardState(projectDir, parseText(params.sessionID) || 'main');
+    const wizard = readCompanionWizardState(
+      projectDir,
+      parseText(params.sessionID) || 'main',
+    );
     return {
       wizard,
       checklist: wizardChecklist(wizard),
@@ -4660,7 +5225,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         ? params.imageMediaIDs.map(String)
         : [];
     const sessionId = parseText(params.sessionID) || 'main';
-    const { state, job } = submitWizardPhotos(projectDir, { mediaIDs, sessionId });
+    const { state, job } = submitWizardPhotos(projectDir, {
+      mediaIDs,
+      sessionId,
+    });
     return {
       state: state.state,
       message: '收到照片，开始训练图像模型...',
@@ -4677,7 +5245,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const mediaID = parseText(params.mediaID) || parseText(params.audioMediaID);
     if (!mediaID) throw new Error('invalid_voice_media_id');
     const sessionId = parseText(params.sessionID) || 'main';
-    const { state, job } = submitWizardVoice(projectDir, { mediaID, sessionId });
+    const { state, job } = submitWizardVoice(projectDir, {
+      mediaID,
+      sessionId,
+    });
     return {
       state: state.state,
       message: '收到语音样本，开始训练声音模型...',
@@ -4730,7 +5301,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     };
   });
   methods.register('companion.wizard.submit', async (params) => {
-    if (Array.isArray(params.photoMediaIDs) || Array.isArray(params.imageMediaIDs)) {
+    if (
+      Array.isArray(params.photoMediaIDs) ||
+      Array.isArray(params.imageMediaIDs)
+    ) {
       return invokeGatewayMethod(
         projectDir,
         runtime,
@@ -4739,7 +5313,10 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
         { clientID: 'gateway', role: 'admin' },
       );
     }
-    if (typeof params.mediaID === 'string' || typeof params.audioMediaID === 'string') {
+    if (
+      typeof params.mediaID === 'string' ||
+      typeof params.audioMediaID === 'string'
+    ) {
       return invokeGatewayMethod(
         projectDir,
         runtime,
@@ -4770,8 +5347,13 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!jobID) throw new Error('invalid_job_id');
     const job = getWizardJobById(projectDir, jobID);
     if (!job) throw new Error('job_not_found');
-    const status: 'pending' | 'training' | 'completed' | 'failed' | 'degraded' | 'canceled' =
-      job.status === 'queued' ? 'pending' : job.status;
+    const status:
+      | 'pending'
+      | 'training'
+      | 'completed'
+      | 'failed'
+      | 'degraded'
+      | 'canceled' = job.status === 'queued' ? 'pending' : job.status;
     const nextStep =
       status === 'completed' || status === 'degraded'
         ? readCompanionWizardState(projectDir, job.sessionId).state
@@ -4784,7 +5366,7 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       nextStep,
       checkpointPath: job.checkpointPath,
       sessionId: job.sessionId,
-    }
+    };
   });
   methods.register('companion.profile.update', async (params) => {
     requireOwnerMode(projectDir);
@@ -4939,9 +5521,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     const policyHash = parseText(params.policyHash) || undefined;
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'memory_write');
-    const force = typeof params.force === 'boolean' ? Boolean(params.force) : false;
+    const force =
+      typeof params.force === 'boolean' ? Boolean(params.force) : false;
     const minLogs =
-      typeof params.minLogs === 'number' && params.minLogs > 0 ? Number(params.minLogs) : 1;
+      typeof params.minLogs === 'number' && params.minLogs > 0
+        ? Number(params.minLogs)
+        : 1;
     const maxLogs =
       typeof params.maxLogs === 'number' && params.maxLogs > 0
         ? Math.min(500, Number(params.maxLogs))
@@ -4977,14 +5562,18 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
     if (!pathOrUrl) throw new Error('invalid_asset_path');
     requirePolicyHash(projectDir, policyHash);
     requireDomainRunning(projectDir, 'fs_write');
-    if (type !== 'image' && type !== 'audio') throw new Error('invalid_asset_type');
+    if (type !== 'image' && type !== 'audio')
+      throw new Error('invalid_asset_type');
     return addCompanionAsset(projectDir, {
       type,
       pathOrUrl,
       label: parseText(params.label) || undefined,
     });
   });
-  methods.register('companion.asset.list', async () => readCompanionProfile(projectDir).assets);
+  methods.register(
+    'companion.asset.list',
+    async () => readCompanionProfile(projectDir).assets,
+  );
   methods.register('companion.reset', async (params) => {
     const policyHash = parseText(params.policyHash) || undefined;
     requirePolicyHash(projectDir, policyHash);
@@ -5082,8 +5671,12 @@ function createMethods(projectDir: string, runtime: GatewayRuntime): GatewayMeth
       kindRaw === 'shell.exec'
         ? kindRaw
         : 'generic';
-    const requestVram = typeof params.vramMB === 'number' ? Number(params.vramMB) : 1024;
-    const modelVram = typeof params.modelVramMB === 'number' ? Number(params.modelVramMB) : 2048;
+    const requestVram =
+      typeof params.vramMB === 'number' ? Number(params.vramMB) : 1024;
+    const modelVram =
+      typeof params.modelVramMB === 'number'
+        ? Number(params.modelVramMB)
+        : 2048;
     const snapshot = scheduler.snapshot();
     const budget = calculateVramBudget({
       snapshot,
@@ -5303,7 +5896,12 @@ async function routeGatewayHttpRequest(
     const missingUiFallback =
       controlUiResponse.status === 503 && controlUi.root?.kind !== 'resolved';
     if (missingUiFallback) {
-      logControlUiFallback(projectDir, url.pathname, controlUi, controlUiResponse.status);
+      logControlUiFallback(
+        projectDir,
+        url.pathname,
+        controlUi,
+        controlUiResponse.status,
+      );
     }
     if (!missingUiFallback) return controlUiResponse;
   }
@@ -5329,7 +5927,9 @@ async function routeGatewayHttpRequest(
 
   if (url.pathname === '/' || url.pathname === '/index.html') {
     const gatewayState = syncGatewayState(projectDir, runtime);
-    const uiBasePath = normalizeControlUiBasePath(controlUi.basePath || '/control') || '/control';
+    const uiBasePath =
+      normalizeControlUiBasePath(controlUi.basePath || '/control') ||
+      '/control';
     const wsUrl = `${gatewayState.url.replace(/^http/i, 'ws')}/ws`;
     return new Response(
       [
@@ -5455,7 +6055,12 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     const httpServer = createServer((req, res) => {
       void (async () => {
         const request = toNodeRequest(req, listen.hostname, port);
-        const response = await routeGatewayHttpRequest(projectDir, runtime, request, controlUi);
+        const response = await routeGatewayHttpRequest(
+          projectDir,
+          runtime,
+          request,
+          controlUi,
+        );
         await sendNodeResponse(req, res, response);
       })().catch((error) => {
         log('[gateway] http request failed', {
@@ -5473,7 +6078,10 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     });
 
     httpServer.on('upgrade', (req, socket, head) => {
-      const requestUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+      const requestUrl = new URL(
+        req.url || '/',
+        `http://${req.headers.host || '127.0.0.1'}`,
+      );
       if (requestUrl.pathname !== '/ws') {
         socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
         socket.destroy();
@@ -5508,6 +6116,13 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
       daemonLauncherUnsubscribe: undefined,
       startupSelfCheck: undefined,
       negotiationBudgets: new Map(),
+      autoParallel: {
+        triggered: 0,
+        succeeded: 0,
+        failed: 0,
+        totalDagNodes: 0,
+        totalDagCompleted: 0,
+      },
       nexus: {
         sessionId: 'main',
         activeTool: undefined,
@@ -5615,7 +6230,9 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
 
         if (frame.method === 'gateway.subscribe') {
           wsData.subscriptions = new Set(
-            Array.isArray(frame.params?.events) ? frame.params.events.map(String) : ['*'],
+            Array.isArray(frame.params?.events)
+              ? frame.params.events.map(String)
+              : ['*'],
           );
           ws.send(
             JSON.stringify(
@@ -5657,7 +6274,8 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
         if (frameSessionID) {
           runtime.nexus.sessionId = frameSessionID;
         }
-        const frameJobID = parseText(frame.params?.jobID) || parseText(frame.params?.jobId);
+        const frameJobID =
+          parseText(frame.params?.jobID) || parseText(frame.params?.jobId);
         if (frameJobID) {
           runtime.nexus.jobId = frameJobID;
         }
@@ -5685,12 +6303,15 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
             ok: true,
             durationMs: Date.now() - invokeStartedAt,
           });
-          ws.send(JSON.stringify(toResponseFrame({ id: frame.id, ok: true, result })));
+          ws.send(
+            JSON.stringify(toResponseFrame({ id: frame.id, ok: true, result })),
+          );
           if (frame.method !== 'gateway.status.get') {
             maybeBroadcast(projectDir, runtime);
           }
         } catch (error) {
-          const messageText = error instanceof Error ? error.message : String(error);
+          const messageText =
+            error instanceof Error ? error.message : String(error);
           appendGatewayMethodAudit(projectDir, {
             method: frame.method,
             requestID: frame.id,
@@ -5719,7 +6340,6 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
     });
 
     httpServer.listen(port, listen.hostname);
-
   } catch (error) {
     clearGatewayStateFile(projectDir);
     removeOwnerLock(projectDir);
@@ -5737,45 +6357,54 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
   runtime.ownerBeatTimer = setInterval(() => {
     touchOwnerLock(projectDir);
   }, 5_000);
-  runtime.memoryReflectTimer = setInterval(() => {
-    // MemoryWorker: consolidate short-term logs after idle periods.
-    const reflected = maybeAutoReflectCompanionMemory(projectDir, {
-      idleMinutes: 60,
-      minPendingLogs: 200,
-      cooldownMinutes: 12 * 60,
-      maxLogs: 500,
-    });
-    if (reflected) {
-      syncCompanionProfileMemoryFacts(projectDir);
-    }
-  }, 5 * 60 * 1000);
-  runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(projectDir, (event) => {
-    appendDaemonProgressAudit(projectDir, event);
-    if (event.type === 'job.progress') {
-      publishGatewayEvent(runtime, 'daemon.job_progress', event);
-      const phase = String(event.payload?.phase ?? '');
-      if (phase === 'audio.filler') {
-        publishGatewayEvent(runtime, 'daemon.audio_filler', event);
+  runtime.memoryReflectTimer = setInterval(
+    () => {
+      // MemoryWorker: consolidate short-term logs after idle periods.
+      const reflected = maybeAutoReflectCompanionMemory(projectDir, {
+        idleMinutes: 60,
+        minPendingLogs: 200,
+        cooldownMinutes: 12 * 60,
+        maxLogs: 500,
+      });
+      if (reflected) {
+        syncCompanionProfileMemoryFacts(projectDir);
       }
-      const config = readConfig(projectDir);
-      const notifyOnTerminal =
-        ((config.runtime as Record<string, unknown> | undefined)?.notifications as
-          | Record<string, unknown>
-          | undefined)?.job_toast !== false;
-      const status = String(event.payload?.status ?? '').trim().toLowerCase();
-      if (
-        notifyOnTerminal &&
-        (status === 'completed' ||
-          status === 'failed' ||
-          status === 'degraded' ||
-          status === 'canceled')
-      ) {
-        publishGatewayEvent(runtime, 'daemon.job_terminal', event);
+    },
+    5 * 60 * 1000,
+  );
+  runtime.daemonLauncherUnsubscribe = subscribeLauncherEvents(
+    projectDir,
+    (event) => {
+      appendDaemonProgressAudit(projectDir, event);
+      if (event.type === 'job.progress') {
+        publishGatewayEvent(runtime, 'daemon.job_progress', event);
+        const phase = String(event.payload?.phase ?? '');
+        if (phase === 'audio.filler') {
+          publishGatewayEvent(runtime, 'daemon.audio_filler', event);
+        }
+        const config = readConfig(projectDir);
+        const notifyOnTerminal =
+          (
+            (config.runtime as Record<string, unknown> | undefined)
+              ?.notifications as Record<string, unknown> | undefined
+          )?.job_toast !== false;
+        const status = String(event.payload?.status ?? '')
+          .trim()
+          .toLowerCase();
+        if (
+          notifyOnTerminal &&
+          (status === 'completed' ||
+            status === 'failed' ||
+            status === 'degraded' ||
+            status === 'canceled')
+        ) {
+          publishGatewayEvent(runtime, 'daemon.job_terminal', event);
+        }
+        return;
       }
-      return;
-    }
-    publishGatewayEvent(runtime, event.type, event);
-  });
+      publishGatewayEvent(runtime, event.type, event);
+    },
+  );
   void runtime.channelRuntime.start();
   log('[gateway] runtime started', {
     projectDir,
@@ -5785,7 +6414,9 @@ export function ensureGatewayRunning(projectDir: string): GatewayState {
   return syncGatewayState(projectDir, runtime);
 }
 
-export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinition> {
+export function createGatewayTools(
+  ctx: PluginInput,
+): Record<string, ToolDefinition> {
   const miya_gateway_start = tool({
     description: 'Start Miya Gateway and persist .opencode/miya/gateway.json.',
     args: {},
@@ -5843,7 +6474,9 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
       return [
         'doctor=issues',
         `issues=${issues.length}`,
-        ...issues.map((issue) => `- [${issue.severity}] ${issue.code} | ${issue.message}`),
+        ...issues.map(
+          (issue) => `- [${issue.severity}] ${issue.code} | ${issue.message}`,
+        ),
       ].join('\n');
     },
   });
@@ -5866,11 +6499,23 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
     description:
       'Trigger Miya memory reflection (Memory Consolidation Loop) and sync long-term graph.',
     args: {
-      force: z.boolean().optional().describe('Force reflection even with low pending logs'),
+      force: z
+        .boolean()
+        .optional()
+        .describe('Force reflection even with low pending logs'),
       minLogs: z.number().optional().describe('Minimum pending logs required'),
-      maxLogs: z.number().optional().describe('Maximum logs processed in this run'),
-      cooldownMinutes: z.number().optional().describe('Cooldown window in minutes'),
-      idempotencyKey: z.string().optional().describe('Optional idempotency key'),
+      maxLogs: z
+        .number()
+        .optional()
+        .describe('Maximum logs processed in this run'),
+      cooldownMinutes: z
+        .number()
+        .optional()
+        .describe('Cooldown window in minutes'),
+      idempotencyKey: z
+        .string()
+        .optional()
+        .describe('Optional idempotency key'),
     },
     async execute(args) {
       registerGatewayDependencies(ctx.directory, { client: ctx.client });
@@ -5884,12 +6529,21 @@ export function createGatewayTools(ctx: PluginInput): Record<string, ToolDefinit
         {
           policyHash: currentPolicyHash(ctx.directory),
           force: Boolean(args.force),
-          minLogs: typeof args.minLogs === 'number' ? Math.floor(args.minLogs) : undefined,
-          maxLogs: typeof args.maxLogs === 'number' ? Math.floor(args.maxLogs) : undefined,
+          minLogs:
+            typeof args.minLogs === 'number'
+              ? Math.floor(args.minLogs)
+              : undefined,
+          maxLogs:
+            typeof args.maxLogs === 'number'
+              ? Math.floor(args.maxLogs)
+              : undefined,
           cooldownMinutes:
-            typeof args.cooldownMinutes === 'number' ? Number(args.cooldownMinutes) : undefined,
+            typeof args.cooldownMinutes === 'number'
+              ? Number(args.cooldownMinutes)
+              : undefined,
           idempotencyKey:
-            typeof args.idempotencyKey === 'string' && args.idempotencyKey.trim().length > 0
+            typeof args.idempotencyKey === 'string' &&
+            args.idempotencyKey.trim().length > 0
               ? args.idempotencyKey.trim()
               : undefined,
         },
@@ -5964,7 +6618,10 @@ export function startGatewayWithLog(projectDir: string): void {
           } catch (recoveryError) {
             log('[gateway] follower delayed recovery still blocked', {
               projectDir,
-              error: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+              error:
+                recoveryError instanceof Error
+                  ? recoveryError.message
+                  : String(recoveryError),
               owner: describeOwnerLock(readGatewayOwnerLock(projectDir)),
               state: describeGatewayState(readGatewayStateFile(projectDir)),
             });

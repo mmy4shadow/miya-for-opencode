@@ -1,7 +1,14 @@
 import { z } from 'zod';
 
 const JsonValue: z.ZodType<unknown> = z.lazy(() =>
-  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(JsonValue), z.record(z.string(), JsonValue)]),
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValue),
+    z.record(z.string(), JsonValue),
+  ]),
 );
 
 const JsonObject = z.record(z.string(), JsonValue);
@@ -101,4 +108,3 @@ export function parseDaemonOutgoingFrame(input: unknown): {
     return { error: error instanceof Error ? error.message : 'invalid_frame' };
   }
 }
-

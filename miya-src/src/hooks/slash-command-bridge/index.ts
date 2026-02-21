@@ -74,7 +74,8 @@ export function createSlashCommandBridgeHook() {
       const target = findLastUserTextPart(output.messages);
       if (!target) return;
 
-      const originalText = target.message.parts[target.textPartIndex].text ?? '';
+      const originalText =
+        target.message.parts[target.textPartIndex].text ?? '';
       const slashCommand = extractSlashCommand(originalText);
       if (!slashCommand) return;
 

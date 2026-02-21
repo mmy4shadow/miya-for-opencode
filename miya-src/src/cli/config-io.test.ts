@@ -1,6 +1,3 @@
-/// <reference types="bun-types" />
-
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import {
   existsSync,
   mkdtempSync,
@@ -10,6 +7,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   addChutesProvider,
   addPluginToOpenCodeConfig,
@@ -37,7 +35,7 @@ describe('config-io', () => {
     if (tmpDir && existsSync(tmpDir)) {
       rmSync(tmpDir, { recursive: true, force: true });
     }
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   test('stripJsonComments strips comments and trailing commas', () => {
@@ -201,10 +199,7 @@ describe('config-io', () => {
     const litePath = join(tmpDir, 'opencode', 'miya.json');
     paths.ensureConfigDir();
 
-    writeFileSync(
-      configPath,
-      JSON.stringify({ plugin: ['miya'] }),
-    );
+    writeFileSync(configPath, JSON.stringify({ plugin: ['miya'] }));
     writeFileSync(
       litePath,
       JSON.stringify({

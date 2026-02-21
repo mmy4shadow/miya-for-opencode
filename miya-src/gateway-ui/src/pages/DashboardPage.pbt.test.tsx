@@ -1,12 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import * as fc from 'fast-check';
-import { DashboardPage } from './DashboardPage';
+import { describe, expect, it, vi } from 'vitest';
 import { GatewayProvider } from '../hooks/useGateway';
+import { DashboardPage } from './DashboardPage';
 
 /**
  * Property-Based Tests for DashboardPage
- * 
+ *
  * These tests verify that the Dashboard page maintains content isolation
  * by ensuring it does NOT contain elements that have been moved to other pages.
  */
@@ -147,22 +147,25 @@ async function renderDashboard() {
   const result = render(
     <GatewayProvider>
       <DashboardPage />
-    </GatewayProvider>
+    </GatewayProvider>,
   );
-  
+
   // Wait for the component to finish loading
-  await waitFor(() => {
-    const loadingText = result.queryByText('加载中...');
-    expect(loadingText).not.toBeInTheDocument();
-  }, { timeout: 3000 });
-  
+  await waitFor(
+    () => {
+      const loadingText = result.queryByText('加载中...');
+      expect(loadingText).not.toBeInTheDocument();
+    },
+    { timeout: 3000 },
+  );
+
   return result;
 }
 
 describe('Property 5: Dashboard Content Isolation', () => {
   /**
    * **Validates: Requirements 2.3, 2.4, 2.5, 2.6, 2.7**
-   * 
+   *
    * Property: The Dashboard page should NOT contain any of the following content:
    * - Psyche configuration forms (共鸣层, 捕获探针, 信号覆盖, etc.)
    * - Security switches (外发暂停, 桌控暂停, etc.)
@@ -170,7 +173,7 @@ describe('Property 5: Dashboard Content Isolation', () => {
    * - Execution sequences/evidence packs (执行序列, 证据包, etc.)
    * - Skill summaries (技能摘要, 已启用技能, etc.)
    * - Ecosystem bridge summaries (生态桥接, 桥接摘要, etc.)
-   * 
+   *
    * This property should hold regardless of the data state or rendering conditions.
    */
 
@@ -203,154 +206,139 @@ describe('Property 5: Dashboard Content Isolation', () => {
           ];
 
           const pageText = container.textContent || '';
-          
-          forbiddenPsycheTerms.forEach(term => {
+
+          forbiddenPsycheTerms.forEach((term) => {
             expect(pageText).not.toContain(term);
           });
-        }
+        },
       ),
-      { numRuns: 100 }
+      { numRuns: 100 },
     );
   });
 
   it('should never display security switch controls', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.constant(null),
-        async () => {
-          const { container } = await renderDashboard();
+      fc.asyncProperty(fc.constant(null), async () => {
+        const { container } = await renderDashboard();
 
-          // Terms that should NOT appear on Dashboard (Security switches)
-          const forbiddenSecurityTerms = [
-            '外发暂停',
-            '桌控暂停',
-            '记忆读取暂停',
-            'outbound pause',
-            'desktop pause',
-            'memory read pause',
-          ];
+        // Terms that should NOT appear on Dashboard (Security switches)
+        const forbiddenSecurityTerms = [
+          '外发暂停',
+          '桌控暂停',
+          '记忆读取暂停',
+          'outbound pause',
+          'desktop pause',
+          'memory read pause',
+        ];
 
-          const pageText = container.textContent || '';
-          
-          forbiddenSecurityTerms.forEach(term => {
-            expect(pageText).not.toContain(term);
-          });
-        }
-      ),
-      { numRuns: 100 }
+        const pageText = container.textContent || '';
+
+        forbiddenSecurityTerms.forEach((term) => {
+          expect(pageText).not.toContain(term);
+        });
+      }),
+      { numRuns: 100 },
     );
   });
 
   it('should never display policy domain status', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.constant(null),
-        async () => {
-          const { container } = await renderDashboard();
+      fc.asyncProperty(fc.constant(null), async () => {
+        const { container } = await renderDashboard();
 
-          // Terms that should NOT appear on Dashboard (Policy domains)
-          const forbiddenPolicyTerms = [
-            '策略域',
-            '消息外发',
-            '桌面控制',
-            '记忆读取',
-            'policy domain',
-            'message outbound',
-            'desktop control domain',
-          ];
+        // Terms that should NOT appear on Dashboard (Policy domains)
+        const forbiddenPolicyTerms = [
+          '策略域',
+          '消息外发',
+          '桌面控制',
+          '记忆读取',
+          'policy domain',
+          'message outbound',
+          'desktop control domain',
+        ];
 
-          const pageText = container.textContent || '';
-          
-          forbiddenPolicyTerms.forEach(term => {
-            expect(pageText).not.toContain(term);
-          });
-        }
-      ),
-      { numRuns: 100 }
+        const pageText = container.textContent || '';
+
+        forbiddenPolicyTerms.forEach((term) => {
+          expect(pageText).not.toContain(term);
+        });
+      }),
+      { numRuns: 100 },
     );
   });
 
   it('should never display execution sequences or evidence packs', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.constant(null),
-        async () => {
-          const { container } = await renderDashboard();
+      fc.asyncProperty(fc.constant(null), async () => {
+        const { container } = await renderDashboard();
 
-          // Terms that should NOT appear on Dashboard (Execution/Evidence)
-          const forbiddenExecutionTerms = [
-            '执行序列',
-            '证据包',
-            '证据截图',
-            '证据置信度',
-            'execution sequence',
-            'evidence pack',
-            'evidence screenshot',
-            'evidence confidence',
-          ];
+        // Terms that should NOT appear on Dashboard (Execution/Evidence)
+        const forbiddenExecutionTerms = [
+          '执行序列',
+          '证据包',
+          '证据截图',
+          '证据置信度',
+          'execution sequence',
+          'evidence pack',
+          'evidence screenshot',
+          'evidence confidence',
+        ];
 
-          const pageText = container.textContent || '';
-          
-          forbiddenExecutionTerms.forEach(term => {
-            expect(pageText).not.toContain(term);
-          });
-        }
-      ),
-      { numRuns: 100 }
+        const pageText = container.textContent || '';
+
+        forbiddenExecutionTerms.forEach((term) => {
+          expect(pageText).not.toContain(term);
+        });
+      }),
+      { numRuns: 100 },
     );
   });
 
   it('should never display skill summaries', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.constant(null),
-        async () => {
-          const { container } = await renderDashboard();
+      fc.asyncProperty(fc.constant(null), async () => {
+        const { container } = await renderDashboard();
 
-          // Terms that should NOT appear on Dashboard (Skills)
-          const forbiddenSkillTerms = [
-            '技能摘要',
-            '技能列表',
-            '已启用技能',
-            'skill summary',
-            'enabled skills',
-            'discovered skills',
-          ];
+        // Terms that should NOT appear on Dashboard (Skills)
+        const forbiddenSkillTerms = [
+          '技能摘要',
+          '技能列表',
+          '已启用技能',
+          'skill summary',
+          'enabled skills',
+          'discovered skills',
+        ];
 
-          const pageText = container.textContent || '';
-          
-          forbiddenSkillTerms.forEach(term => {
-            expect(pageText).not.toContain(term);
-          });
-        }
-      ),
-      { numRuns: 100 }
+        const pageText = container.textContent || '';
+
+        forbiddenSkillTerms.forEach((term) => {
+          expect(pageText).not.toContain(term);
+        });
+      }),
+      { numRuns: 100 },
     );
   });
 
   it('should never display ecosystem bridge summaries', async () => {
     await fc.assert(
-      fc.asyncProperty(
-        fc.constant(null),
-        async () => {
-          const { container } = await renderDashboard();
+      fc.asyncProperty(fc.constant(null), async () => {
+        const { container } = await renderDashboard();
 
-          // Terms that should NOT appear on Dashboard (Ecosystem)
-          const forbiddenEcosystemTerms = [
-            '生态桥接',
-            '桥接摘要',
-            'ecosystem bridge',
-            'bridge summary',
-          ];
+        // Terms that should NOT appear on Dashboard (Ecosystem)
+        const forbiddenEcosystemTerms = [
+          '生态桥接',
+          '桥接摘要',
+          'ecosystem bridge',
+          'bridge summary',
+        ];
 
-          const pageText = container.textContent || '';
-          
-          forbiddenEcosystemTerms.forEach(term => {
-            expect(pageText).not.toContain(term);
-          });
-        }
-      ),
-      { numRuns: 100 }
+        const pageText = container.textContent || '';
+
+        forbiddenEcosystemTerms.forEach((term) => {
+          expect(pageText).not.toContain(term);
+        });
+      }),
+      { numRuns: 100 },
     );
   });
 
@@ -360,39 +348,54 @@ describe('Property 5: Dashboard Content Isolation', () => {
      * This is a comprehensive check that runs 100 iterations
      */
     await fc.assert(
-      fc.asyncProperty(
-        fc.constant(null),
-        async () => {
-          const { container } = await renderDashboard();
+      fc.asyncProperty(fc.constant(null), async () => {
+        const { container } = await renderDashboard();
 
-          // All forbidden terms combined
-          const allForbiddenTerms = [
-            // Psyche
-            '共鸣层', '捕获探针', '信号覆盖', '主动探索率', '慢脑', '影子模式',
-            '周期重训', '主动触达', '静默时段',
-            // Security switches
-            '外发暂停', '桌控暂停', '记忆读取暂停',
-            // Policy domains
-            '策略域', '消息外发', '桌面控制', '记忆读取',
-            // Execution/Evidence
-            '执行序列', '证据包', '证据截图', '证据置信度',
-            // Skills
-            '技能摘要', '技能列表', '已启用技能',
-            // Ecosystem
-            '生态桥接', '桥接摘要',
-          ];
+        // All forbidden terms combined
+        const allForbiddenTerms = [
+          // Psyche
+          '共鸣层',
+          '捕获探针',
+          '信号覆盖',
+          '主动探索率',
+          '慢脑',
+          '影子模式',
+          '周期重训',
+          '主动触达',
+          '静默时段',
+          // Security switches
+          '外发暂停',
+          '桌控暂停',
+          '记忆读取暂停',
+          // Policy domains
+          '策略域',
+          '消息外发',
+          '桌面控制',
+          '记忆读取',
+          // Execution/Evidence
+          '执行序列',
+          '证据包',
+          '证据截图',
+          '证据置信度',
+          // Skills
+          '技能摘要',
+          '技能列表',
+          '已启用技能',
+          // Ecosystem
+          '生态桥接',
+          '桥接摘要',
+        ];
 
-          const pageText = container.textContent || '';
-          
-          // Verify NONE of the forbidden terms appear
-          const foundForbiddenTerms = allForbiddenTerms.filter(term => 
-            pageText.includes(term)
-          );
+        const pageText = container.textContent || '';
 
-          expect(foundForbiddenTerms).toEqual([]);
-        }
-      ),
-      { numRuns: 100 }
+        // Verify NONE of the forbidden terms appear
+        const foundForbiddenTerms = allForbiddenTerms.filter((term) =>
+          pageText.includes(term),
+        );
+
+        expect(foundForbiddenTerms).toEqual([]);
+      }),
+      { numRuns: 100 },
     );
   });
 });

@@ -20,4 +20,3 @@ export function assertChannelCanSend(channel: ChannelName): void {
     `channel_send_blocked:${channel}:INBOUND_ONLY channels are receive-only`,
   );
 }
-

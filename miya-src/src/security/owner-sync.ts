@@ -27,7 +27,11 @@ function nowIso(): string {
 }
 
 function storeFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'security', 'owner-sync.json');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'security',
+    'owner-sync.json',
+  );
 }
 
 function readStore(projectDir: string): OwnerSyncStore {
@@ -114,7 +118,10 @@ export function approveOwnerSyncToken(
   }
   if (found.status !== 'pending') {
     writeStore(projectDir, store);
-    return { ok: false, reason: `owner_sync_token_not_pending:${found.status}` };
+    return {
+      ok: false,
+      reason: `owner_sync_token_not_pending:${found.status}`,
+    };
   }
   if (Date.parse(found.expiresAt) <= Date.now()) {
     writeStore(projectDir, store);
@@ -142,7 +149,10 @@ export function verifyOwnerSyncToken(
   }
   if (found.status !== 'approved') {
     writeStore(projectDir, store);
-    return { ok: false, reason: `owner_sync_token_not_approved:${found.status}` };
+    return {
+      ok: false,
+      reason: `owner_sync_token_not_approved:${found.status}`,
+    };
   }
   if (found.action !== input.action) {
     writeStore(projectDir, store);
@@ -175,7 +185,10 @@ export function consumeOwnerSyncToken(
   }
   if (found.status !== 'approved') {
     writeStore(projectDir, store);
-    return { ok: false, reason: `owner_sync_token_not_approved:${found.status}` };
+    return {
+      ok: false,
+      reason: `owner_sync_token_not_approved:${found.status}`,
+    };
   }
   found.status = 'consumed';
   found.consumedAt = nowIso();
@@ -187,9 +200,9 @@ export function detectOwnerSyncTokenFromText(text: string): string | null {
   const normalized = text.trim();
   if (!normalized) return null;
   const matched =
-    /(?:同意|确认|approve|confirm|ok)\s*[:：#]?\s*([a-z0-9_-]{6,64})/i.exec(normalized) ??
-    /(?:\/miya\s+confirm)\s+([a-z0-9_-]{6,64})/i.exec(normalized);
+    /(?:同意|确认|approve|confirm|ok)\s*[:：#]?\s*([a-z0-9_-]{6,64})/i.exec(
+      normalized,
+    ) ?? /(?:\/miya\s+confirm)\s+([a-z0-9_-]{6,64})/i.exec(normalized);
   if (!matched?.[1]) return null;
   return normalizeToken(matched[1]);
 }
-

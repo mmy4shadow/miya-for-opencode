@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { getMiyaRuntimeDir } from '../workflow';
 import {
   applyPersistedAgentModelOverrides,
@@ -9,13 +9,13 @@ import {
   extractAgentModelSelectionsFromEvent,
   normalizeAgentName,
   normalizeModelRef,
-  removePersistedAgentRuntimeSelection,
   persistAgentModelSelection,
   persistAgentRuntimeFromConfigSnapshot,
   persistAgentRuntimeFromUiModelState,
   persistAgentRuntimeSelection,
   readPersistedAgentModels,
   readPersistedAgentRuntime,
+  removePersistedAgentRuntimeSelection,
 } from './agent-model-persistence';
 
 describe('agent-model-persistence', () => {
@@ -59,7 +59,11 @@ describe('agent-model-persistence', () => {
     expect(changed).toBe(true);
 
     // Invalid payload should be ignored and keep existing data unchanged.
-    const invalid = persistAgentModelSelection(tempDir, 'oracle', 'invalid-model');
+    const invalid = persistAgentModelSelection(
+      tempDir,
+      'oracle',
+      'invalid-model',
+    );
     expect(invalid).toBe(false);
 
     expect(readPersistedAgentModels(tempDir)).toEqual({
@@ -68,7 +72,11 @@ describe('agent-model-persistence', () => {
   });
 
   test('applies persisted models as highest-priority agent overrides', () => {
-    persistAgentModelSelection(tempDir, '6-ui-designer', 'google/gemini-2.5-pro');
+    persistAgentModelSelection(
+      tempDir,
+      '6-ui-designer',
+      'google/gemini-2.5-pro',
+    );
     persistAgentModelSelection(tempDir, 'orchestrator', 'openai/gpt-5.3-codex');
 
     const merged = applyPersistedAgentModelOverrides(
@@ -81,9 +89,13 @@ describe('agent-model-persistence', () => {
       tempDir,
     );
 
-    expect(merged.agents?.['1-task-manager']?.model).toBe('openai/gpt-5.3-codex');
+    expect(merged.agents?.['1-task-manager']?.model).toBe(
+      'openai/gpt-5.3-codex',
+    );
     expect(merged.agents?.['1-task-manager']?.temperature).toBe(0.1);
-    expect(merged.agents?.['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
+    expect(merged.agents?.['6-ui-designer']?.model).toBe(
+      'google/gemini-2.5-pro',
+    );
     expect(merged.agents?.['6-ui-designer']?.temperature).toBe(0.7);
   });
 
@@ -131,7 +143,9 @@ describe('agent-model-persistence', () => {
       tempDir,
     );
 
-    const provider = merged.provider?.openai as { options?: Record<string, unknown> };
+    const provider = merged.provider?.openai as {
+      options?: Record<string, unknown>;
+    };
     expect(provider.options?.timeout).toBe(10000);
     expect(provider.options?.apiKey).toBe('{env:OPENAI_API_KEY}');
     expect(provider.options?.baseURL).toBe('https://custom-openai.example/v1');
@@ -182,7 +196,9 @@ describe('agent-model-persistence', () => {
     });
 
     expect(extracted).toHaveLength(2);
-    const byAgent = Object.fromEntries(extracted.map((item) => [item.agentName, item]));
+    const byAgent = Object.fromEntries(
+      extracted.map((item) => [item.agentName, item]),
+    );
     expect(byAgent['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
     expect(byAgent['2-code-search']?.providerID).toBe('openai');
     expect(byAgent['2-code-search']?.activeAgentId).toBe('6-ui-designer');
@@ -213,7 +229,9 @@ describe('agent-model-persistence', () => {
     const runtimeFile = path.join(runtimeDir, 'agent-runtime.json');
     expect(fs.existsSync(runtimeFile)).toBe(true);
     expect(runtime.revision).toBeGreaterThanOrEqual(1);
-    expect(runtime.agents['1-task-manager']?.model).toBe('openai/gpt-5.3-codex');
+    expect(runtime.agents['1-task-manager']?.model).toBe(
+      'openai/gpt-5.3-codex',
+    );
   });
 
   test('extracts provider patch into active agent runtime selection', () => {
@@ -252,8 +270,12 @@ describe('agent-model-persistence', () => {
     });
 
     expect(extracted).toHaveLength(2);
-    const byAgent = Object.fromEntries(extracted.map((item) => [item.agentName, item]));
-    expect(byAgent['3-docs-helper']?.model).toBe('openrouter/moonshotai/kimi-k2.5');
+    const byAgent = Object.fromEntries(
+      extracted.map((item) => [item.agentName, item]),
+    );
+    expect(byAgent['3-docs-helper']?.model).toBe(
+      'openrouter/moonshotai/kimi-k2.5',
+    );
     expect(byAgent['3-docs-helper']?.activeAgentId).toBe('5-code-fixer');
     expect(byAgent['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
   });
@@ -308,7 +330,8 @@ describe('agent-model-persistence', () => {
           set: {
             'agent.model.providerID': 'openrouter',
             'agent.model.modelID': 'z-ai/glm-5',
-            'provider.openrouter.options.baseURL': 'https://openrouter.example/v1',
+            'provider.openrouter.options.baseURL':
+              'https://openrouter.example/v1',
           },
         },
       },
@@ -341,8 +364,12 @@ describe('agent-model-persistence', () => {
     expect(result.activeAgentId).toBe('6-ui-designer');
     const runtime = readPersistedAgentRuntime(tempDir);
     expect(runtime.activeAgentId).toBe('6-ui-designer');
-    expect(runtime.agents['3-docs-helper']?.model).toBe('openrouter/moonshotai/kimi-k2.5');
-    expect(runtime.agents['6-ui-designer']?.baseURL).toBe('https://gemini.example/v1');
+    expect(runtime.agents['3-docs-helper']?.model).toBe(
+      'openrouter/moonshotai/kimi-k2.5',
+    );
+    expect(runtime.agents['6-ui-designer']?.baseURL).toBe(
+      'https://gemini.example/v1',
+    );
   });
 
   test('syncs persisted runtime from ui model state file when present', () => {
@@ -355,8 +382,14 @@ describe('agent-model-persistence', () => {
       JSON.stringify(
         {
           model: {
-            '1-task-manager': { providerID: 'openai', modelID: 'gpt-5.3-codex' },
-            '2-code-search': { providerID: 'openai', modelID: 'gpt-5.1-codex-mini' },
+            '1-task-manager': {
+              providerID: 'openai',
+              modelID: 'gpt-5.3-codex',
+            },
+            '2-code-search': {
+              providerID: 'openai',
+              modelID: 'gpt-5.1-codex-mini',
+            },
           },
         },
         null,
@@ -367,11 +400,17 @@ describe('agent-model-persistence', () => {
 
     const result = persistAgentRuntimeFromUiModelState(tempDir);
     expect(result.updated).toBe(2);
-    expect(result.sourcePath?.endsWith(path.join('opencode', 'model.json'))).toBe(true);
+    expect(
+      result.sourcePath?.endsWith(path.join('opencode', 'model.json')),
+    ).toBe(true);
 
     const runtime = readPersistedAgentRuntime(tempDir);
-    expect(runtime.agents['1-task-manager']?.model).toBe('openai/gpt-5.3-codex');
-    expect(runtime.agents['2-code-search']?.model).toBe('openai/gpt-5.1-codex-mini');
+    expect(runtime.agents['1-task-manager']?.model).toBe(
+      'openai/gpt-5.3-codex',
+    );
+    expect(runtime.agents['2-code-search']?.model).toBe(
+      'openai/gpt-5.1-codex-mini',
+    );
   });
 
   test('persists six agent configs independently without overwriting each other', () => {
@@ -408,9 +447,13 @@ describe('agent-model-persistence', () => {
       activeAgentId: '6-ui-designer',
     });
 
-    const changed = removePersistedAgentRuntimeSelection(tempDir, '6-ui-designer', {
-      clearActive: true,
-    });
+    const changed = removePersistedAgentRuntimeSelection(
+      tempDir,
+      '6-ui-designer',
+      {
+        clearActive: true,
+      },
+    );
     expect(changed).toBe(true);
 
     const runtime = readPersistedAgentRuntime(tempDir);

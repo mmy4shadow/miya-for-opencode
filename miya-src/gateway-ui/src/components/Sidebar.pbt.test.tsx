@@ -1,29 +1,29 @@
 /**
  * Property-Based Tests for Sidebar Component
- * 
+ *
  * Tests Properties 1, 3, and 4 for the Sidebar navigation component.
  * Validates Requirements: 1.1, 1.4, 1.5, 1.6
- * 
+ *
  * Uses fast-check to generate random data and verify navigation properties
  * hold across all valid inputs.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { BrowserRouter, MemoryRouter } from 'react-router-dom';
+import { render } from '@testing-library/react';
 import * as fc from 'fast-check';
-import { Sidebar } from './Sidebar';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
+import { describe, expect, it } from 'vitest';
 import { NAVIGATION_CONFIG } from '../config/navigation';
+import { Sidebar } from './Sidebar';
 
 describe('Sidebar Property-Based Tests', () => {
   describe('Property 1: Navigation Item Completeness', () => {
     /**
      * **Validates: Requirements 1.1, 1.4**
-     * 
+     *
      * Property: For any rendered Sidebar component, it should contain all 6 navigation items
      * (Dashboard, Psyche, Security, Tasks, Memory, Diagnostics), and each navigation item
      * should include both title and subtitle text.
-     * 
+     *
      * This property ensures that the navigation structure is complete and consistent
      * regardless of the application state.
      */
@@ -33,19 +33,19 @@ describe('Sidebar Property-Based Tests', () => {
           const { container } = render(
             <BrowserRouter>
               <Sidebar />
-            </BrowserRouter>
+            </BrowserRouter>,
           );
 
           // Find all navigation buttons
           const navButtons = container.querySelectorAll('nav button');
-          
+
           // Requirement 1.1: Should have exactly 6 navigation items
           expect(navButtons).toHaveLength(6);
 
           // Requirement 1.4: Each item should have title and subtitle
           navButtons.forEach((button, index) => {
             const navItem = NAVIGATION_CONFIG[index];
-            
+
             // Check for title (font-medium class)
             const title = button.querySelector('.font-medium');
             expect(title).toBeInTheDocument();
@@ -54,21 +54,21 @@ describe('Sidebar Property-Based Tests', () => {
             // Check for subtitle (text-xs class)
             const subtitles = button.querySelectorAll('.text-xs');
             expect(subtitles.length).toBeGreaterThan(0);
-            
+
             // Find the subtitle element (not the shortcut)
             const subtitle = Array.from(subtitles).find(
-              (el) => el.textContent === navItem.subtitle
+              (el) => el.textContent === navItem.subtitle,
             );
             expect(subtitle).toBeInTheDocument();
           });
         }),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
     /**
      * Property: Each navigation item should display its configured icon.
-     * 
+     *
      * This ensures visual consistency and helps users quickly identify navigation items.
      */
     it('should render navigation items with correct icons', () => {
@@ -77,20 +77,20 @@ describe('Sidebar Property-Based Tests', () => {
           const { container } = render(
             <BrowserRouter>
               <Sidebar />
-            </BrowserRouter>
+            </BrowserRouter>,
           );
 
           const navButtons = container.querySelectorAll('nav button');
-          
+
           navButtons.forEach((button, index) => {
             const navItem = NAVIGATION_CONFIG[index];
             const icon = button.querySelector('[role="img"]');
-            
+
             expect(icon).toBeInTheDocument();
             expect(icon?.textContent).toBe(navItem.icon);
           });
         }),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
@@ -104,21 +104,21 @@ describe('Sidebar Property-Based Tests', () => {
           const { container } = render(
             <BrowserRouter>
               <Sidebar />
-            </BrowserRouter>
+            </BrowserRouter>,
           );
 
           const navButtons = container.querySelectorAll('nav button');
-          
+
           navButtons.forEach((button, index) => {
             const ariaLabel = button.getAttribute('aria-label');
             const navItem = NAVIGATION_CONFIG[index];
-            
+
             expect(ariaLabel).toBeTruthy();
             expect(ariaLabel).toContain(navItem.label);
             expect(ariaLabel).toContain(navItem.subtitle);
           });
         }),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
   });
@@ -126,11 +126,11 @@ describe('Sidebar Property-Based Tests', () => {
   describe('Property 3: Navigation Active State', () => {
     /**
      * **Validates: Requirements 1.5**
-     * 
+     *
      * Property: For any current route path, the corresponding navigation item should
      * have active state styling (aria-current="page"), and only one navigation item
      * should be in active state.
-     * 
+     *
      * This property ensures that users always know which page they are currently viewing,
      * and that the active state is mutually exclusive across navigation items.
      */
@@ -142,22 +142,22 @@ describe('Sidebar Property-Based Tests', () => {
             const { container } = render(
               <MemoryRouter initialEntries={[currentPath]}>
                 <Sidebar />
-              </MemoryRouter>
+              </MemoryRouter>,
             );
 
             const navButtons = container.querySelectorAll('nav button');
-            
+
             // Count how many items have aria-current="page"
             let activeCount = 0;
             let foundActiveItem = false;
 
             navButtons.forEach((button) => {
               const ariaCurrent = button.getAttribute('aria-current');
-              
+
               if (ariaCurrent === 'page') {
                 activeCount++;
                 foundActiveItem = true;
-                
+
                 // Active item should have blue background
                 expect(button).toHaveClass('bg-blue-50');
                 expect(button).toHaveClass('border-blue-600');
@@ -167,16 +167,16 @@ describe('Sidebar Property-Based Tests', () => {
             // Requirement 1.5: Exactly one item should be active
             expect(activeCount).toBe(1);
             expect(foundActiveItem).toBe(true);
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
     /**
      * Property: When navigating to a specific route, only the navigation item
      * with the matching path should have active styling.
-     * 
+     *
      * This ensures that the active state is correctly applied and mutually exclusive.
      */
     it('should apply active styling only to the matching route', () => {
@@ -185,18 +185,18 @@ describe('Sidebar Property-Based Tests', () => {
           fc.integer({ min: 0, max: NAVIGATION_CONFIG.length - 1 }),
           (activeIndex) => {
             const activePath = NAVIGATION_CONFIG[activeIndex].path;
-            
+
             const { container } = render(
               <MemoryRouter initialEntries={[activePath]}>
                 <Sidebar />
-              </MemoryRouter>
+              </MemoryRouter>,
             );
 
             const navButtons = container.querySelectorAll('nav button');
-            
+
             navButtons.forEach((button, index) => {
               const ariaCurrent = button.getAttribute('aria-current');
-              
+
               if (index === activeIndex) {
                 // This should be the active item
                 expect(ariaCurrent).toBe('page');
@@ -207,15 +207,15 @@ describe('Sidebar Property-Based Tests', () => {
                 expect(button).not.toHaveClass('bg-blue-50');
               }
             });
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
     /**
      * Property: Active state should be correctly applied for sub-routes.
-     * 
+     *
      * For example, /tasks/123 should activate the /tasks navigation item.
      */
     it('should activate parent route for sub-routes', () => {
@@ -225,28 +225,28 @@ describe('Sidebar Property-Based Tests', () => {
           fc.string({ minLength: 1, maxLength: 10 }),
           (basePath, subPath) => {
             const fullPath = `${basePath}/${subPath}`;
-            
+
             const { container } = render(
               <MemoryRouter initialEntries={[fullPath]}>
                 <Sidebar />
-              </MemoryRouter>
+              </MemoryRouter>,
             );
 
             const navButtons = container.querySelectorAll('nav button');
-            
+
             // Find the button for the base path
             const basePathIndex = NAVIGATION_CONFIG.findIndex(
-              (item) => item.path === basePath
+              (item) => item.path === basePath,
             );
-            
+
             if (basePathIndex >= 0) {
               const activeButton = navButtons[basePathIndex];
               expect(activeButton.getAttribute('aria-current')).toBe('page');
               expect(activeButton).toHaveClass('bg-blue-50');
             }
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
   });
@@ -254,93 +254,98 @@ describe('Sidebar Property-Based Tests', () => {
   describe('Property 4: Keyboard Shortcut Navigation', () => {
     /**
      * **Validates: Requirements 1.6**
-     * 
+     *
      * Property: For any navigation item with a defined shortcut, pressing the
      * corresponding shortcut key combination (Alt+1 through Alt+6) should
      * navigate to that navigation item's route path.
-     * 
+     *
      * This property ensures that keyboard shortcuts provide an efficient way
      * to navigate the application without using the mouse.
      */
     it('should navigate when Alt+number shortcuts are pressed', () => {
       fc.assert(
-        fc.property(
-          fc.integer({ min: 1, max: 6 }),
-          (shortcutNumber) => {
-            const { container, unmount } = render(
-              <BrowserRouter>
-                <Sidebar />
-              </BrowserRouter>
-            );
+        fc.property(fc.integer({ min: 1, max: 6 }), (shortcutNumber) => {
+          const { container, unmount } = render(
+            <BrowserRouter>
+              <Sidebar />
+            </BrowserRouter>,
+          );
 
-            // Create keyboard event for Alt+number
-            const keyEvent = new KeyboardEvent('keydown', {
-              key: shortcutNumber.toString(),
-              altKey: true,
-              bubbles: true,
-            });
+          // Create keyboard event for Alt+number
+          const keyEvent = new KeyboardEvent('keydown', {
+            key: shortcutNumber.toString(),
+            altKey: true,
+            bubbles: true,
+          });
 
-            // Dispatch the event
-            window.dispatchEvent(keyEvent);
+          // Dispatch the event
+          window.dispatchEvent(keyEvent);
 
-            // Verify the component doesn't throw errors
-            expect(container).toBeInTheDocument();
-            
-            // Clean up
-            unmount();
-          }
-        ),
-        { numRuns: 100 }
+          // Verify the component doesn't throw errors
+          expect(container).toBeInTheDocument();
+
+          // Clean up
+          unmount();
+        }),
+        { numRuns: 100 },
       );
     });
 
     /**
      * Property: Pressing number keys without Alt should not trigger navigation.
-     * 
+     *
      * This ensures that shortcuts don't interfere with normal typing or input.
      */
     it('should not navigate when Alt key is not pressed', () => {
       fc.assert(
-        fc.property(
-          fc.integer({ min: 1, max: 6 }),
-          (keyNumber) => {
-            const { container } = render(
-              <BrowserRouter>
-                <Sidebar />
-              </BrowserRouter>
-            );
+        fc.property(fc.integer({ min: 1, max: 6 }), (keyNumber) => {
+          const { container } = render(
+            <BrowserRouter>
+              <Sidebar />
+            </BrowserRouter>,
+          );
 
-            // Create keyboard event without Alt key
-            const keyEvent = new KeyboardEvent('keydown', {
-              key: keyNumber.toString(),
-              altKey: false,
-              bubbles: true,
-            });
+          // Create keyboard event without Alt key
+          const keyEvent = new KeyboardEvent('keydown', {
+            key: keyNumber.toString(),
+            altKey: false,
+            bubbles: true,
+          });
 
-            // Dispatch the event - should not cause any errors
-            window.dispatchEvent(keyEvent);
+          // Dispatch the event - should not cause any errors
+          window.dispatchEvent(keyEvent);
 
-            expect(container).toBeInTheDocument();
-          }
-        ),
-        { numRuns: 100 }
+          expect(container).toBeInTheDocument();
+        }),
+        { numRuns: 100 },
       );
     });
 
     /**
      * Property: Pressing Alt with non-numeric keys should not trigger navigation.
-     * 
+     *
      * This ensures that only the defined shortcuts (Alt+1 through Alt+6) trigger navigation.
      */
     it('should ignore non-numeric keys with Alt', () => {
       fc.assert(
         fc.property(
-          fc.constantFrom('a', 'b', 'z', 'Enter', 'Escape', 'Tab', '0', '7', '8', '9'),
+          fc.constantFrom(
+            'a',
+            'b',
+            'z',
+            'Enter',
+            'Escape',
+            'Tab',
+            '0',
+            '7',
+            '8',
+            '9',
+          ),
           (key) => {
             const { container } = render(
               <BrowserRouter>
                 <Sidebar />
-              </BrowserRouter>
+              </BrowserRouter>,
             );
 
             const keyEvent = new KeyboardEvent('keydown', {
@@ -352,15 +357,15 @@ describe('Sidebar Property-Based Tests', () => {
             window.dispatchEvent(keyEvent);
 
             expect(container).toBeInTheDocument();
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
     /**
      * Property: Each shortcut number (1-6) should map to the correct navigation path.
-     * 
+     *
      * This ensures the shortcut mapping is correct and consistent.
      */
     it('should map shortcuts to correct navigation paths', () => {
@@ -377,11 +382,11 @@ describe('Sidebar Property-Based Tests', () => {
 
           // Verify the mapping matches NAVIGATION_CONFIG
           Object.entries(expectedMapping).forEach(([key, path]) => {
-            const index = parseInt(key) - 1;
+            const index = parseInt(key, 10) - 1;
             expect(NAVIGATION_CONFIG[index].path).toBe(path);
           });
         }),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
   });
@@ -389,7 +394,7 @@ describe('Sidebar Property-Based Tests', () => {
   describe('Integration Properties', () => {
     /**
      * Property: The sidebar should maintain consistent structure across all routes.
-     * 
+     *
      * This ensures that navigation is always available regardless of the current page.
      */
     it('should maintain consistent structure across all routes', () => {
@@ -400,7 +405,7 @@ describe('Sidebar Property-Based Tests', () => {
             const { container } = render(
               <MemoryRouter initialEntries={[currentPath]}>
                 <Sidebar />
-              </MemoryRouter>
+              </MemoryRouter>,
             );
 
             // Should always have 6 navigation items
@@ -409,21 +414,23 @@ describe('Sidebar Property-Based Tests', () => {
 
             // Should always have the header
             const headers = container.querySelectorAll('h1');
-            const header = Array.from(headers).find(h => h.textContent === 'Miya 网关');
+            const header = Array.from(headers).find(
+              (h) => h.textContent === 'Miya 网关',
+            );
             expect(header).toBeInTheDocument();
 
             // Should always have the navigation role
             const navElement = container.querySelector('nav');
             expect(navElement?.getAttribute('role')).toBe('navigation');
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
     /**
      * Property: Navigation items should be rendered in the correct order.
-     * 
+     *
      * This ensures consistent visual layout and predictable keyboard navigation.
      */
     it('should render navigation items in correct order', () => {
@@ -432,18 +439,18 @@ describe('Sidebar Property-Based Tests', () => {
           const { container } = render(
             <BrowserRouter>
               <Sidebar />
-            </BrowserRouter>
+            </BrowserRouter>,
           );
 
           const navButtons = container.querySelectorAll('nav button');
-          
+
           navButtons.forEach((button, index) => {
             const navItem = NAVIGATION_CONFIG[index];
             expect(button.textContent).toContain(navItem.label);
             expect(button.textContent).toContain(navItem.subtitle);
           });
         }),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
   });

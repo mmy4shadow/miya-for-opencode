@@ -1,11 +1,13 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import { ResourceScheduler } from './scheduler';
 
 function tempProjectDir(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-resource-scheduler-test-'));
+  return fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-resource-scheduler-test-'),
+  );
 }
 
 describe('resource scheduler', () => {
@@ -119,7 +121,9 @@ describe('resource scheduler', () => {
     );
 
     const snapshot = scheduler.snapshot();
-    expect(snapshot.loadedModels.some((item) => item.modelID === 'model-c')).toBe(true);
+    expect(
+      snapshot.loadedModels.some((item) => item.modelID === 'model-c'),
+    ).toBe(true);
     expect(snapshot.loadedModels.length).toBeLessThanOrEqual(2);
   });
 
@@ -161,7 +165,9 @@ describe('resource scheduler', () => {
     );
 
     const snapshot = scheduler.snapshot();
-    expect(snapshot.loadedModels.some((item) => item.modelID === 'model-a')).toBe(true);
+    expect(
+      snapshot.loadedModels.some((item) => item.modelID === 'model-a'),
+    ).toBe(true);
     expect(snapshot.warmPoolModels.length).toBeGreaterThan(0);
   });
 

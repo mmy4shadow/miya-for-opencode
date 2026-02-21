@@ -1,8 +1,11 @@
-import { describe, expect, test } from 'bun:test';
-import { appendModelEventAudit, shouldAuditModelEvent } from './model-event-audit';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
+import {
+  appendModelEventAudit,
+  shouldAuditModelEvent,
+} from './model-event-audit';
 
 describe('model-event-audit', () => {
   test('captures only model-related event types', () => {
@@ -17,15 +20,20 @@ describe('model-event-audit', () => {
         },
       }),
     ).toBe(true);
-    expect(shouldAuditModelEvent({ type: 'message.updated', properties: { info: { role: 'user' } } })).toBe(
-      false,
-    );
+    expect(
+      shouldAuditModelEvent({
+        type: 'message.updated',
+        properties: { info: { role: 'user' } },
+      }),
+    ).toBe(false);
     expect(shouldAuditModelEvent({ type: '' })).toBe(false);
     expect(shouldAuditModelEvent(null)).toBe(false);
   });
 
   test('redacts sensitive values in raw frame audit', () => {
-    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-model-event-audit-'));
+    const projectDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'miya-model-event-audit-'),
+    );
     try {
       appendModelEventAudit(projectDir, {
         event: {
@@ -34,7 +42,8 @@ describe('model-event-audit', () => {
             patch: {
               set: {
                 'provider.openrouter.options.apiKey': 'sk-123',
-                'provider.openrouter.options.baseURL': 'https://example.local/v1',
+                'provider.openrouter.options.baseURL':
+                  'https://example.local/v1',
               },
             },
           },
@@ -59,12 +68,16 @@ describe('model-event-audit', () => {
           properties?: { patch?: { set?: Record<string, unknown> } };
         };
       };
-      expect(row.event?.properties?.patch?.set?.['provider.openrouter.options.apiKey']).toBe(
-        '[redacted]',
-      );
-      expect(row.event?.properties?.patch?.set?.['provider.openrouter.options.baseURL']).toBe(
-        'https://example.local/v1',
-      );
+      expect(
+        row.event?.properties?.patch?.set?.[
+          'provider.openrouter.options.apiKey'
+        ],
+      ).toBe('[redacted]');
+      expect(
+        row.event?.properties?.patch?.set?.[
+          'provider.openrouter.options.baseURL'
+        ],
+      ).toBe('https://example.local/v1');
     } finally {
       fs.rmSync(projectDir, { recursive: true, force: true });
     }

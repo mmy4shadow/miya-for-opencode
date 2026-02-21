@@ -13,8 +13,9 @@ export function createAutopilotPlan(goal: string): AutopilotPlan {
   const goalChunks = splitGoal(goal);
   const steps = goalChunks.map((title, index) => ({
     // Keep kind strongly typed for downstream step rendering.
-    kind:
-      (index === goalChunks.length - 1 ? 'execution' : 'analysis') as AutopilotPlanStep['kind'],
+    kind: (index === goalChunks.length - 1
+      ? 'execution'
+      : 'analysis') as AutopilotPlanStep['kind'],
     id: `step_${index + 1}`,
     title,
     done: false,

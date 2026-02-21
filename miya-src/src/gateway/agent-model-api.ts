@@ -1,5 +1,3 @@
-import { ALL_AGENT_NAMES, DEFAULT_MODELS } from '../config/constants';
-import { isModelLikelyAvailable } from '../config/model-health';
 import {
   normalizeAgentName,
   normalizeModelRef,
@@ -7,6 +5,8 @@ import {
   readPersistedAgentRuntime,
   removePersistedAgentRuntimeSelection,
 } from '../config/agent-model-persistence';
+import { ALL_AGENT_NAMES, DEFAULT_MODELS } from '../config/constants';
+import { isModelLikelyAvailable } from '../config/model-health';
 
 export type AgentRuntimeModelHealth = 'healthy' | 'degraded' | 'unavailable';
 
@@ -31,7 +31,9 @@ export class AgentModelRuntimeApi {
     for (const agentName of ALL_AGENT_NAMES) {
       const entry = runtime.agents[agentName];
       const model = entry?.model ?? DEFAULT_MODELS[agentName];
-      const source: 'runtime' | 'default' = entry?.model ? 'runtime' : 'default';
+      const source: 'runtime' | 'default' = entry?.model
+        ? 'runtime'
+        : 'default';
       agents.push({
         agentName,
         model,
@@ -103,4 +105,3 @@ export class AgentModelRuntimeApi {
     return isModelLikelyAvailable(model) ? 'healthy' : 'degraded';
   }
 }
-

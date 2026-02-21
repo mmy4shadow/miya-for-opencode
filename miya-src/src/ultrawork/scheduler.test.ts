@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { runUltraworkDag } from './scheduler';
 
 interface FakeTask {
@@ -11,7 +11,10 @@ class FakeManager {
   private seq = 0;
   private tasks = new Map<string, FakeTask>();
   constructor(
-    private readonly outcomes: Record<string, Array<'completed' | 'failed'>> = {},
+    private readonly outcomes: Record<
+      string,
+      Array<'completed' | 'failed'>
+    > = {},
   ) {}
 
   launch(input: {
@@ -56,16 +59,35 @@ describe('ultrawork dag scheduler', () => {
       manager,
       parentSessionID: 'main',
       tasks: [
-        { id: 'A', agent: '2-code-search', prompt: 'scan', description: 'scan' },
-        { id: 'B', agent: '5-code-fixer', prompt: 'fix', description: 'fix', dependsOn: ['A'] },
-        { id: 'C', agent: '3-docs-helper', prompt: 'docs', description: 'docs', dependsOn: ['B'] },
+        {
+          id: 'A',
+          agent: '2-code-search',
+          prompt: 'scan',
+          description: 'scan',
+        },
+        {
+          id: 'B',
+          agent: '5-code-fixer',
+          prompt: 'fix',
+          description: 'fix',
+          dependsOn: ['A'],
+        },
+        {
+          id: 'C',
+          agent: '3-docs-helper',
+          prompt: 'docs',
+          description: 'docs',
+          dependsOn: ['B'],
+        },
       ],
     });
     expect(result.total).toBe(3);
     expect(result.completed).toBe(1);
     expect(result.failed).toBe(1);
     expect(result.blocked).toBe(1);
-    expect(result.nodes.find((n) => n.nodeID === 'C')?.status).toBe('blocked_dependency');
+    expect(result.nodes.find((n) => n.nodeID === 'C')?.status).toBe(
+      'blocked_dependency',
+    );
   });
 
   test('retries failed node within retry budget', async () => {

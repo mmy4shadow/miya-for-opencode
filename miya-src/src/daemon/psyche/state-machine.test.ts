@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { inferSentinelState } from './state-machine';
 
 describe('psyche sentinel state machine', () => {

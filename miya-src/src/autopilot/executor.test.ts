@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { runAutopilot } from './executor';
 
 describe('autopilot executor', () => {
@@ -27,4 +27,3 @@ describe('autopilot executor', () => {
     expect(result.execution[0]?.exitCode).toBe(3);
   });
 });
-

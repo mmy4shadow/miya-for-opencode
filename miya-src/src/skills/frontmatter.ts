@@ -45,7 +45,9 @@ export function parseSkillFrontmatter(markdown: string): SkillFrontmatter {
     return {};
   }
 
-  const endIndex = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
+  const endIndex = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === '---',
+  );
   if (endIndex === -1) {
     return {};
   }

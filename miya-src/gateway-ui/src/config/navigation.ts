@@ -1,16 +1,16 @@
 /**
  * Navigation Configuration
- * 
+ *
  * Defines the navigation structure for the Miya Gateway UI.
  * This configuration supports the 6-module architecture:
  * Dashboard, Psyche, Security, Tasks, Memory, and Diagnostics.
- * 
+ *
  * Requirements: 1.1, 1.2
  */
 
 /**
  * Navigation item interface
- * 
+ *
  * @property key - Unique identifier for the navigation item
  * @property path - Route path for the navigation item
  * @property icon - Emoji icon for visual identification
@@ -29,10 +29,10 @@ export interface NavigationItem {
 
 /**
  * Navigation configuration array
- * 
+ *
  * Defines all 6 navigation items with their routes, icons, labels, and shortcuts.
  * This configuration is used by the Sidebar component to render navigation menu.
- * 
+ *
  * Requirements:
  * - 1.1: Provides 6 independent navigation items
  * - 1.2: Defines clear route paths for each module

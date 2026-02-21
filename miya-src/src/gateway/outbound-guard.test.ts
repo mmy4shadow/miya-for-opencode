@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 
 describe('gateway outbound guard', () => {
   test('blocks direct channelRuntime.sendMessage calls in gateway', () => {

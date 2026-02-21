@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import { discoverSkills } from './loader';
 import { listEnabledSkills, setSkillEnabled } from './state';
 
@@ -31,7 +31,9 @@ describe('skills discovery and state', () => {
     expect(alpha).toBeDefined();
     expect(alpha?.source).toBe('workspace');
     expect(alpha?.gate.loadable).toBe(false);
-    expect(alpha?.gate.reasons.some((reason) => reason.includes('missing_env'))).toBe(true);
+    expect(
+      alpha?.gate.reasons.some((reason) => reason.includes('missing_env')),
+    ).toBe(true);
   });
 
   test('marks workspace skill as not loadable when permission metadata is missing', () => {

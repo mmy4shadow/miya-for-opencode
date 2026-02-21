@@ -43,7 +43,9 @@ export function createMcpTools(): Record<string, ToolDefinition> {
     async execute(args) {
       return JSON.stringify(
         buildMcpServiceManifest(
-          Array.isArray(args.disabled_mcps) ? args.disabled_mcps.map(String) : [],
+          Array.isArray(args.disabled_mcps)
+            ? args.disabled_mcps.map(String)
+            : [],
         ),
         null,
         2,

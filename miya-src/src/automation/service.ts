@@ -364,9 +364,7 @@ export class MiyaAutomationService {
     return result;
   }
 
-  async approveAndRun(
-    approvalId: string,
-  ): Promise<{
+  async approveAndRun(approvalId: string): Promise<{
     approval: MiyaApprovalRequest;
     result: MiyaJobRunResult | null;
   } | null> {
@@ -440,7 +438,10 @@ export class MiyaAutomationService {
     try {
       const command = normalizeCommandText(job.action.command);
       const timeoutMs = normalizeTimeoutMs(job.action.timeoutMs);
-      const cwdResolved = resolveAndValidateCwd(this.projectDir, job.action.cwd);
+      const cwdResolved = resolveAndValidateCwd(
+        this.projectDir,
+        job.action.cwd,
+      );
       const warning = cwdResolved.wasSanitized
         ? 'Unsafe cwd detected; fell back to project directory.'
         : '';

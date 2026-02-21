@@ -305,7 +305,9 @@ export class MiyaDaemonService {
   }): number {
     const fromTask = Math.max(0, input.requestedTaskVramMB);
     const fromModel = Math.max(0, input.requestedModelVramMB);
-    const modelKey = String(input.modelID ?? '').trim().toLowerCase();
+    const modelKey = String(input.modelID ?? '')
+      .trim()
+      .toLowerCase();
     const ledgerModel = modelKey ? (VRAM_LEDGER_MODEL_MB[modelKey] ?? 0) : 0;
     const ledgerTask = VRAM_LEDGER_TASK_MB[input.kind] ?? 0;
     return Math.max(fromTask + fromModel, ledgerTask + ledgerModel);

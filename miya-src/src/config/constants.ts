@@ -27,7 +27,8 @@ export const SUBAGENT_NAMES = [
 ] as const;
 
 export const ORCHESTRATOR_NAME = '1-task-manager' as const;
-export const CODE_SIMPLICITY_REVIEWER_NAME = '7-code-simplicity-reviewer' as const;
+export const CODE_SIMPLICITY_REVIEWER_NAME =
+  '7-code-simplicity-reviewer' as const;
 
 export const ALL_AGENT_NAMES = [
   ORCHESTRATOR_NAME,

@@ -1,13 +1,13 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import {
-  POLICY_DOMAINS,
   assertPolicyHash,
   currentPolicyHash,
   isDomainRunning,
   isPolicyDomain,
+  POLICY_DOMAINS,
   readPolicy,
   writePolicy,
 } from './index';
@@ -21,7 +21,9 @@ describe('policy hash guard', () => {
     const projectDir = tempProjectDir();
     const policy = readPolicy(projectDir);
     expect(policy.outbound.allowedChannels).toEqual(['qq', 'wechat']);
-    expect(Object.keys(policy.domains).sort()).toEqual([...POLICY_DOMAINS].sort());
+    expect(Object.keys(policy.domains).sort()).toEqual(
+      [...POLICY_DOMAINS].sort(),
+    );
     expect(isPolicyDomain('fs_write')).toBe(true);
     expect(isPolicyDomain('not_a_domain')).toBe(false);
 

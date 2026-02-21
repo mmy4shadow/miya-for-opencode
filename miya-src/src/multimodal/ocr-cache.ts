@@ -43,7 +43,9 @@ function readStore(projectDir: string): OcrCacheStore {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) return { entries: [] };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<OcrCacheStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<OcrCacheStore>;
     return {
       entries: Array.isArray(parsed.entries) ? parsed.entries : [],
     };
@@ -54,7 +56,11 @@ function readStore(projectDir: string): OcrCacheStore {
 
 function writeStore(projectDir: string, store: OcrCacheStore): void {
   ensureDir(projectDir);
-  fs.writeFileSync(filePath(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    filePath(projectDir),
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 function toKey(mediaID: string, question: string): string {

@@ -1,10 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import {
+  decryptSensitiveValue,
+  encryptSensitiveValue,
+} from '../security/system-keyring';
 import { getMiyaRuntimeDir } from '../workflow';
-import { type SafetyTier, tierAtLeast } from './tier';
 import { transitionSafetyState } from './state-machine';
-import { decryptSensitiveValue, encryptSensitiveValue } from '../security/system-keyring';
+import { type SafetyTier, tierAtLeast } from './tier';
 
 const RECORD_LIMIT = 500;
 const TOKEN_TTL_MS = 120_000;
@@ -90,7 +93,10 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function syncGatewayStatus(projectDir: string, status: 'running' | 'killswitch'): void {
+function syncGatewayStatus(
+  projectDir: string,
+  status: 'running' | 'killswitch',
+): void {
   const file = runtimeFile(projectDir, 'gateway.json');
   if (!fs.existsSync(file)) return;
   const current = readJson<GatewayStatusFile>(file, {});
@@ -212,9 +218,12 @@ export function findApprovalToken(
 }
 
 export function readKillSwitch(projectDir: string): KillSwitchState {
-  return readJson<KillSwitchState>(runtimeFile(projectDir, 'kill-switch.json'), {
-    active: false,
-  });
+  return readJson<KillSwitchState>(
+    runtimeFile(projectDir, 'kill-switch.json'),
+    {
+      active: false,
+    },
+  );
 }
 
 export function activateKillSwitch(

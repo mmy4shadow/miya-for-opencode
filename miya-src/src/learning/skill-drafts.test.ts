@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import type { RalphLoopResult } from '../ralph';
 import {
   buildLearningInjection,
@@ -26,7 +26,7 @@ function makeRalphResult(success: boolean): RalphLoopResult {
         iteration: 1,
         type: 'verify',
         result: {
-          command: 'bun test',
+          command: 'npm run test',
           ok: false,
           exitCode: 1,
           stdout: '',
@@ -39,7 +39,7 @@ function makeRalphResult(success: boolean): RalphLoopResult {
         iteration: 1,
         type: 'fix',
         result: {
-          command: 'bun run lint --fix',
+          command: 'npm run lint -- --fix',
           ok: true,
           exitCode: 0,
           stdout: '',
@@ -49,7 +49,7 @@ function makeRalphResult(success: boolean): RalphLoopResult {
       },
     ],
     finalVerification: {
-      command: 'bun test',
+      command: 'npm run test',
       ok: success,
       exitCode: success ? 0 : 1,
       stdout: '',
@@ -99,4 +99,3 @@ describe('learning skill drafts', () => {
     expect(stats.hitRate).toBe(0.5);
   });
 });
-

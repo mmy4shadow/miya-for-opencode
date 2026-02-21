@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { appendSchedulerEvent, writeSchedulerSnapshot } from './store';
-import { calculateVramBudget, decideModelSwapAction } from './vram';
 import type {
   ModelSwapAction,
   ResourceLease,
@@ -9,6 +8,7 @@ import type {
   ResourceSchedulerSnapshot,
   VramBudgetPlan,
 } from './types';
+import { calculateVramBudget, decideModelSwapAction } from './vram';
 
 interface PendingRequest {
   id: string;
@@ -69,7 +69,10 @@ export class ResourceScheduler {
   private readonly queue: PendingRequest[] = [];
   private readonly active = new Map<string, ActiveLease>();
   private readonly loadedModels = new Map<string, LoadedModel>();
-  private readonly currentModelByKind = new Map<ResourceRequest['kind'], string>();
+  private readonly currentModelByKind = new Map<
+    ResourceRequest['kind'],
+    string
+  >();
   private usedVramMB = 0;
   private draining = false;
 
@@ -223,7 +226,10 @@ export class ResourceScheduler {
       if (!this.canGrant(pending.request)) return;
       this.queue.shift();
       const grantedAt = nowIso();
-      const requestVramMB = Math.max(0, Math.floor(pending.request.vramMB ?? 0));
+      const requestVramMB = Math.max(
+        0,
+        Math.floor(pending.request.vramMB ?? 0),
+      );
       const lease: ActiveLease = {
         id: pending.id,
         kind: pending.request.kind,
@@ -249,7 +255,10 @@ export class ResourceScheduler {
         }
         this.ensureModelLoaded(pending.request.modelID, modelVramMB);
         this.pinModel(pending.request.modelID);
-        this.currentModelByKind.set(pending.request.kind, pending.request.modelID);
+        this.currentModelByKind.set(
+          pending.request.kind,
+          pending.request.modelID,
+        );
         appendSchedulerEvent(this.projectDir, {
           at: nowIso(),
           type: 'model_swap',
@@ -307,18 +316,17 @@ export class ResourceScheduler {
   private canGrant(request: ResourceRequest): boolean {
     if (this.active.size >= this.maxConcurrentTasks) return false;
     if (this.isolateTrainingLane) {
-      if (this.isTrainingKind(request.kind) && this.hasActiveInferenceTask()) return false;
-      if (!this.isTrainingKind(request.kind) && this.hasActiveTrainingTask()) return false;
+      if (this.isTrainingKind(request.kind) && this.hasActiveInferenceTask())
+        return false;
+      if (!this.isTrainingKind(request.kind) && this.hasActiveTrainingTask())
+        return false;
     }
 
     const neededVramMB = Math.max(0, Math.floor(request.vramMB ?? 0));
     if (neededVramMB === 0) return true;
 
     const modelVramMB = request.modelID
-      ? Math.max(
-          0,
-          Math.floor(request.modelVramMB ?? request.vramMB ?? 0),
-        )
+      ? Math.max(0, Math.floor(request.modelVramMB ?? request.vramMB ?? 0))
       : 0;
     this.evictModelsIfNeeded(neededVramMB + modelVramMB);
     return this.availableVramMB() >= neededVramMB + modelVramMB;
@@ -340,7 +348,10 @@ export class ResourceScheduler {
   private availableVramMB(): number {
     return Math.max(
       0,
-      this.totalVramMB - this.safetyMarginMB - this.usedVramMB - this.loadedModelsVramMB(),
+      this.totalVramMB -
+        this.safetyMarginMB -
+        this.usedVramMB -
+        this.loadedModelsVramMB(),
     );
   }
 
@@ -468,7 +479,8 @@ export class ResourceScheduler {
   }
 
   private addToWarmPool(modelID: string): void {
-    if (!modelID || this.hotsetModelIDs.has(modelID) || this.warmPoolLimit <= 0) return;
+    if (!modelID || this.hotsetModelIDs.has(modelID) || this.warmPoolLimit <= 0)
+      return;
     this.warmPool.set(modelID, {
       modelID,
       cachedAtMs: Date.now(),
@@ -478,7 +490,9 @@ export class ResourceScheduler {
 
   private pruneWarmPool(): void {
     if (this.warmPool.size <= this.warmPoolLimit) return;
-    const entries = [...this.warmPool.values()].sort((a, b) => a.cachedAtMs - b.cachedAtMs);
+    const entries = [...this.warmPool.values()].sort(
+      (a, b) => a.cachedAtMs - b.cachedAtMs,
+    );
     while (this.warmPool.size > this.warmPoolLimit) {
       const candidate = entries.shift();
       if (!candidate) break;

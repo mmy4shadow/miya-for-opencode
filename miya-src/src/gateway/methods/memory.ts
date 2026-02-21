@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import {
-  type CompanionMemoryVector,
   archiveCompanionMemoryVector,
+  type CompanionMemoryVector,
   confirmCompanionMemoryVector,
   decayCompanionMemoryVectors,
   listCompanionMemoryCorrections,
@@ -10,9 +11,6 @@ import {
   updateCompanionMemoryVector,
   upsertCompanionMemoryVector,
 } from '../../companion/memory-vector';
-import {
-  randomUUID,
-} from 'node:crypto';
 import {
   readCompanionProfile,
   syncCompanionProfileMemoryFacts,

@@ -1,8 +1,8 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 
 let capturedInput: Record<string, unknown> | null = null;
 
-mock.module('../ralph', () => ({
+vi.mock('../ralph', () => ({
   executeRalphLoop: (input: Record<string, unknown>) => {
     capturedInput = input;
     return {
@@ -14,7 +14,12 @@ mock.module('../ralph', () => ({
         {
           iteration: 1,
           type: 'verify',
-          result: { ok: false, exitCode: 1, stdout: '', stderr: 'TS2339 error' },
+          result: {
+            ok: false,
+            exitCode: 1,
+            stdout: '',
+            stderr: 'TS2339 error',
+          },
           noProgress: false,
         },
       ],
@@ -29,7 +34,7 @@ describe('ralph tool wiring', () => {
     const tools = createRalphTools();
     const output = await tools.miya_ralph_loop.execute({
       task_description: 'fix compile error',
-      verification_command: 'bun test',
+      verification_command: 'npm run test',
       max_iterations: 8,
       max_retries: 3,
       timeout_ms: 30000,

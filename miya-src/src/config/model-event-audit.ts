@@ -1,7 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
 import type { AgentModelSelectionFromEvent } from './agent-model-persistence';
 
@@ -50,14 +50,20 @@ function containsModelSignal(value: unknown, depth = 0): boolean {
   if (value === null || typeof value === 'undefined') return false;
   if (depth > 6) return false;
   if (typeof value === 'string') return textHasModelSignal(value);
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
     return false;
   }
   if (Array.isArray(value)) {
     return value.some((item) => containsModelSignal(item, depth + 1));
   }
   if (typeof value === 'object') {
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, item] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
       if (textHasModelSignal(key)) return true;
       if (containsModelSignal(item, depth + 1)) return true;
     }
@@ -67,26 +73,45 @@ function containsModelSignal(value: unknown, depth = 0): boolean {
 
 export function shouldAuditModelEvent(event: unknown): boolean {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
-  const eventType = String((event as { type?: unknown }).type ?? '').trim().toLowerCase();
-  if (eventType && MODEL_EVENT_KEYWORDS.some((keyword) => eventType.includes(keyword))) {
+  const eventType = String((event as { type?: unknown }).type ?? '')
+    .trim()
+    .toLowerCase();
+  if (
+    eventType &&
+    MODEL_EVENT_KEYWORDS.some((keyword) => eventType.includes(keyword))
+  ) {
     return true;
   }
-  return containsModelSignal((event as { properties?: unknown }).properties ?? event);
+  return containsModelSignal(
+    (event as { properties?: unknown }).properties ?? event,
+  );
 }
 
 function shouldMirrorHomeAudit(): boolean {
-  const envValue = String(process.env.MIYA_MODEL_EVENT_AUDIT_MIRROR_HOME ?? '').trim();
+  const envValue = String(
+    process.env.MIYA_MODEL_EVENT_AUDIT_MIRROR_HOME ?? '',
+  ).trim();
   if (envValue === '1') return true;
   if (envValue === '0') return false;
   return process.platform === 'win32';
 }
 
 function auditFiles(projectDir: string): string[] {
-  const runtimeFile = path.join(getMiyaRuntimeDir(projectDir), 'audit', 'model-event-frames.jsonl');
+  const runtimeFile = path.join(
+    getMiyaRuntimeDir(projectDir),
+    'audit',
+    'model-event-frames.jsonl',
+  );
   const candidates = [runtimeFile];
   if (shouldMirrorHomeAudit()) {
     candidates.push(
-      path.join(os.homedir(), '.opencode', 'miya', 'audit', 'model-event-frames.jsonl'),
+      path.join(
+        os.homedir(),
+        '.opencode',
+        'miya',
+        'audit',
+        'model-event-frames.jsonl',
+      ),
     );
   }
   return Array.from(new Set(candidates));
@@ -113,7 +138,11 @@ function truncateString(text: string): string {
   return `${text.slice(0, MAX_STRING_LENGTH)}...(truncated:${text.length})`;
 }
 
-function sanitizeForAudit(value: unknown, depth = 0, visited = new WeakSet<object>()): unknown {
+function sanitizeForAudit(
+  value: unknown,
+  depth = 0,
+  visited = new WeakSet<object>(),
+): unknown {
   if (value === null || typeof value === 'undefined') return value;
   if (typeof value === 'string') return truncateString(value);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
@@ -128,7 +157,9 @@ function sanitizeForAudit(value: unknown, depth = 0, visited = new WeakSet<objec
     if (visited.has(value as object)) return '[circular]';
     visited.add(value as object);
     const result: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, item] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
       if (isSensitiveKey(key)) {
         result[key] = '[redacted]';
         continue;
@@ -157,7 +188,9 @@ export function appendModelEventAudit(
     at: new Date().toISOString(),
     pid: process.pid,
     eventType,
-    extractedSelectionCount: Array.isArray(input.selections) ? input.selections.length : 0,
+    extractedSelectionCount: Array.isArray(input.selections)
+      ? input.selections.length
+      : 0,
     extractedSelections: sanitizeForAudit(input.selections ?? []),
     event: sanitizeForAudit(input.event),
   };

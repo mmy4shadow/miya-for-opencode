@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import { ensureGatewayRunning, stopGateway } from './index';
 import { createGatewayAcceptanceProjectDir } from './test-helpers';
 
@@ -26,9 +26,18 @@ async function connectGateway(
   >();
 
   const ready = new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('gateway_ws_hello_timeout')), 10_000);
+    const timeout = setTimeout(
+      () => reject(new Error('gateway_ws_hello_timeout')),
+      10_000,
+    );
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'hello', role, clientID: 'security-test-client' }));
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          role,
+          clientID: 'security-test-client',
+        }),
+      );
     };
     ws.onerror = () => {
       clearTimeout(timeout);
@@ -48,7 +57,9 @@ async function connectGateway(
           resolve();
           return;
         }
-        reject(new Error(String(frame.error?.message ?? 'gateway_hello_failed')));
+        reject(
+          new Error(String(frame.error?.message ?? 'gateway_hello_failed')),
+        );
         return;
       }
       const waiter = pending.get(String(frame.id));
@@ -58,7 +69,9 @@ async function connectGateway(
       if (frame.ok) {
         waiter.resolve(frame.result);
       } else {
-        waiter.reject(new Error(String(frame.error?.message ?? 'gateway_request_failed')));
+        waiter.reject(
+          new Error(String(frame.error?.message ?? 'gateway_request_failed')),
+        );
       }
     };
   });
@@ -150,7 +163,9 @@ describe('gateway security interaction acceptance', () => {
       } catch (error) {
         blockedError = String(error instanceof Error ? error.message : error);
       }
-      expect(blockedError).toContain('skill_not_loadable:missing_permission_metadata');
+      expect(blockedError).toContain(
+        'skill_not_loadable:missing_permission_metadata',
+      );
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -192,7 +207,9 @@ describe('gateway security interaction acceptance', () => {
       const domains = (await client.request('policy.domains.list')) as {
         domains: Array<{ domain: string; status: string }>;
       };
-      const byName = new Map(domains.domains.map((item) => [item.domain, item.status]));
+      const byName = new Map(
+        domains.domains.map((item) => [item.domain, item.status]),
+      );
       expect(byName.get('outbound_send')).toBe('paused');
       expect(byName.get('desktop_control')).toBe('running');
 
@@ -218,7 +235,9 @@ describe('gateway security interaction acceptance', () => {
 
       let blockedError = '';
       try {
-        await client.request('policy.domain.resume', { domain: 'outbound_send' });
+        await client.request('policy.domain.resume', {
+          domain: 'outbound_send',
+        });
       } catch (error) {
         blockedError = String(error instanceof Error ? error.message : error);
       }
@@ -227,7 +246,9 @@ describe('gateway security interaction acceptance', () => {
       const domains = (await client.request('policy.domains.list')) as {
         domains: Array<{ domain: string; status: string }>;
       };
-      const byName = new Map(domains.domains.map((item) => [item.domain, item.status]));
+      const byName = new Map(
+        domains.domains.map((item) => [item.domain, item.status]),
+      );
       expect(byName.get('outbound_send')).toBe('paused');
 
       const released = (await client.request('killswitch.set_mode', {
@@ -271,13 +292,18 @@ describe('gateway security interaction acceptance', () => {
       const updated = (await client.request('psyche.mode.set', {
         resonanceEnabled: false,
         captureProbeEnabled: false,
-      })) as { mode?: { resonanceEnabled?: boolean; captureProbeEnabled?: boolean } };
+      })) as {
+        mode?: { resonanceEnabled?: boolean; captureProbeEnabled?: boolean };
+      };
       expect(updated.mode?.resonanceEnabled).toBe(false);
       expect(updated.mode?.captureProbeEnabled).toBe(false);
 
       const snapshot = (await client.request('gateway.status.get')) as {
         nexus?: {
-          psycheMode?: { resonanceEnabled?: boolean; captureProbeEnabled?: boolean };
+          psycheMode?: {
+            resonanceEnabled?: boolean;
+            captureProbeEnabled?: boolean;
+          };
         };
       };
       expect(snapshot.nexus?.psycheMode?.resonanceEnabled).toBe(false);
@@ -315,7 +341,9 @@ describe('gateway security interaction acceptance', () => {
         };
       };
       expect(snapshot.nexus?.learningGate?.candidateMode).toBe('toast_gate');
-      expect(snapshot.nexus?.learningGate?.persistentRequiresApproval).toBe(true);
+      expect(snapshot.nexus?.learningGate?.persistentRequiresApproval).toBe(
+        true,
+      );
 
       const policy = (await client.request('policy.get')) as { hash: string };
       const added = (await client.request('companion.memory.add', {
@@ -344,15 +372,20 @@ describe('gateway security interaction acceptance', () => {
       });
       const policy = (await client.request('policy.get')) as { hash: string };
 
-      const thresholdBefore = (await client.request('security.voiceprint.threshold.get')) as {
+      const thresholdBefore = (await client.request(
+        'security.voiceprint.threshold.get',
+      )) as {
         ownerMinScore: number;
       };
       expect(thresholdBefore.ownerMinScore).toBeGreaterThan(0.7);
 
-      const thresholdAfter = (await client.request('security.voiceprint.threshold.set', {
-        ownerMinScore: 0.81,
-        farTarget: 0.02,
-      })) as { ownerMinScore: number; farTarget: number };
+      const thresholdAfter = (await client.request(
+        'security.voiceprint.threshold.set',
+        {
+          ownerMinScore: 0.81,
+          farTarget: 0.02,
+        },
+      )) as { ownerMinScore: number; farTarget: number };
       expect(thresholdAfter.ownerMinScore).toBe(0.81);
       expect(thresholdAfter.farTarget).toBe(0.02);
 
@@ -371,7 +404,9 @@ describe('gateway security interaction acceptance', () => {
       const domains = (await client.request('policy.domains.list')) as {
         domains: Array<{ domain: string; status: string }>;
       };
-      const byName = new Map(domains.domains.map((item) => [item.domain, item.status]));
+      const byName = new Map(
+        domains.domains.map((item) => [item.domain, item.status]),
+      );
       expect(byName.get('outbound_send')).toBe('paused');
       expect(byName.get('desktop_control')).toBe('paused');
       expect(byName.get('memory_read')).toBe('paused');
@@ -417,9 +452,10 @@ describe('gateway security interaction acceptance', () => {
         requiresConfirmation?: boolean;
       };
       expect(firstTry.sent).toBe(false);
-      expect(firstTry.message).toBe('outbound_blocked:high_risk_confirmation_required');
+      expect(firstTry.message).toBe(
+        'outbound_blocked:high_risk_confirmation_required',
+      );
       expect(Boolean(firstTry.requiresConfirmation)).toBe(true);
-
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -562,10 +598,16 @@ describe('gateway security interaction acceptance', () => {
           userInitiated: false,
           negotiationID: humanNegotiationID,
         },
-      })) as { sent: boolean; fixability?: string; budget?: { humanEdit?: number } };
+      })) as {
+        sent: boolean;
+        fixability?: string;
+        budget?: { humanEdit?: number };
+      };
       expect(humanFirst.sent).toBe(false);
       expect(humanFirst.fixability).toBe('retry_later');
-      expect(Number(humanFirst.budget?.humanEdit ?? 0)).toBeGreaterThanOrEqual(1);
+      expect(Number(humanFirst.budget?.humanEdit ?? 0)).toBeGreaterThanOrEqual(
+        1,
+      );
 
       const humanSecond = (await client.request('channels.message.send', {
         channel: 'qq',
@@ -600,7 +642,9 @@ describe('gateway security interaction acceptance', () => {
         },
       })) as { sent: boolean; message: string };
       expect(humanThird.sent).toBe(false);
-      expect(humanThird.message).toMatch(/negotiation_budget_exhausted:human_edit_exhausted/);
+      expect(humanThird.message).toMatch(
+        /negotiation_budget_exhausted:human_edit_exhausted/,
+      );
     } finally {
       client.close();
       stopGateway(projectDir);

@@ -1,9 +1,6 @@
 // LSP Client - Full implementation with connection pooling
 
-import {
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from 'node:child_process';
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';

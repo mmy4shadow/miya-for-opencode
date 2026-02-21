@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import {
   archiveCompanionMemoryVector,
   confirmCompanionMemoryVector,
@@ -35,7 +35,9 @@ describe('companion memory vectors', () => {
       supersedeConflicts: true,
     });
     expect(confirmed?.status).toBe('active');
-    expect(searchCompanionMemoryVectors(projectDir, '抹茶', 3).length).toBeGreaterThan(0);
+    expect(
+      searchCompanionMemoryVectors(projectDir, '抹茶', 3).length,
+    ).toBeGreaterThan(0);
   });
 
   test('creates correction wizard entry for conflicting memories', () => {
@@ -78,9 +80,14 @@ describe('companion memory vectors', () => {
       source: 'test',
       activate: true,
     });
-    const weak = searchCompanionMemoryVectors(projectDir, 'unrelated-query', 5, {
-      threshold: 0.95,
-    });
+    const weak = searchCompanionMemoryVectors(
+      projectDir,
+      'unrelated-query',
+      5,
+      {
+        threshold: 0.95,
+      },
+    );
     expect(weak.length).toBe(0);
     const normal = searchCompanionMemoryVectors(projectDir, 'TypeScript', 5, {
       threshold: 0.1,
@@ -105,13 +112,20 @@ describe('companion memory vectors', () => {
       confidence: 0.7,
     });
     expect(corrected.status).toBe('active');
-    const all = searchCompanionMemoryVectors(projectDir, '抹茶拿铁', 10, { threshold: 0 });
+    const all = searchCompanionMemoryVectors(projectDir, '抹茶拿铁', 10, {
+      threshold: 0,
+    });
     expect(all.some((item) => item.id === corrected.id)).toBe(true);
     const vectors = listPendingCompanionMemoryVectors(projectDir);
     expect(vectors.some((item) => item.id === corrected.id)).toBe(false);
     const pendingCorrections = listCompanionMemoryCorrections(projectDir);
     expect(pendingCorrections.length).toBe(0);
-    const storeHit = searchCompanionMemoryVectors(projectDir, '不喜欢 抹茶拿铁', 5, { threshold: 0 });
+    const storeHit = searchCompanionMemoryVectors(
+      projectDir,
+      '不喜欢 抹茶拿铁',
+      5,
+      { threshold: 0 },
+    );
     expect(storeHit.some((item) => item.id === corrected.id)).toBe(true);
   });
 

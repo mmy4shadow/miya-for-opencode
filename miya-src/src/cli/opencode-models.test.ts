@@ -1,6 +1,4 @@
-/// <reference types="bun-types" />
-
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { parseOpenCodeModelsVerboseOutput } from './opencode-models';
 
 const SAMPLE_OUTPUT = `

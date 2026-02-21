@@ -80,4 +80,8 @@ export interface VramBudgetPlan {
   };
 }
 
-export type ModelSwapAction = 'reuse' | 'hot_load' | 'evict_then_load' | 'degraded_reference';
+export type ModelSwapAction =
+  | 'reuse'
+  | 'hot_load'
+  | 'evict_then_load'
+  | 'degraded_reference';

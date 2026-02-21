@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { runProcessSync } from '../utils';
 import { runUltraworkDag } from '../ultrawork/scheduler';
+import { runProcessSync } from '../utils';
 import {
   appendAutoflowHistory,
   configureAutoflowSession,
@@ -9,6 +9,7 @@ import {
 } from './state';
 import type {
   AutoflowCommandResult,
+  AutoflowFixStep,
   AutoflowRunInput,
   AutoflowRunResult,
   AutoflowSessionState,
@@ -47,7 +48,9 @@ function runShellCommand(
   };
 }
 
-function normalizeTasks(input: AutoflowRunInput['tasks']): AutoflowSessionState['planTasks'] {
+function normalizeTasks(
+  input: AutoflowRunInput['tasks'],
+): AutoflowSessionState['planTasks'] {
   if (!Array.isArray(input)) return [];
   return input
     .filter((task) => task?.agent?.trim() && task.prompt?.trim())
@@ -57,7 +60,10 @@ function normalizeTasks(input: AutoflowRunInput['tasks']): AutoflowSessionState[
       prompt: task.prompt.trim(),
       description: task.description?.trim() || task.prompt.trim().slice(0, 120),
       dependsOn: Array.isArray(task.dependsOn)
-        ? task.dependsOn.map(String).map((dep) => dep.trim()).filter(Boolean)
+        ? task.dependsOn
+            .map(String)
+            .map((dep) => dep.trim())
+            .filter(Boolean)
         : [],
       timeoutMs:
         typeof task.timeoutMs === 'number' && Number.isFinite(task.timeoutMs)
@@ -72,7 +78,54 @@ function normalizeTasks(input: AutoflowRunInput['tasks']): AutoflowSessionState[
 
 function normalizeFixCommands(input: string[] | undefined): string[] {
   if (!Array.isArray(input)) return [];
-  return input.map(String).map((item) => item.trim()).filter(Boolean);
+  return input
+    .map(String)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeFixSteps(
+  input: AutoflowFixStep[] | undefined,
+): AutoflowFixStep[] {
+  if (!Array.isArray(input)) return [];
+  const normalized: AutoflowFixStep[] = [];
+  input.forEach((item, index) => {
+    if (!item || typeof item !== 'object') return;
+    if (item.type === 'command') {
+      const command = String(item.command ?? '').trim();
+      if (!command) return;
+      normalized.push({
+        id: item.id?.trim() || `fix_command_${index + 1}`,
+        type: 'command',
+        command,
+        description: item.description?.trim() || undefined,
+      });
+      return;
+    }
+    if (item.type === 'agent_task') {
+      const agent = String(item.agent ?? '').trim();
+      const prompt = String(item.prompt ?? '').trim();
+      const description = String(item.description ?? '').trim();
+      if (!agent || !prompt || !description) return;
+      normalized.push({
+        id: item.id?.trim() || `fix_agent_${index + 1}`,
+        type: 'agent_task',
+        agent,
+        prompt,
+        description,
+        timeoutMs:
+          typeof item.timeoutMs === 'number' && Number.isFinite(item.timeoutMs)
+            ? Number(item.timeoutMs)
+            : undefined,
+        maxRetries:
+          typeof item.maxRetries === 'number' &&
+          Number.isFinite(item.maxRetries)
+            ? Number(item.maxRetries)
+            : undefined,
+      });
+    }
+  });
+  return normalized;
 }
 
 function setFailed(state: AutoflowSessionState, reason: string): void {
@@ -92,7 +145,9 @@ function verificationFailureReason(result: AutoflowCommandResult): string {
   return text.slice(0, 220) || `verification_exit=${result.exitCode}`;
 }
 
-export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunResult> {
+export async function runAutoflow(
+  input: AutoflowRunInput,
+): Promise<AutoflowRunResult> {
   const timeoutMs =
     typeof input.timeoutMs === 'number' && Number.isFinite(input.timeoutMs)
       ? Math.max(1000, Math.floor(input.timeoutMs))
@@ -122,8 +177,17 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
   if (input.fixCommands) {
     state.fixCommands = normalizeFixCommands(input.fixCommands);
   }
-  if (typeof input.maxFixRounds === 'number' && Number.isFinite(input.maxFixRounds)) {
-    state.maxFixRounds = Math.max(1, Math.min(10, Math.floor(input.maxFixRounds)));
+  if (input.fixSteps) {
+    state.fixSteps = normalizeFixSteps(input.fixSteps);
+  }
+  if (
+    typeof input.maxFixRounds === 'number' &&
+    Number.isFinite(input.maxFixRounds)
+  ) {
+    state.maxFixRounds = Math.max(
+      1,
+      Math.min(10, Math.floor(input.maxFixRounds)),
+    );
   }
 
   if (state.phase === 'stopped') {
@@ -157,11 +221,16 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
   let dagResult: AutoflowRunResult['dagResult'];
   let verification: AutoflowRunResult['verification'];
   let fixResult: AutoflowRunResult['fixResult'];
+  let executedFixStep: AutoflowRunResult['executedFixStep'];
 
   for (let loop = 0; loop < RUN_LOOP_LIMIT; loop += 1) {
     if (state.phase === 'planning') {
       if (state.planTasks.length === 0) {
-        appendAutoflowHistory(state, 'planning_waiting', 'No executable tasks in plan.');
+        appendAutoflowHistory(
+          state,
+          'planning_waiting',
+          'No executable tasks in plan.',
+        );
         state = saveAutoflowSession(input.projectDir, state);
         return {
           success: false,
@@ -186,12 +255,16 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
           parentSessionID: input.sessionID,
           tasks: state.planTasks,
           maxParallel:
-            typeof input.maxParallel === 'number' && Number.isFinite(input.maxParallel)
+            typeof input.maxParallel === 'number' &&
+            Number.isFinite(input.maxParallel)
               ? Number(input.maxParallel)
               : undefined,
         });
       } catch (error) {
-        setFailed(state, `execution_exception:${error instanceof Error ? error.message : String(error)}`);
+        setFailed(
+          state,
+          `execution_exception:${error instanceof Error ? error.message : String(error)}`,
+        );
         break;
       }
 
@@ -209,7 +282,7 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
 
       if (dagResult.failed > 0 || dagResult.blocked > 0) {
         const reason = `execution_not_clean failed=${dagResult.failed} blocked=${dagResult.blocked}`;
-        if (state.fixCommands.length === 0) {
+        if (state.fixCommands.length === 0 && state.fixSteps.length === 0) {
           setFailed(state, `${reason} (no fix commands configured)`);
           break;
         }
@@ -220,7 +293,11 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
       }
 
       state.phase = 'verification';
-      appendAutoflowHistory(state, 'execution_complete', 'Parallel execution completed.');
+      appendAutoflowHistory(
+        state,
+        'execution_complete',
+        'Parallel execution completed.',
+      );
       continue;
     }
 
@@ -230,14 +307,21 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
         break;
       }
 
-      verification = runCommand(state.verificationCommand, timeoutMs, input.workingDirectory);
+      verification = runCommand(
+        state.verificationCommand,
+        timeoutMs,
+        input.workingDirectory,
+      );
       if (verification.ok) {
         setCompleted(state, 'verification_passed');
         break;
       }
 
       const hash = hashText(`${verification.stderr}\n${verification.stdout}`);
-      state.recentVerificationHashes = [...state.recentVerificationHashes, hash].slice(-3);
+      state.recentVerificationHashes = [
+        ...state.recentVerificationHashes,
+        hash,
+      ].slice(-3);
       const repeatedFailure =
         state.recentVerificationHashes.length >= 3 &&
         state.recentVerificationHashes.every((item) => item === hash);
@@ -253,8 +337,8 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
         break;
       }
 
-      if (state.fixCommands.length === 0) {
-        setFailed(state, `verification_failed_no_fix_commands:${reason}`);
+      if (state.fixCommands.length === 0 && state.fixSteps.length === 0) {
+        setFailed(state, `verification_failed_no_fix_steps:${reason}`);
         break;
       }
 
@@ -270,18 +354,62 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
         break;
       }
 
+      const fixStep = state.fixSteps[state.fixRound];
       const fixCommand = state.fixCommands[state.fixRound];
-      if (!fixCommand) {
-        setFailed(state, `missing_fix_command_at_round_${state.fixRound + 1}`);
+      if (!fixStep && !fixCommand) {
+        setFailed(state, `missing_fix_step_at_round_${state.fixRound + 1}`);
         break;
       }
 
-      fixResult = runCommand(fixCommand, timeoutMs, input.workingDirectory);
+      if (fixStep?.type === 'agent_task') {
+        const dag = await runDag({
+          manager: input.manager,
+          parentSessionID: input.sessionID,
+          tasks: [
+            {
+              id: fixStep.id,
+              agent: fixStep.agent,
+              prompt: fixStep.prompt,
+              description: fixStep.description,
+              timeoutMs: fixStep.timeoutMs,
+              maxRetries: fixStep.maxRetries,
+            },
+          ],
+          maxParallel: 1,
+        });
+        const ok = dag.failed === 0 && dag.blocked === 0 && dag.completed > 0;
+        fixResult = {
+          command: `agent_task:${fixStep.agent}`,
+          ok,
+          exitCode: ok ? 0 : 1,
+          stdout: JSON.stringify(dag),
+          stderr: ok ? '' : 'agent_fix_task_failed',
+          durationMs: 0,
+        };
+        executedFixStep = fixStep;
+      } else {
+        const commandToRun =
+          fixStep?.type === 'command' ? fixStep.command : fixCommand;
+        fixResult = runCommand(
+          String(commandToRun),
+          timeoutMs,
+          input.workingDirectory,
+        );
+        if (fixStep?.type === 'command') {
+          executedFixStep = fixStep;
+        } else if (fixCommand) {
+          executedFixStep = {
+            id: `fix_command_${state.fixRound + 1}`,
+            type: 'command',
+            command: fixCommand,
+          };
+        }
+      }
       state.fixRound += 1;
       appendAutoflowHistory(
         state,
         'fix_attempt',
-        `round=${state.fixRound} ok=${fixResult.ok} exit=${fixResult.exitCode}`,
+        `round=${state.fixRound} ok=${fixResult.ok} exit=${fixResult.exitCode} step=${executedFixStep?.type ?? 'command'}`,
       );
 
       state.phase = 'verification';
@@ -296,10 +424,13 @@ export async function runAutoflow(input: AutoflowRunInput): Promise<AutoflowRunR
   return {
     success,
     phase: state.phase,
-    summary: success ? 'autoflow_completed' : state.lastError ?? `autoflow_${state.phase}`,
+    summary: success
+      ? 'autoflow_completed'
+      : (state.lastError ?? `autoflow_${state.phase}`),
     state,
     dagResult,
     verification,
     fixResult,
+    executedFixStep,
   };
 }

@@ -17,7 +17,9 @@ export function parseTelegramInbound(
     channel: 'telegram',
     senderID: String(message.from.id),
     displayName:
-      message.from.username ?? message.from.first_name ?? String(message.from.id),
+      message.from.username ??
+      message.from.first_name ??
+      String(message.from.id),
     conversationID: String(message.chat.id),
     text: message.text,
     raw: body,

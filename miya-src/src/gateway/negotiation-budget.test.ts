@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { applyNegotiationBudget } from './negotiation-budget';
 
 describe('negotiation budget', () => {
@@ -63,4 +63,3 @@ describe('negotiation budget', () => {
     expect(h2.reason).toBe('human_edit_exhausted');
   });
 });
-

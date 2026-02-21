@@ -1,15 +1,15 @@
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { getMiyaRuntimeDir } from '../workflow';
 import { readConfig } from '../settings';
+import { getMiyaRuntimeDir } from '../workflow';
 import {
-  parseDaemonOutgoingFrame,
   DaemonHelloFrameSchema,
   DaemonPingFrameSchema,
   DaemonRequestFrameSchema,
+  parseDaemonOutgoingFrame,
 } from './ws-protocol';
 
 interface DaemonLockState {
@@ -143,20 +143,24 @@ function safeReadJson(filePath: string): Record<string, unknown> | null {
   if (!fs.existsSync(filePath)) return null;
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return null;
     return parsed as Record<string, unknown>;
   } catch {
     return null;
   }
 }
 
-function toDaemonLock(raw: Record<string, unknown> | null): DaemonLockState | null {
+function toDaemonLock(
+  raw: Record<string, unknown> | null,
+): DaemonLockState | null {
   if (!raw) return null;
   const pid = Number(raw.pid);
   const wsPort = Number(raw.wsPort);
   const token = String(raw.token ?? '');
   const updatedAt = String(raw.updatedAt ?? '');
-  if (!Number.isFinite(pid) || !Number.isFinite(wsPort) || !token || !updatedAt) return null;
+  if (!Number.isFinite(pid) || !Number.isFinite(wsPort) || !token || !updatedAt)
+    return null;
   return { pid, wsPort, token, updatedAt };
 }
 
@@ -179,7 +183,9 @@ function resolveHostScriptPath(projectDir: string): string {
 function noteLaunchFailure(runtime: LauncherRuntime, reason: string): void {
   runtime.consecutiveLaunchFailures += 1;
   runtime.lastRejectReason = reason;
-  if (runtime.consecutiveLaunchFailures >= runtime.maxConsecutiveLaunchFailures) {
+  if (
+    runtime.consecutiveLaunchFailures >= runtime.maxConsecutiveLaunchFailures
+  ) {
     runtime.retryHalted = true;
     runtime.connected = false;
     runtime.snapshot.connected = false;
@@ -201,20 +207,31 @@ function resolveNodeBinary(): string | null {
   const windowsNodeCandidates =
     process.platform === 'win32'
       ? [
-          path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'nodejs', 'node.exe'),
+          path.join(
+            process.env.ProgramFiles ?? 'C:\\Program Files',
+            'nodejs',
+            'node.exe',
+          ),
           path.join(
             process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)',
             'nodejs',
             'node.exe',
           ),
-          path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'nodejs', 'node.exe'),
+          path.join(
+            process.env.LOCALAPPDATA ?? '',
+            'Programs',
+            'nodejs',
+            'node.exe',
+          ),
         ]
       : [];
   const candidates = [
     configured || null,
     (() => {
       const execBase = path.basename(process.execPath).toLowerCase();
-      return execBase === 'node' || execBase === 'node.exe' ? process.execPath : null;
+      return execBase === 'node' || execBase === 'node.exe'
+        ? process.execPath
+        : null;
     })(),
     ...windowsNodeCandidates,
     process.platform === 'win32' ? 'node.exe' : 'node',
@@ -235,12 +252,17 @@ function resolveNodeBinary(): string | null {
   return null;
 }
 
-function resolveLifecycleMode(projectDir: string): 'coupled' | 'service_experimental' {
-  if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === 'service') return 'service_experimental';
+function resolveLifecycleMode(
+  projectDir: string,
+): 'coupled' | 'service_experimental' {
+  if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === 'service')
+    return 'service_experimental';
   if (process.env.MIYA_DAEMON_LIFECYCLE_MODE === 'coupled') return 'coupled';
   const config = readConfig(projectDir);
   const runtime = (config.runtime as Record<string, unknown> | undefined) ?? {};
-  return runtime.service_mode_experimental === true ? 'service_experimental' : 'coupled';
+  return runtime.service_mode_experimental === true
+    ? 'service_experimental'
+    : 'coupled';
 }
 
 function spawnDaemon(runtime: LauncherRuntime): boolean {
@@ -268,7 +290,8 @@ function spawnDaemon(runtime: LauncherRuntime): boolean {
   const binaryBase = path.basename(nodeBinary).toLowerCase();
   if (binaryBase.includes('powershell') || binaryBase === 'pwsh.exe') {
     runtime.snapshot.connected = false;
-    runtime.snapshot.statusText = 'Miya Daemon Disabled (invalid_runtime_binary)';
+    runtime.snapshot.statusText =
+      'Miya Daemon Disabled (invalid_runtime_binary)';
     noteLaunchFailure(runtime, 'invalid_runtime_binary');
     return false;
   }
@@ -283,16 +306,12 @@ function spawnDaemon(runtime: LauncherRuntime): boolean {
     '--token',
     runtime.daemonToken,
   ];
-  spawn(
-    nodeBinary,
-    nodeArgs,
-    {
-      cwd: path.dirname(hostScript),
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    },
-  ).unref();
+  spawn(nodeBinary, nodeArgs, {
+    cwd: path.dirname(hostScript),
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  }).unref();
   return true;
 }
 
@@ -330,7 +349,10 @@ function writeParentLock(runtime: LauncherRuntime): void {
   });
 }
 
-function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void {
+function connectWebSocket(
+  runtime: LauncherRuntime,
+  lock: DaemonLockState,
+): void {
   const url = `ws://127.0.0.1:${lock.wsPort}/ws?token=${encodeURIComponent(runtime.daemonToken)}`;
   const ws = new WebSocket(url);
   runtime.ws = ws;
@@ -374,7 +396,9 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
         if (frame.ok) {
           pending.resolve(frame.result);
         } else {
-          pending.reject(new Error(frame.error?.message ?? 'daemon_request_failed'));
+          pending.reject(
+            new Error(frame.error?.message ?? 'daemon_request_failed'),
+          );
         }
       }
       return;
@@ -387,11 +411,15 @@ function connectWebSocket(runtime: LauncherRuntime, lock: DaemonLockState): void
     }
     if (frame.type === 'event' && frame.event === 'job.progress') {
       const payload =
-        frame.payload && typeof frame.payload === 'object' && !Array.isArray(frame.payload)
+        frame.payload &&
+        typeof frame.payload === 'object' &&
+        !Array.isArray(frame.payload)
           ? (frame.payload as Record<string, unknown>)
           : {};
       runtime.snapshot.activeJobID =
-        typeof payload.jobID === 'string' ? payload.jobID : runtime.snapshot.activeJobID;
+        typeof payload.jobID === 'string'
+          ? payload.jobID
+          : runtime.snapshot.activeJobID;
       runtime.snapshot.activeJobProgress =
         typeof payload.progress === 'number'
           ? Math.floor(payload.progress)
@@ -453,13 +481,16 @@ function daemonRequest(
     params,
   });
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      runtime.pending.delete(id);
-      runtime.lastRejectReason = 'timeout';
-      runtime.rejectedRequests += 1;
-      syncBackpressureSnapshot(runtime);
-      reject(new Error('daemon_request_timeout'));
-    }, Math.max(1_000, timeoutMs));
+    const timeout = setTimeout(
+      () => {
+        runtime.pending.delete(id);
+        runtime.lastRejectReason = 'timeout';
+        runtime.rejectedRequests += 1;
+        syncBackpressureSnapshot(runtime);
+        reject(new Error('daemon_request_timeout'));
+      },
+      Math.max(1_000, timeoutMs),
+    );
     runtime.pending.set(id, { resolve, reject, timeout });
     syncBackpressureSnapshot(runtime);
     runtime.ws?.send(JSON.stringify(frame));
@@ -502,15 +533,25 @@ function startStatusPoll(runtime: LauncherRuntime): void {
       runtime.snapshot.connected = true;
       runtime.snapshot.statusText = 'Miya Daemon Connected';
       runtime.snapshot.uptimeSec =
-        typeof data.uptimeSec === 'number' ? data.uptimeSec : runtime.snapshot.uptimeSec;
+        typeof data.uptimeSec === 'number'
+          ? data.uptimeSec
+          : runtime.snapshot.uptimeSec;
       runtime.snapshot.cpuPercent =
-        typeof data.cpuPercent === 'number' ? data.cpuPercent : runtime.snapshot.cpuPercent;
+        typeof data.cpuPercent === 'number'
+          ? data.cpuPercent
+          : runtime.snapshot.cpuPercent;
       runtime.snapshot.vramUsedMB =
-        typeof data.vramUsedMB === 'number' ? data.vramUsedMB : runtime.snapshot.vramUsedMB;
+        typeof data.vramUsedMB === 'number'
+          ? data.vramUsedMB
+          : runtime.snapshot.vramUsedMB;
       runtime.snapshot.vramTotalMB =
-        typeof data.vramTotalMB === 'number' ? data.vramTotalMB : runtime.snapshot.vramTotalMB;
+        typeof data.vramTotalMB === 'number'
+          ? data.vramTotalMB
+          : runtime.snapshot.vramTotalMB;
       runtime.snapshot.lastSeenAt =
-        typeof data.lastSeenAt === 'string' ? data.lastSeenAt : runtime.snapshot.lastSeenAt;
+        typeof data.lastSeenAt === 'string'
+          ? data.lastSeenAt
+          : runtime.snapshot.lastSeenAt;
     } catch {
       runtime.snapshot.connected = false;
       runtime.snapshot.statusText = 'Miya Daemon Reconnecting';
@@ -556,7 +597,8 @@ function ensureDaemonLaunched(runtime: LauncherRuntime): void {
   if (!lockFresh || !lockOwnedByLauncher) {
     if (runtime.lifecycleMode === 'service_experimental') {
       runtime.snapshot.connected = false;
-      runtime.snapshot.statusText = 'Miya Daemon Service Mode (waiting for daemon lock)';
+      runtime.snapshot.statusText =
+        'Miya Daemon Service Mode (waiting for daemon lock)';
       scheduleReconnect(runtime);
       return;
     }
@@ -600,16 +642,17 @@ function cleanupRuntime(runtime: LauncherRuntime): void {
   runtime.ws = undefined;
 }
 
-export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot {
+export function ensureMiyaLauncher(
+  projectDir: string,
+): DaemonConnectionSnapshot {
   const existing = runtimes.get(projectDir);
   if (existing) return { ...existing.snapshot };
 
   ensureDaemonDir(projectDir);
   const lifecycleMode = resolveLifecycleMode(projectDir);
   const config = readConfig(projectDir);
-  const backpressure = (config.runtime as Record<string, unknown> | undefined)?.backpressure as
-    | Record<string, unknown>
-    | undefined;
+  const backpressure = (config.runtime as Record<string, unknown> | undefined)
+    ?.backpressure as Record<string, unknown> | undefined;
   const configuredMaxPending =
     typeof backpressure?.daemon_max_pending_requests === 'number'
       ? Number(backpressure.daemon_max_pending_requests)
@@ -620,7 +663,11 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
       : Number(process.env.MIYA_DAEMON_MAX_CONSECUTIVE_FAILURES ?? 5);
   const daemonToken =
     lifecycleMode === 'service_experimental'
-      ? String(process.env.MIYA_DAEMON_SERVICE_TOKEN ?? process.env.MIYA_DAEMON_TOKEN ?? '')
+      ? String(
+          process.env.MIYA_DAEMON_SERVICE_TOKEN ??
+            process.env.MIYA_DAEMON_TOKEN ??
+            '',
+        )
       : randomUUID();
   const runtime: LauncherRuntime = {
     projectDir,
@@ -632,10 +679,7 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     connected: false,
     reqSeq: 0,
     pending: new Map(),
-    maxPendingRequests: Math.max(
-      4,
-      Math.floor(configuredMaxPending),
-    ),
+    maxPendingRequests: Math.max(4, Math.floor(configuredMaxPending)),
     rejectedRequests: 0,
     lastRejectReason: undefined,
     listeners: new Set(),
@@ -643,7 +687,10 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
     launchCooldownUntilMs: 0,
     consecutiveLaunchFailures: 0,
     retryHalted: false,
-    maxConsecutiveLaunchFailures: Math.max(1, Math.floor(configuredMaxFailures)),
+    maxConsecutiveLaunchFailures: Math.max(
+      1,
+      Math.floor(configuredMaxFailures),
+    ),
     snapshot: {
       connected: false,
       statusText:
@@ -669,7 +716,9 @@ export function ensureMiyaLauncher(projectDir: string): DaemonConnectionSnapshot
   return { ...runtime.snapshot };
 }
 
-export function getLauncherDaemonSnapshot(projectDir: string): DaemonConnectionSnapshot {
+export function getLauncherDaemonSnapshot(
+  projectDir: string,
+): DaemonConnectionSnapshot {
   const runtime = runtimes.get(projectDir);
   if (!runtime) {
     return {
@@ -684,7 +733,9 @@ export function getLauncherDaemonSnapshot(projectDir: string): DaemonConnectionS
   return { ...runtime.snapshot };
 }
 
-export function getLauncherBackpressureStats(projectDir: string): DaemonBackpressureStats {
+export function getLauncherBackpressureStats(
+  projectDir: string,
+): DaemonBackpressureStats {
   const runtime = runtimes.get(projectDir);
   if (!runtime) {
     return {

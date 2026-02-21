@@ -14,6 +14,10 @@ export interface RouterModeConfig {
   forcedStage?: RouteStage;
   stageTokenMultiplier: Record<RouteStage, number>;
   stageCostUsdPer1k: Record<RouteStage, number>;
+  autoParallelEnabled: boolean;
+  autoParallelMinComplexity: RouteComplexity;
+  autoParallelMaxAgents: number;
+  sourceAllowlist: string[];
 }
 
 export interface RouteComplexitySignals {
@@ -38,6 +42,8 @@ export interface RouteExecutionPlan {
   feedbackScore: number;
   feedbackSamples: number;
   ecoMode: boolean;
+  executionMode: 'sequential' | 'auto_parallel';
+  orchestrationReason: string;
   reasons: string[];
 }
 
@@ -63,7 +69,10 @@ interface RouterCostSummary {
   savingsTokensEstimate: number;
   savingsPercentEstimate: number;
   totalCostUsdEstimate: number;
-  byStage: Record<RouteStage, { records: number; tokens: number; costUsd: number }>;
+  byStage: Record<
+    RouteStage,
+    { records: number; tokens: number; costUsd: number }
+  >;
 }
 
 interface RouterSessionState {
@@ -89,6 +98,10 @@ const DEFAULT_MODE: RouterModeConfig = {
     medium: 0.0018,
     high: 0.0032,
   },
+  autoParallelEnabled: true,
+  autoParallelMinComplexity: 'high',
+  autoParallelMaxAgents: 5,
+  sourceAllowlist: ['main', 'opencode', 'automation', 'daemon.'],
 };
 
 const ORCHESTRATION_ORDER = [
@@ -139,7 +152,12 @@ function buildAgentPlan(input: {
 } {
   const profile = getComplexityProfile(input.complexity);
   const include = (target: string, list: string[]): string[] => {
-    if (!target || !input.availableAgents.includes(target) || list.includes(target)) return list;
+    if (
+      !target ||
+      !input.availableAgents.includes(target) ||
+      list.includes(target)
+    )
+      return list;
     return [...list, target];
   };
 
@@ -222,9 +240,18 @@ function nowIso(): string {
 }
 
 function parseMode(raw: unknown): RouterModeConfig {
-  const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const input =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const autoParallelMinComplexity =
+    input.autoParallelMinComplexity === 'low' ||
+    input.autoParallelMinComplexity === 'medium' ||
+    input.autoParallelMinComplexity === 'high'
+      ? input.autoParallelMinComplexity
+      : DEFAULT_MODE.autoParallelMinComplexity;
   const forcedStage =
-    input.forcedStage === 'low' || input.forcedStage === 'medium' || input.forcedStage === 'high'
+    input.forcedStage === 'low' ||
+    input.forcedStage === 'medium' ||
+    input.forcedStage === 'high'
       ? input.forcedStage
       : undefined;
   const stageTokenMultiplierInput =
@@ -239,19 +266,61 @@ function parseMode(raw: unknown): RouterModeConfig {
     ecoMode: input.ecoMode !== false,
     forcedStage,
     stageTokenMultiplier: {
-      low: clamp(Number(stageTokenMultiplierInput.low ?? DEFAULT_MODE.stageTokenMultiplier.low), 0.2, 2.5),
+      low: clamp(
+        Number(
+          stageTokenMultiplierInput.low ??
+            DEFAULT_MODE.stageTokenMultiplier.low,
+        ),
+        0.2,
+        2.5,
+      ),
       medium: clamp(
-        Number(stageTokenMultiplierInput.medium ?? DEFAULT_MODE.stageTokenMultiplier.medium),
+        Number(
+          stageTokenMultiplierInput.medium ??
+            DEFAULT_MODE.stageTokenMultiplier.medium,
+        ),
         0.3,
         3,
       ),
-      high: clamp(Number(stageTokenMultiplierInput.high ?? DEFAULT_MODE.stageTokenMultiplier.high), 0.4, 4),
+      high: clamp(
+        Number(
+          stageTokenMultiplierInput.high ??
+            DEFAULT_MODE.stageTokenMultiplier.high,
+        ),
+        0.4,
+        4,
+      ),
     },
     stageCostUsdPer1k: {
-      low: clamp(Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low), 0.0001, 0.1),
-      medium: clamp(Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium), 0.0001, 0.2),
-      high: clamp(Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high), 0.0001, 0.3),
+      low: clamp(
+        Number(stageCostInput.low ?? DEFAULT_MODE.stageCostUsdPer1k.low),
+        0.0001,
+        0.1,
+      ),
+      medium: clamp(
+        Number(stageCostInput.medium ?? DEFAULT_MODE.stageCostUsdPer1k.medium),
+        0.0001,
+        0.2,
+      ),
+      high: clamp(
+        Number(stageCostInput.high ?? DEFAULT_MODE.stageCostUsdPer1k.high),
+        0.0001,
+        0.3,
+      ),
     },
+    autoParallelEnabled: input.autoParallelEnabled !== false,
+    autoParallelMinComplexity,
+    autoParallelMaxAgents: clamp(
+      Number(input.autoParallelMaxAgents ?? DEFAULT_MODE.autoParallelMaxAgents),
+      1,
+      7,
+    ),
+    sourceAllowlist: Array.isArray(input.sourceAllowlist)
+      ? input.sourceAllowlist
+          .map(String)
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : DEFAULT_MODE.sourceAllowlist,
   };
 }
 
@@ -284,7 +353,11 @@ export function writeRouterModeConfig(
       ...(patch.stageCostUsdPer1k ?? {}),
     },
   });
-  fs.writeFileSync(modeFile(projectDir), `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    modeFile(projectDir),
+    `${JSON.stringify(next, null, 2)}\n`,
+    'utf-8',
+  );
   return next;
 }
 
@@ -292,17 +365,26 @@ function readSessionStore(projectDir: string): RouterSessionStore {
   const file = sessionStateFile(projectDir);
   if (!fs.existsSync(file)) return { sessions: {} };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as RouterSessionStore;
-    if (!parsed || typeof parsed !== 'object' || !parsed.sessions) return { sessions: {} };
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as RouterSessionStore;
+    if (!parsed || typeof parsed !== 'object' || !parsed.sessions)
+      return { sessions: {} };
     return {
       sessions: Object.fromEntries(
         Object.entries(parsed.sessions).map(([sessionID, state]) => [
           sessionID,
           {
             sessionID,
-            consecutiveFailures: clamp(Number(state?.consecutiveFailures ?? 0), 0, 10),
+            consecutiveFailures: clamp(
+              Number(state?.consecutiveFailures ?? 0),
+              0,
+              10,
+            ),
             lastStage:
-              state?.lastStage === 'low' || state?.lastStage === 'medium' || state?.lastStage === 'high'
+              state?.lastStage === 'low' ||
+              state?.lastStage === 'medium' ||
+              state?.lastStage === 'high'
                 ? state.lastStage
                 : 'medium',
             updatedAt: String(state?.updatedAt ?? nowIso()),
@@ -315,12 +397,22 @@ function readSessionStore(projectDir: string): RouterSessionStore {
   }
 }
 
-function writeSessionStore(projectDir: string, store: RouterSessionStore): void {
+function writeSessionStore(
+  projectDir: string,
+  store: RouterSessionStore,
+): void {
   ensureDir(projectDir);
-  fs.writeFileSync(sessionStateFile(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    sessionStateFile(projectDir),
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
-function getSessionState(projectDir: string, sessionID: string): RouterSessionState {
+function getSessionState(
+  projectDir: string,
+  sessionID: string,
+): RouterSessionState {
   const store = readSessionStore(projectDir);
   return (
     store.sessions[sessionID] ?? {
@@ -342,6 +434,36 @@ function levelToStage(level: number): RouteStage {
   if (level <= 0) return 'low';
   if (level === 1) return 'medium';
   return 'high';
+}
+
+function complexityLevel(complexity: RouteComplexity): number {
+  if (complexity === 'low') return 0;
+  if (complexity === 'medium') return 1;
+  return 2;
+}
+
+function isSourceAllowed(
+  source: string | undefined,
+  allowlist: string[],
+): boolean {
+  const normalized = String(source ?? '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return true;
+  const blockedPrefixes = [
+    'qq',
+    'wechat',
+    'policy:',
+    'outbound',
+    'desktop_control',
+  ];
+  if (blockedPrefixes.some((prefix) => normalized.startsWith(prefix)))
+    return false;
+  if (allowlist.length === 0) return true;
+  return allowlist.some((entry) => {
+    const expected = entry.toLowerCase();
+    return normalized === expected || normalized.startsWith(expected);
+  });
 }
 
 function readCostRows(projectDir: string, limit = 500): RouterCostRecord[] {
@@ -385,12 +507,20 @@ export function analyzeRouteComplexity(text: string): RouteComplexitySignals {
     reasons.push('contains_code_block');
   }
 
-  if (/(架构|tradeoff|风险|risk|migration|重构|performance|性能|security|安全)/i.test(normalized)) {
+  if (
+    /(架构|tradeoff|风险|risk|migration|重构|performance|性能|security|安全)/i.test(
+      normalized,
+    )
+  ) {
     score += 1;
     reasons.push('architecture_or_risk');
   }
 
-  if (/(并行|多步骤|pipeline|workflow|验证|verify|修复|fix|loop)/i.test(normalized)) {
+  if (
+    /(并行|多步骤|pipeline|workflow|验证|verify|修复|fix|loop)/i.test(
+      normalized,
+    )
+  ) {
     score += 1;
     reasons.push('multi_step_execution');
   }
@@ -400,7 +530,8 @@ export function analyzeRouteComplexity(text: string): RouteComplexitySignals {
     reasons.push('urgency_signal');
   }
 
-  const complexity: RouteComplexity = score >= 4 ? 'high' : score >= 2 ? 'medium' : 'low';
+  const complexity: RouteComplexity =
+    score >= 4 ? 'high' : score >= 2 ? 'medium' : 'low';
   return { complexity, score, reasons };
 }
 
@@ -410,12 +541,17 @@ function stageFromComplexity(complexity: RouteComplexity): RouteStage {
   return 'low';
 }
 
-function compressTextByStage(text: string, stage: RouteStage): { text: string; compressed: boolean } {
+function compressTextByStage(
+  text: string,
+  stage: RouteStage,
+): { text: string; compressed: boolean } {
   const normalized = String(text ?? '').trim();
   if (!normalized) return { text: '', compressed: false };
   if (stage === 'high') return { text: normalized, compressed: false };
-  if (stage === 'medium' && normalized.length <= 4200) return { text: normalized, compressed: false };
-  if (stage === 'low' && normalized.length <= 1600) return { text: normalized, compressed: false };
+  if (stage === 'medium' && normalized.length <= 4200)
+    return { text: normalized, compressed: false };
+  if (stage === 'low' && normalized.length <= 1600)
+    return { text: normalized, compressed: false };
 
   if (stage === 'medium') {
     const head = normalized.slice(0, 2600);
@@ -458,20 +594,33 @@ export function buildRouteExecutionPlan(input: {
   text: string;
   availableAgents: string[];
   pinnedAgent?: string;
+  source?: string;
 }): RouteExecutionPlan {
   const intent = classifyIntent(input.text);
   const complexity = analyzeRouteComplexity(input.text);
   const mode = readRouterModeConfig(input.projectDir);
   const session = getSessionState(input.projectDir, input.sessionID);
-  const ranked = rankAgentsByFeedback(input.projectDir, intent, input.availableAgents);
+  const ranked = rankAgentsByFeedback(
+    input.projectDir,
+    intent,
+    input.availableAgents,
+  );
   const preferredAgent = resolveFallbackAgent(intent, input.availableAgents);
   const fallbackAgent = resolveFallbackAgent(intent, input.availableAgents);
-  const selectedByFeedback = resolveAgentWithFeedback(intent, input.availableAgents, ranked);
+  const selectedByFeedback = resolveAgentWithFeedback(
+    intent,
+    input.availableAgents,
+    ranked,
+  );
   const pinnedAgent = input.pinnedAgent?.trim();
   const selectedAgent =
-    pinnedAgent && input.availableAgents.includes(pinnedAgent) ? pinnedAgent : selectedByFeedback;
-  const feedbackScore = ranked.find((item) => item.agent === selectedAgent)?.score ?? 0;
-  const feedbackSamples = ranked.find((item) => item.agent === selectedAgent)?.samples ?? 0;
+    pinnedAgent && input.availableAgents.includes(pinnedAgent)
+      ? pinnedAgent
+      : selectedByFeedback;
+  const feedbackScore =
+    ranked.find((item) => item.agent === selectedAgent)?.score ?? 0;
+  const feedbackSamples =
+    ranked.find((item) => item.agent === selectedAgent)?.samples ?? 0;
 
   let stage = stageFromComplexity(complexity.complexity);
   const reasons = [...complexity.reasons];
@@ -499,13 +648,36 @@ export function buildRouteExecutionPlan(input: {
     intent,
     selectedAgent,
     availableAgents: input.availableAgents,
-    pinnedAgent: pinnedAgent && input.availableAgents.includes(pinnedAgent) ? pinnedAgent : undefined,
+    pinnedAgent:
+      pinnedAgent && input.availableAgents.includes(pinnedAgent)
+        ? pinnedAgent
+        : undefined,
   });
   if (agentPlan.plannedAgents.length > 1) {
     reasons.push('multi_agent_plan');
   }
   if (pinnedAgent && input.availableAgents.includes(pinnedAgent)) {
     reasons.push('pinned_agent_lock');
+  }
+
+  const minComplexityLevel = complexityLevel(mode.autoParallelMinComplexity);
+  const currentComplexityLevel = complexityLevel(complexity.complexity);
+  const sourceAllowed = isSourceAllowed(input.source, mode.sourceAllowlist);
+  const autoParallelReady =
+    mode.autoParallelEnabled &&
+    currentComplexityLevel >= minComplexityLevel &&
+    sourceAllowed &&
+    !pinnedAgent;
+  const executionMode = autoParallelReady ? 'auto_parallel' : 'sequential';
+  const orchestrationReason = autoParallelReady
+    ? 'auto_parallel_by_router_policy'
+    : sourceAllowed
+      ? 'sequential_by_complexity_or_pin'
+      : 'sequential_by_source_policy';
+  if (autoParallelReady) {
+    reasons.push('auto_parallel_enabled');
+  } else if (!sourceAllowed) {
+    reasons.push('auto_parallel_blocked_by_source');
   }
 
   return {
@@ -524,14 +696,19 @@ export function buildRouteExecutionPlan(input: {
     feedbackScore,
     feedbackSamples,
     ecoMode: mode.ecoMode,
+    executionMode,
+    orchestrationReason,
     reasons,
   };
 }
 
-export function prepareRoutePayload(projectDir: string, input: {
-  text: string;
-  stage: RouteStage;
-}): {
+export function prepareRoutePayload(
+  projectDir: string,
+  input: {
+    text: string;
+    stage: RouteStage;
+  },
+): {
   text: string;
   compressed: boolean;
   inputTokens: number;
@@ -545,14 +722,18 @@ export function prepareRoutePayload(projectDir: string, input: {
   const inputTokens = estimateInputTokens(compressed.text);
   const outputTokensEstimate = estimateOutputTokens(inputTokens, input.stage);
   const totalTokensEstimate = Math.ceil(
-    (inputTokens + outputTokensEstimate) * mode.stageTokenMultiplier[input.stage],
+    (inputTokens + outputTokensEstimate) *
+      mode.stageTokenMultiplier[input.stage],
   );
   const baselineHighTokensEstimate = Math.ceil(
     (inputTokens + estimateOutputTokens(inputTokens, 'high')) *
       mode.stageTokenMultiplier.high,
   );
   const costUsdEstimate = Number(
-    ((totalTokensEstimate / 1000) * mode.stageCostUsdPer1k[input.stage]).toFixed(6),
+    (
+      (totalTokensEstimate / 1000) *
+      mode.stageCostUsdPer1k[input.stage]
+    ).toFixed(6),
   );
   return {
     text: compressed.text,
@@ -604,7 +785,9 @@ export function recordRouteExecutionOutcome(input: {
   };
   const next: RouterSessionState = {
     sessionID: input.sessionID,
-    consecutiveFailures: input.success ? 0 : clamp(current.consecutiveFailures + 1, 0, 10),
+    consecutiveFailures: input.success
+      ? 0
+      : clamp(current.consecutiveFailures + 1, 0, 10),
     lastStage: input.stage,
     updatedAt: nowIso(),
   };
@@ -613,7 +796,10 @@ export function recordRouteExecutionOutcome(input: {
   return row;
 }
 
-export function getRouteCostSummary(projectDir: string, limit = 300): RouterCostSummary {
+export function getRouteCostSummary(
+  projectDir: string,
+  limit = 300,
+): RouterCostSummary {
   const rows = readCostRows(projectDir, limit);
   const byStage: RouterCostSummary['byStage'] = {
     low: { records: 0, tokens: 0, costUsd: 0 },
@@ -632,10 +818,17 @@ export function getRouteCostSummary(projectDir: string, limit = 300): RouterCost
     baselineHighTokensEstimate += row.baselineHighTokensEstimate;
     totalCostUsdEstimate += row.costUsdEstimate;
   }
-  const savingsTokensEstimate = Math.max(0, baselineHighTokensEstimate - totalTokensEstimate);
+  const savingsTokensEstimate = Math.max(
+    0,
+    baselineHighTokensEstimate - totalTokensEstimate,
+  );
   const savingsPercentEstimate =
     baselineHighTokensEstimate > 0
-      ? Number(((savingsTokensEstimate / baselineHighTokensEstimate) * 100).toFixed(2))
+      ? Number(
+          ((savingsTokensEstimate / baselineHighTokensEstimate) * 100).toFixed(
+            2,
+          ),
+        )
       : 0;
 
   return {
@@ -662,11 +855,16 @@ export function getRouteCostSummary(projectDir: string, limit = 300): RouterCost
   };
 }
 
-export function listRouteCostRecords(projectDir: string, limit = 40): RouterCostRecord[] {
+export function listRouteCostRecords(
+  projectDir: string,
+  limit = 40,
+): RouterCostRecord[] {
   return readCostRows(projectDir, limit);
 }
 
-export function getRouterSessionState(projectDir: string, sessionID: string): RouterSessionState {
+export function getRouterSessionState(
+  projectDir: string,
+  sessionID: string,
+): RouterSessionState {
   return getSessionState(projectDir, sessionID);
 }
-

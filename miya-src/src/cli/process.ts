@@ -31,14 +31,17 @@ export async function runCommand(
       stderr += String(chunk);
     });
 
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        proc.kill();
-      } catch {}
-      reject(new Error('command_timeout'));
-    }, Math.max(1_000, timeoutMs));
+    const timer = setTimeout(
+      () => {
+        if (settled) return;
+        settled = true;
+        try {
+          proc.kill();
+        } catch {}
+        reject(new Error('command_timeout'));
+      },
+      Math.max(1_000, timeoutMs),
+    );
 
     proc.on('error', (error) => {
       if (settled) return;

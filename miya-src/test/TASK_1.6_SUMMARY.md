@@ -27,11 +27,11 @@ Configure automated testing in CI/CD pipeline to:
 - ✅ Renamed workflow to "Miya Plugin CI/CD" for clarity
 - ✅ Renamed job from "miya-plugin" to "test" for better semantics
 - ✅ Added comprehensive test execution stages:
-  - Unit tests (`bun run test:unit`)
-  - Integration tests (`bun run test:integration`)
-  - Regression tests (`bun run test:regression`)
-  - Adversarial tests (`bun run test:adversarial`)
-  - Performance tests (`bun run test:performance`)
+  - Unit tests (`npm run test:unit`)
+  - Integration tests (`npm run test:integration`)
+  - Regression tests (`npm run test:regression`)
+  - Adversarial tests (`npm run test:adversarial`)
+  - Performance tests (`npm run test:performance`)
 - ✅ Configured appropriate error handling (`continue-on-error` for optional tests)
 
 **Key Features**:
@@ -43,7 +43,7 @@ Configure automated testing in CI/CD pipeline to:
 ### 2. Coverage Reporting (Subtask 1.6.3)
 
 **Implementation**:
-- ✅ Added coverage generation step: `bun run test:coverage`
+- ✅ Added coverage generation step: `npm run test:coverage`
 - ✅ Configured multiple coverage formats:
   - HTML report for interactive viewing
   - Text output for console
@@ -102,7 +102,7 @@ Configure automated testing in CI/CD pipeline to:
 - ✅ Test categorization support
 - ✅ npm scripts validation
 - ✅ CI environment detection
-- ✅ Bun runtime availability
+- ✅ Node.js runtime availability
 - ✅ Artifact generation capabilities
 
 **Test Results**: All 15 tests passing ✅
@@ -153,7 +153,7 @@ on:
 
 ### Test Execution Order
 
-1. **Setup**: Checkout, Bun setup, dependency installation
+1. **Setup**: Checkout, Node.js setup, dependency installation
 2. **Quality Gates**: Linters, contracts, doc lint
 3. **Unit Tests**: Fast, isolated tests (5s timeout)
 4. **Integration Tests**: Component interaction (30s timeout, optional)
@@ -178,7 +178,7 @@ on:
 ```bash
 # Run CI verification tests
 cd miya-src
-bun test test/ci-verification.test.ts
+npx vitest run test/ci-verification.test.ts
 ```
 
 **Result**: ✅ 15/15 tests passing
@@ -187,7 +187,7 @@ bun test test/ci-verification.test.ts
 
 ```bash
 # Generate coverage report
-bun test test/ci-verification.test.ts --coverage --coverage-reporter=text
+npx vitest run test/ci-verification.test.ts --coverage --coverage-reporter=text
 ```
 
 **Result**: ✅ Coverage report generated successfully
@@ -196,7 +196,7 @@ bun test test/ci-verification.test.ts --coverage --coverage-reporter=text
 
 ```bash
 # Run CI checks
-bun run check:ci
+npm run check:ci
 ```
 
 **Result**: ✅ All checks passing (linting warnings are non-blocking)
@@ -218,7 +218,7 @@ bun run check:ci
 
 - ✅ **CI workflow file exists**: Enhanced `.github/workflows/miya-ci.yml`
 - ✅ **Tests run automatically on push/PR**: Configured triggers for main, master, miya/**, and all PRs
-- ✅ **Coverage reports are generated**: `bun run test:coverage` step added
+- ✅ **Coverage reports are generated**: `npm run test:coverage` step added
 - ✅ **Artifacts are uploaded**: Coverage report and test results uploaded with 30-day retention
 - ✅ **CI pipeline passes**: Verified with local testing and CI checks
 
@@ -226,7 +226,7 @@ bun run check:ci
 
 ### Leverages Existing Configuration
 
-- ✅ Uses `bunfig.toml` for test runner configuration
+- ✅ Uses `vitest configuration` for test runner configuration
 - ✅ Uses `test/config/test.config.ts` for test settings
 - ✅ Uses existing npm scripts from `package.json`:
   - `test:unit`
@@ -342,3 +342,5 @@ The CI/CD pipeline is now fully configured and operational:
 **Files Modified**: 2  
 **Tests Added**: 15  
 **Documentation Pages**: 2
+
+

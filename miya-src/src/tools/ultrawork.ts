@@ -1,9 +1,13 @@
-import { type PluginInput, type ToolDefinition, tool } from '@opencode-ai/plugin';
+import {
+  type PluginInput,
+  type ToolDefinition,
+  tool,
+} from '@opencode-ai/plugin';
 import type { BackgroundTaskManager } from '../background';
 import {
   formatUltraworkDagResult,
-  mergeUltraworkResults,
   launchUltraworkTasks,
+  mergeUltraworkResults,
   runUltraworkDag,
 } from '../ultrawork';
 
@@ -40,8 +44,13 @@ export function createUltraworkTools(
       mode: z
         .enum(['parallel', 'dag'])
         .optional()
-        .describe('Scheduling mode: parallel fire-and-merge or DAG dependency scheduling'),
-      max_parallel: z.number().optional().describe('Max parallel workers when mode=dag'),
+        .describe(
+          'Scheduling mode: parallel fire-and-merge or DAG dependency scheduling',
+        ),
+      max_parallel: z
+        .number()
+        .optional()
+        .describe('Max parallel workers when mode=dag'),
     },
     async execute(args, ctx) {
       const parentSessionID = sessionID(ctx);
@@ -56,10 +65,7 @@ export function createUltraworkTools(
               ? Number(args.max_parallel)
               : undefined,
         });
-        return [
-          'mode=dag',
-          formatUltraworkDagResult(dagResult),
-        ].join('\n');
+        return ['mode=dag', formatUltraworkDagResult(dagResult)].join('\n');
       }
 
       const launched = launchUltraworkTasks({
@@ -67,11 +73,17 @@ export function createUltraworkTools(
         parentSessionID,
         tasks,
       });
-      const merged = mergeUltraworkResults(manager, launched.map((item) => item.taskID));
+      const merged = mergeUltraworkResults(
+        manager,
+        launched.map((item) => item.taskID),
+      );
       return [
         'mode=parallel',
         `launched=${launched.length}`,
-        ...launched.map((item) => `- ${item.nodeID} -> ${item.taskID} | ${item.agent} | ${item.status}`),
+        ...launched.map(
+          (item) =>
+            `- ${item.nodeID} -> ${item.taskID} | ${item.agent} | ${item.status}`,
+        ),
         '',
         'status:',
         merged,

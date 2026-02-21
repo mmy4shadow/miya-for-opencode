@@ -1,6 +1,6 @@
 /**
  * Gateway UI Type Definitions
- * 
+ *
  * These types mirror the backend GatewaySnapshot structure
  * to maintain backward compatibility (Requirement 13.1, 13.2)
  */
@@ -41,7 +41,11 @@ export interface LearningGateConfig {
   persistentRequiresApproval: boolean;
 }
 
-export type KillSwitchMode = 'all_stop' | 'outbound_only' | 'desktop_only' | 'off';
+export type KillSwitchMode =
+  | 'all_stop'
+  | 'outbound_only'
+  | 'desktop_only'
+  | 'off';
 
 export interface PolicyDomainRow {
   domain: string;

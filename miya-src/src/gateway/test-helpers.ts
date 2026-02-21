@@ -30,7 +30,9 @@ function allocateFreePort(): Promise<number> {
 }
 
 export async function createGatewayAcceptanceProjectDir(): Promise<string> {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-gateway-acceptance-'));
+  const projectDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-gateway-acceptance-'),
+  );
   const runtimeDir = path.join(projectDir, '.opencode', 'miya');
   fs.mkdirSync(runtimeDir, { recursive: true });
   const port = await allocateFreePort();

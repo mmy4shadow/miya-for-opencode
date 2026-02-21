@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
-import type { SentinelState } from './state-machine';
 import type { PsycheUrgency } from './consult';
+import type { SentinelState } from './state-machine';
 
 export interface BucketStats {
   alpha: number;
@@ -35,7 +35,8 @@ export function fastBrainBucket(input: {
   channel?: string;
   userInitiated: boolean;
 }): string {
-  const normalizedIntent = input.intent.trim().toLowerCase() || 'unknown_intent';
+  const normalizedIntent =
+    input.intent.trim().toLowerCase() || 'unknown_intent';
   const channel = (input.channel || 'none').trim().toLowerCase() || 'none';
   return [
     `state=${input.state}`,
@@ -93,7 +94,11 @@ export function touchFastBrain(
   current.updatedAt = nowIso();
   store.buckets[key] = current;
   trimOldBuckets(store);
-  fs.writeFileSync(fastBrainPath, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    fastBrainPath,
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 export function adjustFastBrain(
@@ -115,14 +120,22 @@ export function adjustFastBrain(
   current.updatedAt = nowIso();
   store.buckets[key] = current;
   trimOldBuckets(store);
-  fs.writeFileSync(fastBrainPath, `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    fastBrainPath,
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 function trimOldBuckets(store: FastBrainStore): void {
   const keys = Object.keys(store.buckets);
   if (keys.length <= MAX_BUCKETS) return;
   keys
-    .sort((a, b) => Date.parse(store.buckets[a].updatedAt) - Date.parse(store.buckets[b].updatedAt))
+    .sort(
+      (a, b) =>
+        Date.parse(store.buckets[a].updatedAt) -
+        Date.parse(store.buckets[b].updatedAt),
+    )
     .slice(0, keys.length - MAX_BUCKETS)
     .forEach((keyToDelete) => {
       delete store.buckets[keyToDelete];

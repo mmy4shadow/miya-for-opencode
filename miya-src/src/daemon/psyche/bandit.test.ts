@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import {
   adjustFastBrain,
   fastBrainBucket,
@@ -23,7 +23,9 @@ describe('psyche bandit store', () => {
       channel: 'QQ',
       userInitiated: true,
     });
-    expect(key).toBe('state=FOCUS|intent=outbound.send.qq|urgency=medium|channel=qq|user=1');
+    expect(key).toBe(
+      'state=FOCUS|intent=outbound.send.qq|urgency=medium|channel=qq|user=1',
+    );
   });
 
   test('updates approval and reward score', () => {

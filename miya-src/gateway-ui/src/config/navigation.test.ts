@@ -1,12 +1,12 @@
 /**
  * Navigation Configuration Tests
- * 
+ *
  * Validates the navigation configuration structure and completeness.
  * Requirements: 1.1, 1.2, 1.4, 1.6
  */
 
-import { describe, it, expect } from 'vitest';
-import { NAVIGATION_CONFIG, NavigationItem } from './navigation';
+import { describe, expect, it } from 'vitest';
+import { NAVIGATION_CONFIG, type NavigationItem } from './navigation';
 
 describe('Navigation Configuration', () => {
   describe('Structure Validation', () => {
@@ -23,13 +23,13 @@ describe('Navigation Configuration', () => {
         expect(item).toHaveProperty('icon');
         expect(item).toHaveProperty('label');
         expect(item).toHaveProperty('subtitle');
-        
+
         expect(typeof item.key).toBe('string');
         expect(typeof item.path).toBe('string');
         expect(typeof item.icon).toBe('string');
         expect(typeof item.label).toBe('string');
         expect(typeof item.subtitle).toBe('string');
-        
+
         expect(item.key.length).toBeGreaterThan(0);
         expect(item.path.length).toBeGreaterThan(0);
         expect(item.label.length).toBeGreaterThan(0);
@@ -38,13 +38,13 @@ describe('Navigation Configuration', () => {
     });
 
     it('should have unique keys for all items', () => {
-      const keys = NAVIGATION_CONFIG.map(item => item.key);
+      const keys = NAVIGATION_CONFIG.map((item) => item.key);
       const uniqueKeys = new Set(keys);
       expect(uniqueKeys.size).toBe(keys.length);
     });
 
     it('should have unique paths for all items', () => {
-      const paths = NAVIGATION_CONFIG.map(item => item.path);
+      const paths = NAVIGATION_CONFIG.map((item) => item.path);
       const uniquePaths = new Set(paths);
       expect(uniquePaths.size).toBe(paths.length);
     });
@@ -62,7 +62,7 @@ describe('Navigation Configuration', () => {
         '/diagnostics',
       ];
 
-      const actualPaths = NAVIGATION_CONFIG.map(item => item.path);
+      const actualPaths = NAVIGATION_CONFIG.map((item) => item.path);
       expect(actualPaths).toEqual(expectedPaths);
     });
 
@@ -83,13 +83,20 @@ describe('Navigation Configuration', () => {
     });
 
     it('should have correct shortcut format (Alt+N)', () => {
-      const expectedShortcuts = ['Alt+1', 'Alt+2', 'Alt+3', 'Alt+4', 'Alt+5', 'Alt+6'];
-      const actualShortcuts = NAVIGATION_CONFIG.map(item => item.shortcut);
+      const expectedShortcuts = [
+        'Alt+1',
+        'Alt+2',
+        'Alt+3',
+        'Alt+4',
+        'Alt+5',
+        'Alt+6',
+      ];
+      const actualShortcuts = NAVIGATION_CONFIG.map((item) => item.shortcut);
       expect(actualShortcuts).toEqual(expectedShortcuts);
     });
 
     it('should have unique shortcuts for all items', () => {
-      const shortcuts = NAVIGATION_CONFIG.map(item => item.shortcut);
+      const shortcuts = NAVIGATION_CONFIG.map((item) => item.shortcut);
       const uniqueShortcuts = new Set(shortcuts);
       expect(uniqueShortcuts.size).toBe(shortcuts.length);
     });

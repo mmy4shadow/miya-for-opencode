@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { analyzeFailure } from './error-analyzer';
 
 describe('ralph error analyzer', () => {
@@ -17,4 +17,3 @@ describe('ralph error analyzer', () => {
     expect(result.kind).toBe('unknown');
   });
 });
-

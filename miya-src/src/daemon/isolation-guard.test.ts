@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 
 function listTsFiles(dir: string): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });

@@ -53,7 +53,8 @@ export function getCustomSkillPermissionsForAgent(
   const permissions: Record<string, 'allow' | 'deny'> = {};
   for (const skill of CUSTOM_SKILLS) {
     const isAllowed =
-      skill.allowedAgents.includes('*') || skill.allowedAgents.includes(agentName);
+      skill.allowedAgents.includes('*') ||
+      skill.allowedAgents.includes(agentName);
     if (isAllowed) {
       permissions[skill.name] = 'allow';
     }

@@ -1,6 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export interface VoiceHistoryItem {
@@ -52,7 +52,9 @@ export function readVoiceState(projectDir: string): VoiceState {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) return defaultState();
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<VoiceState>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<VoiceState>;
     return {
       ...defaultState(),
       ...parsed,
@@ -63,7 +65,10 @@ export function readVoiceState(projectDir: string): VoiceState {
   }
 }
 
-export function writeVoiceState(projectDir: string, state: VoiceState): VoiceState {
+export function writeVoiceState(
+  projectDir: string,
+  state: VoiceState,
+): VoiceState {
   const file = filePath(projectDir);
   ensureDir(file);
   fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');

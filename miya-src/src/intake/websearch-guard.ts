@@ -12,7 +12,12 @@ export interface PermissionAskForIntakeGate {
 }
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
-const WRITE_PERMISSIONS = new Set(['edit', 'write', 'bash', 'external_directory']);
+const WRITE_PERMISSIONS = new Set([
+  'edit',
+  'write',
+  'bash',
+  'external_directory',
+]);
 const state = new Map<string, WebsearchSessionState>();
 
 function normalizeSessionID(sessionID?: string): string {
@@ -135,4 +140,3 @@ export function shouldInterceptWriteAfterWebsearch(
 
   return { intercept: false, reason: proposal.status };
 }
-

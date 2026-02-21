@@ -1,9 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import type { PolicyDomain } from './index';
 import { getMiyaRuntimeDir } from '../workflow';
-import { assertSemanticTags, normalizeSemanticTags, type SemanticTag } from './semantic-tags';
+import type { PolicyDomain } from './index';
+import {
+  assertSemanticTags,
+  normalizeSemanticTags,
+  type SemanticTag,
+} from './semantic-tags';
 
 export interface PolicyIncident {
   id: string;
@@ -62,7 +66,10 @@ export function appendPolicyIncident(
   return payload;
 }
 
-export function listPolicyIncidents(projectDir: string, limit = 50): PolicyIncident[] {
+export function listPolicyIncidents(
+  projectDir: string,
+  limit = 50,
+): PolicyIncident[] {
   const file = incidentFile(projectDir);
   if (!fs.existsSync(file)) return [];
   const rows = fs

@@ -1,6 +1,11 @@
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export type NodeType = 'cli' | 'desktop' | 'mobile' | 'browser';
@@ -118,7 +123,10 @@ function normalizeNodeRecord(partial: Partial<NodeRecord>): NodeRecord {
         .sort()
     : [];
   const fallbackHeartbeat = String(partial.lastSeenAt ?? nowIso());
-  const permissions = inferPermissionsFromCapabilities(capabilityList, partial.permissions);
+  const permissions = inferPermissionsFromCapabilities(
+    capabilityList,
+    partial.permissions,
+  );
   const status: NodeStatus = partial.connected ? 'online' : 'offline';
   return {
     nodeID: String(partial.nodeID ?? ''),
@@ -142,9 +150,12 @@ function normalizeNodeRecord(partial: Partial<NodeRecord>): NodeRecord {
       partial.status === 'error'
         ? partial.status
         : status,
-    tokenHash: typeof partial.tokenHash === 'string' ? partial.tokenHash : undefined,
+    tokenHash:
+      typeof partial.tokenHash === 'string' ? partial.tokenHash : undefined,
     tokenIssuedAt:
-      typeof partial.tokenIssuedAt === 'string' ? partial.tokenIssuedAt : undefined,
+      typeof partial.tokenIssuedAt === 'string'
+        ? partial.tokenIssuedAt
+        : undefined,
     tokenLastUsedAt:
       typeof partial.tokenLastUsedAt === 'string'
         ? partial.tokenLastUsedAt
@@ -195,7 +206,9 @@ function readStore(projectDir: string): NodeStore {
     };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<NodeStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<NodeStore>;
     const rawNodes = parsed.nodes ?? {};
     const nodes: Record<string, NodeRecord> = {};
     for (const [nodeID, node] of Object.entries(rawNodes)) {
@@ -305,7 +318,10 @@ export function registerNode(
   return node;
 }
 
-export function touchNodeHeartbeat(projectDir: string, nodeID: string): NodeRecord | null {
+export function touchNodeHeartbeat(
+  projectDir: string,
+  nodeID: string,
+): NodeRecord | null {
   const store = readStore(projectDir);
   const node = store.nodes[nodeID];
   if (!node) return null;
@@ -343,7 +359,10 @@ export function listDevices(projectDir: string): DeviceRecord[] {
   );
 }
 
-export function describeNode(projectDir: string, nodeID: string): NodeRecord | null {
+export function describeNode(
+  projectDir: string,
+  nodeID: string,
+): NodeRecord | null {
   const store = readStoreWithHealth(projectDir);
   return store.nodes[nodeID] ?? null;
 }
@@ -397,7 +416,9 @@ export function listNodePairs(
   const pairs = status
     ? store.pairs.filter((item) => item.status === status)
     : store.pairs;
-  return [...pairs].sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt));
+  return [...pairs].sort(
+    (a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt),
+  );
 }
 
 export function resolveNodePair(
@@ -451,7 +472,10 @@ export function createInvokeRequest(
   return invoke;
 }
 
-export function markInvokeSent(projectDir: string, invokeID: string): NodeInvokeRequest | null {
+export function markInvokeSent(
+  projectDir: string,
+  invokeID: string,
+): NodeInvokeRequest | null {
   const store = readStore(projectDir);
   const invoke = store.invokes[invokeID];
   if (!invoke) return null;
@@ -482,7 +506,10 @@ export function resolveInvokeResult(
   return invoke;
 }
 
-export function listInvokeRequests(projectDir: string, limit = 50): NodeInvokeRequest[] {
+export function listInvokeRequests(
+  projectDir: string,
+  limit = 50,
+): NodeInvokeRequest[] {
   const store = readStore(projectDir);
   return Object.values(store.invokes)
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))

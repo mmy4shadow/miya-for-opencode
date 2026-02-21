@@ -241,7 +241,7 @@ manager.cancel(task_id) or manager.cancel(all)
 - **@opencode-ai/plugin**: Tool definition schema (`tool`, `ToolDefinition`)
 - **vscode-jsonrpc**: LSP JSON-RPC protocol implementation
 - **vscode-languageserver-protocol**: LSP type definitions
-- **bun**: Subprocess spawning (`spawn`), file operations (`Bun.write`)
+- **node:child_process**: Subprocess spawning (`spawn`)
 
 #### Internal Dependencies
 - **src/background**: `BackgroundTaskManager` for background task tools

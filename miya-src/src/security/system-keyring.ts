@@ -1,5 +1,10 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
@@ -30,11 +35,20 @@ function fromBase64(base64: string): string {
 
 function hasPowerShell(): boolean {
   const shell = process.platform === 'win32' ? 'powershell' : 'pwsh';
-  const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], {
-    stdio: ['ignore', 'pipe', 'ignore'],
-    encoding: 'utf-8',
-    timeout: 1500,
-  });
+  const result = spawnSync(
+    shell,
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      '$PSVersionTable.PSVersion.ToString()',
+    ],
+    {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf-8',
+      timeout: 1500,
+    },
+  );
   return result.status === 0;
 }
 
@@ -45,11 +59,15 @@ function encryptWithDpapi(plainText: string): string | null {
     '$secure = ConvertTo-SecureString -String $plain -AsPlainText -Force',
     'ConvertFrom-SecureString -SecureString $secure',
   ].join('; ');
-  const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', script], {
-    stdio: ['ignore', 'pipe', 'ignore'],
-    encoding: 'utf-8',
-    timeout: 2000,
-  });
+  const result = spawnSync(
+    shell,
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf-8',
+      timeout: 2000,
+    },
+  );
   if (result.status !== 0) return null;
   const out = result.stdout.trim();
   return out.length > 0 ? out : null;
@@ -65,11 +83,15 @@ function decryptWithDpapi(blob: string): string | null {
     '[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)',
     '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($plain))',
   ].join('; ');
-  const result = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-Command', script], {
-    stdio: ['ignore', 'pipe', 'ignore'],
-    encoding: 'utf-8',
-    timeout: 2000,
-  });
+  const result = spawnSync(
+    shell,
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf-8',
+      timeout: 2000,
+    },
+  );
   if (result.status !== 0) return null;
   const out = result.stdout.trim();
   if (!out) return null;
@@ -91,11 +113,21 @@ function deriveFallbackKey(projectDir: string): Buffer {
   return entropy;
 }
 
-function encryptFallback(projectDir: string, plainText: string): SecretEnvelope {
+function encryptFallback(
+  projectDir: string,
+  plainText: string,
+): SecretEnvelope {
   const key = deriveFallbackKey(projectDir);
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', createHash('sha256').update(key).digest(), iv);
-  const payload = Buffer.concat([cipher.update(plainText, 'utf-8'), cipher.final()]);
+  const cipher = createCipheriv(
+    'aes-256-gcm',
+    createHash('sha256').update(key).digest(),
+    iv,
+  );
+  const payload = Buffer.concat([
+    cipher.update(plainText, 'utf-8'),
+    cipher.final(),
+  ]);
   return {
     version: 1,
     alg: 'aes256gcm',
@@ -105,7 +137,10 @@ function encryptFallback(projectDir: string, plainText: string): SecretEnvelope 
   };
 }
 
-function decryptFallback(projectDir: string, envelope: SecretEnvelope): string | null {
+function decryptFallback(
+  projectDir: string,
+  envelope: SecretEnvelope,
+): string | null {
   if (!envelope.iv || !envelope.tag) return null;
   try {
     const key = deriveFallbackKey(projectDir);
@@ -133,7 +168,9 @@ function decodeEnvelope(raw: string): SecretEnvelope | null {
   if (!raw.startsWith('miya-sec:')) return null;
   const body = raw.slice('miya-sec:'.length);
   try {
-    const parsed = JSON.parse(Buffer.from(body, 'base64').toString('utf-8')) as SecretEnvelope;
+    const parsed = JSON.parse(
+      Buffer.from(body, 'base64').toString('utf-8'),
+    ) as SecretEnvelope;
     if (!parsed || parsed.version !== 1) return null;
     return parsed;
   } catch {
@@ -141,7 +178,10 @@ function decodeEnvelope(raw: string): SecretEnvelope | null {
   }
 }
 
-export function encryptSensitiveValue(projectDir: string, plainText: string): string {
+export function encryptSensitiveValue(
+  projectDir: string,
+  plainText: string,
+): string {
   const normalized = String(plainText ?? '');
   if (!normalized) return normalized;
 
@@ -158,7 +198,10 @@ export function encryptSensitiveValue(projectDir: string, plainText: string): st
   return encodeEnvelope(encryptFallback(projectDir, normalized));
 }
 
-export function decryptSensitiveValue(projectDir: string, rawValue: string): string {
+export function decryptSensitiveValue(
+  projectDir: string,
+  rawValue: string,
+): string {
   const raw = String(rawValue ?? '');
   if (!raw.startsWith('miya-sec:')) return raw;
   const envelope = decodeEnvelope(raw);

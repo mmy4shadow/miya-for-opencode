@@ -3,14 +3,23 @@ import { z } from 'zod';
 export type GatewayClientRole = 'ui' | 'admin' | 'node' | 'channel' | 'unknown';
 
 const JsonValue: z.ZodType<unknown> = z.lazy(() =>
-  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(JsonValue), z.record(z.string(), JsonValue)]),
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValue),
+    z.record(z.string(), JsonValue),
+  ]),
 );
 
 const JsonObject = z.record(z.string(), JsonValue);
 
 export const HelloFrameSchema = z.object({
   type: z.literal('hello'),
-  role: z.enum(['ui', 'admin', 'node', 'channel', 'unknown']).default('unknown'),
+  role: z
+    .enum(['ui', 'admin', 'node', 'channel', 'unknown'])
+    .default('unknown'),
   clientID: z.string().optional(),
   protocolVersion: z.string().optional(),
   auth: z
@@ -66,8 +75,16 @@ export type EventFrame = z.infer<typeof EventFrameSchema>;
 export type PingFrame = z.infer<typeof PingFrameSchema>;
 export type PongFrame = z.infer<typeof PongFrameSchema>;
 
-export const GatewayIncomingFrameSchema = z.union([HelloFrameSchema, RequestFrameSchema, PingFrameSchema]);
-export const GatewayOutgoingFrameSchema = z.union([ResponseFrameSchema, EventFrameSchema, PongFrameSchema]);
+export const GatewayIncomingFrameSchema = z.union([
+  HelloFrameSchema,
+  RequestFrameSchema,
+  PingFrameSchema,
+]);
+export const GatewayOutgoingFrameSchema = z.union([
+  ResponseFrameSchema,
+  EventFrameSchema,
+  PongFrameSchema,
+]);
 
 export type GatewayIncomingFrame = z.infer<typeof GatewayIncomingFrameSchema>;
 export type GatewayOutgoingFrame = z.infer<typeof GatewayOutgoingFrameSchema>;
@@ -120,8 +137,7 @@ export class GatewayMethodRegistry {
     this.maxQueued = Math.max(
       1,
       Math.floor(
-        options.maxQueued ??
-          Number(process.env.MIYA_GATEWAY_MAX_QUEUED ?? 64),
+        options.maxQueued ?? Number(process.env.MIYA_GATEWAY_MAX_QUEUED ?? 64),
       ),
     );
     this.queueTimeoutMs = Math.max(
@@ -263,7 +279,12 @@ export function parseIncomingFrame(message: unknown): {
     const raw = message.trim();
     if (!raw) return { error: 'empty_message' };
     if (raw === 'status') {
-      payload = { type: 'request', id: 'legacy-status', method: 'gateway.status.get', params: {} };
+      payload = {
+        type: 'request',
+        id: 'legacy-status',
+        method: 'gateway.status.get',
+        params: {},
+      };
     } else {
       try {
         payload = JSON.parse(raw) as unknown;
@@ -335,7 +356,11 @@ export function toPongFrame(ts: number): PongFrame {
 function toJsonCompatible(input: unknown): unknown {
   if (input === undefined) return null;
   if (input === null) return null;
-  if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') {
+  if (
+    typeof input === 'string' ||
+    typeof input === 'number' ||
+    typeof input === 'boolean'
+  ) {
     return input;
   }
   if (Array.isArray(input)) {

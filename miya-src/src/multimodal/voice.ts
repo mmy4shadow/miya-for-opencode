@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { addCompanionAsset } from '../companion/store';
 import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
@@ -5,8 +7,6 @@ import { getMiyaVoiceTempDir } from '../model/paths';
 import { readConfig } from '../settings';
 import { appendVoiceHistory } from '../voice/state';
 import { getMiyaRuntimeDir } from '../workflow';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type {
   VoiceInputIngest,
   VoiceInputResult,
@@ -17,7 +17,10 @@ import type {
 const DEFAULT_VOICE = 'default';
 const DEFAULT_TTS_MODEL = 'local:gpt-sovits-v2pro';
 
-function resolveVoiceInputText(projectDir: string, input: VoiceInputIngest): string {
+function resolveVoiceInputText(
+  projectDir: string,
+  input: VoiceInputIngest,
+): string {
   const explicit = input.text?.trim();
   if (explicit) return explicit;
   if (!input.mediaID) return '';
@@ -125,7 +128,11 @@ export async function synthesizeVoiceOutput(
   const model = input.model?.trim() || DEFAULT_TTS_MODEL;
   const format = normalizeFormat(input.format);
   const mimeType =
-    format === 'mp3' ? 'audio/mpeg' : format === 'ogg' ? 'audio/ogg' : 'audio/wav';
+    format === 'mp3'
+      ? 'audio/mpeg'
+      : format === 'ogg'
+        ? 'audio/ogg'
+        : 'audio/wav';
   const estDurationMs = Math.max(600, Math.min(7000, text.length * 55));
   const outputDir = getMiyaVoiceTempDir(projectDir);
   const outputPath = path.join(outputDir, `tts-${Date.now()}.${format}`);
@@ -180,7 +187,8 @@ export async function synthesizeVoiceOutput(
       };
     }
   }
-  const wavBase64 = toBase64FromFile(tts.outputPath) ?? buildSilentWavBase64(estDurationMs);
+  const wavBase64 =
+    toBase64FromFile(tts.outputPath) ?? buildSilentWavBase64(estDurationMs);
 
   const media = ingestMedia(projectDir, {
     source: 'multimodal.voice.output',
@@ -202,7 +210,9 @@ export async function synthesizeVoiceOutput(
       engineMessage: tts.message,
       payloadCodec: 'pcm_s16le',
       estimatedDurationMs: estDurationMs,
-      runtimeError: tts.message.startsWith('python_runtime_not_ready:') ? tts.message : undefined,
+      runtimeError: tts.message.startsWith('python_runtime_not_ready:')
+        ? tts.message
+        : undefined,
       createdBy: 'miya_voice_output',
     },
   });

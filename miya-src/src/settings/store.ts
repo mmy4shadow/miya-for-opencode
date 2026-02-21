@@ -2,15 +2,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import {
-  type MiyaConfigRisk,
-  type MiyaConfigType,
-  type MiyaSettingEntry,
   buildDefaultConfig,
   buildRegistryDocument,
   buildSchemaDocument,
   getNestedValue,
   getSettingEntry,
   listSettingEntries,
+  type MiyaConfigRisk,
+  type MiyaConfigType,
+  type MiyaSettingEntry,
   setNestedValue,
 } from './registry';
 
@@ -78,7 +78,10 @@ function riskRank(risk: MiyaConfigRisk): number {
   return 1;
 }
 
-function maxRisk(current: MiyaConfigRisk, next: MiyaConfigRisk): MiyaConfigRisk {
+function maxRisk(
+  current: MiyaConfigRisk,
+  next: MiyaConfigRisk,
+): MiyaConfigRisk {
   return riskRank(next) > riskRank(current) ? next : current;
 }
 
@@ -99,9 +102,10 @@ function normalizePathToKey(input: string): string {
   return trimmed;
 }
 
-function normalizePatchObject(
-  input: Record<string, unknown>,
-): { patch: NormalizedConfigPatch; errors: string[] } {
+function normalizePatchObject(input: Record<string, unknown>): {
+  patch: NormalizedConfigPatch;
+  errors: string[];
+} {
   if ('jsonPatch' in input && Array.isArray(input.jsonPatch)) {
     return normalizePatchInput(input.jsonPatch);
   }
@@ -163,9 +167,10 @@ function normalizePatchObject(
   return { patch, errors: [] };
 }
 
-function normalizeJsonPatchArray(
-  input: unknown[],
-): { patch: NormalizedConfigPatch; errors: string[] } {
+function normalizeJsonPatchArray(input: unknown[]): {
+  patch: NormalizedConfigPatch;
+  errors: string[];
+} {
   const patch: NormalizedConfigPatch = { set: {}, unset: [] };
   const errors: string[] = [];
 
@@ -215,23 +220,19 @@ function validateValueType(
     if (typeof value !== 'number' || !Number.isInteger(value)) {
       return `Expected integer for ${entryValue.key}.`;
     }
-    if (
-      typeof entryValue.minimum === 'number' &&
-      value < entryValue.minimum
-    ) {
+    if (typeof entryValue.minimum === 'number' && value < entryValue.minimum) {
       return `${entryValue.key} must be >= ${entryValue.minimum}.`;
     }
-    if (
-      typeof entryValue.maximum === 'number' &&
-      value > entryValue.maximum
-    ) {
+    if (typeof entryValue.maximum === 'number' && value > entryValue.maximum) {
       return `${entryValue.key} must be <= ${entryValue.maximum}.`;
     }
     return null;
   }
 
   if (valueType === 'string') {
-    return typeof value === 'string' ? null : `Expected string for ${entryValue.key}.`;
+    return typeof value === 'string'
+      ? null
+      : `Expected string for ${entryValue.key}.`;
   }
 
   if (valueType === 'enum') {
@@ -252,7 +253,9 @@ function validateValueType(
   }
 
   if (valueType === 'array') {
-    return Array.isArray(value) ? null : `Expected array for ${entryValue.key}.`;
+    return Array.isArray(value)
+      ? null
+      : `Expected array for ${entryValue.key}.`;
   }
 
   return `Unsupported type for ${entryValue.key}.`;
@@ -305,7 +308,10 @@ export function writeConfig(
   config: Record<string, unknown>,
 ): void {
   ensureSettingsFiles(projectDir);
-  writeJson(runtimeFile(projectDir, 'config.json'), mergeConfigWithDefaults(config));
+  writeJson(
+    runtimeFile(projectDir, 'config.json'),
+    mergeConfigWithDefaults(config),
+  );
 }
 
 export function flattenConfig(
@@ -323,7 +329,10 @@ export function normalizePatchInput(input: unknown): {
   errors: string[];
 } {
   if (!input) {
-    return { patch: cloneValue(EMPTY_PATCH), errors: ['Patch payload is empty.'] };
+    return {
+      patch: cloneValue(EMPTY_PATCH),
+      errors: ['Patch payload is empty.'],
+    };
   }
 
   if (Array.isArray(input)) {
@@ -445,12 +454,8 @@ export function applyConfigPatch(
   };
 }
 
-export function getConfigValue(
-  projectDir: string,
-  key?: string,
-): unknown {
+export function getConfigValue(projectDir: string, key?: string): unknown {
   const config = readConfig(projectDir);
   if (!key) return flattenConfig(config);
   return getNestedValue(config, key);
 }
-

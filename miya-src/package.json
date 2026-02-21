@@ -37,10 +37,11 @@
     "build": "node ./tools/build.mjs && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:core && npm run test:ui",
-    "test:core": "npm run typecheck",
+    "test:core": "npm run typecheck && npm exec vitest run src/ultrawork/scheduler.test.ts src/autoflow/engine.test.ts src/autoflow/persistent.test.ts src/router/runtime.test.ts src/router/index.test.ts src/learning/skill-drafts.test.ts src/ralph/loop.test.ts src/autopilot/executor.test.ts src/tools/router.test.ts src/tools/ralph.test.ts src/gateway/milestone-acceptance.test.ts",
     "test:ui": "npm --prefix gateway-ui run test:run",
-    "test:integration": "bun test src/integration",
-    "test:integration:report": "tsx tools/run-integration-suite.ts",
+    "test:integration": "tsx tools/run-integration-suite.ts",
+    "test:integration:report": "npm run test:integration",
+    "test:strict": "tsx tools/run-strict-gate.ts",
     "check:contracts": "tsx tools/hook-contract-check.ts",
     "doc:lint": "tsx tools/doc-lint.ts",
     "lint": "biome lint .",
@@ -68,7 +69,8 @@
     "@biomejs/biome": "2.3.11",
     "@happy-dom/global-registrator": "^20.6.3",
     "esbuild": "^0.25.10",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.9"
   },
   "overrides": {
     "qs": "6.15.0",

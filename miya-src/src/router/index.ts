@@ -1,7 +1,7 @@
 export {
   classifyIntent,
-  recommendedAgent,
   type RouteIntent,
+  recommendedAgent,
 } from './classifier';
 export { resolveAgentWithFeedback, resolveFallbackAgent } from './fallback';
 export {
@@ -16,12 +16,19 @@ export {
   getRouterSessionState,
   listRouteCostRecords,
   prepareRoutePayload,
+  type RouteComplexity,
+  type RouteContextStrategy,
+  type RouteExecutionPlan,
+  type RouterModeConfig,
+  type RouteStage,
   readRouterModeConfig,
   recordRouteExecutionOutcome,
   writeRouterModeConfig,
-  type RouteComplexity,
-  type RouteContextStrategy,
-  type RouteStage,
-  type RouterModeConfig,
-  type RouteExecutionPlan,
 } from './runtime';
+export {
+  appendRouteUsageRecord,
+  listRouteUsageRecords,
+  type RouterUsageRecord,
+  type RouterUsageSummary,
+  summarizeRouteUsage,
+} from './usage-audit';

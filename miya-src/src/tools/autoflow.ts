@@ -1,14 +1,15 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
-import type { BackgroundTaskManager } from '../background';
+import type { AutoflowFixStep } from '../autoflow';
 import {
   configureAutoflowSession,
-  getAutoflowSession,
   getAutoflowPersistentRuntimeSnapshot,
+  getAutoflowSession,
   readAutoflowPersistentConfig,
   runAutoflow,
   stopAutoflowSession,
   writeAutoflowPersistentConfig,
 } from '../autoflow';
+import type { BackgroundTaskManager } from '../background';
 
 const z = tool.schema;
 
@@ -19,7 +20,9 @@ function getSessionID(ctx: unknown): string {
   return 'main';
 }
 
-function formatStateSummary(state: ReturnType<typeof getAutoflowSession>): string[] {
+function formatStateSummary(
+  state: ReturnType<typeof getAutoflowSession>,
+): string[] {
   return [
     `session=${state.sessionID}`,
     `phase=${state.phase}`,
@@ -34,7 +37,10 @@ function formatStateSummary(state: ReturnType<typeof getAutoflowSession>): strin
   ];
 }
 
-function formatPersistentSummary(projectDir: string, sessionID: string): string[] {
+function formatPersistentSummary(
+  projectDir: string,
+  sessionID: string,
+): string[] {
   const config = readAutoflowPersistentConfig(projectDir);
   const runtime = getAutoflowPersistentRuntimeSnapshot(projectDir, 200).find(
     (item) => item.sessionID === sessionID,
@@ -52,6 +58,55 @@ function formatPersistentSummary(projectDir: string, sessionID: string): string[
   ];
 }
 
+function parseFixSteps(input: unknown): AutoflowFixStep[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const steps: AutoflowFixStep[] = [];
+  input.forEach((item, index) => {
+    if (!item || typeof item !== 'object') return;
+    const row = item as Record<string, unknown>;
+    const id =
+      typeof row.id === 'string' && row.id.trim().length > 0
+        ? row.id.trim()
+        : `fix_step_${index + 1}`;
+    if (row.type === 'command') {
+      const command = typeof row.command === 'string' ? row.command.trim() : '';
+      if (!command) return;
+      steps.push({
+        id,
+        type: 'command',
+        command,
+        description:
+          typeof row.description === 'string' &&
+          row.description.trim().length > 0
+            ? row.description.trim()
+            : undefined,
+      });
+      return;
+    }
+    if (row.type === 'agent_task') {
+      const agent = typeof row.agent === 'string' ? row.agent.trim() : '';
+      const prompt = typeof row.prompt === 'string' ? row.prompt.trim() : '';
+      const description =
+        typeof row.description === 'string' ? row.description.trim() : '';
+      if (!agent || !prompt || !description) return;
+      steps.push({
+        id,
+        type: 'agent_task',
+        agent,
+        prompt,
+        description,
+        timeoutMs:
+          typeof row.timeoutMs === 'number' ? Number(row.timeoutMs) : undefined,
+        maxRetries:
+          typeof row.maxRetries === 'number'
+            ? Number(row.maxRetries)
+            : undefined,
+      });
+    }
+  });
+  return steps;
+}
+
 export function createAutoflowTools(
   projectDir: string,
   manager: BackgroundTaskManager,
@@ -63,8 +118,13 @@ export function createAutoflowTools(
       mode: z
         .enum(['start', 'run', 'status', 'stop'])
         .default('run')
-        .describe('start configures plan, run executes loop, status inspects, stop halts session'),
-      session_id: z.string().optional().describe('Target session id (default current session)'),
+        .describe(
+          'start configures plan, run executes loop, status inspects, stop halts session',
+        ),
+      session_id: z
+        .string()
+        .optional()
+        .describe('Target session id (default current session)'),
       goal: z.string().optional().describe('Workflow goal summary'),
       tasks: z
         .array(
@@ -87,8 +147,30 @@ export function createAutoflowTools(
       fix_commands: z
         .array(z.string())
         .optional()
-        .describe('Fix commands executed round-by-round when verification fails'),
-      max_fix_rounds: z.number().optional().describe('Maximum verification-fix rounds'),
+        .describe(
+          'Fix commands executed round-by-round when verification fails',
+        ),
+      fix_steps: z
+        .array(
+          z.object({
+            id: z.string().optional(),
+            type: z.enum(['command', 'agent_task']),
+            command: z.string().optional(),
+            agent: z.string().optional(),
+            prompt: z.string().optional(),
+            description: z.string().optional(),
+            timeoutMs: z.number().optional(),
+            maxRetries: z.number().optional(),
+          }),
+        )
+        .optional()
+        .describe(
+          'Structured fix steps; supports command or agent_task per round',
+        ),
+      max_fix_rounds: z
+        .number()
+        .optional()
+        .describe('Maximum verification-fix rounds'),
       max_parallel: z.number().optional().describe('DAG worker concurrency'),
       timeout_ms: z.number().optional().describe('Shell command timeout'),
       working_directory: z.string().optional().describe('Shell command cwd'),
@@ -114,9 +196,10 @@ export function createAutoflowTools(
 
       if (mode === 'status') {
         const state = getAutoflowSession(projectDir, sessionID);
-        return [...formatStateSummary(state), ...formatPersistentSummary(projectDir, sessionID)].join(
-          '\n',
-        );
+        return [
+          ...formatStateSummary(state),
+          ...formatPersistentSummary(projectDir, sessionID),
+        ].join('\n');
       }
 
       if (mode === 'stop') {
@@ -164,7 +247,10 @@ export function createAutoflowTools(
             typeof args.verification_command === 'string'
               ? args.verification_command
               : undefined,
-          fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands : undefined,
+          fixCommands: Array.isArray(args.fix_commands)
+            ? args.fix_commands
+            : undefined,
+          fixSteps: parseFixSteps(args.fix_steps),
           maxFixRounds:
             typeof args.max_fix_rounds === 'number'
               ? Number(args.max_fix_rounds)
@@ -188,12 +274,22 @@ export function createAutoflowTools(
           typeof args.verification_command === 'string'
             ? args.verification_command
             : undefined,
-        fixCommands: Array.isArray(args.fix_commands) ? args.fix_commands : undefined,
+        fixCommands: Array.isArray(args.fix_commands)
+          ? args.fix_commands
+          : undefined,
+        fixSteps: parseFixSteps(args.fix_steps),
         maxFixRounds:
-          typeof args.max_fix_rounds === 'number' ? Number(args.max_fix_rounds) : undefined,
+          typeof args.max_fix_rounds === 'number'
+            ? Number(args.max_fix_rounds)
+            : undefined,
         maxParallel:
-          typeof args.max_parallel === 'number' ? Number(args.max_parallel) : undefined,
-        timeoutMs: typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : undefined,
+          typeof args.max_parallel === 'number'
+            ? Number(args.max_parallel)
+            : undefined,
+        timeoutMs:
+          typeof args.timeout_ms === 'number'
+            ? Number(args.timeout_ms)
+            : undefined,
         workingDirectory:
           typeof args.working_directory === 'string'
             ? args.working_directory
@@ -227,6 +323,12 @@ export function createAutoflowTools(
           `fix_ok=${result.fixResult.ok}`,
           `fix_exit=${result.fixResult.exitCode}`,
           `fix_duration_ms=${result.fixResult.durationMs}`,
+        );
+      }
+      if (result.executedFixStep) {
+        lines.push(
+          `fix_step_type=${result.executedFixStep.type}`,
+          `fix_step_id=${result.executedFixStep.id}`,
         );
       }
       return lines.join('\n');

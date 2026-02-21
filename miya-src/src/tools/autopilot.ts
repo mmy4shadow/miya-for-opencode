@@ -42,14 +42,23 @@ export function createAutopilotTools(
         .string()
         .optional()
         .describe('Optional verification command for mode=run'),
-      timeout_ms: z.number().optional().describe('Command timeout for mode=run'),
+      timeout_ms: z
+        .number()
+        .optional()
+        .describe('Command timeout for mode=run'),
       working_directory: z
         .string()
         .optional()
         .describe('Optional command working directory for mode=run'),
       session_id: z.string().optional().describe('Target session id'),
-      max_cycles: z.number().optional().describe('Max autopilot cycles for the window'),
-      auto_continue: z.boolean().optional().describe('Whether loops auto-continue'),
+      max_cycles: z
+        .number()
+        .optional()
+        .describe('Max autopilot cycles for the window'),
+      auto_continue: z
+        .boolean()
+        .optional()
+        .describe('Whether loops auto-continue'),
       strict_quality_gate: z
         .boolean()
         .optional()
@@ -91,11 +100,16 @@ export function createAutopilotTools(
       if (mode === 'run') {
         const execution = runAutopilot({
           goal: goal || 'autopilot run',
-          commands: Array.isArray(args.commands) ? args.commands.map(String) : [],
+          commands: Array.isArray(args.commands)
+            ? args.commands.map(String)
+            : [],
           verificationCommand: args.verification_command
             ? String(args.verification_command)
             : undefined,
-          timeoutMs: typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : 60000,
+          timeoutMs:
+            typeof args.timeout_ms === 'number'
+              ? Number(args.timeout_ms)
+              : 60000,
           workingDirectory: args.working_directory
             ? String(args.working_directory)
             : undefined,
@@ -126,7 +140,9 @@ export function createAutopilotTools(
         sessionID,
         enabled: true,
         maxCycles:
-          typeof args.max_cycles === 'number' ? Number(args.max_cycles) : undefined,
+          typeof args.max_cycles === 'number'
+            ? Number(args.max_cycles)
+            : undefined,
         autoContinue:
           typeof args.auto_continue === 'boolean'
             ? Boolean(args.auto_continue)

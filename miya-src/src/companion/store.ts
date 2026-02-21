@@ -74,7 +74,9 @@ export function readCompanionProfile(projectDir: string): CompanionProfile {
     };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<CompanionProfile>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<CompanionProfile>;
     return {
       ...defaultProfile(),
       ...parsed,
@@ -111,7 +113,12 @@ export function patchCompanionProfile(
   patch: Partial<
     Pick<
       CompanionProfile,
-      'enabled' | 'onboardingCompleted' | 'name' | 'persona' | 'relationship' | 'style'
+      | 'enabled'
+      | 'onboardingCompleted'
+      | 'name'
+      | 'persona'
+      | 'relationship'
+      | 'style'
     >
   >,
 ): CompanionProfile {
@@ -174,7 +181,9 @@ export function resetCompanionProfile(projectDir: string): CompanionProfile {
   return writeCompanionProfile(projectDir, defaultProfile());
 }
 
-export function syncCompanionProfileMemoryFacts(projectDir: string): CompanionProfile {
+export function syncCompanionProfileMemoryFacts(
+  projectDir: string,
+): CompanionProfile {
   const current = readCompanionProfile(projectDir);
   return writeCompanionProfile(projectDir, {
     ...current,

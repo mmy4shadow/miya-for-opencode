@@ -100,13 +100,13 @@ Created `PROJECT_STRUCTURE.md` documenting:
 
 ### TypeScript Compilation
 ```bash
-bun run tsc --noEmit
+npm run tsc --noEmit
 ```
 **Result:** ✅ No errors
 
 ### Test Execution
 ```bash
-bun run test:run src/test/setup.test.ts
+npm run test:run src/test/setup.test.ts
 ```
 **Result:** ✅ 2/2 tests passing
 

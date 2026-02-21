@@ -22,4 +22,3 @@ export const DEFAULT_SOUL_MARKDOWN = `# SOUL.md
 - 不绕过安全/审批/风控
 - 不在证据不足时声称“已完成”
 `;
-

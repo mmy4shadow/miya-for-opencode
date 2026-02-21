@@ -1,5 +1,13 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
-import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from 'vitest';
 
 if (typeof globalThis.window === 'undefined') {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -22,7 +30,9 @@ vi.mock('./gateway-client', () => {
   };
 });
 
-const { cleanup, fireEvent, render, screen, waitFor } = await import('@testing-library/react');
+const { cleanup, fireEvent, render, screen, waitFor } = await import(
+  '@testing-library/react'
+);
 const { default: App } = await import('./App');
 
 const BASE_STATUS_SNAPSHOT = {
@@ -131,7 +141,9 @@ describe('App component behavior', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).not.toBeNull();
     });
-    expect(screen.getByRole('alert').getAttribute('aria-live')).toBe('assertive');
+    expect(screen.getByRole('alert').getAttribute('aria-live')).toBe(
+      'assertive',
+    );
 
     const copyButtons = await screen.findAllByRole('button', {
       name: '复制 PowerShell 修复命令',
@@ -139,7 +151,9 @@ describe('App component behavior', () => {
     fireEvent.click(copyButtons[0]);
 
     await waitFor(() => {
-      expect(container.querySelectorAll('[aria-live="polite"]').length).toBeGreaterThan(0);
+      expect(
+        container.querySelectorAll('[aria-live="polite"]').length,
+      ).toBeGreaterThan(0);
     });
   });
 
@@ -186,8 +200,8 @@ describe('App component behavior', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText((text) =>
-          text.includes('更新时间：') && text.includes(expected),
+        screen.getByText(
+          (text) => text.includes('更新时间：') && text.includes(expected),
         ),
       ).not.toBeNull();
     });
@@ -236,7 +250,11 @@ describe('App component behavior', () => {
           },
           skills: {
             enabled: ['skill-a', 'skill-b'],
-            discovered: [{ id: 'skill-a' }, { id: 'skill-b' }, { id: 'skill-c' }],
+            discovered: [
+              { id: 'skill-a' },
+              { id: 'skill-b' },
+              { id: 'skill-c' },
+            ],
           },
         };
       }
@@ -245,7 +263,8 @@ describe('App component behavior', () => {
           domains: [{ domain: 'outbound_send', status: 'running' }],
         };
       }
-      if (method === 'cron.list') return [{ id: 'train.voice', name: 'Voice Train' }];
+      if (method === 'cron.list')
+        return [{ id: 'train.voice', name: 'Voice Train' }];
       if (method === 'cron.runs.list') return [];
       if (method === 'security.identity.status') return { mode: 'owner' };
       if (method === 'companion.memory.vector.list') return [];
@@ -318,7 +337,9 @@ describe('App component behavior', () => {
 
     await waitFor(() => {
       expect(
-        screen.getAllByText((text) => text.includes('memory_import_file_too_large')).length,
+        screen.getAllByText((text) =>
+          text.includes('memory_import_file_too_large'),
+        ).length,
       ).toBeGreaterThan(0);
     });
   });
@@ -368,7 +389,9 @@ describe('App component behavior', () => {
 
     await waitFor(() => {
       expect(
-        screen.getAllByText((text) => text.includes('partial_failure:memory_import')).length,
+        screen.getAllByText((text) =>
+          text.includes('partial_failure:memory_import'),
+        ).length,
       ).toBeGreaterThan(0);
     });
     expect(importCallCount).toBe(2);
@@ -376,12 +399,16 @@ describe('App component behavior', () => {
 
   test('exposes quick log export action on task list page', async () => {
     resetBrowserState('/tasks');
-    const originalCreateObjectURL = (URL as typeof URL & {
-      createObjectURL?: (obj: Blob) => string;
-    }).createObjectURL;
-    const originalRevokeObjectURL = (URL as typeof URL & {
-      revokeObjectURL?: (url: string) => void;
-    }).revokeObjectURL;
+    const originalCreateObjectURL = (
+      URL as typeof URL & {
+        createObjectURL?: (obj: Blob) => string;
+      }
+    ).createObjectURL;
+    const originalRevokeObjectURL = (
+      URL as typeof URL & {
+        revokeObjectURL?: (url: string) => void;
+      }
+    ).revokeObjectURL;
     const createObjectURLSpy = vi.fn(() => 'blob:mock-task-log');
     const revokeObjectURLSpy = vi.fn();
     Object.defineProperty(URL, 'createObjectURL', {
@@ -439,9 +466,7 @@ describe('App component behavior', () => {
     );
 
     await waitFor(() => {
-      expect(
-        screen.getByText('成功：已导出任务日志：run-1'),
-      ).not.toBeNull();
+      expect(screen.getByText('成功：已导出任务日志：run-1')).not.toBeNull();
     });
     expect(createObjectURLSpy).toHaveBeenCalled();
     expect(revokeObjectURLSpy).toHaveBeenCalled();

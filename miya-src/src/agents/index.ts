@@ -5,21 +5,23 @@ import {
   type AgentOverrideConfig,
   DEFAULT_MODELS,
   getAgentOverride,
-  pickBestAvailableModel,
   loadAgentPrompt,
   type PluginConfig,
+  pickBestAvailableModel,
   SUBAGENT_NAMES,
 } from '../config';
 import { getAgentMcpList } from '../config/agent-mcps';
 import { soulPersonaLayer } from '../soul';
-
-import { createDesignerAgent } from './6-ui-designer';
+import {
+  type AgentDefinition,
+  createOrchestratorAgent,
+} from './1-task-manager';
 import { createExplorerAgent } from './2-code-search';
-import { createFixerAgent } from './5-code-fixer';
 import { createLibrarianAgent } from './3-docs-helper';
 import { createOracleAgent } from './4-architecture-advisor';
+import { createFixerAgent } from './5-code-fixer';
+import { createDesignerAgent } from './6-ui-designer';
 import { createCodeSimplicityReviewerAgent } from './7-code-simplicity-reviewer';
-import { type AgentDefinition, createOrchestratorAgent } from './1-task-manager';
 
 export type { AgentDefinition } from './1-task-manager';
 
@@ -50,7 +52,8 @@ function applyOverrides(
     (agent.config as Record<string, unknown>).variant = override.variant.trim();
   }
   if (override.providerID && override.providerID.trim().length > 0) {
-    (agent.config as Record<string, unknown>).providerID = override.providerID.trim();
+    (agent.config as Record<string, unknown>).providerID =
+      override.providerID.trim();
   }
   if (override.options) {
     (agent.config as Record<string, unknown>).options = override.options;
@@ -114,7 +117,10 @@ const SUBAGENT_FACTORIES: Record<SubagentName, AgentFactory> = {
 
 // Public API
 
-function getFallbackChain(config: PluginConfig | undefined, agentName: string): string[] {
+function getFallbackChain(
+  config: PluginConfig | undefined,
+  agentName: string,
+): string[] {
   const chains = config?.fallback?.chains as
     | Record<string, string[] | undefined>
     | undefined;
@@ -133,7 +139,10 @@ function getFallbackChain(config: PluginConfig | undefined, agentName: string): 
   return [];
 }
 
-function shouldInjectSoulLayer(agentName: string, personaStyle: 'full' | 'minimal' | 'zero'): boolean {
+function shouldInjectSoulLayer(
+  agentName: string,
+  personaStyle: 'full' | 'minimal' | 'zero',
+): boolean {
   if (personaStyle === 'zero') return false;
   return agentName === '1-task-manager' || agentName === '6-ui-designer';
 }
@@ -168,7 +177,10 @@ function resolveAgentModel(
  * @param config - Optional plugin configuration with agent overrides
  * @returns Array of agent definitions (orchestrator first, then subagents)
  */
-export function createAgents(config?: PluginConfig, projectDir?: string): AgentDefinition[] {
+export function createAgents(
+  config?: PluginConfig,
+  projectDir?: string,
+): AgentDefinition[] {
   const slimCompatEnabled = config?.slimCompat?.enabled ?? true;
   const enableCodeSimplicityReviewer =
     slimCompatEnabled &&
@@ -207,10 +219,7 @@ export function createAgents(config?: PluginConfig, projectDir?: string): AgentD
       applyOverrides(agent, override);
     }
     applyDefaultPermissions(agent, override?.skills);
-    if (
-      projectDir &&
-      shouldInjectSoulLayer(agent.name, agent.personaStyle)
-    ) {
+    if (projectDir && shouldInjectSoulLayer(agent.name, agent.personaStyle)) {
       agent.config.prompt = `${soulPersonaLayer(projectDir)}\n\n${String(agent.config.prompt ?? '')}`;
     }
     return agent;

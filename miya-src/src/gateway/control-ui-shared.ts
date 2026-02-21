@@ -7,4 +7,3 @@ export function normalizeControlUiBasePath(basePath?: string): string {
   if (normalized.endsWith('/')) normalized = normalized.slice(0, -1);
   return normalized;
 }
-

@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export function normalizeNodeHeaders(headers: IncomingMessage['headers']): HeadersInit {
+export function normalizeNodeHeaders(
+  headers: IncomingMessage['headers'],
+): HeadersInit {
   const normalized: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
     if (typeof value === 'string') {
@@ -15,7 +17,11 @@ export function normalizeNodeHeaders(headers: IncomingMessage['headers']): Heade
   return normalized;
 }
 
-export function toNodeRequest(req: IncomingMessage, hostname: string, port: number): Request {
+export function toNodeRequest(
+  req: IncomingMessage,
+  hostname: string,
+  port: number,
+): Request {
   const hostHeader =
     typeof req.headers.host === 'string' && req.headers.host.trim()
       ? req.headers.host.trim()
@@ -48,7 +54,10 @@ export async function sendNodeResponse(
   res.end(body);
 }
 
-export function reserveGatewayPort(hostname: string, configuredPort: number): number {
+export function reserveGatewayPort(
+  hostname: string,
+  configuredPort: number,
+): number {
   if (configuredPort > 0) {
     return configuredPort;
   }
@@ -69,7 +78,9 @@ export function reserveGatewayPort(hostname: string, configuredPort: number): nu
     windowsHide: true,
   });
   if (probe.status !== 0) {
-    throw new Error(`gateway_port_reservation_failed:${String(probe.stderr || '').trim()}`);
+    throw new Error(
+      `gateway_port_reservation_failed:${String(probe.stderr || '').trim()}`,
+    );
   }
   const reserved = Number(String(probe.stdout || '').trim());
   if (!Number.isFinite(reserved) || reserved <= 0) {

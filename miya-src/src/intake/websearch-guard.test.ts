@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import {
   shouldInterceptWriteAfterWebsearch,
   trackWebsearchToolOutput,
@@ -40,4 +40,3 @@ describe('websearch intake guard', () => {
     expect(result.intercept).toBe(false);
   });
 });
-

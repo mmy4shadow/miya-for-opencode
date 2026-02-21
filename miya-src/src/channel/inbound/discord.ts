@@ -9,7 +9,12 @@ export interface DiscordWebhookBody {
 export function parseDiscordInbound(
   body: DiscordWebhookBody,
 ): ChannelInboundMessage | null {
-  if (!body.content || !body.channel_id || !body.author?.id || body.author?.bot) {
+  if (
+    !body.content ||
+    !body.channel_id ||
+    !body.author?.id ||
+    body.author?.bot
+  ) {
     return null;
   }
   return {

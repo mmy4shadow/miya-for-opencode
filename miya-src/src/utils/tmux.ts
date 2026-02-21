@@ -1,6 +1,6 @@
 import type { TmuxConfig, TmuxLayout } from '../config/schema';
-import { runProcess } from './process';
 import { log } from './logger';
+import { runProcess } from './process';
 
 let tmuxPath: string | null = null;
 let tmuxChecked = false;

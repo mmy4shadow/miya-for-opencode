@@ -1,7 +1,11 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
+import {
+  confirmCompanionMemoryVector,
+  listPendingCompanionMemoryVectors,
+} from './memory-vector';
 import {
   addCompanionAsset,
   addCompanionMemoryFact,
@@ -10,7 +14,6 @@ import {
   resetCompanionProfile,
   syncCompanionProfileMemoryFacts,
 } from './store';
-import { confirmCompanionMemoryVector, listPendingCompanionMemoryVectors } from './memory-vector';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-companion-test-'));
@@ -29,11 +32,17 @@ describe('companion profile store', () => {
     });
     expect(profile.enabled).toBe(true);
 
-    const withMemory = addCompanionMemoryFact(projectDir, 'User likes synthwave music.');
+    const withMemory = addCompanionMemoryFact(
+      projectDir,
+      'User likes synthwave music.',
+    );
     expect(withMemory.memoryFacts.length).toBe(0);
     const pending = listPendingCompanionMemoryVectors(projectDir);
     expect(pending.length).toBe(1);
-    confirmCompanionMemoryVector(projectDir, { memoryID: pending[0].id, confirm: true });
+    confirmCompanionMemoryVector(projectDir, {
+      memoryID: pending[0].id,
+      confirm: true,
+    });
     const synced = syncCompanionProfileMemoryFacts(projectDir);
     expect(synced.memoryFacts.length).toBe(1);
 

@@ -1,7 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  decryptSensitiveValue,
+  encryptSensitiveValue,
+} from '../security/system-keyring';
 import { getMiyaRuntimeDir } from '../workflow';
-import { decryptSensitiveValue, encryptSensitiveValue } from '../security/system-keyring';
 import {
   CHANNEL_NAMES,
   type ChannelName,
@@ -48,7 +51,9 @@ export function readChannelStore(projectDir: string): ChannelStore {
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ChannelStore>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<ChannelStore>;
     const fallback = defaultStore();
     const mergedChannels = {} as Record<ChannelName, ChannelState>;
     for (const name of CHANNEL_NAMES) {
@@ -57,7 +62,9 @@ export function readChannelStore(projectDir: string): ChannelStore {
         ...(parsed.channels?.[name] ?? {}),
       };
       const allowlist = Array.isArray(channel.allowlist)
-        ? channel.allowlist.map((item) => decryptSensitiveValue(projectDir, String(item)))
+        ? channel.allowlist.map((item) =>
+            decryptSensitiveValue(projectDir, String(item)),
+          )
         : [];
       const contactTiersRaw =
         channel.contactTiers && typeof channel.contactTiers === 'object'
@@ -95,14 +102,19 @@ export function readChannelStore(projectDir: string): ChannelStore {
   }
 }
 
-export function writeChannelStore(projectDir: string, store: ChannelStore): void {
+export function writeChannelStore(
+  projectDir: string,
+  store: ChannelStore,
+): void {
   const file = filePath(projectDir);
   ensureDir(file);
   const encrypted: ChannelStore = {
     channels: Object.fromEntries(
       Object.entries(store.channels).map(([name, state]) => {
         const contactTiers: Record<string, 'owner' | 'friend'> = {};
-        for (const [senderID, tier] of Object.entries(state.contactTiers ?? {})) {
+        for (const [senderID, tier] of Object.entries(
+          state.contactTiers ?? {},
+        )) {
           contactTiers[encryptSensitiveValue(projectDir, senderID)] = tier;
         }
         return [
@@ -133,7 +145,9 @@ export function writeChannelStore(projectDir: string, store: ChannelStore): void
 
 export function listChannelStates(projectDir: string): ChannelState[] {
   const store = readChannelStore(projectDir);
-  return Object.values(store.channels).sort((a, b) => a.name.localeCompare(b.name));
+  return Object.values(store.channels).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 }
 
 export function upsertChannelState(
@@ -230,7 +244,9 @@ export function listPairRequests(
   const pairs = status
     ? store.pairs.filter((item) => item.status === status)
     : store.pairs;
-  return [...pairs].sort((a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt));
+  return [...pairs].sort(
+    (a, b) => Date.parse(b.requestedAt) - Date.parse(a.requestedAt),
+  );
 }
 
 export function isSenderAllowed(
@@ -285,8 +301,11 @@ export function listContactTiers(
 ): Array<{ channel: ChannelName; senderID: string; tier: 'owner' | 'friend' }> {
   const store = readChannelStore(projectDir);
   const channels = channel ? [channel] : [...CHANNEL_NAMES];
-  const rows: Array<{ channel: ChannelName; senderID: string; tier: 'owner' | 'friend' }> =
-    [];
+  const rows: Array<{
+    channel: ChannelName;
+    senderID: string;
+    tier: 'owner' | 'friend';
+  }> = [];
   for (const name of channels) {
     const state = store.channels[name];
     const mapping = state.contactTiers ?? {};

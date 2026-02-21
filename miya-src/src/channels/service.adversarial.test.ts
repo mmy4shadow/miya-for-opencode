@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ChannelRuntime } from './service';
+import { beforeEach, describe, expect, test } from 'vitest';
 import { setContactTier } from './pairing-store';
+import { ChannelRuntime } from './service';
 
 process.env.MIYA_INPUT_MUTEX_TIMEOUT_MS = '25';
 
@@ -18,7 +18,12 @@ type VisionStubResult = {
   retries: number;
   lowConfidenceAttempts: number;
   capture: {
-    method: 'wgc_hwnd' | 'print_window' | 'dxgi_duplication' | 'uia_only' | 'unknown';
+    method:
+      | 'wgc_hwnd'
+      | 'print_window'
+      | 'dxgi_duplication'
+      | 'uia_only'
+      | 'unknown';
     confidence: number;
     limitations: string[];
   };
@@ -37,13 +42,18 @@ function createRuntime(projectDir: string): ChannelRuntime {
       onPairRequested: () => {},
     },
     {
-      analyzeDesktopOutboundEvidence: async (input): Promise<VisionStubResult> => {
+      analyzeDesktopOutboundEvidence: async (
+        input,
+      ): Promise<VisionStubResult> => {
         if (forcedVisionResult) return forcedVisionResult;
         const recipientMatch = input.recipientTextCheck ?? 'uncertain';
-        const sendStatusDetected = input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain';
+        const sendStatusDetected =
+          input.receiptStatus === 'confirmed' ? 'sent' : 'uncertain';
         const limitations = ['no_desktop_screenshot', 'ui_style_mismatch'];
-        if (recipientMatch === 'uncertain') limitations.push('recipient_unverified');
-        if (sendStatusDetected === 'uncertain') limitations.push('delivery_unverified');
+        if (recipientMatch === 'uncertain')
+          limitations.push('recipient_unverified');
+        if (sendStatusDetected === 'uncertain')
+          limitations.push('delivery_unverified');
         return {
           recipientMatch,
           sendStatusDetected,
@@ -146,12 +156,23 @@ describe('channel runtime adversarial cases', () => {
         result.message === 'outbound_degraded:ui_style_mismatch:draft_only',
     ).toBe(true);
 
-    const auditFile = path.join(projectDir, '.opencode', 'miya', 'channels-outbound.jsonl');
+    const auditFile = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'channels-outbound.jsonl',
+    );
     const rows = fs
       .readFileSync(auditFile, 'utf-8')
       .split(/\r?\n/)
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as { semanticTags?: string[]; semanticSummary?: { conclusion?: string } });
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            semanticTags?: string[];
+            semanticSummary?: { conclusion?: string };
+          },
+      );
     expect(
       rows[0]?.semanticTags?.includes('receipt_uncertain') ||
         rows[0]?.semanticTags?.includes('ui_style_mismatch'),
@@ -178,9 +199,16 @@ describe('channel runtime adversarial cases', () => {
     });
 
     expect(result.sent).toBe(false);
-    expect(result.message).toBe('outbound_degraded:ui_style_mismatch:draft_only');
+    expect(result.message).toBe(
+      'outbound_degraded:ui_style_mismatch:draft_only',
+    );
 
-    const auditFile = path.join(projectDir, '.opencode', 'miya', 'channels-outbound.jsonl');
+    const auditFile = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'channels-outbound.jsonl',
+    );
     const rows = fs
       .readFileSync(auditFile, 'utf-8')
       .split(/\r?\n/)
@@ -235,12 +263,20 @@ describe('channel runtime adversarial cases', () => {
     expect(result.sent).toBe(false);
     expect(result.message).toBe('outbound_blocked:recipient_text_mismatch');
 
-    const auditFile = path.join(projectDir, '.opencode', 'miya', 'channels-outbound.jsonl');
+    const auditFile = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'channels-outbound.jsonl',
+    );
     const rows = fs
       .readFileSync(auditFile, 'utf-8')
       .split(/\r?\n/)
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as { message?: string; semanticTags?: string[] });
+      .map(
+        (line) =>
+          JSON.parse(line) as { message?: string; semanticTags?: string[] },
+      );
     const row = rows.find((item) => item.message === result.message);
     expect(Boolean(row)).toBe(true);
     expect(row?.semanticTags?.includes('recipient_mismatch')).toBe(true);
@@ -282,12 +318,20 @@ describe('channel runtime adversarial cases', () => {
     expect(result.sent).toBe(false);
     expect(result.message).toBe('outbound_blocked:receipt_uncertain');
 
-    const auditFile = path.join(projectDir, '.opencode', 'miya', 'channels-outbound.jsonl');
+    const auditFile = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'channels-outbound.jsonl',
+    );
     const rows = fs
       .readFileSync(auditFile, 'utf-8')
       .split(/\r?\n/)
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as { message?: string; semanticTags?: string[] });
+      .map(
+        (line) =>
+          JSON.parse(line) as { message?: string; semanticTags?: string[] },
+      );
     const row = rows.find((item) => item.message === result.message);
     expect(Boolean(row)).toBe(true);
     expect(row?.semanticTags?.includes('receipt_uncertain')).toBe(true);
@@ -330,15 +374,26 @@ describe('channel runtime adversarial cases', () => {
     expect(String(second.message ?? '').length).toBeGreaterThan(0);
     expect(firstResult.message.length).toBeGreaterThan(0);
 
-    const auditFile = path.join(projectDir, '.opencode', 'miya', 'channels-outbound.jsonl');
+    const auditFile = path.join(
+      projectDir,
+      '.opencode',
+      'miya',
+      'channels-outbound.jsonl',
+    );
     const rows = fs
       .readFileSync(auditFile, 'utf-8')
       .split(/\r?\n/)
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as { message?: string; semanticTags?: string[] });
+      .map(
+        (line) =>
+          JSON.parse(line) as { message?: string; semanticTags?: string[] },
+      );
     const blockedRow = rows.find((row) => {
       const message = String(row.message ?? '');
-      return message.startsWith('outbound_degraded:') || message.startsWith('outbound_blocked:');
+      return (
+        message.startsWith('outbound_degraded:') ||
+        message.startsWith('outbound_blocked:')
+      );
     });
     expect(Boolean(blockedRow)).toBe(true);
   });

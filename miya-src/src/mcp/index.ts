@@ -25,9 +25,7 @@ export function createBuiltinMcps(
   );
 }
 
-export function buildMcpServiceManifest(
-  disabledMcps: readonly string[] = [],
-): {
+export function buildMcpServiceManifest(disabledMcps: readonly string[] = []): {
   service: string;
   version: number;
   generatedAt: string;

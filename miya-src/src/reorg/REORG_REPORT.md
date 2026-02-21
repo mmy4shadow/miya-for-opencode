@@ -93,9 +93,9 @@ Wiring status:
 
 ## Verification Snapshot
 
-- `bun run --cwd miya-src typecheck`: pass
-- `bun test --cwd miya-src/src gateway`: pass
-- `bun run --cwd miya-src/gateway-ui test:run`: fail (same baseline failing suites)
+- `npm run --cwd miya-src typecheck`: pass
+- `npx vitest run --cwd miya-src/src gateway`: pass
+- `npm run --cwd miya-src/gateway-ui test:run`: fail (same baseline failing suites)
   - `src/pages/TasksPage.test.tsx`
   - `src/pages/MemoryPage.test.tsx`
   - `src/App.behavior.test.tsx`

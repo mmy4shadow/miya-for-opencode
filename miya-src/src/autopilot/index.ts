@@ -1,6 +1,5 @@
 export { configureAutopilotSession, runAutopilot } from './executor';
 export { attachCommandSteps, createAutopilotPlan } from './planner';
-export { summarizeAutopilotPlan, summarizeVerification } from './verifier';
 export type {
   AutopilotCommandResult,
   AutopilotPlan,
@@ -8,3 +7,4 @@ export type {
   AutopilotRunInput,
   AutopilotRunResult,
 } from './types';
+export { summarizeAutopilotPlan, summarizeVerification } from './verifier';

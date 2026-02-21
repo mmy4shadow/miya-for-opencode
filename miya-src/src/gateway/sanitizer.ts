@@ -7,12 +7,13 @@ export interface SanitizedGatewayContext {
 }
 
 const WORK_INSTRUCTION = 'You are a technical coding assistant. No small talk.';
-const CHAT_INSTRUCTION = 'You are Miya, a girlfriend assistant. Be gentle and cute.';
+const CHAT_INSTRUCTION =
+  'You are Miya, a girlfriend assistant. Be gentle and cute.';
 
 const WORK_HINTS = [
   /```/,
   /\b(stack trace|traceback|exception|TypeError|ReferenceError)\b/i,
-  /\b(function|class|import|npm|pnpm|bun|pip|pytest|docker|sql|api)\b/i,
+  /\b(function|class|import|npm|pnpm|pip|pytest|docker|sql|api)\b/i,
   /\b(\.ts|\.tsx|\.js|\.py|\.md|package\.json|tsconfig)\b/i,
   /(修复|报错|编译|代码|脚本|函数|接口|性能|测试|部署)/,
 ];
@@ -32,7 +33,7 @@ const CODE_CONTEXT_LINE = new RegExp(
     '^\\s*at\\s+\\S+\\s*\\(',
     '^\\s*File\\s+".*",\\s+line\\s+\\d+',
     '\\.(ts|tsx|js|jsx|py|java|go|rs|cpp|c|h|json|yaml|yml|toml|md)\\b',
-    '\\b(package\\.json|tsconfig|requirements\\.txt|pnpm-lock|bun\\.lock)\\b',
+    '\\b(package\\.json|tsconfig|requirements\\.txt|pnpm-lock)\\b',
   ].join('|'),
   'i',
 );
@@ -55,21 +56,32 @@ export function inferContextMode(text: string): ContextMode {
   return workScore >= chatScore ? 'work' : 'chat';
 }
 
-function sanitizeWorkContext(text: string): { text: string; removed: string[] } {
+function sanitizeWorkContext(text: string): {
+  text: string;
+  removed: string[];
+} {
   const removed: string[] = [];
   let body = normalizeWhitespace(text);
   if (WORK_BLOCKED_WORDS.test(body)) {
     removed.push('persona_words');
     body = body.replace(WORK_BLOCKED_WORDS, '');
   }
-  body = body.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  body = body
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return {
-    text: ['[Context Mode: WORK]', WORK_INSTRUCTION, body].filter(Boolean).join('\n'),
+    text: ['[Context Mode: WORK]', WORK_INSTRUCTION, body]
+      .filter(Boolean)
+      .join('\n'),
     removed,
   };
 }
 
-function sanitizeChatContext(text: string): { text: string; removed: string[] } {
+function sanitizeChatContext(text: string): {
+  text: string;
+  removed: string[];
+} {
   const removed: string[] = [];
   const lines = normalizeWhitespace(text).split('\n');
   const kept: string[] = [];
@@ -80,9 +92,14 @@ function sanitizeChatContext(text: string): { text: string; removed: string[] } 
     }
     kept.push(line);
   }
-  const body = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const body = kept
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return {
-    text: ['[Context Mode: CHAT]', CHAT_INSTRUCTION, body].filter(Boolean).join('\n'),
+    text: ['[Context Mode: CHAT]', CHAT_INSTRUCTION, body]
+      .filter(Boolean)
+      .join('\n'),
     removed,
   };
 }
@@ -107,4 +124,3 @@ export function sanitizeGatewayContext(input: {
     removedSignals: sanitized.removed,
   };
 }
-

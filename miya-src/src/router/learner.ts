@@ -23,7 +23,9 @@ function readStore(projectDir: string): RouteHistoryStore {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) return { records: [] };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as RouteHistoryStore;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as RouteHistoryStore;
     return { records: Array.isArray(parsed.records) ? parsed.records : [] };
   } catch {
     return { records: [] };
@@ -64,9 +66,14 @@ export function rankAgentsByFeedback(
   projectDir: string,
   intent: RouteIntent,
   availableAgents: string[],
-): Array<{ agent: string; score: number; samples: number; acceptRate: number }> {
-  const records = readStore(projectDir).records
-    .filter((item) => item.intent === intent)
+): Array<{
+  agent: string;
+  score: number;
+  samples: number;
+  acceptRate: number;
+}> {
+  const records = readStore(projectDir)
+    .records.filter((item) => item.intent === intent)
     .slice(0, 300);
   const scored = availableAgents.map((agent) => {
     const matched = records.filter((item) => item.suggestedAgent === agent);
@@ -74,7 +81,9 @@ export function rankAgentsByFeedback(
     const samples = matched.length;
     const acceptRate = samples > 0 ? accepted / samples : 0;
     // Sample-aware score: keep small prior to avoid overfitting.
-    const score = Number((acceptRate * 0.8 + Math.min(0.2, samples / 50)).toFixed(4));
+    const score = Number(
+      (acceptRate * 0.8 + Math.min(0.2, samples / 50)).toFixed(4),
+    );
     return {
       agent,
       score,

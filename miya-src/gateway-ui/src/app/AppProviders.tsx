@@ -17,7 +17,9 @@ export function AppProviders(props: AppProvidersProps) {
     );
   }
   return (
-    <BrowserRouter basename={props.inferRouterBasename(window.location.pathname)}>
+    <BrowserRouter
+      basename={props.inferRouterBasename(window.location.pathname)}
+    >
       {props.children}
     </BrowserRouter>
   );

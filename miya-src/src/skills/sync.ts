@@ -141,11 +141,15 @@ function readState(projectDir: string): EcosystemBridgeState {
   const file = stateFile(projectDir);
   if (!fs.existsSync(file)) return { ...DEFAULT_STATE };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<EcosystemBridgeState>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<EcosystemBridgeState>;
     return {
       version: 1,
       updatedAt:
-        typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date(0).toISOString(),
+        typeof parsed.updatedAt === 'string'
+          ? parsed.updatedAt
+          : new Date(0).toISOString(),
       sourcePacks:
         parsed.sourcePacks && typeof parsed.sourcePacks === 'object'
           ? parsed.sourcePacks
@@ -218,16 +222,24 @@ function listSkillReposFromRoot(rootDir: string): string[] {
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(rootDir, entry.name))
     .filter((dir) => {
-      return fs.existsSync(path.join(dir, 'SKILL.md')) && fs.existsSync(path.join(dir, '.git'));
+      return (
+        fs.existsSync(path.join(dir, 'SKILL.md')) &&
+        fs.existsSync(path.join(dir, '.git'))
+      );
     });
 }
 
 function sanitizeIdSegment(input: string): string {
-  return input.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return input
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function buildSourcePackID(repo: string | undefined, localDir: string): string {
-  const base = sanitizeIdSegment(path.basename(localDir) || 'source-pack') || 'source-pack';
+  const base =
+    sanitizeIdSegment(path.basename(localDir) || 'source-pack') ||
+    'source-pack';
   const fingerprint = createHash('sha256')
     .update(`${repo ?? ''}|${path.resolve(localDir)}`)
     .digest('hex')
@@ -284,14 +296,20 @@ function resolveRevision(
   ref: string,
   options?: EcosystemBridgeOptions,
 ): string {
-  const resolved = readGitValue(options, localDir, ['rev-parse', `${ref}^{commit}`]);
+  const resolved = readGitValue(options, localDir, [
+    'rev-parse',
+    `${ref}^{commit}`,
+  ]);
   if (!resolved) {
     throw new Error(`source_pack_revision_unresolved:${ref}`);
   }
   return resolved;
 }
 
-function requireCleanWorkingTree(localDir: string, options?: EcosystemBridgeOptions): void {
+function requireCleanWorkingTree(
+  localDir: string,
+  options?: EcosystemBridgeOptions,
+): void {
   const status = git(options, ['status', '--porcelain'], localDir);
   if (status.exitCode !== 0) {
     throw new Error(status.stderr || 'source_pack_status_failed');
@@ -320,9 +338,14 @@ function discoverSourcePacks(
   for (const localDir of [...dirs]) {
     const headRevision = readGitValue(options, localDir, ['rev-parse', 'HEAD']);
     if (!headRevision) continue;
-    const repo = readGitValue(options, localDir, ['config', '--get', 'remote.origin.url']);
+    const repo = readGitValue(options, localDir, [
+      'config',
+      '--get',
+      'remote.origin.url',
+    ]);
     const branch =
-      readGitValue(options, localDir, ['rev-parse', '--abbrev-ref', 'HEAD']) ?? 'HEAD';
+      readGitValue(options, localDir, ['rev-parse', '--abbrev-ref', 'HEAD']) ??
+      'HEAD';
     const sourcePackID = buildSourcePackID(repo, localDir);
     const sourceState = state.sourcePacks[sourcePackID];
     const importPlan = state.importPlans[sourcePackID];
@@ -449,7 +472,11 @@ export function pullSourcePack(
   options?: EcosystemBridgeOptions,
 ): SourcePackPullResult {
   const resolved = requireSourcePack(projectDir, sourcePackID, options);
-  const pull = git(options, ['fetch', '--prune', 'origin'], resolved.sourcePack.localDir);
+  const pull = git(
+    options,
+    ['fetch', '--prune', 'origin'],
+    resolved.sourcePack.localDir,
+  );
   if (pull.exitCode !== 0) {
     updateSourcePackState(resolved.state, resolved.sourcePack, {
       lastError: pull.stderr || 'source_pack_fetch_failed',
@@ -463,7 +490,11 @@ export function pullSourcePack(
     resolved.sourcePack.branch,
     options,
   );
-  const latestRevision = resolveRevision(resolved.sourcePack.localDir, compareRef, options);
+  const latestRevision = resolveRevision(
+    resolved.sourcePack.localDir,
+    compareRef,
+    options,
+  );
 
   ensureImportPlan(resolved.state, resolved.sourcePack, options);
   updateSourcePackState(resolved.state, resolved.sourcePack, {
@@ -487,11 +518,19 @@ export function diffSourcePack(
   sourcePackID: string,
   options?: EcosystemBridgeOptions,
 ): SourcePackDiffResult {
-  const { state, sourcePack } = requireSourcePack(projectDir, sourcePackID, options);
+  const { state, sourcePack } = requireSourcePack(
+    projectDir,
+    sourcePackID,
+    options,
+  );
   const compareRef =
     state.sourcePacks[sourcePackID]?.latestRevision ??
     resolveUpstreamRef(sourcePack.localDir, sourcePack.branch, options);
-  const compareRevision = resolveRevision(sourcePack.localDir, compareRef, options);
+  const compareRevision = resolveRevision(
+    sourcePack.localDir,
+    compareRef,
+    options,
+  );
   const count = git(
     options,
     ['rev-list', '--left-right', '--count', `HEAD...${compareRevision}`],
@@ -541,8 +580,16 @@ export function applySourcePack(
   const targetRef =
     normalizeText(input.revision) ??
     resolved.state.sourcePacks[sourcePackID]?.latestRevision ??
-    resolveUpstreamRef(resolved.sourcePack.localDir, resolved.sourcePack.branch, options);
-  const targetRevision = resolveRevision(resolved.sourcePack.localDir, targetRef, options);
+    resolveUpstreamRef(
+      resolved.sourcePack.localDir,
+      resolved.sourcePack.branch,
+      options,
+    );
+  const targetRevision = resolveRevision(
+    resolved.sourcePack.localDir,
+    targetRef,
+    options,
+  );
   const previousRevision = resolved.sourcePack.headRevision;
 
   if (previousRevision !== targetRevision) {
@@ -559,7 +606,8 @@ export function applySourcePack(
   ensureImportPlan(resolved.state, resolved.sourcePack, options);
   updateSourcePackState(resolved.state, resolved.sourcePack, {
     latestRevision:
-      resolved.state.sourcePacks[sourcePackID]?.latestRevision ?? targetRevision,
+      resolved.state.sourcePacks[sourcePackID]?.latestRevision ??
+      targetRevision,
     lastError: undefined,
   });
 

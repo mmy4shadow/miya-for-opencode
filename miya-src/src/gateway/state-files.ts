@@ -29,11 +29,14 @@ export function writeJsonAtomic(file: string, payload: unknown): void {
   fs.renameSync(tmp, file);
 }
 
-export function safeReadJsonObject(file: string): Record<string, unknown> | null {
+export function safeReadJsonObject(
+  file: string,
+): Record<string, unknown> | null {
   if (!fs.existsSync(file)) return null;
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      return null;
     return parsed as Record<string, unknown>;
   } catch {
     return null;

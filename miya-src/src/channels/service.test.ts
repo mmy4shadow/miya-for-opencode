@@ -1,9 +1,9 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ChannelRuntime } from './service';
+import { describe, expect, test } from 'vitest';
 import { setContactTier, upsertChannelState } from './pairing-store';
+import { ChannelRuntime } from './service';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-channels-service-'));
@@ -138,17 +138,20 @@ describe('channel runtime send policy', () => {
       .readFileSync(auditFile, 'utf-8')
       .split(/\r?\n/)
       .filter(Boolean)
-      .map((line) =>
-        JSON.parse(line) as {
-          message?: string;
-          semanticTags?: string[];
-          semanticSummary?: { conclusion?: string };
-        },
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            message?: string;
+            semanticTags?: string[];
+            semanticSummary?: { conclusion?: string };
+          },
       );
     const row = rows[0];
     expect(row?.message).toBe('outbound_blocked:arch_advisor_denied');
     expect(row?.semanticTags?.includes('privilege_barrier')).toBe(true);
-    expect(String(row?.semanticSummary?.conclusion ?? '')).toContain('Arch Advisor');
+    expect(String(row?.semanticSummary?.conclusion ?? '')).toContain(
+      'Arch Advisor',
+    );
   });
 
   test('blocks outbound send when destination is not in allowlist', async () => {
@@ -272,7 +275,8 @@ describe('channel runtime send policy', () => {
       samples.push(Date.now() - start);
     }
     samples.sort((a, b) => a - b);
-    const p95 = samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.95))];
+    const p95 =
+      samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.95))];
     expect(p95).toBeLessThan(50);
   });
 
@@ -303,7 +307,9 @@ describe('channel runtime send policy', () => {
       },
     });
     expect(first.sent).toBe(false);
-    expect(first.message).toContain('outbound_degraded:desktop_runtime_exception:');
+    expect(first.message).toContain(
+      'outbound_degraded:desktop_runtime_exception:',
+    );
 
     const secondStart = Date.now();
     const second = await runtime.sendMessage({
@@ -320,7 +326,9 @@ describe('channel runtime send policy', () => {
     const elapsed = Date.now() - secondStart;
 
     expect(second.sent).toBe(false);
-    expect(second.message).toContain('outbound_degraded:desktop_runtime_exception:');
+    expect(second.message).toContain(
+      'outbound_degraded:desktop_runtime_exception:',
+    );
     expect(second.message).not.toContain('input_mutex_timeout');
     expect(elapsed).toBeLessThan(1000);
   });

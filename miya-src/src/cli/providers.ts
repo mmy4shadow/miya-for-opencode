@@ -39,7 +39,9 @@ function normalizeFallbackChains(
 }
 
 function normalizeGeneratedConfig(config: Record<string, unknown>): void {
-  const presets = config.presets as Record<string, Record<string, unknown>> | undefined;
+  const presets = config.presets as
+    | Record<string, Record<string, unknown>>
+    | undefined;
   if (presets) {
     for (const [presetName, preset] of Object.entries(presets)) {
       presets[presetName] = normalizeAgentsRecord(preset);

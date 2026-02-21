@@ -1,7 +1,11 @@
 import { spawn } from 'node:child_process';
 import type { PluginInput } from '@opencode-ai/plugin';
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
-import { ensureGatewayRunning, probeGatewayAlive, stopGateway } from '../gateway';
+import {
+  ensureGatewayRunning,
+  probeGatewayAlive,
+  stopGateway,
+} from '../gateway';
 import { collectSafetyEvidence } from '../safety/evidence';
 import {
   activateKillSwitch,
@@ -12,11 +16,7 @@ import {
 import type { SafetyTier } from '../safety/tier';
 import { runVerifier } from '../safety/verifier';
 import { listSettingEntries } from './registry';
-import {
-  applyConfigPatch,
-  getConfigValue,
-  validateConfigPatch,
-} from './store';
+import { applyConfigPatch, getConfigValue, validateConfigPatch } from './store';
 
 const z = tool.schema;
 
@@ -119,9 +119,7 @@ export function createConfigTools(
     description:
       'Validate config patch without writing (type/range/conflict/risk checks).',
     args: {
-      patch: z
-        .any()
-        .describe('Patch payload: {set,unset} or JSON Patch array'),
+      patch: z.any().describe('Patch payload: {set,unset} or JSON Patch array'),
     },
     async execute(args) {
       return formatValidationResult(
@@ -134,18 +132,21 @@ export function createConfigTools(
     description:
       'Apply Miya config patch with self-approval audit. HIGH risk enforces THOROUGH verification.',
     args: {
-      patch: z
-        .any()
-        .describe('Patch payload: {set,unset} or JSON Patch array'),
+      patch: z.any().describe('Patch payload: {set,unset} or JSON Patch array'),
       reason: z.string().optional().describe('Reason for this change'),
     },
     async execute(args, toolContext) {
       const sessionID =
-        toolContext && typeof toolContext === 'object' && 'sessionID' in toolContext
+        toolContext &&
+        typeof toolContext === 'object' &&
+        'sessionID' in toolContext
           ? String((toolContext as { sessionID: string }).sessionID)
           : 'main';
 
-      const validation = validateConfigPatch(ctx.directory, args.patch as unknown);
+      const validation = validateConfigPatch(
+        ctx.directory,
+        args.patch as unknown,
+      );
       if (!validation.ok) {
         return formatValidationResult(validation);
       }
@@ -174,7 +175,10 @@ export function createConfigTools(
           verifierSummary = 'Kill switch 已激活，拒绝高风险配置变更。';
           issues = ['kill_switch_active'];
         } else {
-          const collected = await collectSafetyEvidence(ctx.directory, 'THOROUGH');
+          const collected = await collectSafetyEvidence(
+            ctx.directory,
+            'THOROUGH',
+          );
           checks = [...checks, ...collected.checks];
           evidence = [...evidence, ...collected.evidence.slice(0, 20)];
           issues = [...collected.issues];
@@ -200,7 +204,9 @@ export function createConfigTools(
         action,
         tier,
         status: allow ? 'allow' : 'deny',
-        reason: allow ? verifierSummary : `config_patch_denied:${verifierSummary}`,
+        reason: allow
+          ? verifierSummary
+          : `config_patch_denied:${verifierSummary}`,
         checks: checks.slice(0, 20),
         evidence: evidence.slice(0, 30),
         executor: {

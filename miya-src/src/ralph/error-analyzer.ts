@@ -24,7 +24,10 @@ export function analyzeFailure(output: string): RalphFailureAnalysis {
     return {
       kind: 'type_error',
       summary: 'Type checking failed.',
-      suggestedFixes: ['fix reported TypeScript diagnostics', 'run npm run typecheck'],
+      suggestedFixes: [
+        'fix reported TypeScript diagnostics',
+        'run npm run typecheck',
+      ],
     };
   }
 
@@ -49,7 +52,10 @@ export function analyzeFailure(output: string): RalphFailureAnalysis {
     return {
       kind: 'test_failure',
       summary: 'Verification tests failed.',
-      suggestedFixes: ['inspect failing test output', 'fix logic and rerun tests'],
+      suggestedFixes: [
+        'inspect failing test output',
+        'fix logic and rerun tests',
+      ],
     };
   }
 
@@ -57,7 +63,10 @@ export function analyzeFailure(output: string): RalphFailureAnalysis {
     return {
       kind: 'permission_denied',
       summary: 'Execution failed due to permission restrictions.',
-      suggestedFixes: ['adjust permissions', 'run in allowed directory/context'],
+      suggestedFixes: [
+        'adjust permissions',
+        'run in allowed directory/context',
+      ],
     };
   }
 
@@ -75,4 +84,3 @@ export function analyzeFailure(output: string): RalphFailureAnalysis {
     suggestedFixes: ['inspect stdout/stderr and add a targeted fix command'],
   };
 }
-

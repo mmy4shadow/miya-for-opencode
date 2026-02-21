@@ -29,7 +29,10 @@ export interface ApplyNegotiationBudgetInput {
 export interface ApplyNegotiationBudgetResult {
   allowed: boolean;
   state: NegotiationBudgetState;
-  reason?: 'fixability_impossible' | 'auto_retry_exhausted' | 'human_edit_exhausted';
+  reason?:
+    | 'fixability_impossible'
+    | 'auto_retry_exhausted'
+    | 'human_edit_exhausted';
 }
 
 function nowIso(): string {
@@ -37,8 +40,12 @@ function nowIso(): string {
 }
 
 function sanitizeBudget(input: NegotiationBudget): NegotiationBudget {
-  const autoRetry = Number.isFinite(input.autoRetry) ? Math.max(0, Math.floor(input.autoRetry)) : 0;
-  const humanEdit = Number.isFinite(input.humanEdit) ? Math.max(0, Math.floor(input.humanEdit)) : 0;
+  const autoRetry = Number.isFinite(input.autoRetry)
+    ? Math.max(0, Math.floor(input.autoRetry))
+    : 0;
+  const humanEdit = Number.isFinite(input.humanEdit)
+    ? Math.max(0, Math.floor(input.humanEdit))
+    : 0;
   return { autoRetry, humanEdit };
 }
 
@@ -54,15 +61,14 @@ export function applyNegotiationBudget(
         ...existing,
         fixability,
         budget:
-          fixability === 'impossible'
-            ? { autoRetry: 0, humanEdit: 0 }
-            : budget,
+          fixability === 'impossible' ? { autoRetry: 0, humanEdit: 0 } : budget,
         updatedAt: nowIso(),
       }
     : {
         key: input.key,
         fixability,
-        budget: fixability === 'impossible' ? { autoRetry: 0, humanEdit: 0 } : budget,
+        budget:
+          fixability === 'impossible' ? { autoRetry: 0, humanEdit: 0 } : budget,
         autoUsed: 0,
         humanUsed: 0,
         updatedAt: nowIso(),
@@ -97,4 +103,3 @@ export function applyNegotiationBudget(
   store.set(input.key, state);
   return { allowed: true, state };
 }
-

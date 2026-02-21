@@ -8,10 +8,10 @@ interface EmptyStateProps {
 
 /**
  * EmptyState component for displaying friendly empty state messages.
- * 
+ *
  * Used when there is no data to display, providing clear feedback
  * to the user as per requirement 8.7.
- * 
+ *
  * @param icon - Optional emoji or icon to display
  * @param title - Main title for the empty state
  * @param description - Descriptive text explaining the empty state

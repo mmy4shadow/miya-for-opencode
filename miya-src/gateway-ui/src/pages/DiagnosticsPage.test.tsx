@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { DiagnosticsPage } from './DiagnosticsPage';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GatewayProvider } from '../hooks/useGateway';
 import type { GatewaySnapshot } from '../types/gateway';
+import { DiagnosticsPage } from './DiagnosticsPage';
 
 /**
  * Mock GatewayRpcClient to avoid real network calls
@@ -17,7 +17,9 @@ vi.mock('../gateway-client', () => ({
 /**
  * Create a minimal mock snapshot for testing
  */
-function createMockSnapshot(overrides?: Partial<GatewaySnapshot>): GatewaySnapshot {
+function createMockSnapshot(
+  overrides?: Partial<GatewaySnapshot>,
+): GatewaySnapshot {
   return {
     updatedAt: '2024-01-01T00:00:00Z',
     gateway: {
@@ -174,29 +176,29 @@ function createMockSnapshot(overrides?: Partial<GatewaySnapshot>): GatewaySnapsh
 }
 
 describe('DiagnosticsPage', () => {
-  let mockSnapshot: GatewaySnapshot;
+  let _mockSnapshot: GatewaySnapshot;
 
   beforeEach(() => {
-    mockSnapshot = createMockSnapshot();
+    _mockSnapshot = createMockSnapshot();
   });
 
   describe('Page Structure', () => {
     it('should render page title and subtitle', () => {
       /**
        * **Validates: Requirements 7.1**
-       * 
+       *
        * The Diagnostics page should display clear page identification.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         const heading = screen.queryByText('网关诊断');
         expect(heading).toBeInTheDocument();
-        
+
         const subtitle = screen.queryByText('节点与连接态');
         expect(subtitle).toBeInTheDocument();
       });
@@ -205,13 +207,13 @@ describe('DiagnosticsPage', () => {
     it('should render connection status card', () => {
       /**
        * **Validates: Requirements 7.1**
-       * 
+       *
        * The Diagnostics page should display connection status information.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -223,13 +225,13 @@ describe('DiagnosticsPage', () => {
     it('should render node list card', () => {
       /**
        * **Validates: Requirements 7.4**
-       * 
+       *
        * The Diagnostics page should display node list information.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -243,19 +245,19 @@ describe('DiagnosticsPage', () => {
     it('should display gateway connection status when online', () => {
       /**
        * **Validates: Requirements 7.1**
-       * 
+       *
        * The Diagnostics page should show gateway online status.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         const gatewayLabel = screen.queryByText('网关连接');
         expect(gatewayLabel).toBeInTheDocument();
-        
+
         const onlineStatus = screen.queryByText(/在线/);
         expect(onlineStatus).toBeInTheDocument();
       });
@@ -264,19 +266,19 @@ describe('DiagnosticsPage', () => {
     it('should display daemon connection status when connected', () => {
       /**
        * **Validates: Requirements 7.7**
-       * 
+       *
        * The Diagnostics page should show daemon connection status.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         const daemonLabel = screen.queryByText('守门员连接');
         expect(daemonLabel).toBeInTheDocument();
-        
+
         const connectedStatus = screen.queryByText(/已连接/);
         expect(connectedStatus).toBeInTheDocument();
       });
@@ -285,13 +287,13 @@ describe('DiagnosticsPage', () => {
     it('should display gateway URL', () => {
       /**
        * **Validates: Requirements 7.1**
-       * 
+       *
        * The Diagnostics page should display the gateway URL.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -303,13 +305,13 @@ describe('DiagnosticsPage', () => {
     it('should display success message when all connections are healthy', () => {
       /**
        * **Validates: Requirements 7.1**
-       * 
+       *
        * The Diagnostics page should show success message when connections are good.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -323,10 +325,10 @@ describe('DiagnosticsPage', () => {
     it('should display diagnostic tips when gateway is offline', () => {
       /**
        * **Validates: Requirements 7.9**
-       * 
+       *
        * When connection fails, the Diagnostics page should display diagnostic tips.
        */
-      const offlineSnapshot = createMockSnapshot({
+      const _offlineSnapshot = createMockSnapshot({
         gateway: {
           url: 'http://localhost:8080',
           port: 8080,
@@ -339,7 +341,7 @@ describe('DiagnosticsPage', () => {
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -351,10 +353,10 @@ describe('DiagnosticsPage', () => {
     it('should display diagnostic tips when daemon is disconnected', () => {
       /**
        * **Validates: Requirements 7.9**
-       * 
+       *
        * When daemon connection fails, the Diagnostics page should display diagnostic tips.
        */
-      const disconnectedSnapshot = createMockSnapshot({
+      const _disconnectedSnapshot = createMockSnapshot({
         daemon: {
           connected: false,
         },
@@ -363,7 +365,7 @@ describe('DiagnosticsPage', () => {
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -375,10 +377,10 @@ describe('DiagnosticsPage', () => {
     it('should display NO_PROXY configuration tip when connection fails', () => {
       /**
        * **Validates: Requirements 7.2, 7.9**
-       * 
+       *
        * The Diagnostics page should show NO_PROXY configuration guidance.
        */
-      const errorSnapshot = createMockSnapshot({
+      const _errorSnapshot = createMockSnapshot({
         gateway: {
           url: 'http://localhost:8080',
           port: 8080,
@@ -391,7 +393,7 @@ describe('DiagnosticsPage', () => {
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -403,10 +405,10 @@ describe('DiagnosticsPage', () => {
     it('should display PowerShell fix command when connection fails', () => {
       /**
        * **Validates: Requirements 7.3, 7.9**
-       * 
+       *
        * The Diagnostics page should provide PowerShell command to fix proxy issues.
        */
-      const errorSnapshot = createMockSnapshot({
+      const _errorSnapshot = createMockSnapshot({
         daemon: {
           connected: false,
         },
@@ -415,13 +417,13 @@ describe('DiagnosticsPage', () => {
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         const fixCommandLabel = screen.queryByText(/PowerShell 修复命令/);
         expect(fixCommandLabel).toBeInTheDocument();
-        
+
         const copyButton = screen.queryByText('复制');
         expect(copyButton).toBeInTheDocument();
       });
@@ -430,23 +432,23 @@ describe('DiagnosticsPage', () => {
     it('should display error message when statusError is present', () => {
       /**
        * **Validates: Requirements 7.8**
-       * 
+       *
        * The Diagnostics page should display detailed error information.
        */
-      const errorSnapshot = createMockSnapshot({
+      const _errorSnapshot = createMockSnapshot({
         statusError: 'Connection timeout: Failed to connect to gateway',
       });
 
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         const errorLabel = screen.queryByText('错误信息');
         expect(errorLabel).toBeInTheDocument();
-        
+
         const errorMessage = screen.queryByText(/Connection timeout/);
         expect(errorMessage).toBeInTheDocument();
       });
@@ -457,22 +459,22 @@ describe('DiagnosticsPage', () => {
     it('should display node statistics', () => {
       /**
        * **Validates: Requirements 7.5**
-       * 
+       *
        * The Diagnostics page should display node statistics (total, connected).
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         const totalLabel = screen.queryByText('总节点数');
         expect(totalLabel).toBeInTheDocument();
-        
+
         const connectedLabel = screen.queryByText('已连接');
         expect(connectedLabel).toBeInTheDocument();
-        
+
         const disconnectedLabel = screen.queryByText('未连接');
         expect(disconnectedLabel).toBeInTheDocument();
       });
@@ -481,19 +483,19 @@ describe('DiagnosticsPage', () => {
     it('should display policy hash', () => {
       /**
        * **Validates: Requirements 7.6**
-       * 
+       *
        * The Diagnostics page should display the policy hash value.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         const policyHashLabel = screen.queryByText('策略哈希值');
         expect(policyHashLabel).toBeInTheDocument();
-        
+
         const hashValue = screen.queryByText('abc123def456');
         expect(hashValue).toBeInTheDocument();
       });
@@ -502,26 +504,26 @@ describe('DiagnosticsPage', () => {
     it('should display all nodes in the list', () => {
       /**
        * **Validates: Requirements 7.4**
-       * 
+       *
        * The Diagnostics page should display all nodes with their details.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         // Check for node labels
         const desktopNode = screen.queryByText('Desktop PC');
         expect(desktopNode).toBeInTheDocument();
-        
+
         const laptopNode = screen.queryByText('Laptop');
         expect(laptopNode).toBeInTheDocument();
-        
+
         const serverNode = screen.queryByText('Server');
         expect(serverNode).toBeInTheDocument();
-        
+
         const mobileNode = screen.queryByText('Mobile');
         expect(mobileNode).toBeInTheDocument();
       });
@@ -530,20 +532,20 @@ describe('DiagnosticsPage', () => {
     it('should display node connection status', () => {
       /**
        * **Validates: Requirements 7.4**
-       * 
+       *
        * The Diagnostics page should show each node's connection status.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         // Look for online/offline status badges
         const onlineStatuses = screen.queryAllByText('在线');
         expect(onlineStatuses.length).toBeGreaterThan(0);
-        
+
         const offlineStatuses = screen.queryAllByText('离线');
         expect(offlineStatuses.length).toBeGreaterThan(0);
       });
@@ -552,22 +554,22 @@ describe('DiagnosticsPage', () => {
     it('should display node platform information', () => {
       /**
        * **Validates: Requirements 7.4**
-       * 
+       *
        * The Diagnostics page should display each node's platform.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         const windowsPlatform = screen.queryByText(/Windows/);
         expect(windowsPlatform).toBeInTheDocument();
-        
+
         const macOSPlatform = screen.queryByText(/macOS/);
         expect(macOSPlatform).toBeInTheDocument();
-        
+
         const linuxPlatform = screen.queryByText(/Linux/);
         expect(linuxPlatform).toBeInTheDocument();
       });
@@ -576,13 +578,13 @@ describe('DiagnosticsPage', () => {
     it('should display node update timestamps', () => {
       /**
        * **Validates: Requirements 7.4**
-       * 
+       *
        * The Diagnostics page should display when each node was last updated.
        */
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -595,7 +597,7 @@ describe('DiagnosticsPage', () => {
       /**
        * The Diagnostics page should show an empty state when there are no nodes.
        */
-      const emptySnapshot = createMockSnapshot({
+      const _emptySnapshot = createMockSnapshot({
         nodes: {
           total: 0,
           connected: 0,
@@ -609,7 +611,7 @@ describe('DiagnosticsPage', () => {
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -627,7 +629,7 @@ describe('DiagnosticsPage', () => {
       render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       // Initially should show loading
@@ -640,13 +642,13 @@ describe('DiagnosticsPage', () => {
     it('should use Card components for information display', () => {
       /**
        * **Validates: Requirements 8.1**
-       * 
+       *
        * The Diagnostics page should use Card layout for all information modules.
        */
       const { container } = render(
         <GatewayProvider>
           <DiagnosticsPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {

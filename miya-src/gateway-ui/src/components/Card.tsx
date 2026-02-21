@@ -9,7 +9,7 @@ interface CardProps {
 
 /**
  * Card component for displaying information modules with consistent styling.
- * 
+ *
  * Applies card layout styles as per requirements 8.1-8.6:
  * - Rounded corners (rounded-2xl)
  * - Border (border border-slate-200)

@@ -138,7 +138,10 @@ export function normalizeModelRef(value: unknown): string | null {
 }
 
 function parsePersistedModel(value: unknown): string | null {
-  return normalizeModelRef(value) ?? (isObject(value) ? normalizeModelRef(value.model) : null);
+  return (
+    normalizeModelRef(value) ??
+    (isObject(value) ? normalizeModelRef(value.model) : null)
+  );
 }
 
 function normalizeProviderID(value: unknown): string | undefined {
@@ -204,7 +207,9 @@ function readUiModelStateModels(): {
   for (const candidate of getUiModelStateFileCandidates()) {
     if (!fs.existsSync(candidate)) continue;
     try {
-      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8')) as UiModelStateFile;
+      const parsed = JSON.parse(
+        fs.readFileSync(candidate, 'utf-8'),
+      ) as UiModelStateFile;
       const maps = [
         parseUiModelStateAgentMap(parsed.model),
         parseUiModelStateAgentMap(parsed.models),
@@ -249,7 +254,8 @@ function normalizeAgentRuntimeEntry(value: unknown): AgentRuntimeEntry | null {
     options,
     apiKey,
     baseURL,
-    updatedAt: normalizeStringValue(value.updatedAt) ?? new Date().toISOString(),
+    updatedAt:
+      normalizeStringValue(value.updatedAt) ?? new Date().toISOString(),
   };
 }
 
@@ -306,12 +312,14 @@ function normalizeRuntimeState(
     agents[agentName] = entry;
   }
 
-  const activeAgentId = normalizeAgentName(String(parsed.activeAgentId ?? '')) ?? undefined;
+  const activeAgentId =
+    normalizeAgentName(String(parsed.activeAgentId ?? '')) ?? undefined;
 
   return {
     version: AGENT_RUNTIME_VERSION,
     revision: Number(parsed.revision ?? 0) || 0,
-    updatedAt: normalizeStringValue(parsed.updatedAt) ?? new Date().toISOString(),
+    updatedAt:
+      normalizeStringValue(parsed.updatedAt) ?? new Date().toISOString(),
     activeAgentId,
     agents,
   };
@@ -321,7 +329,10 @@ function readRuntimeState(projectDir: string): NormalizedAgentRuntime {
   const file = filePath(projectDir);
   if (!fs.existsSync(file)) {
     const migrated = normalizeRuntimeState(projectDir, null);
-    if (Object.keys(migrated.agents).length > 0 || fs.existsSync(legacyFilePath(projectDir))) {
+    if (
+      Object.keys(migrated.agents).length > 0 ||
+      fs.existsSync(legacyFilePath(projectDir))
+    ) {
       const runtimeToWrite: NormalizedAgentRuntime = {
         ...migrated,
         revision: migrated.revision > 0 ? migrated.revision : 1,
@@ -341,7 +352,10 @@ function readRuntimeState(projectDir: string): NormalizedAgentRuntime {
   }
 }
 
-function writeRuntimeStateAtomic(projectDir: string, runtime: NormalizedAgentRuntime): void {
+function writeRuntimeStateAtomic(
+  projectDir: string,
+  runtime: NormalizedAgentRuntime,
+): void {
   const file = filePath(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const orderedAgents = Object.fromEntries(
@@ -361,7 +375,9 @@ function writeRuntimeStateAtomic(projectDir: string, runtime: NormalizedAgentRun
   fs.renameSync(tmp, file);
 }
 
-export function readPersistedAgentModels(projectDir: string): Record<string, string> {
+export function readPersistedAgentModels(
+  projectDir: string,
+): Record<string, string> {
   const runtime = readRuntimeState(projectDir);
   const models: Record<string, string> = {};
   for (const [agentName, entry] of Object.entries(runtime.agents)) {
@@ -410,7 +426,8 @@ function normalizeSelectionInput(input: AgentRuntimeSelectionInput): {
   if (apiKey) entryPatch.apiKey = apiKey;
   if (baseURL) entryPatch.baseURL = baseURL;
 
-  const activeAgentId = normalizeAgentName(String(input.activeAgentId ?? '')) ?? undefined;
+  const activeAgentId =
+    normalizeAgentName(String(input.activeAgentId ?? '')) ?? undefined;
   if (Object.keys(entryPatch).length === 0 && !activeAgentId) return null;
 
   return {
@@ -450,7 +467,8 @@ export function persistAgentRuntimeSelection(
 
     const entryUnchanged = previousComparable === nextComparable;
     const activeUnchanged =
-      normalized.activeAgentId === undefined || base.activeAgentId === normalized.activeAgentId;
+      normalized.activeAgentId === undefined ||
+      base.activeAgentId === normalized.activeAgentId;
     if (entryUnchanged && activeUnchanged) {
       return false;
     }
@@ -551,7 +569,10 @@ export function applyPersistedAgentModelOverrides(
 
   const nextAgents = { ...(config.agents ?? {}) };
   for (const [agentName, entry] of Object.entries(runtime.agents)) {
-    const previousAgent = (nextAgents[agentName] ?? {}) as Record<string, unknown>;
+    const previousAgent = (nextAgents[agentName] ?? {}) as Record<
+      string,
+      unknown
+    >;
     const patch: Record<string, unknown> = {};
     if (entry.model) patch.model = entry.model;
     if (entry.variant) patch.variant = entry.variant;
@@ -565,17 +586,19 @@ export function applyPersistedAgentModelOverrides(
     };
   }
 
-  const activeAgent = runtime.activeAgentId ? runtime.agents[runtime.activeAgentId] : undefined;
+  const activeAgent = runtime.activeAgentId
+    ? runtime.agents[runtime.activeAgentId]
+    : undefined;
   let nextProvider = config.provider;
   if (activeAgent?.providerID) {
-    const providerMap = (isObject(config.provider) ? config.provider : {}) as Record<
-      string,
-      unknown
-    >;
-    const currentProvider = (providerMap[activeAgent.providerID] ?? {}) as Record<string, unknown>;
-    const currentOptions = (isObject(currentProvider.options)
-      ? currentProvider.options
-      : {}) as Record<string, unknown>;
+    const providerMap = (
+      isObject(config.provider) ? config.provider : {}
+    ) as Record<string, unknown>;
+    const currentProvider = (providerMap[activeAgent.providerID] ??
+      {}) as Record<string, unknown>;
+    const currentOptions = (
+      isObject(currentProvider.options) ? currentProvider.options : {}
+    ) as Record<string, unknown>;
     const nextOptions: Record<string, unknown> = {
       ...currentOptions,
       ...(activeAgent.options ?? {}),
@@ -624,8 +647,17 @@ function normalizeSelectionFromDraft(
   const options = normalizeOptions(draft.options);
   const apiKey = normalizeStringValue(draft.apiKey);
   const baseURL = normalizeStringValue(draft.baseURL);
-  const activeAgentId = normalizeAgentName(String(draft.activeAgentId ?? '')) ?? undefined;
-  if (!model && !variant && !providerID && !options && !apiKey && !baseURL && !activeAgentId) {
+  const activeAgentId =
+    normalizeAgentName(String(draft.activeAgentId ?? '')) ?? undefined;
+  if (
+    !model &&
+    !variant &&
+    !providerID &&
+    !options &&
+    !apiKey &&
+    !baseURL &&
+    !activeAgentId
+  ) {
     return null;
   }
   return {
@@ -641,7 +673,11 @@ function normalizeSelectionFromDraft(
   };
 }
 
-function applyAgentPatchField(draft: AgentPatchDraft, field: string, value: unknown): boolean {
+function applyAgentPatchField(
+  draft: AgentPatchDraft,
+  field: string,
+  value: unknown,
+): boolean {
   if (field === 'model') {
     draft.model = value;
     return true;
@@ -703,7 +739,9 @@ function parseAgentPatchSet(
     }
   }
   const activeAgentFromHint =
-    normalizeAgentName(String(activeAgentHint || defaultAgentFromPatch || '')) ?? undefined;
+    normalizeAgentName(
+      String(activeAgentHint || defaultAgentFromPatch || ''),
+    ) ?? undefined;
 
   const getOrCreateDraft = (agentNameRaw: string): AgentPatchDraft | null => {
     const agentName = normalizeAgentName(agentNameRaw);
@@ -780,7 +818,10 @@ function parseAgentPatchSet(
           normalizeModelRef(draft.model)?.split('/')[0] ??
           normalizeProviderID(draft.modelProviderID);
         const explicitProvider = normalizeProviderID(draft.providerID);
-        if (modelProvider === providerPatch.providerID || explicitProvider === providerPatch.providerID) {
+        if (
+          modelProvider === providerPatch.providerID ||
+          explicitProvider === providerPatch.providerID
+        ) {
           targetDraft = draft;
           break;
         }
@@ -793,7 +834,8 @@ function parseAgentPatchSet(
           } as AgentPatchDraft);
       }
       if (!targetDraft) continue;
-      targetDraft.providerID = targetDraft.providerID ?? providerPatch.providerID;
+      targetDraft.providerID =
+        targetDraft.providerID ?? providerPatch.providerID;
       if (providerPatch.options) targetDraft.options = providerPatch.options;
       if (providerPatch.apiKey) targetDraft.apiKey = providerPatch.apiKey;
       if (providerPatch.baseURL) targetDraft.baseURL = providerPatch.baseURL;
@@ -819,7 +861,9 @@ export function persistAgentRuntimeFromConfigSnapshot(
   if (!isObject(snapshot)) return { updated: 0 };
 
   const activeAgentId =
-    normalizeAgentName(String(snapshot.default_agent ?? snapshot.defaultAgent ?? '')) ?? undefined;
+    normalizeAgentName(
+      String(snapshot.default_agent ?? snapshot.defaultAgent ?? ''),
+    ) ?? undefined;
   const agentMap = isObject(snapshot.agent)
     ? snapshot.agent
     : isObject(snapshot.agents)
@@ -904,22 +948,35 @@ export function extractAgentModelSelectionsFromEvent(
             fallbackAgent ??
             '',
         ),
-      ) ??
-      null;
+      ) ?? null;
     if (!agentName) return null;
 
-    const model = normalizeModelRef(scope.model ?? scope.selectedModel ?? scope.agentModel);
+    const model = normalizeModelRef(
+      scope.model ?? scope.selectedModel ?? scope.agentModel,
+    );
     const variant = normalizeStringValue(scope.variant);
     const providerID =
       normalizeProviderID(scope.providerID ?? scope.provider) ??
       (model ? normalizeProviderID(model.split('/')[0]) : undefined);
     const options = normalizeOptions(scope.options ?? scope.providerOptions);
-    const apiKey = normalizeStringValue(scope.apiKey ?? (isObject(scope.options) ? scope.options.apiKey : undefined));
+    const apiKey = normalizeStringValue(
+      scope.apiKey ??
+        (isObject(scope.options) ? scope.options.apiKey : undefined),
+    );
     const baseURL = normalizeStringValue(
-      scope.baseURL ?? (isObject(scope.options) ? scope.options.baseURL : undefined),
+      scope.baseURL ??
+        (isObject(scope.options) ? scope.options.baseURL : undefined),
     );
 
-    if (!model && !variant && !providerID && !options && !apiKey && !baseURL && !activeAgent) {
+    if (
+      !model &&
+      !variant &&
+      !providerID &&
+      !options &&
+      !apiKey &&
+      !baseURL &&
+      !activeAgent
+    ) {
       return null;
     }
 
@@ -941,16 +998,32 @@ export function extractAgentModelSelectionsFromEvent(
     if (!isObject(info) || info.role !== 'user') {
       return [];
     }
-    const result = extractFromEvent('message', info, String(properties.agent ?? ''), true);
+    const result = extractFromEvent(
+      'message',
+      info,
+      String(properties.agent ?? ''),
+      true,
+    );
     return result ? [result] : [];
   }
 
-  if (['agent.selected', 'agent.changed', 'session.agent.changed'].includes(eventType)) {
-    const result = extractFromEvent('agent_switch', properties, undefined, true);
+  if (
+    ['agent.selected', 'agent.changed', 'session.agent.changed'].includes(
+      eventType,
+    )
+  ) {
+    const result = extractFromEvent(
+      'agent_switch',
+      properties,
+      undefined,
+      true,
+    );
     return result ? [result] : [];
   }
 
-  if (['session.created', 'session.updated', 'config.updated'].includes(eventType)) {
+  if (
+    ['session.created', 'session.updated', 'config.updated'].includes(eventType)
+  ) {
     const info = properties.info;
     if (isObject(info)) {
       const fromInfo = extractFromEvent(
@@ -961,7 +1034,12 @@ export function extractAgentModelSelectionsFromEvent(
       );
       if (fromInfo) return [fromInfo];
     }
-    const fromProperties = extractFromEvent('session', properties, undefined, true);
+    const fromProperties = extractFromEvent(
+      'session',
+      properties,
+      undefined,
+      true,
+    );
     if (fromProperties) return [fromProperties];
   }
 
@@ -990,11 +1068,19 @@ export function extractAgentModelSelectionsFromEvent(
     );
     const patchRaw = properties.patch;
     if (isObject(patchRaw) && isObject(patchRaw.set)) {
-      const parsed = parseAgentPatchSet(patchRaw.set, 'settings_save_patch', activeAgentHint);
+      const parsed = parseAgentPatchSet(
+        patchRaw.set,
+        'settings_save_patch',
+        activeAgentHint,
+      );
       if (parsed.length > 0) return parsed;
     }
     if (isObject(properties.set)) {
-      const parsed = parseAgentPatchSet(properties.set, 'settings_save_set', activeAgentHint);
+      const parsed = parseAgentPatchSet(
+        properties.set,
+        'settings_save_set',
+        activeAgentHint,
+      );
       if (parsed.length > 0) return parsed;
     }
   }

@@ -12,7 +12,7 @@ declare module 'jest-axe' {
 
   export function axe(
     html: Element | Document | string,
-    options?: JestAxeConfigureOptions
+    options?: JestAxeConfigureOptions,
   ): Promise<AxeResults>;
 
   export function toHaveNoViolations(results: AxeResults): {

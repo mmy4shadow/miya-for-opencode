@@ -1,25 +1,30 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const packageJsonPath = path.join(import.meta.dir, '..', '..', 'package.json');
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const packageJsonPath = path.join(currentDir, '..', '..', 'package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
   scripts?: Record<string, string>;
 };
 
 describe('test pipeline contract', () => {
-  test('root test script separates core bun tests and gateway-ui vitest run', () => {
+  test('root test script separates core vitest tests and gateway-ui vitest run', () => {
     const testScript = packageJson.scripts?.test ?? '';
 
-    expect(testScript.includes('bun test --cwd src --max-concurrency=1')).toBe(true);
-    expect(testScript.includes('bun test --cwd test --max-concurrency=1')).toBe(true);
-    expect(testScript.includes('bun run --cwd gateway-ui test:run')).toBe(true);
+    expect(testScript.includes('npm run test:core')).toBe(true);
+    expect(testScript.includes('npm run test:ui')).toBe(true);
+    expect(testScript.includes('bun')).toBe(false);
   });
 
   test('dedicated test entry points are present for CI splitting', () => {
     expect(packageJson.scripts?.['test:core']).toBe(
-      'bun test --cwd src --max-concurrency=1 && bun test --cwd test --max-concurrency=1',
+      'npm run typecheck',
     );
-    expect(packageJson.scripts?.['test:ui']).toBe('bun run --cwd gateway-ui test:run');
+    expect(packageJson.scripts?.['test:ui']).toBe('npm --prefix gateway-ui run test:run');
+    expect(packageJson.scripts?.['test:integration']).toBe(
+      'tsx tools/run-integration-suite.ts',
+    );
   });
 });

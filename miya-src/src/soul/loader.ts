@@ -28,7 +28,11 @@ function parseBulletSection(markdown: string, heading: string): string[] {
     .filter(Boolean);
 }
 
-function parseIdentityValue(items: string[], key: string, fallback: string): string {
+function parseIdentityValue(
+  items: string[],
+  key: string,
+  fallback: string,
+): string {
   const item = items.find((line) => line.startsWith(`${key}：`));
   if (!item) return fallback;
   return item.replace(`${key}：`, '').trim() || fallback;
@@ -49,7 +53,10 @@ export function loadSoulProfile(projectDir: string): SoulProfile {
   };
 }
 
-export function saveSoulMarkdown(projectDir: string, markdown: string): SoulProfile {
+export function saveSoulMarkdown(
+  projectDir: string,
+  markdown: string,
+): SoulProfile {
   const file = ensureSoulFile(projectDir);
   fs.writeFileSync(file, `${markdown.trimEnd()}\n`, 'utf-8');
   return loadSoulProfile(projectDir);

@@ -1,6 +1,6 @@
-import * as readline from 'node:readline/promises';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as readline from 'node:readline/promises';
 import {
   addAntigravityPlugin,
   addChutesProvider,
@@ -54,9 +54,7 @@ const SYMBOLS = {
 
 function printHeader(isUpdate: boolean): void {
   console.log();
-  console.log(
-    `${BOLD}miya ${isUpdate ? 'Update' : 'Install'}${RESET}`,
-  );
+  console.log(`${BOLD}miya ${isUpdate ? 'Update' : 'Install'}${RESET}`);
   console.log('='.repeat(30));
   console.log();
 }
@@ -222,7 +220,11 @@ function argsToConfig(args: InstallArgs): InstallConfig {
 
 function applyIsolatedConfigHomeIfNeeded(enable: boolean): string | null {
   if (!enable) return null;
-  const isolatedHome = path.join(process.cwd(), '.opencode', 'miya-isolated-xdg');
+  const isolatedHome = path.join(
+    process.cwd(),
+    '.opencode',
+    'miya-isolated-xdg',
+  );
   fs.mkdirSync(isolatedHome, { recursive: true });
   process.env.XDG_CONFIG_HOME = isolatedHome;
   return isolatedHome;

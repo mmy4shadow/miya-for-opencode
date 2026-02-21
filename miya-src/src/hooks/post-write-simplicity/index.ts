@@ -6,12 +6,7 @@
 const NUDGE =
   '\n\n---\nPost-write check: run @7-code-simplicity-reviewer for complexity/comment cleanup before final response.';
 
-const WRITE_TOOLS = new Set([
-  'write',
-  'edit',
-  'multiedit',
-  'ast_grep_replace',
-]);
+const WRITE_TOOLS = new Set(['write', 'edit', 'multiedit', 'ast_grep_replace']);
 
 interface ToolExecuteAfterInput {
   tool: string;

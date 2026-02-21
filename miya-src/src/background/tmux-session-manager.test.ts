@@ -1,16 +1,16 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { TmuxSessionManager } from './tmux-session-manager';
 
 // Define the mock outside so we can access it
-const mockSpawnTmuxPane = mock(async () => ({
+const mockSpawnTmuxPane = vi.fn(async () => ({
   success: true,
   paneId: '%mock-pane',
 }));
-const mockCloseTmuxPane = mock(async () => true);
-const mockIsInsideTmux = mock(() => true);
+const mockCloseTmuxPane = vi.fn(async () => true);
+const mockIsInsideTmux = vi.fn(() => true);
 
 // Mock the tmux utils module
-mock.module('../utils/tmux', () => ({
+vi.mock('../utils/tmux', () => ({
   spawnTmuxPane: mockSpawnTmuxPane,
   closeTmuxPane: mockCloseTmuxPane,
   isInsideTmux: mockIsInsideTmux,
@@ -24,7 +24,7 @@ function createMockContext(overrides?: {
   return {
     client: {
       session: {
-        status: mock(
+        status: vi.fn(
           async () => overrides?.sessionStatusResult ?? { data: {} },
         ),
       },

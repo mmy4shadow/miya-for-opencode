@@ -1,8 +1,8 @@
 import {
-  spawn,
-  spawnSync,
   type SpawnOptionsWithoutStdio,
   type SpawnSyncOptions,
+  spawn,
+  spawnSync,
 } from 'node:child_process';
 
 export interface ProcessResult {
@@ -29,7 +29,8 @@ export async function runProcess(
     let timedOut = false;
 
     const timeoutMs =
-      typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
+      typeof options.timeoutMs === 'number' &&
+      Number.isFinite(options.timeoutMs)
         ? Math.max(1, Math.floor(options.timeoutMs))
         : undefined;
     const timer =

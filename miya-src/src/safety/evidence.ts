@@ -74,13 +74,15 @@ export async function collectSafetyEvidence(
   checks.push('git status --porcelain');
   evidence.push(`git_status_exit=${status.code}`);
   if (status.stdout) evidence.push(`git_status:\n${status.stdout}`);
-  if (!status.ok) issues.push(`git status failed: ${status.stderr || status.code}`);
+  if (!status.ok)
+    issues.push(`git status failed: ${status.stderr || status.code}`);
 
   const diffStat = await runCommand(projectDir, ['git', 'diff', '--stat']);
   checks.push('git diff --stat');
   evidence.push(`git_diff_stat_exit=${diffStat.code}`);
   if (diffStat.stdout) evidence.push(`git_diff_stat:\n${diffStat.stdout}`);
-  if (!diffStat.ok) issues.push(`git diff --stat failed: ${diffStat.stderr || diffStat.code}`);
+  if (!diffStat.ok)
+    issues.push(`git diff --stat failed: ${diffStat.stderr || diffStat.code}`);
 
   const changed = await runCommand(projectDir, ['git', 'diff', '--name-only']);
   const changedFiles = changed.stdout

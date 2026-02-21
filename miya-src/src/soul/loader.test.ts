@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import { loadSoulProfile, saveSoulMarkdown, soulPersonaLayer } from './loader';
 
 function tempProjectDir(): string {
@@ -32,4 +32,3 @@ describe('soul loader', () => {
     expect(layer.includes('name: MiyaX')).toBe(true);
   });
 });
-

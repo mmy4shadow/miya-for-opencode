@@ -9,7 +9,7 @@
 
 ## Objectives
 
-Create comprehensive test configuration for the Miya plugin test suite using Bun test framework.
+Create comprehensive test configuration for the Miya plugin test suite using npx vitest run framework.
 
 ## Completed Subtasks
 
@@ -45,14 +45,14 @@ Create comprehensive test configuration for the Miya plugin test suite using Bun
 ✓ Test categories defined
 ```
 
-### ✅ 1.3.2 Configure test runner (Bun test)
+### ✅ 1.3.2 Configure test runner (npx vitest run)
 
 **Status**: COMPLETED
 
-**Deliverable**: `miya-src/bunfig.toml`
+**Deliverable**: `miya-src/vitest configuration`
 
 **Features Implemented**:
-- Bun test runner configuration
+- npx vitest run runner configuration
 - Test preload configuration (loads test.config.ts)
 - Coverage settings (disabled by default, enable with --coverage flag)
 - Coverage threshold: 70%
@@ -63,7 +63,7 @@ Create comprehensive test configuration for the Miya plugin test suite using Bun
 
 **Verification**:
 ```bash
-✓ bunfig.toml created
+✓ vitest configuration created
 ✓ Test runner properly configured
 ✓ Preload working correctly
 ✓ Tests execute successfully
@@ -73,7 +73,7 @@ Create comprehensive test configuration for the Miya plugin test suite using Bun
 
 **Status**: COMPLETED
 
-**Implementation**: Coverage configured in both `test.config.ts` and `bunfig.toml`
+**Implementation**: Coverage configured in both `test.config.ts` and `vitest configuration`
 
 **Features Implemented**:
 - Coverage thresholds:
@@ -224,7 +224,7 @@ Exit Code: 0
 **Status**: VERIFIED
 
 **Evidence**:
-- `bunfig.toml` created with Bun test configuration
+- `vitest configuration` created with npx vitest run configuration
 - Test preload configured
 - Timeout and bail settings configured
 - Tests execute successfully
@@ -247,8 +247,8 @@ Exit Code: 0
 **Evidence**:
 - All test scripts created in package.json
 - Scripts tested and working:
-  - `bun run test:unit` ✓
-  - `bun test test/unit/config.test.ts` ✓
+  - `npm run test:unit` ✓
+  - `npx vitest run test/unit/config.test.ts` ✓
 - Category-specific timeouts configured
 - Coverage scripts functional
 
@@ -256,31 +256,31 @@ Exit Code: 0
 
 ### Run All Tests
 ```bash
-bun test
+npx vitest run
 # Output: Runs all tests with 30s timeout
 ```
 
 ### Run Unit Tests
 ```bash
-bun run test:unit
+npm run test:unit
 # Output: Runs unit tests with 5s timeout
 ```
 
 ### Run Tests with Coverage
 ```bash
-bun run test:coverage
+npm run test:coverage
 # Output: Generates HTML and text coverage reports
 ```
 
 ### Run Tests with Environment Overrides
 ```bash
-TEST_TIMEOUT=60000 TEST_VERBOSE=1 bun test
+TEST_TIMEOUT=60000 TEST_VERBOSE=1 npx vitest run
 # Output: Runs tests with 60s timeout and verbose output
 ```
 
 ### Run Integration Tests
 ```bash
-MIYA_RUN_INTEGRATION=1 bun run test:integration
+MIYA_RUN_INTEGRATION=1 npm run test:integration
 # Output: Runs integration tests (requires daemon)
 ```
 
@@ -298,7 +298,7 @@ MIYA_RUN_INTEGRATION=1 bun run test:integration
 | Integration Timeout | 60000ms | Timeout for integration tests |
 | Performance Timeout | 60000ms | Timeout for performance tests |
 
-### Test Runner Configuration (`bunfig.toml`)
+### Test Runner Configuration (`vitest configuration`)
 
 | Setting | Value | Description |
 |---------|-------|-------------|
@@ -312,7 +312,7 @@ MIYA_RUN_INTEGRATION=1 bun run test:integration
 
 ### Created Files
 1. ✅ `miya-src/test/config/test.config.ts` (comprehensive test configuration)
-2. ✅ `miya-src/bunfig.toml` (Bun test runner configuration)
+2. ✅ `miya-src/vitest configuration` (npx vitest run runner configuration)
 3. ✅ `miya-src/test/unit/config.test.ts` (configuration verification tests)
 4. ✅ `miya-src/test/TEST_EXECUTION_GUIDE.md` (comprehensive test execution guide)
 5. ✅ `miya-src/test/TASK_1.3_SUMMARY.md` (this file)
@@ -351,19 +351,19 @@ To verify Task 1.3 completion, run:
 # Verify test configuration exists
 ls miya-src/test/config/test.config.ts
 
-# Verify bunfig.toml exists
-ls miya-src/bunfig.toml
+# Verify vitest configuration exists
+ls miya-src/vitest configuration
 
 # Verify test scripts work
 cd miya-src
-bun test test/unit/config.test.ts
+npx vitest run test/unit/config.test.ts
 
 # Verify all test scripts are defined
-bun run test:unit --help
-bun run test:coverage --help
+npm run test:unit --help
+npm run test:coverage --help
 
 # Verify configuration loads correctly
-bun test test/unit/config.test.ts
+npx vitest run test/unit/config.test.ts
 ```
 
 ## Success Metrics
@@ -395,3 +395,4 @@ The test infrastructure is now ready for implementing actual test suites in subs
 **Task Status**: ✅ COMPLETED  
 **Completion Date**: 2025-01-XX  
 **Next Task**: 1.4 - Create Test Utilities and Helpers
+

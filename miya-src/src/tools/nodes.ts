@@ -1,7 +1,5 @@
 import { type ToolDefinition, tool } from '@opencode-ai/plugin';
-import {
-  getNodeService,
-} from '../node';
+import { getNodeService } from '../node';
 
 const z = tool.schema;
 
@@ -23,7 +21,10 @@ export function createNodeTools(
         .array(z.string())
         .optional()
         .describe('Capability list exposed by this node'),
-      token: z.string().optional().describe('Optional node token for registration'),
+      token: z
+        .string()
+        .optional()
+        .describe('Optional node token for registration'),
       permissions: z
         .object({
           screenRecording: z.boolean().optional(),

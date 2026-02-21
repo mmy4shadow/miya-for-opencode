@@ -4,13 +4,17 @@ import { executeRalphLoop } from '../ralph';
 
 const z = tool.schema;
 
-export function createRalphTools(projectDir?: string): Record<string, ToolDefinition> {
+export function createRalphTools(
+  projectDir?: string,
+): Record<string, ToolDefinition> {
   const miya_ralph_loop = tool({
     description:
       'Execute a verification-driven self-correction loop with optional task and fix commands.',
     args: {
       task_description: z.string().describe('Human-readable task objective'),
-      verification_command: z.string().describe('Command used to verify success'),
+      verification_command: z
+        .string()
+        .describe('Command used to verify success'),
       max_iterations: z.number().default(8),
       max_retries: z
         .number()
@@ -56,10 +60,16 @@ export function createRalphTools(projectDir?: string): Record<string, ToolDefini
             : typeof args.max_iterations === 'number'
               ? Number(args.max_iterations)
               : 8,
-        timeoutMs: typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : 60000,
-        budgetMs: typeof args.budget_ms === 'number' ? Number(args.budget_ms) : undefined,
+        timeoutMs:
+          typeof args.timeout_ms === 'number' ? Number(args.timeout_ms) : 60000,
+        budgetMs:
+          typeof args.budget_ms === 'number'
+            ? Number(args.budget_ms)
+            : undefined,
         stallWindow:
-          typeof args.stall_window === 'number' ? Number(args.stall_window) : undefined,
+          typeof args.stall_window === 'number'
+            ? Number(args.stall_window)
+            : undefined,
         errorSimilarityThreshold:
           typeof args.error_similarity_threshold === 'number'
             ? Number(args.error_similarity_threshold)
@@ -94,7 +104,9 @@ export function createRalphTools(projectDir?: string): Record<string, ToolDefini
         if (draft) {
           lines.push(`learning_draft_id=${draft.id}`);
           lines.push(`learning_draft_status=${draft.status}`);
-          lines.push(`learning_draft_confidence=${draft.confidence.toFixed(2)}`);
+          lines.push(
+            `learning_draft_confidence=${draft.confidence.toFixed(2)}`,
+          );
         }
       }
 

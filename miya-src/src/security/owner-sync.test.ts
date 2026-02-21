@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import {
   approveOwnerSyncToken,
   consumeOwnerSyncToken,
@@ -50,8 +50,9 @@ describe('owner sync token flow', () => {
 
   test('detects owner sync token from confirmation text', () => {
     expect(detectOwnerSyncTokenFromText('同意 OSABC12345')).toBe('OSABC12345');
-    expect(detectOwnerSyncTokenFromText('/miya confirm osabc12345')).toBe('OSABC12345');
+    expect(detectOwnerSyncTokenFromText('/miya confirm osabc12345')).toBe(
+      'OSABC12345',
+    );
     expect(detectOwnerSyncTokenFromText('随便聊聊')).toBeNull();
   });
 });
-

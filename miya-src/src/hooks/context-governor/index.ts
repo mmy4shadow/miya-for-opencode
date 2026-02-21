@@ -60,8 +60,7 @@ const DEFAULTS = {
   maxInjectedChars: 2_400,
 } as const;
 
-const TOOL_GUIDANCE =
-  'narrow scope with path/query/limit and rerun tool';
+const TOOL_GUIDANCE = 'narrow scope with path/query/limit and rerun tool';
 
 const store = new Map<string, ToolRecord[]>();
 
@@ -71,7 +70,9 @@ function normalizeSessionID(sessionID?: string): string {
 }
 
 function normalizeToolName(tool: string): string {
-  const normalized = String(tool ?? '').trim().toLowerCase();
+  const normalized = String(tool ?? '')
+    .trim()
+    .toLowerCase();
   return normalized.length > 0 ? normalized : 'unknown';
 }
 
@@ -113,7 +114,9 @@ function makeTruncatedOutput(
   }
 
   const head = normalized.slice(0, config.toolOutputHeadChars);
-  const tail = normalized.slice(Math.max(0, totalChars - config.toolOutputTailChars));
+  const tail = normalized.slice(
+    Math.max(0, totalChars - config.toolOutputTailChars),
+  );
   const omittedChars = Math.max(0, totalChars - head.length - tail.length);
   const marker =
     `\n\n...[MIYA_OUTPUT_TRUNCATED tool=${tool} omitted_chars=${omittedChars} total_chars=${totalChars}` +
@@ -201,7 +204,9 @@ function renderCompactContext(
   lines.push(
     `Retained compact tool context: keep=${ranked.length} pool=${records.length} expired_pruned=${expired}.`,
   );
-  lines.push('Use these snapshots instead of replaying long historical tool logs.');
+  lines.push(
+    'Use these snapshots instead of replaying long historical tool logs.',
+  );
   lines.push('');
 
   let usedChars = lines.join('\n').length;
@@ -237,7 +242,10 @@ function resolveConfig(
       200,
       Number(input?.toolOutputTailChars ?? DEFAULTS.toolOutputTailChars),
     ),
-    recordTtlMs: Math.max(10_000, Number(input?.recordTtlMs ?? DEFAULTS.recordTtlMs)),
+    recordTtlMs: Math.max(
+      10_000,
+      Number(input?.recordTtlMs ?? DEFAULTS.recordTtlMs),
+    ),
     maxRecordsPerSession: Math.max(
       5,
       Number(input?.maxRecordsPerSession ?? DEFAULTS.maxRecordsPerSession),
@@ -269,7 +277,11 @@ export function createContextGovernorHook(
       if (!config.enabled) return;
       const sessionID = normalizeSessionID(input.sessionID);
       const tool = normalizeToolName(input.tool);
-      const snapshot = makeTruncatedOutput(tool, String(output.output ?? ''), config);
+      const snapshot = makeTruncatedOutput(
+        tool,
+        String(output.output ?? ''),
+        config,
+      );
       output.output = snapshot.output;
 
       const record: ToolRecord = {
@@ -296,7 +308,9 @@ export function createContextGovernorHook(
       const target = findLastUserTextPart(output.messages);
       if (!target) return;
 
-      const currentText = String(target.message.parts[target.partIndex].text ?? '');
+      const currentText = String(
+        target.message.parts[target.partIndex].text ?? '',
+      );
       if (currentText.includes('[MIYA COMMAND BRIDGE]')) return;
       if (currentText.includes('[MIYA CONTEXT GOVERNOR]')) return;
 
@@ -317,8 +331,8 @@ export function createContextGovernorHook(
       );
       if (!compact) return;
 
-      target.message.parts[target.partIndex].text = `${compact}\n\n---\n\n${currentText}`;
+      target.message.parts[target.partIndex].text =
+        `${compact}\n\n---\n\n${currentText}`;
     },
   };
 }
-

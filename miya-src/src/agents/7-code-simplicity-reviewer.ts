@@ -1,5 +1,5 @@
-import { BaseAgent } from './base-agent';
 import type { AgentDefinition } from './1-task-manager';
+import { BaseAgent } from './base-agent';
 
 const CODE_SIMPLICITY_REVIEWER_PROMPT = `You are 7-code-simplicity-reviewer.
 

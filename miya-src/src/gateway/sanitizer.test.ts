@@ -1,9 +1,11 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { inferContextMode, sanitizeGatewayContext } from './sanitizer';
 
 describe('gateway sanitizer', () => {
   test('prefers work mode for code-like input', () => {
-    const mode = inferContextMode('请修复 src/gateway/index.ts 的 TypeError 报错');
+    const mode = inferContextMode(
+      '请修复 src/gateway/index.ts 的 TypeError 报错',
+    );
     expect(mode).toBe('work');
   });
 
@@ -24,7 +26,11 @@ describe('gateway sanitizer', () => {
 
   test('removes code context lines in chat mode', () => {
     const out = sanitizeGatewayContext({
-      text: ['给我讲讲今天的进展', 'src/gateway/index.ts', 'at runTask (service.ts:42)'].join('\n'),
+      text: [
+        '给我讲讲今天的进展',
+        'src/gateway/index.ts',
+        'at runTask (service.ts:42)',
+      ].join('\n'),
       modeHint: 'chat',
     });
     expect(out.payload).toContain('girlfriend assistant');
@@ -32,4 +38,3 @@ describe('gateway sanitizer', () => {
     expect(out.removedSignals).toContain('code_context_line');
   });
 });
-

@@ -33,18 +33,15 @@ function normalizeTrustScore(value: number | undefined): number {
   return Math.round(value as number);
 }
 
-function normalizeTrustMode(input?: {
+function normalizeTrustMode(input?: { silentMin: number; modalMax: number }): {
   silentMin: number;
   modalMax: number;
-}): { silentMin: number; modalMax: number } {
+} {
   let silentMin = Math.max(
     0,
     Math.min(100, Math.round(input?.silentMin ?? 90)),
   );
-  let modalMax = Math.max(
-    0,
-    Math.min(100, Math.round(input?.modalMax ?? 50)),
-  );
+  let modalMax = Math.max(0, Math.min(100, Math.round(input?.modalMax ?? 50)));
 
   if (silentMin <= modalMax) {
     const pivot = Math.round((silentMin + modalMax) / 2);
@@ -85,7 +82,9 @@ export function evaluateOutboundDecisionFusion(
   input: OutboundDecisionFusionInput,
 ): OutboundDecisionFusionResult {
   const conf = normalizeConfidence(input.confidenceIntent);
-  const evidenceConf = normalizeConfidence(input.evidenceConfidence ?? input.confidenceIntent);
+  const evidenceConf = normalizeConfidence(
+    input.evidenceConfidence ?? input.confidenceIntent,
+  );
   const trustScore = normalizeTrustScore(input.trustMinScore);
   const expressionMatched =
     (input.factorTextSensitive && !input.factorRecipientIsMe) ||

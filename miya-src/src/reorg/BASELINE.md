@@ -16,25 +16,25 @@ This refactor proceeds on top of that dirty baseline (no reset/revert).
 
 ## Command Baseline
 
-### `bun run --cwd miya-src typecheck`
+### `npm run --cwd miya-src typecheck`
 
 - Exit: `0`
 - Duration: `~2.1s`
 
 ### Core tests (equivalent to `test:core`)
 
-- `bun test --cwd miya-src/src --max-concurrency=1`
+- `npx vitest run --cwd miya-src/src --max-concurrency=1`
   - Exit: `0`
   - Duration: `~77.4s`
   - Result: `566 pass, 2 skip, 0 fail`
-- `bun test --cwd miya-src/test --max-concurrency=1`
+- `npx vitest run --cwd miya-src/test --max-concurrency=1`
   - Exit: `0`
   - Duration: `~4.9s`
   - Result: `17 pass, 0 fail`
 
 ### UI tests (equivalent target of `test:ui`)
 
-- `bun run --cwd miya-src/gateway-ui test:run`
+- `npm run --cwd miya-src/gateway-ui test:run`
   - Exit: `1`
   - Duration: `~21.6s`
   - Baseline failures (pre-refactor gate):

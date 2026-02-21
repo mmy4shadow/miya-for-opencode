@@ -18,12 +18,12 @@ export function getAgentOverride(
   name: string,
 ): AgentOverrideConfig | undefined {
   const overrides = config?.agents ?? {};
-  
+
   // Priority 1: Direct match with canonical name
   if (overrides[name]) {
     return overrides[name];
   }
-  
+
   // Priority 2: Find any alias that maps to this canonical name
   // AGENT_ALIASES: key=alias, value=canonical
   for (const [alias, canonical] of Object.entries(AGENT_ALIASES)) {
@@ -31,6 +31,6 @@ export function getAgentOverride(
       return overrides[alias];
     }
   }
-  
+
   return undefined;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { buildMcpServiceManifest, createBuiltinMcps } from './index';
 
 describe('createBuiltinMcps', () => {

@@ -1,5 +1,5 @@
-import type { DiscoveredModel, OpenCodeFreeModel } from './types';
 import { runCommand } from './process';
+import type { DiscoveredModel, OpenCodeFreeModel } from './types';
 
 interface OpenCodeModelVerboseRecord {
   id: string;

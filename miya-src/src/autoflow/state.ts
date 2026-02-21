@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getMiyaRuntimeDir } from '../workflow';
 import type {
+  AutoflowFixStep,
   AutoflowHistoryRecord,
   AutoflowPhase,
   AutoflowSessionState,
@@ -43,8 +44,63 @@ function normalizeState(
     : [];
 
   const fixCommands = Array.isArray(raw?.fixCommands)
-    ? raw.fixCommands.map(String).map((item) => item.trim()).filter(Boolean)
+    ? raw.fixCommands
+        .map(String)
+        .map((item) => item.trim())
+        .filter(Boolean)
     : [];
+  const fixSteps: AutoflowFixStep[] = [];
+  if (Array.isArray(raw?.fixSteps)) {
+    raw.fixSteps.forEach((item) => {
+      if (!item || typeof item !== 'object') return;
+      const row = item as Partial<AutoflowFixStep>;
+      if (row.type === 'command') {
+        const command = String(
+          (row as { command?: unknown }).command ?? '',
+        ).trim();
+        if (!command) return;
+        fixSteps.push({
+          id: String(
+            row.id ?? `fix_command_${Math.random().toString(36).slice(2, 8)}`,
+          ),
+          type: 'command',
+          command,
+          description:
+            typeof row.description === 'string'
+              ? row.description.trim()
+              : undefined,
+        });
+        return;
+      }
+      if (row.type === 'agent_task') {
+        const agent = String((row as { agent?: unknown }).agent ?? '').trim();
+        const prompt = String(
+          (row as { prompt?: unknown }).prompt ?? '',
+        ).trim();
+        const description = String(
+          (row as { description?: unknown }).description ?? '',
+        ).trim();
+        if (!agent || !prompt || !description) return;
+        fixSteps.push({
+          id: String(
+            row.id ?? `fix_agent_${Math.random().toString(36).slice(2, 8)}`,
+          ),
+          type: 'agent_task',
+          agent,
+          prompt,
+          description,
+          timeoutMs:
+            typeof (row as { timeoutMs?: unknown }).timeoutMs === 'number'
+              ? Number((row as { timeoutMs?: number }).timeoutMs)
+              : undefined,
+          maxRetries:
+            typeof (row as { maxRetries?: unknown }).maxRetries === 'number'
+              ? Number((row as { maxRetries?: number }).maxRetries)
+              : undefined,
+        });
+      }
+    });
+  }
   const recentVerificationHashes = Array.isArray(raw?.recentVerificationHashes)
     ? raw.recentVerificationHashes.map(String).slice(-3)
     : [];
@@ -64,6 +120,7 @@ function normalizeState(
       ? String(raw.verificationCommand)
       : undefined,
     fixCommands,
+    fixSteps,
     planTasks,
     recentVerificationHashes,
     lastError: raw?.lastError ? String(raw.lastError) : undefined,
@@ -84,13 +141,18 @@ function readStore(projectDir: string): AutoflowStateFile {
   const file = stateFilePath(projectDir);
   if (!fs.existsSync(file)) return { sessions: {} };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AutoflowStateFile>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<AutoflowStateFile>;
     if (!parsed || typeof parsed !== 'object' || !parsed.sessions) {
       return { sessions: {} };
     }
     const sessions: Record<string, AutoflowSessionState> = {};
     for (const [sessionID, state] of Object.entries(parsed.sessions)) {
-      sessions[sessionID] = normalizeState(sessionID, state as Partial<AutoflowSessionState>);
+      sessions[sessionID] = normalizeState(
+        sessionID,
+        state as Partial<AutoflowSessionState>,
+      );
     }
     return { sessions };
   } catch {
@@ -100,7 +162,11 @@ function readStore(projectDir: string): AutoflowStateFile {
 
 function writeStore(projectDir: string, store: AutoflowStateFile): void {
   ensureRuntimeDir(projectDir);
-  fs.writeFileSync(stateFilePath(projectDir), `${JSON.stringify(store, null, 2)}\n`, 'utf-8');
+  fs.writeFileSync(
+    stateFilePath(projectDir),
+    `${JSON.stringify(store, null, 2)}\n`,
+    'utf-8',
+  );
 }
 
 export function loadAutoflowSession(
@@ -125,7 +191,9 @@ export function getAutoflowSession(
   projectDir: string,
   sessionID: string,
 ): AutoflowSessionState {
-  return loadAutoflowSession(projectDir, sessionID) ?? normalizeState(sessionID);
+  return (
+    loadAutoflowSession(projectDir, sessionID) ?? normalizeState(sessionID)
+  );
 }
 
 export function saveAutoflowSession(
@@ -165,6 +233,7 @@ export function configureAutoflowSession(
     tasks?: AutoflowSessionState['planTasks'];
     verificationCommand?: string;
     fixCommands?: string[];
+    fixSteps?: AutoflowFixStep[];
     maxFixRounds?: number;
     phase?: AutoflowPhase;
   },
@@ -172,10 +241,7 @@ export function configureAutoflowSession(
   const current = getAutoflowSession(projectDir, input.sessionID);
   const next: AutoflowSessionState = {
     ...current,
-    goal:
-      typeof input.goal === 'string'
-        ? input.goal.trim()
-        : current.goal,
+    goal: typeof input.goal === 'string' ? input.goal.trim() : current.goal,
     planTasks:
       Array.isArray(input.tasks) && input.tasks.length > 0
         ? input.tasks
@@ -184,10 +250,13 @@ export function configureAutoflowSession(
       typeof input.verificationCommand === 'string'
         ? input.verificationCommand.trim() || undefined
         : current.verificationCommand,
-    fixCommands:
-      Array.isArray(input.fixCommands)
-        ? input.fixCommands.map(String).map((item) => item.trim()).filter(Boolean)
-        : current.fixCommands,
+    fixCommands: Array.isArray(input.fixCommands)
+      ? input.fixCommands
+          .map(String)
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : current.fixCommands,
+    fixSteps: Array.isArray(input.fixSteps) ? input.fixSteps : current.fixSteps,
     maxFixRounds:
       typeof input.maxFixRounds === 'number'
         ? normalizeFixRounds(input.maxFixRounds)

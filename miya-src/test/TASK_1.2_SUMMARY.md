@@ -115,21 +115,21 @@ miya-src/test/
 
 ### All Tests (Both Patterns)
 ```bash
-bun test
+npx vitest run
 ```
 
 ### Co-located Unit Tests
 ```bash
-bun test src/
+npx vitest run src/
 ```
 
 ### Centralized Tests
 ```bash
-bun test test/integration
-bun test test/adversarial
-bun test test/regression
-bun test test/performance
-bun test test/e2e
+npx vitest run test/integration
+npx vitest run test/adversarial
+npx vitest run test/regression
+npx vitest run test/performance
+npx vitest run test/e2e
 ```
 
 ## Benefits of This Approach

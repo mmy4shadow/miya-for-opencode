@@ -1,8 +1,12 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { isDomainExecutionAllowed, readSafetyState, transitionSafetyState } from './state-machine';
+import { describe, expect, test } from 'vitest';
+import {
+  isDomainExecutionAllowed,
+  readSafetyState,
+  transitionSafetyState,
+} from './state-machine';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-safety-state-test-'));

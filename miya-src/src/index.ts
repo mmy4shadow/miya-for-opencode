@@ -1,11 +1,12 @@
-import type { Plugin } from '@opencode-ai/plugin';
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { Plugin } from '@opencode-ai/plugin';
 import { getAgentConfigs } from './agents';
 import { MiyaAutomationService } from './automation';
 import { BackgroundTaskManager, TmuxSessionManager } from './background';
 import { loadPluginConfig, type TmuxConfig } from './config';
+import { parseList } from './config/agent-mcps';
 import {
   extractAgentModelSelectionsFromEvent,
   normalizeAgentName,
@@ -14,8 +15,18 @@ import {
   persistAgentRuntimeSelection,
   readPersistedAgentRuntime,
 } from './config/agent-model-persistence';
-import { appendModelEventAudit, shouldAuditModelEvent } from './config/model-event-audit';
-import { parseList } from './config/agent-mcps';
+import {
+  appendModelEventAudit,
+  shouldAuditModelEvent,
+} from './config/model-event-audit';
+import { appendProviderOverrideAudit } from './config/provider-override-audit';
+import { mergePluginAgentConfigs } from './config/runtime-merge';
+import { assertRequiredHookHandlers } from './contracts/hook-contract';
+import {
+  ensureMiyaLauncher,
+  getLauncherDaemonSnapshot,
+  subscribeLauncherEvents,
+} from './daemon';
 import {
   createGatewayTools,
   ensureGatewayRunning,
@@ -24,22 +35,6 @@ import {
   registerGatewayDependencies,
   startGatewayWithLog,
 } from './gateway';
-import { createIntakeTools } from './intake';
-import {
-  shouldInterceptWriteAfterWebsearch,
-  trackWebsearchToolOutput,
-} from './intake/websearch-guard';
-import {
-  appendShadowSessionLog,
-  shouldRouteToShadowSession,
-} from './sessions/shadow';
-import {
-  ensureMiyaLauncher,
-  getLauncherDaemonSnapshot,
-  subscribeLauncherEvents,
-} from './daemon';
-import { appendProviderOverrideAudit } from './config/provider-override-audit';
-import { assertRequiredHookHandlers } from './contracts/hook-contract';
 import {
   createContextGovernorHook,
   createLoopGuardHook,
@@ -49,32 +44,40 @@ import {
   createPostWriteSimplicityHook,
   createSlashCommandBridgeHook,
 } from './hooks';
-import { createSafetyTools, handlePermissionAsk } from './safety';
-import { createConfigTools } from './settings';
+import { createIntakeTools } from './intake';
+import {
+  shouldInterceptWriteAfterWebsearch,
+  trackWebsearchToolOutput,
+} from './intake/websearch-guard';
 import { createBuiltinMcps } from './mcp';
+import { createSafetyTools, handlePermissionAsk } from './safety';
+import {
+  appendShadowSessionLog,
+  shouldRouteToShadowSession,
+} from './sessions/shadow';
+import { createConfigTools } from './settings';
 import {
   ast_grep_replace,
   ast_grep_search,
-  createAutomationTools,
   createAutoflowTools,
+  createAutomationTools,
   createAutopilotTools,
   createBackgroundTools,
   createLearningTools,
-  createMultimodalTools,
   createMcpTools,
+  createMultimodalTools,
   createNodeTools,
   createRalphTools,
   createRouterTools,
   createSoulTools,
   createUltraworkTools,
+  createWorkflowTools,
   grep,
   lsp_diagnostics,
   lsp_find_references,
   lsp_goto_definition,
   lsp_rename,
-  createWorkflowTools,
 } from './tools';
-import { mergePluginAgentConfigs } from './config/runtime-merge';
 import { startTmuxCheck } from './utils';
 import { log } from './utils/logger';
 
@@ -128,7 +131,10 @@ function dockLaunchGuardFile(projectDir: string): string {
 function readLaunchGuard(file: string): LaunchGuardState {
   if (!fs.existsSync(file)) return { atMs: 0, pid: 0 };
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { atMs?: unknown; pid?: unknown };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      atMs?: unknown;
+      pid?: unknown;
+    };
     const atMs = Number(parsed?.atMs ?? 0);
     const pid = Number(parsed?.pid ?? 0);
     return {
@@ -218,7 +224,9 @@ function launchDockSilently(projectDir: string): void {
   const persisted = readLastDockLaunch(projectDir);
   const cooldownMs = 5 * 60_000;
   const throttleByPersisted =
-    persisted.atMs > 0 && isPidAlive(persisted.pid) && now - persisted.atMs < cooldownMs;
+    persisted.atMs > 0 &&
+    isPidAlive(persisted.pid) &&
+    now - persisted.atMs < cooldownMs;
   if (now - memLast < 15_000 || throttleByPersisted) {
     return;
   }
@@ -257,18 +265,31 @@ function launchDockSilently(projectDir: string): void {
 }
 
 function gatewayTerminalLockFile(projectDir: string): string {
-  return path.join(projectDir, '.opencode', 'miya', 'gateway-terminal.lock.json');
+  return path.join(
+    projectDir,
+    '.opencode',
+    'miya',
+    'gateway-terminal.lock.json',
+  );
 }
 
 function gatewayTerminalLaunchGuardFile(projectDir: string): string {
-  return path.join(projectDir, '.opencode', 'miya', 'gateway-terminal-launch.guard.json');
+  return path.join(
+    projectDir,
+    '.opencode',
+    'miya',
+    'gateway-terminal-launch.guard.json',
+  );
 }
 
-function readLastGatewayTerminalLaunchAt(projectDir: string): number {
+function _readLastGatewayTerminalLaunchAt(projectDir: string): number {
   return readLaunchGuard(gatewayTerminalLaunchGuardFile(projectDir)).atMs;
 }
 
-function writeLastGatewayTerminalLaunchAt(projectDir: string, atMs: number): void {
+function writeLastGatewayTerminalLaunchAt(
+  projectDir: string,
+  atMs: number,
+): void {
   const file = gatewayTerminalLaunchGuardFile(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
@@ -282,7 +303,9 @@ function readGatewayTerminalOwnerPid(projectDir: string): number {
   const file = gatewayTerminalLockFile(projectDir);
   if (!fs.existsSync(file)) return 0;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { pid?: unknown };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      pid?: unknown;
+    };
     const pid = Number(parsed.pid ?? 0);
     return Number.isFinite(pid) ? pid : 0;
   } catch {
@@ -301,7 +324,10 @@ function gatewayOwnerFile(projectDir: string): string {
 function readPidFromJson(file: string, key: string): number {
   if (!fs.existsSync(file)) return 0;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>;
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
     const pid = Number(parsed[key] ?? 0);
     return Number.isFinite(pid) ? pid : 0;
   } catch {
@@ -373,7 +399,11 @@ function shouldAutoOpenUi(projectDir: string, cooldownMs: number): boolean {
   const now = Date.now();
   const minCooldownMs = Math.max(10_000, Math.min(cooldownMs, 24 * 60_000));
   if (now - last < 10_000) return false;
-  if (persisted.atMs > 0 && isPidAlive(persisted.pid) && now - persisted.atMs < minCooldownMs) {
+  if (
+    persisted.atMs > 0 &&
+    isPidAlive(persisted.pid) &&
+    now - persisted.atMs < minCooldownMs
+  ) {
     return false;
   }
   autoUiOpenAtByDir.set(projectDir, now);
@@ -385,7 +415,9 @@ function isInteractiveSession(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
-function parseModelRef(model: unknown): { providerID: string; modelID: string } | null {
+function parseModelRef(
+  model: unknown,
+): { providerID: string; modelID: string } | null {
   if (typeof model !== 'string') return null;
   const text = model.trim();
   if (!text) return null;
@@ -411,7 +443,7 @@ function providerHasModel(
   if (!isPlainObject(provider)) return null;
   const models = provider.models;
   if (!isPlainObject(models)) return null;
-  return  Object.hasOwn(models, parsed.modelID);
+  return Object.hasOwn(models, parsed.modelID);
 }
 
 function sanitizeConfiguredAgentModels(
@@ -424,10 +456,12 @@ function sanitizeConfiguredAgentModels(
     ? (opencodeConfig.provider as Record<string, unknown>)
     : {};
 
-  const adjusted: Array<{ agent: string; from: string; to: string | null }> = [];
+  const adjusted: Array<{ agent: string; from: string; to: string | null }> =
+    [];
   for (const [agentName, rawAgent] of Object.entries(agentMap)) {
     if (!isPlainObject(rawAgent)) continue;
-    const modelRaw = typeof rawAgent.model === 'string' ? rawAgent.model.trim() : '';
+    const modelRaw =
+      typeof rawAgent.model === 'string' ? rawAgent.model.trim() : '';
     const model = LEGACY_MODEL_REWRITE[modelRaw] ?? modelRaw;
     if (!model) continue;
     if (model !== modelRaw) {
@@ -447,7 +481,9 @@ function sanitizeConfiguredAgentModels(
   return { adjusted };
 }
 
-function ensureLegacyModelAliases(opencodeConfig: Record<string, unknown>): void {
+function ensureLegacyModelAliases(
+  opencodeConfig: Record<string, unknown>,
+): void {
   const providerMap = isPlainObject(opencodeConfig.provider)
     ? (opencodeConfig.provider as Record<string, unknown>)
     : {};
@@ -465,9 +501,10 @@ function ensureLegacyModelAliases(opencodeConfig: Record<string, unknown>): void
   models['minimax/z-ai/glm-5'] = {
     ...(isPlainObject(canonical) ? canonical : {}),
     id: 'minimax/z-ai/glm-5',
-    name: isPlainObject(canonical) && typeof canonical.name === 'string'
-      ? `${canonical.name} (Legacy Alias)`
-      : 'GLM-5 (Legacy Alias)',
+    name:
+      isPlainObject(canonical) && typeof canonical.name === 'string'
+        ? `${canonical.name} (Legacy Alias)`
+        : 'GLM-5 (Legacy Alias)',
   };
 }
 
@@ -512,7 +549,13 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const autoOpenBlockedByEnv = process.env.MIYA_AUTO_UI_OPEN === '0';
   const autoOpenCooldownMs =
     typeof dashboardConfig.autoOpenCooldownMs === 'number'
-      ? Math.max(10_000, Math.min(24 * 60_000, Math.floor(Number(dashboardConfig.autoOpenCooldownMs))))
+      ? Math.max(
+          10_000,
+          Math.min(
+            24 * 60_000,
+            Math.floor(Number(dashboardConfig.autoOpenCooldownMs)),
+          ),
+        )
       : 2 * 60_000;
   const dockAutoLaunch =
     process.env.MIYA_DOCK_AUTO_LAUNCH === '1' ||
@@ -521,7 +564,8 @@ const MiyaPlugin: Plugin = async (ctx) => {
   const interactiveSession = isInteractiveSession();
   const allowAutoOpenWithoutTty =
     process.env.MIYA_AUTO_UI_OPEN_NO_TTY === '1' ||
-    (process.platform === 'win32' && process.env.MIYA_AUTO_UI_OPEN_NO_TTY !== '0');
+    (process.platform === 'win32' &&
+      process.env.MIYA_AUTO_UI_OPEN_NO_TTY !== '0');
   const canAutoOpenInSession = interactiveSession || allowAutoOpenWithoutTty;
   if (
     autoOpenEnabled &&
@@ -534,7 +578,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
         const state = ensureGatewayRunning(ctx.directory);
         const healthy = await probeGatewayAlive(state.url, 1_500);
         if (!healthy) {
-          log('[miya] auto ui open skipped: gateway unhealthy', { url: state.url });
+          log('[miya] auto ui open skipped: gateway unhealthy', {
+            url: state.url,
+          });
           return;
         }
         if (dockAutoLaunch) {
@@ -584,7 +630,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
     }, 4000);
     subscribeLauncherEvents(ctx.directory, (event) => {
       if (event.type !== 'job.progress') return;
-      const status = String(event.payload?.status ?? '').trim().toLowerCase();
+      const status = String(event.payload?.status ?? '')
+        .trim()
+        .toLowerCase();
       if (
         status !== 'completed' &&
         status !== 'failed' &&
@@ -593,19 +641,27 @@ const MiyaPlugin: Plugin = async (ctx) => {
       ) {
         return;
       }
-      const jobID = String(event.payload?.jobID ?? event.snapshot.activeJobID ?? '').trim();
+      const jobID = String(
+        event.payload?.jobID ?? event.snapshot.activeJobID ?? '',
+      ).trim();
       const phase = String(event.payload?.phase ?? '').trim();
       const progress = Number(event.payload?.progress ?? 0);
       const messageParts = [`job=${jobID || 'unknown'}`, `status=${status}`];
       if (phase) messageParts.push(`phase=${phase}`);
-      if (Number.isFinite(progress)) messageParts.push(`progress=${Math.floor(progress)}%`);
+      if (Number.isFinite(progress))
+        messageParts.push(`progress=${Math.floor(progress)}%`);
       void ctx.client.tui
         .showToast({
           query: { directory: ctx.directory },
           body: {
             title: 'Miya Job',
             message: messageParts.join(' | '),
-            variant: status === 'completed' ? 'success' : status === 'failed' ? 'error' : 'info',
+            variant:
+              status === 'completed'
+                ? 'success'
+                : status === 'failed'
+                  ? 'error'
+                  : 'info',
             duration: 3500,
           },
         })
@@ -674,7 +730,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
   // Initialize post-read nudge hook
   const postReadNudgeHook = createPostReadNudgeHook();
   const postWriteSimplicityHook = createPostWriteSimplicityHook();
-  const contextGovernorHook = createContextGovernorHook(config.contextGovernance);
+  const contextGovernorHook = createContextGovernorHook(
+    config.contextGovernance,
+  );
   const slimCompatEnabled = config.slimCompat?.enabled ?? true;
   const postWriteSimplicityEnabled =
     slimCompatEnabled &&
@@ -719,7 +777,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
     const callID = typeof input.callID === 'string' ? input.callID : undefined;
     const argSummary: string[] = [];
     if (output.args && typeof output.args === 'object') {
-      for (const [key, value] of Object.entries(output.args as Record<string, unknown>)) {
+      for (const [key, value] of Object.entries(
+        output.args as Record<string, unknown>,
+      )) {
         if (typeof value === 'string') {
           argSummary.push(`${key}=${value.slice(0, 180)}`);
           continue;
@@ -740,7 +800,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
       permission: tool,
     });
     if (intakeGate.intercept) {
-      throw new Error('miya_intake_gate_blocked:write_after_websearch_requires_revalidation');
+      throw new Error(
+        'miya_intake_gate_blocked:write_after_websearch_requires_revalidation',
+      );
     }
 
     const safety = await handlePermissionAsk(ctx.directory, {
@@ -764,7 +826,11 @@ const MiyaPlugin: Plugin = async (ctx) => {
       sessionID: string;
       callID: string;
     },
-    output: { title: string; output: string; metadata: Record<string, unknown> },
+    output: {
+      title: string;
+      output: string;
+      metadata: Record<string, unknown>;
+    },
   ) => {
     if (
       shouldRouteToShadowSession({
@@ -860,7 +926,12 @@ const MiyaPlugin: Plugin = async (ctx) => {
       const existingDefaultAgent =
         normalizeAgentName(
           String(
-            (opencodeConfig as { default_agent?: unknown; defaultAgent?: unknown }).default_agent ??
+            (
+              opencodeConfig as {
+                default_agent?: unknown;
+                defaultAgent?: unknown;
+              }
+            ).default_agent ??
               (opencodeConfig as { defaultAgent?: unknown }).defaultAgent ??
               '',
           ),
@@ -996,7 +1067,9 @@ const MiyaPlugin: Plugin = async (ctx) => {
 
       // Aliases for users/IMEs that prefer underscore or dot command styles.
       if (!commandConfig.miya_gateway_start) {
-        commandConfig.miya_gateway_start = { ...commandConfig['miya-gateway-start'] };
+        commandConfig.miya_gateway_start = {
+          ...commandConfig['miya-gateway-start'],
+        };
       }
       if (!commandConfig.miya_gateway_shutdown) {
         commandConfig.miya_gateway_shutdown = {
@@ -1034,7 +1107,10 @@ const MiyaPlugin: Plugin = async (ctx) => {
       const pluginProvider = isPlainObject(config.provider)
         ? (config.provider as Record<string, unknown>)
         : {};
-      opencodeConfig.provider = deepMergeObject(existingProvider, pluginProvider);
+      opencodeConfig.provider = deepMergeObject(
+        existingProvider,
+        pluginProvider,
+      );
       ensureLegacyModelAliases(opencodeConfig);
       const sanitizeResult = sanitizeConfiguredAgentModels(opencodeConfig);
       if (sanitizeResult.adjusted.length > 0) {
@@ -1225,9 +1301,18 @@ const MiyaPlugin: Plugin = async (ctx) => {
         input,
         output,
       );
-      await loopGuardHook['experimental.chat.messages.transform'](input, output);
-      await phaseReminderHook['experimental.chat.messages.transform'](input, output);
-      await contextGovernorHook['experimental.chat.messages.transform'](input, output);
+      await loopGuardHook['experimental.chat.messages.transform'](
+        input,
+        output,
+      );
+      await phaseReminderHook['experimental.chat.messages.transform'](
+        input,
+        output,
+      );
+      await contextGovernorHook['experimental.chat.messages.transform'](
+        input,
+        output,
+      );
     },
 
     // Nudge after file reads to encourage delegation + track websearch usage for intake gate

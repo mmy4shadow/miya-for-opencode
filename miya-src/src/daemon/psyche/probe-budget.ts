@@ -10,12 +10,17 @@ interface ProbeBudgetState {
   updatedAtMs: number;
 }
 
-function readState(filePath: string, fallbackCapacity: number): ProbeBudgetState {
+function readState(
+  filePath: string,
+  fallbackCapacity: number,
+): ProbeBudgetState {
   if (!fs.existsSync(filePath)) {
     return { tokens: fallbackCapacity, updatedAtMs: Date.now() };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Partial<ProbeBudgetState>;
+    const parsed = JSON.parse(
+      fs.readFileSync(filePath, 'utf-8'),
+    ) as Partial<ProbeBudgetState>;
     const tokens = Number(parsed.tokens);
     const updatedAtMs = Number(parsed.updatedAtMs);
     return {
@@ -40,7 +45,10 @@ export function consumeProbeBudget(
   const refillPerSec = Math.max(0.0001, config.refillPerSec);
   const current = readState(filePath, capacity);
   const elapsedSec = Math.max(0, (nowMs - current.updatedAtMs) / 1000);
-  const refilled = Math.min(capacity, current.tokens + elapsedSec * refillPerSec);
+  const refilled = Math.min(
+    capacity,
+    current.tokens + elapsedSec * refillPerSec,
+  );
   const allowed = refilled >= 1;
   const nextTokens = allowed ? refilled - 1 : refilled;
   writeState(filePath, { tokens: nextTokens, updatedAtMs: nowMs });

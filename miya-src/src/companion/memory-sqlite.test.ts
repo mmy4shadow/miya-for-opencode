@@ -1,8 +1,13 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildMemoryPack, getCompanionMemorySqliteStats, resolveContextFsUri, withMemoryDb } from './memory-sqlite';
+import { describe, expect, test } from 'vitest';
+import {
+  buildMemoryPack,
+  getCompanionMemorySqliteStats,
+  resolveContextFsUri,
+  withMemoryDb,
+} from './memory-sqlite';
 import { upsertCompanionMemoryVector } from './memory-vector';
 
 function tempProjectDir(): string {
@@ -86,26 +91,46 @@ describe('companion memory sqlite sync', () => {
       const now = new Date().toISOString();
       db.query(
         'INSERT INTO mem_scenes (scene_id, domain, title, summary_l0, summary_l1, vec_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).run('scene_runtime', 'work', 'Runtime Preferences', '["no_proxy localhost"]', 'runtime summary', '[]', now);
+      ).run(
+        'scene_runtime',
+        'work',
+        'Runtime Preferences',
+        '["no_proxy localhost"]',
+        'runtime summary',
+        '[]',
+        now,
+      );
       const first = db
-        .query('SELECT id FROM mem_cells ORDER BY datetime(updated_at) DESC LIMIT 1')
+        .query(
+          'SELECT id FROM mem_cells ORDER BY datetime(updated_at) DESC LIMIT 1',
+        )
         .get() as { id?: string } | undefined;
       if (first?.id) {
-        db.query('INSERT INTO memscene_cells (scene_id, cell_id, weight) VALUES (?, ?, ?)').run(
-          'scene_runtime',
-          first.id,
-          1,
-        );
+        db.query(
+          'INSERT INTO memscene_cells (scene_id, cell_id, weight) VALUES (?, ?, ?)',
+        ).run('scene_runtime', first.id, 1);
       }
     });
 
-    const profile = resolveContextFsUri(projectDir, 'miya://mem/profile?domain=work');
+    const profile = resolveContextFsUri(
+      projectDir,
+      'miya://mem/profile?domain=work',
+    );
     expect(profile?.uri).toBe('miya://mem/profile?domain=work');
-    expect(Array.isArray((profile?.data as { topConstraints?: string[] } | undefined)?.topConstraints)).toBe(true);
+    expect(
+      Array.isArray(
+        (profile?.data as { topConstraints?: string[] } | undefined)
+          ?.topConstraints,
+      ),
+    ).toBe(true);
 
-    const scene = resolveContextFsUri(projectDir, 'miya://mem/scenes/scene_runtime');
+    const scene = resolveContextFsUri(
+      projectDir,
+      'miya://mem/scenes/scene_runtime',
+    );
     expect(scene?.uri).toBe('miya://mem/scenes/scene_runtime');
-    expect((scene?.data as { title?: string } | undefined)?.title).toBe('Runtime Preferences');
+    expect((scene?.data as { title?: string } | undefined)?.title).toBe(
+      'Runtime Preferences',
+    );
   });
 });
-

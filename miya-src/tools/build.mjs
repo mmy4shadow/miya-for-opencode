@@ -1,4 +1,8 @@
 import { build } from 'esbuild';
+import { mkdirSync, rmSync } from 'node:fs';
+
+rmSync('dist', { recursive: true, force: true });
+mkdirSync('dist', { recursive: true });
 
 const common = {
   bundle: true,

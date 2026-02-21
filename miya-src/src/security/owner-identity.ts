@@ -1,7 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getMiyaVoiceprintModelDir, getMiyaVoiceprintSampleDir } from '../model/paths';
+import {
+  getMiyaVoiceprintModelDir,
+  getMiyaVoiceprintSampleDir,
+} from '../model/paths';
 import { getMiyaRuntimeDir } from '../workflow';
 
 export type InteractionMode = 'owner' | 'guest' | 'unknown';
@@ -35,11 +38,19 @@ function nowIso(): string {
 }
 
 function filePath(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'security', 'owner-identity.json');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'security',
+    'owner-identity.json',
+  );
 }
 
 function guestAuditPath(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'security', 'guest-conversations.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'security',
+    'guest-conversations.jsonl',
+  );
 }
 
 function clamp(input: number, min: number, max: number): number {
@@ -90,9 +101,13 @@ function normalizeVoiceprintThresholds(
         ? clamp(input.minSampleDurationSec, 0.5, 20)
         : base.minSampleDurationSec,
     farTarget:
-      typeof input?.farTarget === 'number' ? clamp(input.farTarget, 0.0001, 0.5) : base.farTarget,
+      typeof input?.farTarget === 'number'
+        ? clamp(input.farTarget, 0.0001, 0.5)
+        : base.farTarget,
     frrTarget:
-      typeof input?.frrTarget === 'number' ? clamp(input.frrTarget, 0.0001, 0.5) : base.frrTarget,
+      typeof input?.frrTarget === 'number'
+        ? clamp(input.frrTarget, 0.0001, 0.5)
+        : base.frrTarget,
   };
   if (normalized.guestMaxScore >= normalized.ownerMinScore) {
     normalized.guestMaxScore = Math.max(0.01, normalized.ownerMinScore - 0.05);
@@ -116,11 +131,17 @@ function hashSecret(input: string): string {
 }
 
 function defaultVoiceprintModelPath(projectDir: string): string {
-  return process.env.MIYA_VOICEPRINT_MODEL_PATH || getMiyaVoiceprintModelDir(projectDir);
+  return (
+    process.env.MIYA_VOICEPRINT_MODEL_PATH ||
+    getMiyaVoiceprintModelDir(projectDir)
+  );
 }
 
 function defaultVoiceprintSampleDir(projectDir: string): string {
-  return process.env.MIYA_VOICEPRINT_SAMPLE_DIR || getMiyaVoiceprintSampleDir(projectDir);
+  return (
+    process.env.MIYA_VOICEPRINT_SAMPLE_DIR ||
+    getMiyaVoiceprintSampleDir(projectDir)
+  );
 }
 
 export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
@@ -133,7 +154,9 @@ export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
     };
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<OwnerIdentityState>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<OwnerIdentityState>;
     return {
       ...defaultState(),
       ...parsed,
@@ -145,8 +168,11 @@ export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
         typeof parsed.voiceprintSampleDir === 'string'
           ? parsed.voiceprintSampleDir
           : defaultVoiceprintSampleDir(projectDir),
-      voiceprintThresholds: normalizeVoiceprintThresholds(parsed.voiceprintThresholds),
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : nowIso(),
+      voiceprintThresholds: normalizeVoiceprintThresholds(
+        parsed.voiceprintThresholds,
+      ),
+      updatedAt:
+        typeof parsed.updatedAt === 'string' ? parsed.updatedAt : nowIso(),
     };
   } catch {
     return {
@@ -157,12 +183,17 @@ export function readOwnerIdentityState(projectDir: string): OwnerIdentityState {
   }
 }
 
-export function writeOwnerIdentityState(projectDir: string, state: OwnerIdentityState): OwnerIdentityState {
+export function writeOwnerIdentityState(
+  projectDir: string,
+  state: OwnerIdentityState,
+): OwnerIdentityState {
   const file = filePath(projectDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const next = {
     ...state,
-    voiceprintThresholds: normalizeVoiceprintThresholds(state.voiceprintThresholds),
+    voiceprintThresholds: normalizeVoiceprintThresholds(
+      state.voiceprintThresholds,
+    ),
     updatedAt: nowIso(),
   };
   fs.writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
@@ -186,11 +217,18 @@ export function initOwnerIdentity(
     initialized: true,
     passwordHash: hashSecret(input.password),
     passphraseHash: hashSecret(input.passphrase),
-    voiceprintEmbeddingID: input.voiceprintEmbeddingID || current.voiceprintEmbeddingID || `owner_${randomUUID()}`,
+    voiceprintEmbeddingID:
+      input.voiceprintEmbeddingID ||
+      current.voiceprintEmbeddingID ||
+      `owner_${randomUUID()}`,
     voiceprintModelPath:
-      input.voiceprintModelPath || current.voiceprintModelPath || defaultVoiceprintModelPath(projectDir),
+      input.voiceprintModelPath ||
+      current.voiceprintModelPath ||
+      defaultVoiceprintModelPath(projectDir),
     voiceprintSampleDir:
-      input.voiceprintSampleDir || current.voiceprintSampleDir || defaultVoiceprintSampleDir(projectDir),
+      input.voiceprintSampleDir ||
+      current.voiceprintSampleDir ||
+      defaultVoiceprintSampleDir(projectDir),
     voiceprintThresholds: normalizeVoiceprintThresholds({
       ...current.voiceprintThresholds,
       ...(input.voiceprintThresholds ?? {}),
@@ -207,14 +245,21 @@ export function verifyOwnerSecrets(
   input: { password?: string; passphrase?: string },
 ): boolean {
   const state = readOwnerIdentityState(projectDir);
-  if (!state.initialized || !state.passwordHash || !state.passphraseHash) return false;
-  const passOk = typeof input.password === 'string' && hashSecret(input.password) === state.passwordHash;
+  if (!state.initialized || !state.passwordHash || !state.passphraseHash)
+    return false;
+  const passOk =
+    typeof input.password === 'string' &&
+    hashSecret(input.password) === state.passwordHash;
   const phraseOk =
-    typeof input.passphrase === 'string' && hashSecret(input.passphrase) === state.passphraseHash;
+    typeof input.passphrase === 'string' &&
+    hashSecret(input.passphrase) === state.passphraseHash;
   return passOk || phraseOk;
 }
 
-export function verifyOwnerPasswordOnly(projectDir: string, password?: string): boolean {
+export function verifyOwnerPasswordOnly(
+  projectDir: string,
+  password?: string,
+): boolean {
   const state = readOwnerIdentityState(projectDir);
   if (!state.initialized || !state.passwordHash) return false;
   if (typeof password !== 'string' || !password) return false;
@@ -279,13 +324,18 @@ export function resolveInteractionMode(
   const state = readOwnerIdentityState(projectDir);
   if (!state.initialized) return 'unknown';
   if (typeof input.speakerScore === 'number') {
-    if (input.speakerScore >= state.voiceprintThresholds.ownerMinScore) return 'owner';
-    if (input.speakerScore < state.voiceprintThresholds.guestMaxScore) return 'guest';
+    if (input.speakerScore >= state.voiceprintThresholds.ownerMinScore)
+      return 'owner';
+    if (input.speakerScore < state.voiceprintThresholds.guestMaxScore)
+      return 'guest';
   }
   return state.mode === 'owner' ? 'owner' : 'unknown';
 }
 
-export function setInteractionMode(projectDir: string, mode: InteractionMode): OwnerIdentityState {
+export function setInteractionMode(
+  projectDir: string,
+  mode: InteractionMode,
+): OwnerIdentityState {
   const current = readOwnerIdentityState(projectDir);
   return writeOwnerIdentityState(projectDir, {
     ...current,

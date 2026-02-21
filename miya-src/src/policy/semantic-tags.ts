@@ -24,7 +24,9 @@ export function normalizeSemanticTags(value: unknown): SemanticTag[] {
     .filter((item): item is SemanticTag => isSemanticTag(item));
 }
 
-export function assertSemanticTags(value: unknown): asserts value is SemanticTag[] {
+export function assertSemanticTags(
+  value: unknown,
+): asserts value is SemanticTag[] {
   if (!Array.isArray(value)) return;
   for (const item of value) {
     if (!isSemanticTag(item)) {

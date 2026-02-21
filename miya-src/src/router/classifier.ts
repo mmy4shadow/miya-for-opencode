@@ -34,4 +34,3 @@ export function recommendedAgent(intent: RouteIntent): string {
   if (intent === 'ui_design') return '6-ui-designer';
   return '1-task-manager';
 }
-

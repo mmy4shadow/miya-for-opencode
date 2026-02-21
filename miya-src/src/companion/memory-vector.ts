@@ -517,13 +517,15 @@ export function searchCompanionMemoryVectors(
   const vectorIndex = new Map<string, number>();
   const lexicalIndex = new Map<string, number>();
   const relationIndex = new Map<string, number>();
-  vectorRanked.forEach((entry, index) => vectorIndex.set(entry.item.id, index));
-  lexicalRanked.forEach((entry, index) =>
-    lexicalIndex.set(entry.item.id, index),
-  );
-  relationRanked.forEach((entry, index) =>
-    relationIndex.set(entry.item.id, index),
-  );
+  vectorRanked.forEach((entry, index) => {
+    vectorIndex.set(entry.item.id, index);
+  });
+  lexicalRanked.forEach((entry, index) => {
+    lexicalIndex.set(entry.item.id, index);
+  });
+  relationRanked.forEach((entry, index) => {
+    relationIndex.set(entry.item.id, index);
+  });
 
   const ranked = items
     .map((item) => {

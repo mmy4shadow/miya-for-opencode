@@ -26,10 +26,13 @@ function readState(projectDir: string): SkillState {
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<SkillState>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<SkillState>;
     return {
       enabled: Array.isArray(parsed.enabled) ? parsed.enabled.map(String) : [],
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : nowIso(),
+      updatedAt:
+        typeof parsed.updatedAt === 'string' ? parsed.updatedAt : nowIso(),
     };
   } catch {
     return { enabled: [], updatedAt: nowIso() };

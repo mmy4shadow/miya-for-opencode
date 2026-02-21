@@ -15,7 +15,11 @@ export interface ProviderOverrideAuditEntry {
 }
 
 function providerOverrideAuditFile(projectDir: string): string {
-  return path.join(getMiyaRuntimeDir(projectDir), 'audit', 'provider-overrides.jsonl');
+  return path.join(
+    getMiyaRuntimeDir(projectDir),
+    'audit',
+    'provider-overrides.jsonl',
+  );
 }
 
 export function appendProviderOverrideAudit(
@@ -46,10 +50,7 @@ export function listProviderOverrideAudits(
   const file = providerOverrideAuditFile(projectDir);
   if (!fs.existsSync(file)) return [];
   const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
-  const lines = fs
-    .readFileSync(file, 'utf-8')
-    .split(/\r?\n/)
-    .filter(Boolean);
+  const lines = fs.readFileSync(file, 'utf-8').split(/\r?\n/).filter(Boolean);
   return lines
     .slice(-safeLimit)
     .map((line) => {

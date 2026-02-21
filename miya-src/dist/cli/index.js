@@ -41274,7 +41274,7 @@ var init_sanitizer = __esm({
     WORK_HINTS = [
       /```/,
       /\b(stack trace|traceback|exception|TypeError|ReferenceError)\b/i,
-      /\b(function|class|import|npm|pnpm|bun|pip|pytest|docker|sql|api)\b/i,
+      /\b(function|class|import|npm|pnpm|pip|pytest|docker|sql|api)\b/i,
       /\b(\.ts|\.tsx|\.js|\.py|\.md|package\.json|tsconfig)\b/i,
       /(修复|报错|编译|代码|脚本|函数|接口|性能|测试|部署)/
     ];
@@ -41291,7 +41291,7 @@ var init_sanitizer = __esm({
         "^\\s*at\\s+\\S+\\s*\\(",
         '^\\s*File\\s+".*",\\s+line\\s+\\d+',
         "\\.(ts|tsx|js|jsx|py|java|go|rs|cpp|c|h|json|yaml|yml|toml|md)\\b",
-        "\\b(package\\.json|tsconfig|requirements\\.txt|pnpm-lock|bun\\.lock)\\b"
+        "\\b(package\\.json|tsconfig|requirements\\.txt|pnpm-lock)\\b"
       ].join("|"),
       "i"
     );

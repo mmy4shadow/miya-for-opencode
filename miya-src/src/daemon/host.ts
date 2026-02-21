@@ -1,21 +1,25 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import type { Duplex } from 'node:stream';
 import WebSocket, { WebSocketServer, type RawData as WsRawData } from 'ws';
-import { getMiyaRuntimeDir } from '../workflow';
-import { readConfig, validateConfigPatch, applyConfigPatch } from '../settings';
 import { assertPolicyHash, currentPolicyHash } from '../policy';
-import { MiyaDaemonService } from './service';
 import type { ResourceTaskKind } from '../resource-scheduler';
+import { applyConfigPatch, readConfig, validateConfigPatch } from '../settings';
+import { getMiyaRuntimeDir } from '../workflow';
+import { MiyaDaemonService } from './service';
 import {
-  parseDaemonIncomingFrame,
-  DaemonResponseFrameSchema,
   DaemonEventFrameSchema,
   DaemonPongFrameSchema,
+  DaemonResponseFrameSchema,
+  parseDaemonIncomingFrame,
 } from './ws-protocol';
 
 interface HostArgs {
@@ -112,9 +116,13 @@ function gpuMemoryTelemetry(): { usedMB?: number; totalMB?: number } {
       { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8', timeout: 1500 },
     );
     if (probe.status !== 0) return {};
-    const line = String(probe.stdout || '').trim().split(/\r?\n/)[0];
+    const line = String(probe.stdout || '')
+      .trim()
+      .split(/\r?\n/)[0];
     if (!line) return {};
-    const [usedRaw, totalRaw] = line.split(',').map((item) => Number(item.trim()));
+    const [usedRaw, totalRaw] = line
+      .split(',')
+      .map((item) => Number(item.trim()));
     if (!Number.isFinite(usedRaw) || !Number.isFinite(totalRaw)) return {};
     return { usedMB: usedRaw, totalMB: totalRaw };
   } catch {
@@ -152,7 +160,9 @@ function reservePort(hostname: string, configuredPort: number): number {
     windowsHide: true,
   });
   if (probe.status !== 0) {
-    throw new Error(`daemon_port_reservation_failed:${String(probe.stderr || '').trim()}`);
+    throw new Error(
+      `daemon_port_reservation_failed:${String(probe.stderr || '').trim()}`,
+    );
   }
   const parsed = Number(String(probe.stdout || '').trim());
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -238,7 +248,7 @@ interface NodeServeOptions {
     currentServer: {
       upgrade: (request: Request) => boolean;
     },
-  ) => Response | void | Promise<Response | void>;
+  ) => Response | undefined | Promise<Response | undefined>;
   websocket: {
     open: (ws: WebSocket) => void;
     close: (ws: WebSocket) => void;
@@ -294,7 +304,10 @@ function serveWithNode(options: NodeServeOptions): {
     void Promise.resolve(options.fetch(request, currentServer))
       .then((response) => {
         if (upgraded) return;
-        writeUpgradeResponse(socket, response ?? new Response('upgrade_failed', { status: 400 }));
+        writeUpgradeResponse(
+          socket,
+          response ?? new Response('upgrade_failed', { status: 400 }),
+        );
       })
       .catch(() => {
         if (!upgraded) {
@@ -325,7 +338,10 @@ ensureRuntimeDir(args.projectDir);
 const sockets = new Set<WebSocket>();
 const daemonService = new MiyaDaemonService(args.projectDir, {
   onProgress: (event) => {
-    const payload = JSON.parse(JSON.stringify(event)) as Record<string, unknown>;
+    const payload = JSON.parse(JSON.stringify(event)) as Record<
+      string,
+      unknown
+    >;
     const frame = DaemonEventFrameSchema.parse({
       type: 'event',
       event: 'job.progress',
@@ -433,7 +449,11 @@ const server = serveWithNode({
       lastSeenMs = Date.now();
 
       if (frame.type === 'ping') {
-        ws.send(JSON.stringify(DaemonPongFrameSchema.parse({ type: 'pong', ts: frame.ts })));
+        ws.send(
+          JSON.stringify(
+            DaemonPongFrameSchema.parse({ type: 'pong', ts: frame.ts }),
+          ),
+        );
         return;
       }
 
@@ -481,45 +501,67 @@ const server = serveWithNode({
 
       if (frame.method === 'daemon.psyche.consult') {
         try {
-          const urgencyRaw = String(params.urgency ?? 'medium').trim().toLowerCase();
+          const urgencyRaw = String(params.urgency ?? 'medium')
+            .trim()
+            .toLowerCase();
           const urgency =
-            urgencyRaw === 'low' || urgencyRaw === 'high' || urgencyRaw === 'critical'
+            urgencyRaw === 'low' ||
+            urgencyRaw === 'high' ||
+            urgencyRaw === 'critical'
               ? urgencyRaw
               : 'medium';
           const consult = daemonService.consultPsyche({
             intent: String(params.intent ?? 'unknown_intent'),
             urgency,
-            channel: typeof params.channel === 'string' ? params.channel : undefined,
-            userInitiated: params.userInitiated !==false,
+            channel:
+              typeof params.channel === 'string' ? params.channel : undefined,
+            userInitiated: params.userInitiated !== false,
             allowScreenProbe:
               typeof params.allowScreenProbe === 'boolean'
                 ? Boolean(params.allowScreenProbe)
                 : undefined,
             signals:
-              params.signals && typeof params.signals === 'object' && !Array.isArray(params.signals)
+              params.signals &&
+              typeof params.signals === 'object' &&
+              !Array.isArray(params.signals)
                 ? (params.signals as Record<string, unknown>)
                 : undefined,
             captureLimitations: Array.isArray(params.captureLimitations)
               ? params.captureLimitations.map(String)
               : undefined,
             trust:
-              params.trust && typeof params.trust === 'object' && !Array.isArray(params.trust)
+              params.trust &&
+              typeof params.trust === 'object' &&
+              !Array.isArray(params.trust)
                 ? {
                     target:
-                      typeof (params.trust as Record<string, unknown>).target === 'string'
-                        ? String((params.trust as Record<string, unknown>).target)
+                      typeof (params.trust as Record<string, unknown>)
+                        .target === 'string'
+                        ? String(
+                            (params.trust as Record<string, unknown>).target,
+                          )
                         : undefined,
                     source:
-                      typeof (params.trust as Record<string, unknown>).source === 'string'
-                        ? String((params.trust as Record<string, unknown>).source)
+                      typeof (params.trust as Record<string, unknown>)
+                        .source === 'string'
+                        ? String(
+                            (params.trust as Record<string, unknown>).source,
+                          )
                         : undefined,
                     action:
-                      typeof (params.trust as Record<string, unknown>).action === 'string'
-                        ? String((params.trust as Record<string, unknown>).action)
+                      typeof (params.trust as Record<string, unknown>)
+                        .action === 'string'
+                        ? String(
+                            (params.trust as Record<string, unknown>).action,
+                          )
                         : undefined,
                     evidenceConfidence:
-                      typeof (params.trust as Record<string, unknown>).evidenceConfidence === 'number'
-                        ? Number((params.trust as Record<string, unknown>).evidenceConfidence)
+                      typeof (params.trust as Record<string, unknown>)
+                        .evidenceConfidence === 'number'
+                        ? Number(
+                            (params.trust as Record<string, unknown>)
+                              .evidenceConfidence,
+                          )
                         : undefined,
                   }
                 : undefined,
@@ -543,7 +585,8 @@ const server = serveWithNode({
                 ok: false,
                 error: {
                   code: 'daemon_psyche_consult_failed',
-                  message: error instanceof Error ? error.message : String(error),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               }),
             ),
@@ -554,24 +597,34 @@ const server = serveWithNode({
 
       if (frame.method === 'daemon.psyche.outcome') {
         try {
-          const explicitFeedbackRaw = String(params.explicitFeedback ?? 'none').trim().toLowerCase();
+          const explicitFeedbackRaw = String(params.explicitFeedback ?? 'none')
+            .trim()
+            .toLowerCase();
           const explicitFeedback =
-            explicitFeedbackRaw === 'positive' || explicitFeedbackRaw === 'negative'
+            explicitFeedbackRaw === 'positive' ||
+            explicitFeedbackRaw === 'negative'
               ? explicitFeedbackRaw
               : 'none';
           const outcome = daemonService.registerPsycheOutcome({
             consultAuditID: String(params.consultAuditID ?? ''),
             intent: String(params.intent ?? 'unknown_intent'),
             urgency:
-              String(params.urgency ?? 'medium').trim().toLowerCase() === 'low'
+              String(params.urgency ?? 'medium')
+                .trim()
+                .toLowerCase() === 'low'
                 ? 'low'
-                : String(params.urgency ?? 'medium').trim().toLowerCase() === 'high'
+                : String(params.urgency ?? 'medium')
+                      .trim()
+                      .toLowerCase() === 'high'
                   ? 'high'
-                  : String(params.urgency ?? 'medium').trim().toLowerCase() === 'critical'
+                  : String(params.urgency ?? 'medium')
+                        .trim()
+                        .toLowerCase() === 'critical'
                     ? 'critical'
                     : 'medium',
-            channel: typeof params.channel === 'string' ? params.channel : undefined,
-            userInitiated: params.userInitiated !==false,
+            channel:
+              typeof params.channel === 'string' ? params.channel : undefined,
+            userInitiated: params.userInitiated !== false,
             state:
               params.state === 'FOCUS' ||
               params.state === 'CONSUME' ||
@@ -581,10 +634,14 @@ const server = serveWithNode({
                 ? params.state
                 : 'UNKNOWN',
             delivered: params.delivered === true,
-            blockedReason: typeof params.blockedReason === 'string' ? params.blockedReason : undefined,
+            blockedReason:
+              typeof params.blockedReason === 'string'
+                ? params.blockedReason
+                : undefined,
             explicitFeedback,
             userReplyWithinSec:
-              typeof params.userReplyWithinSec === 'number' && Number.isFinite(params.userReplyWithinSec)
+              typeof params.userReplyWithinSec === 'number' &&
+              Number.isFinite(params.userReplyWithinSec)
                 ? params.userReplyWithinSec
                 : undefined,
             userInitiatedWithinSec:
@@ -593,26 +650,42 @@ const server = serveWithNode({
                 ? params.userInitiatedWithinSec
                 : undefined,
             trust:
-              params.trust && typeof params.trust === 'object' && !Array.isArray(params.trust)
+              params.trust &&
+              typeof params.trust === 'object' &&
+              !Array.isArray(params.trust)
                 ? {
                     target:
-                      typeof (params.trust as Record<string, unknown>).target === 'string'
-                        ? String((params.trust as Record<string, unknown>).target)
+                      typeof (params.trust as Record<string, unknown>)
+                        .target === 'string'
+                        ? String(
+                            (params.trust as Record<string, unknown>).target,
+                          )
                         : undefined,
                     source:
-                      typeof (params.trust as Record<string, unknown>).source === 'string'
-                        ? String((params.trust as Record<string, unknown>).source)
+                      typeof (params.trust as Record<string, unknown>)
+                        .source === 'string'
+                        ? String(
+                            (params.trust as Record<string, unknown>).source,
+                          )
                         : undefined,
                     action:
-                      typeof (params.trust as Record<string, unknown>).action === 'string'
-                        ? String((params.trust as Record<string, unknown>).action)
+                      typeof (params.trust as Record<string, unknown>)
+                        .action === 'string'
+                        ? String(
+                            (params.trust as Record<string, unknown>).action,
+                          )
                         : undefined,
                     evidenceConfidence:
-                      typeof (params.trust as Record<string, unknown>).evidenceConfidence === 'number'
-                        ? Number((params.trust as Record<string, unknown>).evidenceConfidence)
+                      typeof (params.trust as Record<string, unknown>)
+                        .evidenceConfidence === 'number'
+                        ? Number(
+                            (params.trust as Record<string, unknown>)
+                              .evidenceConfidence,
+                          )
                         : undefined,
                     highRiskRollback:
-                      (params.trust as Record<string, unknown>).highRiskRollback === true,
+                      (params.trust as Record<string, unknown>)
+                        .highRiskRollback === true,
                   }
                 : undefined,
           });
@@ -635,7 +708,8 @@ const server = serveWithNode({
                 ok: false,
                 error: {
                   code: 'daemon_psyche_outcome_failed',
-                  message: error instanceof Error ? error.message : String(error),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               }),
             ),
@@ -715,7 +789,8 @@ const server = serveWithNode({
                 ok: false,
                 error: {
                   code: 'daemon_model_update_apply_failed',
-                  message: error instanceof Error ? error.message : String(error),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               }),
             ),
@@ -739,7 +814,8 @@ const server = serveWithNode({
       }
 
       if (frame.method === 'config.center.patch') {
-        const policyHash = typeof params.policyHash === 'string' ? params.policyHash : undefined;
+        const policyHash =
+          typeof params.policyHash === 'string' ? params.policyHash : undefined;
         const guard = assertPolicyHash(args.projectDir, policyHash);
         if (!guard.ok) {
           ws.send(
@@ -795,7 +871,9 @@ const server = serveWithNode({
             prompt: String(params.prompt ?? ''),
             outputPath: String(params.outputPath ?? ''),
             profileDir: String(params.profileDir ?? ''),
-            references: Array.isArray(params.references) ? params.references.map(String) : [],
+            references: Array.isArray(params.references)
+              ? params.references.map(String)
+              : [],
             size: String(params.size ?? '1024x1024'),
           });
           ws.send(
@@ -817,7 +895,8 @@ const server = serveWithNode({
                 ok: false,
                 error: {
                   code: 'flux_generate_failed',
-                  message: error instanceof Error ? error.message : String(error),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               }),
             ),
@@ -856,7 +935,8 @@ const server = serveWithNode({
                 ok: false,
                 error: {
                   code: 'sovits_tts_failed',
-                  message: error instanceof Error ? error.message : String(error),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               }),
             ),
@@ -872,7 +952,9 @@ const server = serveWithNode({
             photosDir: String(params.photosDir ?? ''),
             jobID: String(params.jobID ?? ''),
             checkpointPath:
-              typeof params.checkpointPath === 'string' ? params.checkpointPath : undefined,
+              typeof params.checkpointPath === 'string'
+                ? params.checkpointPath
+                : undefined,
           });
           ws.send(
             JSON.stringify(
@@ -893,7 +975,8 @@ const server = serveWithNode({
                 ok: false,
                 error: {
                   code: 'flux_training_failed',
-                  message: error instanceof Error ? error.message : String(error),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               }),
             ),
@@ -909,7 +992,9 @@ const server = serveWithNode({
             voiceSamplePath: String(params.voiceSamplePath ?? ''),
             jobID: String(params.jobID ?? ''),
             checkpointPath:
-              typeof params.checkpointPath === 'string' ? params.checkpointPath : undefined,
+              typeof params.checkpointPath === 'string'
+                ? params.checkpointPath
+                : undefined,
           });
           ws.send(
             JSON.stringify(
@@ -930,7 +1015,8 @@ const server = serveWithNode({
                 ok: false,
                 error: {
                   code: 'sovits_training_failed',
-                  message: error instanceof Error ? error.message : String(error),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               }),
             ),
@@ -983,7 +1069,9 @@ const server = serveWithNode({
             'vision.analyze',
             'shell.exec',
           ]);
-          const kind: ResourceTaskKind = allowedKinds.has(requestedKind as ResourceTaskKind)
+          const kind: ResourceTaskKind = allowedKinds.has(
+            requestedKind as ResourceTaskKind,
+          )
             ? (requestedKind as ResourceTaskKind)
             : 'generic';
           const rawInput = {
@@ -992,13 +1080,19 @@ const server = serveWithNode({
             args: Array.isArray(params.args) ? params.args.map(String) : [],
             cwd: typeof params.cwd === 'string' ? params.cwd : undefined,
             env:
-              params.env && typeof params.env === 'object' && !Array.isArray(params.env)
+              params.env &&
+              typeof params.env === 'object' &&
+              !Array.isArray(params.env)
                 ? (params.env as NodeJS.ProcessEnv)
                 : undefined,
             timeoutMs:
-              typeof params.timeoutMs === 'number' ? Math.max(1_000, params.timeoutMs) : undefined,
+              typeof params.timeoutMs === 'number'
+                ? Math.max(1_000, params.timeoutMs)
+                : undefined,
             resource:
-              params.resource && typeof params.resource === 'object' && !Array.isArray(params.resource)
+              params.resource &&
+              typeof params.resource === 'object' &&
+              !Array.isArray(params.resource)
                 ? (params.resource as {
                     priority?: number;
                     vramMB?: number;
@@ -1009,7 +1103,9 @@ const server = serveWithNode({
                   })
                 : undefined,
             metadata:
-              params.metadata && typeof params.metadata === 'object' && !Array.isArray(params.metadata)
+              params.metadata &&
+              typeof params.metadata === 'object' &&
+              !Array.isArray(params.metadata)
                 ? (params.metadata as Record<string, unknown>)
                 : undefined,
           };
@@ -1036,7 +1132,8 @@ const server = serveWithNode({
                 ok: false,
                 error: {
                   code: 'isolated_process_failed',
-                  message: error instanceof Error ? error.message : String(error),
+                  message:
+                    error instanceof Error ? error.message : String(error),
                 },
               }),
             ),
@@ -1083,8 +1180,10 @@ const lockTimer = setInterval(() => {
 const parentWatchTimer = setInterval(() => {
   const lock = readJsonObject(args.parentLockFile);
   const updatedAt = lock?.updatedAt;
-  const parsed = typeof updatedAt === 'string' ? Date.parse(updatedAt) : Number.NaN;
-  const lockHealthy = Boolean(lock) && Number.isFinite(parsed) && Date.now() - parsed < 30_000;
+  const parsed =
+    typeof updatedAt === 'string' ? Date.parse(updatedAt) : Number.NaN;
+  const lockHealthy =
+    Boolean(lock) && Number.isFinite(parsed) && Date.now() - parsed < 30_000;
 
   if (lockHealthy) {
     missingParentSince = null;
@@ -1138,5 +1237,9 @@ process.on('exit', () => {
 });
 
 if (process.send) {
-  process.send({ type: 'miya-daemon-started', port: Number(server.port), pid: process.pid });
+  process.send({
+    type: 'miya-daemon-started',
+    port: Number(server.port),
+    pid: process.pid,
+  });
 }

@@ -1,14 +1,14 @@
 /**
  * Unit tests for GatewayProvider and useGateway hook
- * 
+ *
  * Tests state initialization, refresh method, and error handling
  * Requirements: 13.1
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
-import { GatewayProvider, useGateway } from './useGateway';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GatewaySnapshot } from '../types/gateway';
+import { GatewayProvider, useGateway } from './useGateway';
 
 // Create a mock request function that can be controlled per test
 let mockRequest = vi.fn();
@@ -17,7 +17,7 @@ let mockDispose = vi.fn();
 // Mock the GatewayRpcClient
 vi.mock('../gateway-client', () => {
   return {
-    GatewayRpcClient: vi.fn(function(this: any) {
+    GatewayRpcClient: vi.fn(function (this: any) {
       this.request = (...args: unknown[]) => mockRequest(...args);
       this.dispose = () => mockDispose();
     }),
@@ -29,7 +29,9 @@ vi.mock('./useMemoizedSnapshot', () => ({
   useMemoizedSnapshot: (snapshot: GatewaySnapshot | null) => snapshot,
 }));
 
-const createMockSnapshot = (overrides?: Partial<GatewaySnapshot>): GatewaySnapshot => ({
+const createMockSnapshot = (
+  overrides?: Partial<GatewaySnapshot>,
+): GatewaySnapshot => ({
   updatedAt: '2025-01-21T00:00:00Z',
   gateway: {
     url: 'http://localhost:3000',
@@ -43,7 +45,7 @@ const createMockSnapshot = (overrides?: Partial<GatewaySnapshot>): GatewaySnapsh
     ownerFresh: true,
     storageRevision: 1,
   },
-  daemon: { 
+  daemon: {
     connected: true,
     cpuPercent: 25,
     memoryMB: 512,
@@ -58,7 +60,10 @@ const createMockSnapshot = (overrides?: Partial<GatewaySnapshot>): GatewaySnapsh
     insights: [],
     trustMode: { silentMin: 70, modalMax: 30 },
     psycheMode: { resonanceEnabled: true, captureProbeEnabled: true },
-    learningGate: { candidateMode: 'toast_gate', persistentRequiresApproval: true },
+    learningGate: {
+      candidateMode: 'toast_gate',
+      persistentRequiresApproval: true,
+    },
   },
   safety: { recentSelfApproval: [] },
   jobs: { total: 0, enabled: 0, pendingApprovals: 0, recentRuns: [] },
@@ -80,7 +85,14 @@ const createMockSnapshot = (overrides?: Partial<GatewaySnapshot>): GatewaySnapsh
   background: { total: 0, running: 0, tasks: [] },
   sessions: { total: 0, active: 0, queued: 0, muted: 0, items: [] },
   channels: { states: [], pendingPairs: [], recentOutbound: [] },
-  nodes: { total: 0, connected: 0, pendingPairs: 0, list: [], devices: [], invokes: [] },
+  nodes: {
+    total: 0,
+    connected: 0,
+    pendingPairs: 0,
+    list: [],
+    devices: [],
+    invokes: [],
+  },
   skills: { enabled: [], discovered: [] },
   media: { total: 0, recent: [] },
   voice: {},
@@ -108,7 +120,9 @@ describe('GatewayProvider - State Initialization', () => {
       return <div>Test</div>;
     };
 
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
 
     expect(() => {
       render(<TestComponent />);
@@ -133,7 +147,7 @@ describe('GatewayProvider - State Initialization', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     expect(screen.getByTestId('loading').textContent).toBe('true');
@@ -152,7 +166,9 @@ describe('GatewayProvider - State Initialization', () => {
         <div>
           <div data-testid="loading">{loading ? 'true' : 'false'}</div>
           <div data-testid="connected">{connected ? 'true' : 'false'}</div>
-          <div data-testid="session-id">{snapshot?.nexus.sessionId || 'none'}</div>
+          <div data-testid="session-id">
+            {snapshot?.nexus.sessionId || 'none'}
+          </div>
         </div>
       );
     };
@@ -160,7 +176,7 @@ describe('GatewayProvider - State Initialization', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -177,11 +193,23 @@ describe('GatewayProvider - State Initialization', () => {
       const context = useGateway();
       return (
         <div>
-          <div data-testid="has-refresh">{typeof context.refresh === 'function' ? 'true' : 'false'}</div>
-          <div data-testid="has-setKillSwitch">{typeof context.setKillSwitch === 'function' ? 'true' : 'false'}</div>
-          <div data-testid="has-updatePsycheMode">{typeof context.updatePsycheMode === 'function' ? 'true' : 'false'}</div>
-          <div data-testid="has-updateTrustMode">{typeof context.updateTrustMode === 'function' ? 'true' : 'false'}</div>
-          <div data-testid="has-togglePolicyDomain">{typeof context.togglePolicyDomain === 'function' ? 'true' : 'false'}</div>
+          <div data-testid="has-refresh">
+            {typeof context.refresh === 'function' ? 'true' : 'false'}
+          </div>
+          <div data-testid="has-setKillSwitch">
+            {typeof context.setKillSwitch === 'function' ? 'true' : 'false'}
+          </div>
+          <div data-testid="has-updatePsycheMode">
+            {typeof context.updatePsycheMode === 'function' ? 'true' : 'false'}
+          </div>
+          <div data-testid="has-updateTrustMode">
+            {typeof context.updateTrustMode === 'function' ? 'true' : 'false'}
+          </div>
+          <div data-testid="has-togglePolicyDomain">
+            {typeof context.togglePolicyDomain === 'function'
+              ? 'true'
+              : 'false'}
+          </div>
         </div>
       );
     };
@@ -189,14 +217,16 @@ describe('GatewayProvider - State Initialization', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     expect(screen.getByTestId('has-refresh').textContent).toBe('true');
     expect(screen.getByTestId('has-setKillSwitch').textContent).toBe('true');
     expect(screen.getByTestId('has-updatePsycheMode').textContent).toBe('true');
     expect(screen.getByTestId('has-updateTrustMode').textContent).toBe('true');
-    expect(screen.getByTestId('has-togglePolicyDomain').textContent).toBe('true');
+    expect(screen.getByTestId('has-togglePolicyDomain').textContent).toBe(
+      'true',
+    );
   });
 
   it('should accept custom wsPath and tokenProvider props', async () => {
@@ -209,13 +239,13 @@ describe('GatewayProvider - State Initialization', () => {
     };
 
     render(
-      <GatewayProvider 
-        wsPath="/custom/ws" 
+      <GatewayProvider
+        wsPath="/custom/ws"
         tokenProvider={customTokenProvider}
         pollingInterval={999999}
       >
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -239,20 +269,26 @@ describe('GatewayProvider - Refresh Method', () => {
     let callCount = 0;
     mockRequest.mockImplementation(() => {
       callCount++;
-      return Promise.resolve(createMockSnapshot({ 
-        nexus: { 
-          ...createMockSnapshot().nexus, 
-          sessionId: `session-${callCount}` 
-        } 
-      }));
+      return Promise.resolve(
+        createMockSnapshot({
+          nexus: {
+            ...createMockSnapshot().nexus,
+            sessionId: `session-${callCount}`,
+          },
+        }),
+      );
     });
 
     const TestComponent = () => {
       const { snapshot, refresh } = useGateway();
       return (
         <div>
-          <div data-testid="session-id">{snapshot?.nexus.sessionId || 'none'}</div>
-          <button onClick={() => refresh()} data-testid="refresh-btn">Refresh</button>
+          <div data-testid="session-id">
+            {snapshot?.nexus.sessionId || 'none'}
+          </div>
+          <button type="button" onClick={() => refresh()} data-testid="refresh-btn">
+            Refresh
+          </button>
         </div>
       );
     };
@@ -260,7 +296,7 @@ describe('GatewayProvider - Refresh Method', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     // Wait for initial load
@@ -273,7 +309,7 @@ describe('GatewayProvider - Refresh Method', () => {
     // Trigger manual refresh
     await act(async () => {
       screen.getByTestId('refresh-btn').click();
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     });
 
     // Should have called request at least one more time after refresh
@@ -281,14 +317,18 @@ describe('GatewayProvider - Refresh Method', () => {
   });
 
   it('should update connected state after successful refresh', async () => {
-    mockRequest.mockResolvedValue(createMockSnapshot({ daemon: { connected: true } }));
+    mockRequest.mockResolvedValue(
+      createMockSnapshot({ daemon: { connected: true } }),
+    );
 
     const TestComponent = () => {
       const { connected, refresh } = useGateway();
       return (
         <div>
           <div data-testid="connected">{connected ? 'true' : 'false'}</div>
-          <button onClick={() => refresh()} data-testid="refresh-btn">Refresh</button>
+          <button type="button" onClick={() => refresh()} data-testid="refresh-btn">
+            Refresh
+          </button>
         </div>
       );
     };
@@ -296,7 +336,7 @@ describe('GatewayProvider - Refresh Method', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -327,7 +367,9 @@ describe('GatewayProvider - Refresh Method', () => {
       return (
         <div>
           <div data-testid="error">{error || 'null'}</div>
-          <button onClick={() => refresh()} data-testid="refresh-btn">Refresh</button>
+          <button type="button" onClick={() => refresh()} data-testid="refresh-btn">
+            Refresh
+          </button>
         </div>
       );
     };
@@ -335,7 +377,7 @@ describe('GatewayProvider - Refresh Method', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -380,7 +422,7 @@ describe('GatewayProvider - Error Handling', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -396,9 +438,11 @@ describe('GatewayProvider - Error Handling', () => {
     mockRequest.mockImplementation(() => {
       if (firstCall) {
         firstCall = false;
-        return Promise.resolve(createMockSnapshot({ 
-          nexus: { ...createMockSnapshot().nexus, sessionId: 'session-1' } 
-        }));
+        return Promise.resolve(
+          createMockSnapshot({
+            nexus: { ...createMockSnapshot().nexus, sessionId: 'session-1' },
+          }),
+        );
       }
       return Promise.reject(new Error('Network error'));
     });
@@ -407,9 +451,13 @@ describe('GatewayProvider - Error Handling', () => {
       const { snapshot, error, refresh } = useGateway();
       return (
         <div>
-          <div data-testid="session-id">{snapshot?.nexus.sessionId || 'none'}</div>
+          <div data-testid="session-id">
+            {snapshot?.nexus.sessionId || 'none'}
+          </div>
           <div data-testid="error">{error || 'null'}</div>
-          <button onClick={() => refresh()} data-testid="refresh-btn">Refresh</button>
+          <button type="button" onClick={() => refresh()} data-testid="refresh-btn">
+            Refresh
+          </button>
         </div>
       );
     };
@@ -417,7 +465,7 @@ describe('GatewayProvider - Error Handling', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -447,7 +495,7 @@ describe('GatewayProvider - Error Handling', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -471,7 +519,7 @@ describe('GatewayProvider - Error Handling', () => {
     render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -492,7 +540,7 @@ describe('GatewayProvider - Error Handling', () => {
     const { unmount } = render(
       <GatewayProvider pollingInterval={999999}>
         <TestComponent />
-      </GatewayProvider>
+      </GatewayProvider>,
     );
 
     await waitFor(() => {
@@ -504,4 +552,3 @@ describe('GatewayProvider - Error Handling', () => {
     expect(mockDispose).toHaveBeenCalled();
   });
 });
-

@@ -39,7 +39,10 @@ export function deriveDesktopFailureDetail(input: {
   );
 }
 
-function buildEvidenceDir(projectDir: string, channel: 'qq' | 'wechat'): string {
+function buildEvidenceDir(
+  projectDir: string,
+  channel: 'qq' | 'wechat',
+): string {
   const root = getMiyaVisionTempDir(projectDir, channel);
   fs.mkdirSync(root, { recursive: true });
   return root;
@@ -56,7 +59,9 @@ export async function sendDesktopOutbound(input: {
   const destination = input.destination.trim();
   const text = (input.text ?? '').trim();
   const mediaPath = (input.mediaPath ?? '').trim();
-  const payloadHash = createHash('sha256').update(`${text}||${mediaPath}`).digest('hex');
+  const payloadHash = createHash('sha256')
+    .update(`${text}||${mediaPath}`)
+    .digest('hex');
   const traceID = `desktop_${randomUUID()}`;
   const evidenceDir = buildEvidenceDir(input.projectDir, input.channel);
 
@@ -318,7 +323,10 @@ exit 0
   const signal = stdout || stderr;
   const precheck = safeValueFromSignal(signal, 'pre') ?? 'failed';
   const postcheck = safeValueFromSignal(signal, 'post') ?? 'failed';
-  const receipt = safeValueFromSignal(signal, 'receipt') === 'confirmed' ? 'confirmed' : 'uncertain';
+  const receipt =
+    safeValueFromSignal(signal, 'receipt') === 'confirmed'
+      ? 'confirmed'
+      : 'uncertain';
   const failureStep = safeValueFromSignal(signal, 'step') ?? 'send.unknown';
   const windowFingerprint = safeValueFromSignal(signal, 'window_fp');
   const recipientTextCheckRaw = safeValueFromSignal(signal, 'recipient');
@@ -328,7 +336,8 @@ exit 0
       : 'uncertain';
   const preSendScreenshotPath = safeValueFromSignal(signal, 'pre_shot');
   const postSendScreenshotPath = safeValueFromSignal(signal, 'post_shot');
-  const payloadFromSignal = safeValueFromSignal(signal, 'payload') ?? payloadHash;
+  const payloadFromSignal =
+    safeValueFromSignal(signal, 'payload') ?? payloadHash;
   if (exitCode === 0 && stdout.includes('desktop_send_ok') && !timedOut) {
     return {
       sent: true,

@@ -27,5 +27,11 @@ export function formatGatewayStateWithRuntime(
 }
 
 export function formatGatewayState(state: GatewayStateShape): string {
-  return formatGatewayStateWithRuntime(state, undefined, undefined, undefined, undefined);
+  return formatGatewayStateWithRuntime(
+    state,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  );
 }

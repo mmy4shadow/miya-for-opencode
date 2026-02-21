@@ -110,13 +110,17 @@ export function classifySideEffect(
     }
     return {
       sideEffect: true,
-      reversibility: hasIrreversiblePattern(patterns) ? 'irreversible' : 'reversible',
+      reversibility: hasIrreversiblePattern(patterns)
+        ? 'irreversible'
+        : 'reversible',
     };
   }
   if (request.permission === 'edit') {
     return {
       sideEffect: true,
-      reversibility: hasIrreversibleEditPattern(patterns) ? 'irreversible' : 'reversible',
+      reversibility: hasIrreversibleEditPattern(patterns)
+        ? 'irreversible'
+        : 'reversible',
     };
   }
   return { sideEffect: true, reversibility: 'irreversible' };
@@ -145,7 +149,9 @@ export function requiredTierForRequest(
   if (request.permission === 'skills_install') return 'THOROUGH';
   if (request.permission === 'webhook_outbound') return 'THOROUGH';
   if (request.permission === 'bash') {
-    return sideEffect.reversibility === 'irreversible' ? 'THOROUGH' : 'STANDARD';
+    return sideEffect.reversibility === 'irreversible'
+      ? 'THOROUGH'
+      : 'STANDARD';
   }
   if (request.permission === 'edit') {
     if (hasSensitivePath(patterns) || hasIrreversibleEditPattern(patterns)) {
@@ -166,8 +172,8 @@ export function buildRequestHash(
   const payload = {
     permission: request.permission,
     patterns: [...request.patterns].map(normalizePattern).sort(),
-    toolCallID: includeMessageContext ? request.toolCallID ?? '' : '',
-    messageID: includeMessageContext ? request.messageID ?? '' : '',
+    toolCallID: includeMessageContext ? (request.toolCallID ?? '') : '',
+    messageID: includeMessageContext ? (request.messageID ?? '') : '',
   };
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }

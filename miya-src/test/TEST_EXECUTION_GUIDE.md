@@ -6,15 +6,15 @@ This guide provides detailed instructions for running tests in the Miya plugin t
 
 ```bash
 # Run all tests
-bun test
+npx vitest run
 
 # Run tests with coverage
-bun run test:coverage
+npm run test:coverage
 
 # Run specific test category
-bun run test:unit
-bun run test:integration
-bun run test:regression
+npm run test:unit
+npm run test:integration
+npm run test:regression
 ```
 
 ## Test Scripts
@@ -23,31 +23,31 @@ bun run test:regression
 
 | Script | Command | Description |
 |--------|---------|-------------|
-| `test` | `bun test` | Run all tests with default timeout (30s) |
-| `test:unit` | `bun run test:unit` | Run unit tests only (5s timeout) |
-| `test:integration` | `bun run test:integration` | Run integration tests (30s timeout, requires daemon) |
-| `test:regression` | `bun run test:regression` | Run regression tests (30s timeout) |
-| `test:adversarial` | `bun run test:adversarial` | Run security/adversarial tests (30s timeout) |
-| `test:performance` | `bun run test:performance` | Run performance benchmarks (60s timeout) |
-| `test:e2e` | `bun run test:e2e` | Run end-to-end tests (60s timeout) |
+| `test` | `npx vitest run` | Run all tests with default timeout (30s) |
+| `test:unit` | `npm run test:unit` | Run unit tests only (5s timeout) |
+| `test:integration` | `npm run test:integration` | Run integration tests (30s timeout, requires daemon) |
+| `test:regression` | `npm run test:regression` | Run regression tests (30s timeout) |
+| `test:adversarial` | `npm run test:adversarial` | Run security/adversarial tests (30s timeout) |
+| `test:performance` | `npm run test:performance` | Run performance benchmarks (60s timeout) |
+| `test:e2e` | `npm run test:e2e` | Run end-to-end tests (60s timeout) |
 
 ### Coverage and Reporting
 
 | Script | Command | Description |
 |--------|---------|-------------|
-| `test:coverage` | `bun run test:coverage` | Run tests with HTML and text coverage reports |
-| `test:coverage:core` | `bun run test:coverage:core` | Run coverage for core modules only (gateway, channels, safety, policy) |
-| `test:ci` | `bun run test:ci` | Run tests in CI mode with text coverage output |
+| `test:coverage` | `npm run test:coverage` | Run tests with HTML and text coverage reports |
+| `test:coverage:core` | `npm run test:coverage:core` | Run coverage for core modules only (gateway, channels, safety, policy) |
+| `test:ci` | `npm run test:ci` | Run tests in CI mode with text coverage output |
 
 ### Development
 
 | Script | Command | Description |
 |--------|---------|-------------|
-| `test:watch` | `bun run test:watch` | Run tests in watch mode for development |
+| `test:watch` | `npm run test:watch` | Run tests in watch mode for development |
 
 ## Test Configuration
 
-Test configuration is defined in `test/config/test.config.ts` and `bunfig.toml`.
+Test configuration is defined in `test/config/test.config.ts` and `vitest configuration`.
 
 ### Default Settings
 
@@ -62,38 +62,38 @@ Override test configuration using environment variables:
 
 ```bash
 # Set custom timeout (milliseconds)
-TEST_TIMEOUT=60000 bun test
+TEST_TIMEOUT=60000 npx vitest run
 
 # Set number of retries
-TEST_RETRIES=2 bun test
+TEST_RETRIES=2 npx vitest run
 
 # Set concurrency level
-TEST_CONCURRENCY=4 bun test
+TEST_CONCURRENCY=4 npx vitest run
 
 # Enable verbose output
-TEST_VERBOSE=1 bun test
+TEST_VERBOSE=1 npx vitest run
 
 # Enable fail-fast mode
-TEST_FAIL_FAST=1 bun test
+TEST_FAIL_FAST=1 npx vitest run
 
 # Enable watch mode
-TEST_WATCH=1 bun test
+TEST_WATCH=1 npx vitest run
 
 # Enable integration tests (requires daemon)
-MIYA_RUN_INTEGRATION=1 bun run test:integration
+MIYA_RUN_INTEGRATION=1 npm run test:integration
 ```
 
 ### Combining Options
 
 ```bash
 # Run unit tests with verbose output and custom timeout
-TEST_VERBOSE=1 TEST_TIMEOUT=10000 bun run test:unit
+TEST_VERBOSE=1 TEST_TIMEOUT=10000 npm run test:unit
 
 # Run integration tests with retries
-TEST_RETRIES=2 MIYA_RUN_INTEGRATION=1 bun run test:integration
+TEST_RETRIES=2 MIYA_RUN_INTEGRATION=1 npm run test:integration
 
 # Run all tests with fail-fast and coverage
-TEST_FAIL_FAST=1 bun run test:coverage
+TEST_FAIL_FAST=1 npm run test:coverage
 ```
 
 ## Test Categories
@@ -109,13 +109,13 @@ TEST_FAIL_FAST=1 bun run test:coverage
 **Example**:
 ```bash
 # Run all unit tests
-bun run test:unit
+npm run test:unit
 
 # Run specific unit test file
-bun test test/unit/gateway/protocol.test.ts
+npx vitest run test/unit/gateway/protocol.test.ts
 
 # Run unit tests with coverage
-bun test test/unit/ --coverage
+npx vitest run test/unit/ --coverage
 ```
 
 ### Integration Tests (`test/integration/`)
@@ -129,13 +129,13 @@ bun test test/unit/ --coverage
 **Example**:
 ```bash
 # Run integration tests (daemon required)
-MIYA_RUN_INTEGRATION=1 bun run test:integration
+MIYA_RUN_INTEGRATION=1 npm run test:integration
 
 # Run specific integration test
-bun test test/integration/gateway-daemon.test.ts
+npx vitest run test/integration/gateway-daemon.test.ts
 
 # Skip runtime-dependent tests
-bun test test/integration/
+npx vitest run test/integration/
 ```
 
 ### Regression Tests (`test/regression/`)
@@ -149,10 +149,10 @@ bun test test/integration/
 **Example**:
 ```bash
 # Run all regression tests
-bun run test:regression
+npm run test:regression
 
 # Run specific regression test
-bun test test/regression/outbound-safety.test.ts
+npx vitest run test/regression/outbound-safety.test.ts
 ```
 
 ### Adversarial Tests (`test/adversarial/`)
@@ -166,10 +166,10 @@ bun test test/regression/outbound-safety.test.ts
 **Example**:
 ```bash
 # Run all adversarial tests
-bun run test:adversarial
+npm run test:adversarial
 
 # Run specific adversarial test
-bun test test/adversarial/prompt-injection.test.ts
+npx vitest run test/adversarial/prompt-injection.test.ts
 ```
 
 ### Performance Tests (`test/performance/`)
@@ -183,13 +183,13 @@ bun test test/adversarial/prompt-injection.test.ts
 **Example**:
 ```bash
 # Run all performance tests
-bun run test:performance
+npm run test:performance
 
 # Run specific performance test
-bun test test/performance/gateway-rpc-latency.test.ts
+npx vitest run test/performance/gateway-rpc-latency.test.ts
 
 # Update performance baselines
-bun test test/performance/ --update-baselines
+npx vitest run test/performance/ --update-baselines
 ```
 
 ### End-to-End Tests (`test/e2e/`)
@@ -203,10 +203,10 @@ bun test test/performance/ --update-baselines
 **Example**:
 ```bash
 # Run all E2E tests
-bun run test:e2e
+npm run test:e2e
 
 # Run specific E2E test
-bun test test/e2e/user-workflows.test.ts
+npx vitest run test/e2e/user-workflows.test.ts
 ```
 
 ## Coverage Reports
@@ -215,7 +215,7 @@ bun test test/e2e/user-workflows.test.ts
 
 ```bash
 # Generate HTML and text coverage reports
-bun run test:coverage
+npm run test:coverage
 
 # View HTML coverage report (opens in browser)
 open coverage/index.html  # macOS
@@ -233,7 +233,7 @@ xdg-open coverage/index.html # Linux
 
 ```bash
 # Run coverage for core modules only
-bun run test:coverage:core
+npm run test:coverage:core
 ```
 
 ## Continuous Integration
@@ -242,7 +242,7 @@ bun run test:coverage:core
 
 ```bash
 # Run tests in CI mode
-bun run test:ci
+npm run test:ci
 
 # This runs:
 # - All tests with 30s timeout
@@ -255,7 +255,7 @@ bun run test:ci
 
 ```bash
 # Run all checks before committing
-bun run check:ci
+npm run check:ci
 
 # This runs:
 # - Contract checks
@@ -270,27 +270,27 @@ bun run check:ci
 
 ```bash
 # Run a single test file
-bun test test/unit/gateway/protocol.test.ts
+npx vitest run test/unit/gateway/protocol.test.ts
 
 # Run tests matching a pattern
-bun test --test-name-pattern "allowlist"
+npx vitest run --test-name-pattern "allowlist"
 ```
 
 ### Verbose Output
 
 ```bash
 # Enable verbose output
-TEST_VERBOSE=1 bun test
+TEST_VERBOSE=1 npx vitest run
 
-# Or use Bun's built-in verbose flag
-bun test --verbose
+# Or use Vitest verbose mode
+npx vitest run --verbose
 ```
 
 ### Debug Mode
 
 ```bash
 # Run with debugger
-bun --inspect test test/unit/my-test.test.ts
+node --inspect-brk ./node_modules/vitest/vitest.mjs run test/unit/my-test.test.ts
 
 # Add debugger statement in test
 test('debug this', () => {
@@ -303,10 +303,10 @@ test('debug this', () => {
 
 ```bash
 # Enable debug logging
-DEBUG=miya:* bun test
+DEBUG=miya:* npx vitest run
 
 # Or set specific log level
-LOG_LEVEL=debug bun test
+LOG_LEVEL=debug npx vitest run
 ```
 
 ## Troubleshooting
@@ -315,20 +315,20 @@ LOG_LEVEL=debug bun test
 
 **Possible Causes**:
 - Environment variable differences
-- Node.js/Bun version mismatch
+- Node.js version mismatch
 - Timing-dependent tests
 - Test isolation issues
 
 **Solutions**:
 ```bash
-# Check Bun version
-bun --version
+# Check Node.js and npm versions
+node --version
 
 # Clear test cache
 rm -rf node_modules/.cache
 
 # Run tests with same settings as CI
-bun run test:ci
+npm run test:ci
 ```
 
 ### Tests Are Flaky
@@ -342,13 +342,13 @@ bun run test:ci
 **Solutions**:
 ```bash
 # Increase timeout
-TEST_TIMEOUT=60000 bun test
+TEST_TIMEOUT=60000 npx vitest run
 
 # Add retries
-TEST_RETRIES=2 bun test
+TEST_RETRIES=2 npx vitest run
 
 # Run tests sequentially
-bun test --max-concurrency=1
+npx vitest run --max-concurrency=1
 ```
 
 ### Coverage Is Low
@@ -356,13 +356,13 @@ bun test --max-concurrency=1
 **Solutions**:
 ```bash
 # Generate coverage report to identify gaps
-bun run test:coverage
+npm run test:coverage
 
 # View HTML report
 open coverage/index.html
 
 # Focus on core modules
-bun run test:coverage:core
+npm run test:coverage:core
 ```
 
 ### Integration Tests Fail
@@ -375,13 +375,13 @@ bun run test:coverage:core
 **Solutions**:
 ```bash
 # Ensure daemon is available
-MIYA_RUN_INTEGRATION=1 bun run test:integration
+MIYA_RUN_INTEGRATION=1 npm run test:integration
 
 # Check daemon logs
 tail -f daemon/host.stdout.log
 
 # Run integration tests with verbose output
-TEST_VERBOSE=1 MIYA_RUN_INTEGRATION=1 bun run test:integration
+TEST_VERBOSE=1 MIYA_RUN_INTEGRATION=1 npm run test:integration
 ```
 
 ## Performance Baselines
@@ -397,17 +397,17 @@ cat test/baselines/benchmarks.json
 
 ```bash
 # Run performance tests and update baselines
-bun test test/performance/ --update-baselines
+npx vitest run test/performance/ --update-baselines
 
 # Or use the baseline refresh script
-bun run baseline:refresh
+npm run baseline:refresh
 ```
 
 ### Compare Against Baselines
 
 ```bash
 # Run performance tests (automatically compares against baselines)
-bun run test:performance
+npm run test:performance
 
 # Tests will fail if performance degrades by more than 10%
 ```
@@ -418,20 +418,20 @@ bun run test:performance
 
 ```bash
 # Run all checks
-bun run check:ci
+npm run check:ci
 
 # Run tests with coverage
-bun run test:coverage
+npm run test:coverage
 ```
 
 ### 2. Use Watch Mode During Development
 
 ```bash
 # Run tests in watch mode
-bun run test:watch
+npm run test:watch
 
 # Or with specific category
-bun test test/unit/ --watch
+npx vitest run test/unit/ --watch
 ```
 
 ### 3. Test Isolation
@@ -458,7 +458,7 @@ test('send test', () => {});
 
 ## Additional Resources
 
-- [Bun Test Documentation](https://bun.sh/docs/cli/test)
+- [npx vitest run Documentation](https://vitest.dev/guide/)
 - [Test Configuration](./config/test.config.ts)
 - [Test README](./README.md)
 - [Design Document](../.kiro/specs/miya-plugin-audit/design.md)
@@ -477,5 +477,13 @@ For questions or issues:
 ---
 
 **Last Updated**: 2025-01-XX  
-**Test Framework**: Bun Test v1.3.9+  
+**Test Framework**: npx vitest run v1.3.9+  
 **Coverage Target**: 70% global, 80% core modules
+
+
+# Strict Gate
+
+- Command: `npm --prefix miya-src run -s test:strict`
+- Behavior: runs typecheck, core vitest, gateway milestone, integration, UI, contracts, doc lint, and `opencode debug config|skill|paths` in sequence.
+- Report: `miya-src/.opencode/miya/reports/strict-gate-latest.json`
+- Rule: any failed step marks strict gate failed and blocks "闭环已完成" claims.

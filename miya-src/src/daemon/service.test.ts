@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import { MiyaDaemonService } from './service';
 import type { DaemonJobProgressEvent } from './types';
 
@@ -117,7 +117,9 @@ describe('daemon service', () => {
         stdout: string;
         stderr: string;
         timedOut: boolean;
-      }>((_, reject) => setTimeout(() => reject(new Error('preempt_timeout')), 8_000)),
+      }>((_, reject) =>
+        setTimeout(() => reject(new Error('preempt_timeout')), 8_000),
+      ),
     ]);
     expect(lowResult.timedOut).toBe(false);
     expect(lowResult.exitCode === 0).toBe(false);

@@ -1,17 +1,19 @@
 /**
  * Unit tests for useMemoizedSnapshot hook
- * 
+ *
  * Tests deep comparison and memoization of GatewaySnapshot fields
  * Requirements: 12.1, 12.11
  */
 
-import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useMemoizedSnapshot } from './useMemoizedSnapshot';
+import { describe, expect, it } from 'vitest';
 import type { GatewaySnapshot } from '../types/gateway';
+import { useMemoizedSnapshot } from './useMemoizedSnapshot';
 
 // Helper to create a minimal valid snapshot
-function createMockSnapshot(overrides?: Partial<GatewaySnapshot>): GatewaySnapshot {
+function createMockSnapshot(
+  overrides?: Partial<GatewaySnapshot>,
+): GatewaySnapshot {
   return {
     updatedAt: '2025-01-21T00:00:00Z',
     gateway: {
@@ -155,7 +157,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstGateway = result.current?.gateway;
@@ -175,7 +177,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstGateway = result.current?.gateway;
@@ -199,7 +201,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstDaemon = result.current?.daemon;
@@ -219,7 +221,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstDaemon = result.current?.daemon;
@@ -243,7 +245,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstNexus = result.current?.nexus;
@@ -263,7 +265,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstNexus = result.current?.nexus;
@@ -290,7 +292,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstJobs = result.current?.jobs;
@@ -310,7 +312,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstJobs = result.current?.jobs;
@@ -334,7 +336,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstNodes = result.current?.nodes;
@@ -354,7 +356,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstNodes = result.current?.nodes;
@@ -378,7 +380,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstNexus = result.current?.nexus;
@@ -402,7 +404,7 @@ describe('useMemoizedSnapshot', () => {
     const snapshot1 = createMockSnapshot();
     const { result, rerender } = renderHook(
       ({ snap }) => useMemoizedSnapshot(snap),
-      { initialProps: { snap: snapshot1 } }
+      { initialProps: { snap: snapshot1 } },
     );
 
     const firstGateway = result.current?.gateway;

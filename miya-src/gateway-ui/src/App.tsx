@@ -9,7 +9,7 @@ import {
 import { AppProviders } from './app/AppProviders';
 import { AppRoutes } from './app/AppRoutes';
 import { AppShell } from './app/AppShell';
-import { NAV_ITEMS, isNavActive, targetPathForNav, type NavKey } from './app/navigation';
+import { isNavActive, NAV_ITEMS, targetPathForNav } from './app/navigation';
 import { GatewayRpcClient } from './gateway-client';
 
 interface NexusTrustSnapshot {
@@ -241,7 +241,12 @@ const KNOWN_ROUTE_PREFIXES = [
 
 function inferRouterBasename(pathname: string): string {
   const normalizedPath = pathname || '/';
-  if (KNOWN_ROUTE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`))) {
+  if (
+    KNOWN_ROUTE_PREFIXES.some(
+      (prefix) =>
+        normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`),
+    )
+  ) {
     return '';
   }
   const segments = normalizedPath.split('/').filter(Boolean);
@@ -368,9 +373,7 @@ function isHappyDomRuntime(): boolean {
   }
 }
 
-function withGatewayBasePath(
-  suffix: `/${string}`,
-): string {
+function withGatewayBasePath(suffix: `/${string}`): string {
   return suffix;
 }
 
@@ -381,7 +384,7 @@ function killSwitchLabel(mode: KillSwitchMode): string {
   return '正常运行';
 }
 
-function trustTierLabel(tier: NexusTrustSnapshot['tier']): string {
+function _trustTierLabel(tier: NexusTrustSnapshot['tier']): string {
   if (tier === 'high') return '高';
   if (tier === 'medium') return '中';
   return '低';
@@ -473,7 +476,9 @@ function evidenceImageUrl(
 
 function resolveUiLocale(): string {
   const fromDocument =
-    document.documentElement.lang || navigator.languages?.[0] || navigator.language;
+    document.documentElement.lang ||
+    navigator.languages?.[0] ||
+    navigator.language;
   const locale = String(fromDocument ?? '').trim();
   return locale || 'zh-CN';
 }
@@ -559,7 +564,10 @@ function createGatewayClient(wsPath: string): GatewayRpcClient {
     mock?: unknown;
   };
   const validate = (client: GatewayRpcClient): GatewayRpcClient => {
-    if (client && typeof (client as { request?: unknown }).request === 'function') {
+    if (
+      client &&
+      typeof (client as { request?: unknown }).request === 'function'
+    ) {
       return client;
     }
     throw new Error('gateway_client_invalid_instance');
@@ -592,9 +600,12 @@ async function invokeGateway(
   try {
     return await getGatewayClient().request(method, params);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error ?? '');
+    const message =
+      error instanceof Error ? error.message : String(error ?? '');
     if (message.includes('invalid_gateway_token')) {
-      throw new Error('invalid_gateway_token: 请使用带 token 的控制台链接重新打开');
+      throw new Error(
+        'invalid_gateway_token: 请使用带 token 的控制台链接重新打开',
+      );
     }
     throw error instanceof Error ? error : new Error(message);
   }
@@ -604,8 +615,11 @@ async function invokeGateway(
 function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
-  const routeIds = useMemo(() => resolveRouteIds(location.pathname), [location.pathname]);
-  
+  const routeIds = useMemo(
+    () => resolveRouteIds(location.pathname),
+    [location.pathname],
+  );
+
   const [snapshot, setSnapshot] = useState<GatewaySnapshot>({});
   const [domains, setDomains] = useState<PolicyDomainRow[]>([]);
   const [jobs, setJobs] = useState<MiyaJob[]>([]);
@@ -643,7 +657,7 @@ function AppContent() {
   const [expandedTaskLogs, setExpandedTaskLogs] = useState<
     Record<string, boolean>
   >({});
-  const [trustModeForm, setTrustModeForm] = useState<TrustModeConfig>({
+  const [_trustModeForm, setTrustModeForm] = useState<TrustModeConfig>({
     silentMin: 90,
     modalMax: 50,
   });
@@ -745,64 +759,72 @@ function AppContent() {
     pushNotification('info', copyHintText);
   }, [copyHintText, pushNotification]);
 
-  const applyIncomingSnapshot = useCallback(
-    (status: GatewaySnapshot) => {
-      const updatedAt = status.updatedAt;
-      if (
-        updatedAt &&
-        latestSnapshotUpdatedAtRef.current &&
-        updatedAt === latestSnapshotUpdatedAtRef.current
-      ) {
-        return;
-      }
-      latestSnapshotUpdatedAtRef.current = updatedAt;
-      setRpcConnected(true);
-      setSnapshot(status);
-      setConnected(Boolean(status.daemon?.connected));
-      setLastRefreshAt(new Date().toISOString());
-      setHasRefreshedOnce(true);
-      const incomingMode = status.nexus?.trustMode;
-      if (incomingMode) setTrustModeForm(incomingMode);
-      const incomingPsycheMode = status.nexus?.psycheMode;
-      if (incomingPsycheMode) {
-        setPsycheModeForm((prev) => ({ ...prev, ...incomingPsycheMode }));
-      }
-      if (status.statusError?.message) {
-        const hint = status.statusError.hint ? `；${status.statusError.hint}` : '';
-        setErrorText(
-          `status_snapshot_degraded:${
-            status.statusError.code || 'unknown'
-          }: ${status.statusError.message}${hint}`,
-        );
-      }
-    },
-    [],
-  );
+  const applyIncomingSnapshot = useCallback((status: GatewaySnapshot) => {
+    const updatedAt = status.updatedAt;
+    if (
+      updatedAt &&
+      latestSnapshotUpdatedAtRef.current &&
+      updatedAt === latestSnapshotUpdatedAtRef.current
+    ) {
+      return;
+    }
+    latestSnapshotUpdatedAtRef.current = updatedAt;
+    setRpcConnected(true);
+    setSnapshot(status);
+    setConnected(Boolean(status.daemon?.connected));
+    setLastRefreshAt(new Date().toISOString());
+    setHasRefreshedOnce(true);
+    const incomingMode = status.nexus?.trustMode;
+    if (incomingMode) setTrustModeForm(incomingMode);
+    const incomingPsycheMode = status.nexus?.psycheMode;
+    if (incomingPsycheMode) {
+      setPsycheModeForm((prev) => ({ ...prev, ...incomingPsycheMode }));
+    }
+    if (status.statusError?.message) {
+      const hint = status.statusError.hint
+        ? `；${status.statusError.hint}`
+        : '';
+      setErrorText(
+        `status_snapshot_degraded:${
+          status.statusError.code || 'unknown'
+        }: ${status.statusError.message}${hint}`,
+      );
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
     setIsRefreshing(true);
     try {
-      const status = (await invokeGateway('gateway.status.get')) as GatewaySnapshot;
+      const status = (await invokeGateway(
+        'gateway.status.get',
+      )) as GatewaySnapshot;
       applyIncomingSnapshot(status);
       const rpcErrors: string[] = [];
       if (status.statusError?.message) {
-        const hint = status.statusError.hint ? `；${status.statusError.hint}` : '';
+        const hint = status.statusError.hint
+          ? `；${status.statusError.hint}`
+          : '';
         rpcErrors.push(
           `status_snapshot_degraded:${
             status.statusError.code || 'unknown'
           }: ${status.statusError.message}${hint}`,
         );
       }
-      const [domainsResult, jobsResult, runsResult, identityResult, ecosystemResult] =
-        await Promise.allSettled([
-          invokeGateway('policy.domains.list'),
-          invokeGateway('cron.list'),
-          invokeGateway('cron.runs.list', { limit: 80 }),
-          invokeGateway('security.identity.status'),
-          invokeGateway('miya.sync.list'),
-        ]);
+      const [
+        domainsResult,
+        jobsResult,
+        runsResult,
+        identityResult,
+        ecosystemResult,
+      ] = await Promise.allSettled([
+        invokeGateway('policy.domains.list'),
+        invokeGateway('cron.list'),
+        invokeGateway('cron.runs.list', { limit: 80 }),
+        invokeGateway('security.identity.status'),
+        invokeGateway('miya.sync.list'),
+      ]);
 
       if (domainsResult.status === 'fulfilled') {
         const rows =
@@ -844,9 +866,7 @@ function AppContent() {
       }
       if (ecosystemResult.status === 'fulfilled') {
         const value = ecosystemResult.value as EcosystemBridgeSummary;
-        setEcosystemBridge(
-          value && typeof value === 'object' ? value : {},
-        );
+        setEcosystemBridge(value && typeof value === 'object' ? value : {});
       } else {
         rpcErrors.push(
           ecosystemResult.reason instanceof Error
@@ -939,11 +959,16 @@ function AppContent() {
     const client = getGatewayClient();
     const unsubscribeEvent =
       typeof (client as { onEvent?: unknown }).onEvent === 'function'
-        ? (client as {
-            onEvent: (
-              listener: (frame: { event?: string; payload?: unknown }) => void,
-            ) => () => void;
-          }).onEvent((frame) => {
+        ? (
+            client as {
+              onEvent: (
+                listener: (frame: {
+                  event?: string;
+                  payload?: unknown;
+                }) => void,
+              ) => () => void;
+            }
+          ).onEvent((frame) => {
             if (frame.event === 'gateway.snapshot') {
               const payload =
                 frame.payload && typeof frame.payload === 'object'
@@ -1042,10 +1067,10 @@ function AppContent() {
   }, [navigate, location.pathname]);
 
   const killSwitchMode = snapshot.nexus?.killSwitchMode ?? 'off';
-  const trust = snapshot.nexus?.trust;
+  const _trust = snapshot.nexus?.trust;
   const signalHub = snapshot.daemon?.psycheSignalHub;
 
-  const quickStats = useMemo(
+  const _quickStats = useMemo(
     () => [
       {
         title: '连接状态',
@@ -1124,23 +1149,20 @@ function AppContent() {
     return records;
   }, [jobNameMap, snapshot.daemon?.activeJobID, snapshot.updatedAt, taskRuns]);
 
-  const filteredTaskRecords = useMemo(
-    () => {
-      const query = taskSearchQuery.trim().toLowerCase();
-      return taskRecords.filter((item) => {
-        const statusOk = taskFilter === 'all' ? true : item.status === taskFilter;
-        if (!statusOk) return false;
-        if (!query) return true;
-        return (
-          item.id.toLowerCase().includes(query) ||
-          item.title.toLowerCase().includes(query) ||
-          item.sourceText.toLowerCase().includes(query) ||
-          item.trigger.toLowerCase().includes(query)
-        );
-      });
-    },
-    [taskFilter, taskRecords, taskSearchQuery],
-  );
+  const filteredTaskRecords = useMemo(() => {
+    const query = taskSearchQuery.trim().toLowerCase();
+    return taskRecords.filter((item) => {
+      const statusOk = taskFilter === 'all' ? true : item.status === taskFilter;
+      if (!statusOk) return false;
+      if (!query) return true;
+      return (
+        item.id.toLowerCase().includes(query) ||
+        item.title.toLowerCase().includes(query) ||
+        item.sourceText.toLowerCase().includes(query) ||
+        item.trigger.toLowerCase().includes(query)
+      );
+    });
+  }, [taskFilter, taskRecords, taskSearchQuery]);
 
   const selectedTask = useMemo(
     () => taskRecords.find((item) => item.id === routeIds.taskId) ?? null,
@@ -1157,7 +1179,7 @@ function AppContent() {
     return 45;
   }, [selectedTask, snapshot.daemon?.activeJobProgress]);
 
-  const activeTrainingSummary = useMemo(() => {
+  const _activeTrainingSummary = useMemo(() => {
     const activeJobID = String(snapshot.daemon?.activeJobID ?? '').trim();
     const rawProgress = snapshot.daemon?.activeJobProgress;
     const progressPct =
@@ -1175,16 +1197,22 @@ function AppContent() {
       running: true,
       title: `执行中：${jobNameMap.get(activeJobID) ?? activeJobID}`,
       progressText:
-        typeof progressPct === 'number' ? `${progressPct}%` : '执行中（进度未知）',
+        typeof progressPct === 'number'
+          ? `${progressPct}%`
+          : '执行中（进度未知）',
     };
-  }, [jobNameMap, snapshot.daemon?.activeJobID, snapshot.daemon?.activeJobProgress]);
+  }, [
+    jobNameMap,
+    snapshot.daemon?.activeJobID,
+    snapshot.daemon?.activeJobProgress,
+  ]);
 
-  const latestOutbound = useMemo(
+  const _latestOutbound = useMemo(
     () => (snapshot.channels?.recentOutbound ?? [])[0],
     [snapshot.channels?.recentOutbound],
   );
 
-  const skillSummary = useMemo(() => {
+  const _skillSummary = useMemo(() => {
     const enabled = Array.isArray(snapshot.skills?.enabled)
       ? snapshot.skills?.enabled
       : [];
@@ -1198,7 +1226,7 @@ function AppContent() {
     };
   }, [snapshot.skills?.discovered, snapshot.skills?.enabled]);
 
-  const ecosystemSummary = useMemo(() => {
+  const _ecosystemSummary = useMemo(() => {
     const packs = Array.isArray(ecosystemBridge.sourcePacks)
       ? ecosystemBridge.sourcePacks
       : [];
@@ -1208,8 +1236,12 @@ function AppContent() {
     const pinned = Array.isArray(ecosystemBridge.pinnedReleases)
       ? ecosystemBridge.pinnedReleases
       : [];
-    const allowlisted = packs.filter((item) => item.trustLevel === 'allowlisted').length;
-    const untrusted = packs.filter((item) => item.trustLevel === 'untrusted').length;
+    const allowlisted = packs.filter(
+      (item) => item.trustLevel === 'allowlisted',
+    ).length;
+    const untrusted = packs.filter(
+      (item) => item.trustLevel === 'untrusted',
+    ).length;
     return {
       packs: packs.length,
       allowlisted,
@@ -1217,7 +1249,11 @@ function AppContent() {
       conflicts: conflicts.length,
       pinned: pinned.length,
     };
-  }, [ecosystemBridge.conflicts, ecosystemBridge.pinnedReleases, ecosystemBridge.sourcePacks]);
+  }, [
+    ecosystemBridge.conflicts,
+    ecosystemBridge.pinnedReleases,
+    ecosystemBridge.sourcePacks,
+  ]);
 
   const contextHelp = useMemo(() => {
     if (location.pathname.includes('/tasks')) {
@@ -1260,31 +1296,28 @@ function AppContent() {
     };
   }, [location.pathname]);
 
-  const memoryRecords = useMemo(
-    () => {
-      const query = memorySearchQuery.trim().toLowerCase();
-      return memories.filter((item) => {
-        const domainOk =
-          memoryDomainFilter === 'all'
-            ? true
-            : item.domain === memoryDomainFilter;
-        const statusOk =
-          memoryStatusFilter === 'all'
-            ? true
-            : memoryStatusFilter === 'archived'
-              ? item.isArchived
-              : item.status === memoryStatusFilter && !item.isArchived;
-        if (!domainOk || !statusOk) return false;
-        if (!query) return true;
-        return (
-          item.id.toLowerCase().includes(query) ||
-          item.text.toLowerCase().includes(query) ||
-          memoryDomainLabel(item.domain).toLowerCase().includes(query)
-        );
-      });
-    },
-    [memories, memoryDomainFilter, memoryStatusFilter, memorySearchQuery],
-  );
+  const memoryRecords = useMemo(() => {
+    const query = memorySearchQuery.trim().toLowerCase();
+    return memories.filter((item) => {
+      const domainOk =
+        memoryDomainFilter === 'all'
+          ? true
+          : item.domain === memoryDomainFilter;
+      const statusOk =
+        memoryStatusFilter === 'all'
+          ? true
+          : memoryStatusFilter === 'archived'
+            ? item.isArchived
+            : item.status === memoryStatusFilter && !item.isArchived;
+      if (!domainOk || !statusOk) return false;
+      if (!query) return true;
+      return (
+        item.id.toLowerCase().includes(query) ||
+        item.text.toLowerCase().includes(query) ||
+        memoryDomainLabel(item.domain).toLowerCase().includes(query)
+      );
+    });
+  }, [memories, memoryDomainFilter, memoryStatusFilter, memorySearchQuery]);
 
   const selectedMemory = useMemo(
     () => memories.find((item) => item.id === routeIds.memoryId) ?? null,
@@ -1301,32 +1334,32 @@ function AppContent() {
     );
   }, [memories]);
 
-  const runAction = useCallback(async (
-    task: () => Promise<unknown>,
-    successMessage: string,
-  ) => {
-    if (actionInFlightRef.current) {
-      setErrorText(
-        'action_in_progress: 当前已有操作执行中，请等待完成后重试。',
-      );
-      return false;
-    }
-    actionInFlightRef.current = true;
-    setLoading(true);
-    setSuccessText('');
-    try {
-      await task();
-      await refresh();
-      setSuccessText(successMessage);
-      return true;
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : String(error));
-      return false;
-    } finally {
-      actionInFlightRef.current = false;
-      setLoading(false);
-    }
-  }, [refresh]);
+  const runAction = useCallback(
+    async (task: () => Promise<unknown>, successMessage: string) => {
+      if (actionInFlightRef.current) {
+        setErrorText(
+          'action_in_progress: 当前已有操作执行中，请等待完成后重试。',
+        );
+        return false;
+      }
+      actionInFlightRef.current = true;
+      setLoading(true);
+      setSuccessText('');
+      try {
+        await task();
+        await refresh();
+        setSuccessText(successMessage);
+        return true;
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : String(error));
+        return false;
+      } finally {
+        actionInFlightRef.current = false;
+        setLoading(false);
+      }
+    },
+    [refresh],
+  );
 
   const copyProxyFixCommand = useCallback(async () => {
     try {
@@ -1595,8 +1628,10 @@ function AppContent() {
         .filter(
           (
             item,
-          ): item is { text: string; domain: 'work' | 'relationship' | undefined } =>
-            Boolean(item),
+          ): item is {
+            text: string;
+            domain: 'work' | 'relationship' | undefined;
+          } => Boolean(item),
         );
       if (candidates.length === 0) {
         throw new Error('memory_import_no_valid_rows');
@@ -1677,7 +1712,8 @@ function AppContent() {
           });
           succeeded.push(row.id);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           failures.push(`${row.id}:${message}`);
         }
       }
@@ -1719,7 +1755,9 @@ function AppContent() {
           const file = event.currentTarget.files?.[0];
           if (!file) return;
           void importMemoriesFromFile(file).catch((error) => {
-            setErrorText(error instanceof Error ? error.message : String(error));
+            setErrorText(
+              error instanceof Error ? error.message : String(error),
+            );
           });
           event.currentTarget.value = '';
         }}
@@ -1932,645 +1970,678 @@ function AppContent() {
 
           <Routes>
             {/* Tasks List Route */}
-            <Route path="/tasks" element={
-              <section className={panelClass}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-3xl font-semibold text-slate-800">
-                    作业中心
-                  </h2>
-                  <p className="mt-2 text-sm text-slate-500">
-                    查看与管理所有执行过的任务记录，点击任务查看详情。
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    ref={taskSearchInputRef}
-                    value={taskSearchQuery}
-                    onChange={(event) => setTaskSearchQuery(event.target.value)}
-                    placeholder="搜索任务标题/ID/触发方式（/）"
-                    aria-label="搜索任务"
-                    className="min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
-                  />
-                  <select
-                    value={taskFilter}
-                    onChange={(event) =>
-                      setTaskFilter(event.target.value as TaskStatusFilter)
-                    }
-                    aria-label="任务状态筛选"
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
-                  >
-                    <option value="all">全部状态</option>
-                    <option value="completed">已完成</option>
-                    <option value="running">执行中</option>
-                    <option value="failed">执行失败</option>
-                    <option value="stopped">已终止</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => void refresh()}
-                    disabled={isRefreshing}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-100"
-                  >
-                    {isRefreshing ? '刷新中...' : '刷新'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={exportLatestTaskLogs}
-                    disabled={filteredTaskRecords.length === 0}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-60"
-                  >
-                    导出最近日志
-                  </button>
-                </div>
-              </div>
-              <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div className="grid grid-cols-[2.2fr_1fr_1fr_120px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
-                  <span>任务</span>
-                  <span>开始时间</span>
-                  <span>状态</span>
-                  <span className="text-right">操作</span>
-                </div>
-                {filteredTaskRecords.length === 0 ? (
-                  <div className="px-3 py-5">
-                    <EmptyState
-                      title="暂无任务记录"
-                      description="作业中心已加载完成，当前筛选条件下没有可展示的任务。"
-                    />
+            <Route
+              path="/tasks"
+              element={
+                <section className={panelClass}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-3xl font-semibold text-slate-800">
+                        作业中心
+                      </h2>
+                      <p className="mt-2 text-sm text-slate-500">
+                        查看与管理所有执行过的任务记录，点击任务查看详情。
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        ref={taskSearchInputRef}
+                        value={taskSearchQuery}
+                        onChange={(event) =>
+                          setTaskSearchQuery(event.target.value)
+                        }
+                        placeholder="搜索任务标题/ID/触发方式（/）"
+                        aria-label="搜索任务"
+                        className="min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                      />
+                      <select
+                        value={taskFilter}
+                        onChange={(event) =>
+                          setTaskFilter(event.target.value as TaskStatusFilter)
+                        }
+                        aria-label="任务状态筛选"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                      >
+                        <option value="all">全部状态</option>
+                        <option value="completed">已完成</option>
+                        <option value="running">执行中</option>
+                        <option value="failed">执行失败</option>
+                        <option value="stopped">已终止</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void refresh()}
+                        disabled={isRefreshing}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-100"
+                      >
+                        {isRefreshing ? '刷新中...' : '刷新'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={exportLatestTaskLogs}
+                        disabled={filteredTaskRecords.length === 0}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                      >
+                        导出最近日志
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                  <div className="divide-y divide-slate-100">
-                    {filteredTaskRecords.map((task) => {
-                      const statusMeta = taskStatusMeta(task.status);
-                      return (
-                        <button
-                          type="button"
-                          key={task.id}
-                          onClick={() => navigate(`/tasks/${task.id}`)}
-                          className="grid w-full grid-cols-[2.2fr_1fr_1fr_120px] items-center px-3 py-2 text-left hover:bg-sky-50"
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium text-slate-800">
-                              {task.title}
-                            </span>
-                            <span className="block truncate text-xs text-slate-500">
-                              {task.sourceText}
-                            </span>
-                          </span>
-                          <span className="text-xs text-slate-600">
-                            {formatDateTime(task.startedAt, uiLocale)}
-                          </span>
-                          <span
-                            className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium ${statusMeta.className}`}
-                          >
-                            {statusMeta.text}
-                          </span>
-                          <span className="text-right text-xs text-sky-700">
-                            查看详情
-                          </span>
-                        </button>
-                      );
-                    })}
+                  <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <div className="grid grid-cols-[2.2fr_1fr_1fr_120px] border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                      <span>任务</span>
+                      <span>开始时间</span>
+                      <span>状态</span>
+                      <span className="text-right">操作</span>
+                    </div>
+                    {filteredTaskRecords.length === 0 ? (
+                      <div className="px-3 py-5">
+                        <EmptyState
+                          title="暂无任务记录"
+                          description="作业中心已加载完成，当前筛选条件下没有可展示的任务。"
+                        />
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {filteredTaskRecords.map((task) => {
+                          const statusMeta = taskStatusMeta(task.status);
+                          return (
+                            <button
+                              type="button"
+                              key={task.id}
+                              onClick={() => navigate(`/tasks/${task.id}`)}
+                              className="grid w-full grid-cols-[2.2fr_1fr_1fr_120px] items-center px-3 py-2 text-left hover:bg-sky-50"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-slate-800">
+                                  {task.title}
+                                </span>
+                                <span className="block truncate text-xs text-slate-500">
+                                  {task.sourceText}
+                                </span>
+                              </span>
+                              <span className="text-xs text-slate-600">
+                                {formatDateTime(task.startedAt, uiLocale)}
+                              </span>
+                              <span
+                                className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium ${statusMeta.className}`}
+                              >
+                                {statusMeta.text}
+                              </span>
+                              <span className="text-right text-xs text-sky-700">
+                                查看详情
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </section>
-            } />
+                </section>
+              }
+            />
 
             {/* Tasks Detail Route */}
-            <Route path="/tasks/:taskId" element={
-            <section className="space-y-4">
-              <article className={panelClass}>
-                <button
-                  type="button"
-                  onClick={() => navigate('/tasks')}
-                  className="text-sm text-sky-700 hover:text-sky-800"
-                >
-                  {'< 返回任务列表'}
-                </button>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <h2 className="text-3xl font-semibold text-slate-800">
-                    {selectedTask?.title || '任务详情'}
-                  </h2>
-                  {selectedTask ? (
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs ${taskStatusMeta(selectedTask.status).className}`}
+            <Route
+              path="/tasks/:taskId"
+              element={
+                <section className="space-y-4">
+                  <article className={panelClass}>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/tasks')}
+                      className="text-sm text-sky-700 hover:text-sky-800"
                     >
-                      {taskStatusMeta(selectedTask.status).text}
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  开始：{formatDateTime(selectedTask?.startedAt, uiLocale)} · 结束：
-                  {formatDateTime(selectedTask?.endedAt, uiLocale)} · 总时长：
-                  {selectedTask?.durationText || '-'} · 触发：
-                  {selectedTask?.trigger || '-'}
-                </p>
-              </article>
-              {!selectedTask ? (
-                <article className={panelClass}>
-                  <p className="text-sm text-slate-500">
-                    该任务不存在或已被清理，请返回列表刷新后重试。
-                  </p>
-                </article>
-              ) : (
-                <>
-                  <article className={panelClass}>
-                    <h3 className="text-base font-semibold text-slate-800">
-                      任务进度
-                    </h3>
-                    <div className="mt-3 h-2 w-full rounded-full bg-slate-200">
-                      <div
-                        className="h-2 rounded-full bg-sky-500"
-                        style={{ width: `${selectedTaskProgress}%` }}
-                      />
-                    </div>
-                    <p className="mt-2 text-xs text-slate-500">
-                      当前完成度：{selectedTaskProgress}%
-                    </p>
-                  </article>
-                  <article className={panelClass}>
-                    <h3 className="text-base font-semibold text-slate-800">
-                      执行日志与错误信息
-                    </h3>
-                    <div className="mt-3 space-y-2">
-                      {selectedTask.stderr ? (
-                        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
-                          <p className="text-xs font-medium text-rose-700">
-                            错误日志
-                          </p>
-                          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-rose-700">
-                            {expandedTaskLogs[selectedTask.id]
-                              ? selectedTask.stderr
-                              : selectedTask.stderr.slice(0, 600)}
-                          </pre>
-                        </div>
-                      ) : null}
-                      {selectedTask.stdout ? (
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-xs font-medium text-slate-700">
-                            普通日志
-                          </p>
-                          <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
-                            {expandedTaskLogs[selectedTask.id]
-                              ? selectedTask.stdout
-                              : selectedTask.stdout.slice(0, 600)}
-                          </pre>
-                        </div>
-                      ) : null}
-                      {(selectedTask.stdout?.length || 0) > 600 ||
-                      (selectedTask.stderr?.length || 0) > 600 ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedTaskLogs((prev) => ({
-                              ...prev,
-                              [selectedTask.id]: !prev[selectedTask.id],
-                            }))
-                          }
-                          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                      {'< 返回任务列表'}
+                    </button>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <h2 className="text-3xl font-semibold text-slate-800">
+                        {selectedTask?.title || '任务详情'}
+                      </h2>
+                      {selectedTask ? (
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs ${taskStatusMeta(selectedTask.status).className}`}
                         >
-                          {expandedTaskLogs[selectedTask.id]
-                            ? '折叠日志'
-                            : '展开日志'}
-                        </button>
-                      ) : null}
-                    </div>
-                  </article>
-                  <article className={panelClass}>
-                    <h3 className="text-base font-semibold text-slate-800">
-                      获得的经验与习惯
-                    </h3>
-                    <div className="mt-3 space-y-2 text-sm text-slate-700">
-                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                        任务来源：
-                        <span className="font-medium">
-                          {selectedTask.trigger}
-                        </span>
-                        ，建议后续同类任务保持相同触发方式。
-                      </p>
-                      <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                        执行表现：
-                        <span className="font-medium">
                           {taskStatusMeta(selectedTask.status).text}
                         </span>
-                        ，时长 {selectedTask.durationText}。
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      开始：{formatDateTime(selectedTask?.startedAt, uiLocale)}{' '}
+                      · 结束：
+                      {formatDateTime(selectedTask?.endedAt, uiLocale)} ·
+                      总时长：
+                      {selectedTask?.durationText || '-'} · 触发：
+                      {selectedTask?.trigger || '-'}
+                    </p>
+                  </article>
+                  {!selectedTask ? (
+                    <article className={panelClass}>
+                      <p className="text-sm text-slate-500">
+                        该任务不存在或已被清理，请返回列表刷新后重试。
                       </p>
+                    </article>
+                  ) : (
+                    <>
+                      <article className={panelClass}>
+                        <h3 className="text-base font-semibold text-slate-800">
+                          任务进度
+                        </h3>
+                        <div className="mt-3 h-2 w-full rounded-full bg-slate-200">
+                          <div
+                            className="h-2 rounded-full bg-sky-500"
+                            style={{ width: `${selectedTaskProgress}%` }}
+                          />
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          当前完成度：{selectedTaskProgress}%
+                        </p>
+                      </article>
+                      <article className={panelClass}>
+                        <h3 className="text-base font-semibold text-slate-800">
+                          执行日志与错误信息
+                        </h3>
+                        <div className="mt-3 space-y-2">
+                          {selectedTask.stderr ? (
+                            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+                              <p className="text-xs font-medium text-rose-700">
+                                错误日志
+                              </p>
+                              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-rose-700">
+                                {expandedTaskLogs[selectedTask.id]
+                                  ? selectedTask.stderr
+                                  : selectedTask.stderr.slice(0, 600)}
+                              </pre>
+                            </div>
+                          ) : null}
+                          {selectedTask.stdout ? (
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                              <p className="text-xs font-medium text-slate-700">
+                                普通日志
+                              </p>
+                              <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
+                                {expandedTaskLogs[selectedTask.id]
+                                  ? selectedTask.stdout
+                                  : selectedTask.stdout.slice(0, 600)}
+                              </pre>
+                            </div>
+                          ) : null}
+                          {(selectedTask.stdout?.length || 0) > 600 ||
+                          (selectedTask.stderr?.length || 0) > 600 ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedTaskLogs((prev) => ({
+                                  ...prev,
+                                  [selectedTask.id]: !prev[selectedTask.id],
+                                }))
+                              }
+                              className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                            >
+                              {expandedTaskLogs[selectedTask.id]
+                                ? '折叠日志'
+                                : '展开日志'}
+                            </button>
+                          ) : null}
+                        </div>
+                      </article>
+                      <article className={panelClass}>
+                        <h3 className="text-base font-semibold text-slate-800">
+                          获得的经验与习惯
+                        </h3>
+                        <div className="mt-3 space-y-2 text-sm text-slate-700">
+                          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                            任务来源：
+                            <span className="font-medium">
+                              {selectedTask.trigger}
+                            </span>
+                            ，建议后续同类任务保持相同触发方式。
+                          </p>
+                          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                            执行表现：
+                            <span className="font-medium">
+                              {taskStatusMeta(selectedTask.status).text}
+                            </span>
+                            ，时长 {selectedTask.durationText}。
+                          </p>
+                        </div>
+                      </article>
+                      <article className={panelClass}>
+                        <h3 className="text-base font-semibold text-slate-800">
+                          记忆写入记录
+                        </h3>
+                        <p className="mt-2 text-xs text-slate-500">
+                          当前网关未提供单任务记忆写入明细接口，以下基于系统时间线生成摘要。
+                        </p>
+                        <div className="mt-3 space-y-2 text-xs">
+                          {(snapshot.nexus?.insights || [])
+                            .slice(0, 5)
+                            .map((item, index) => (
+                              <div
+                                key={`${item.at || 'insight'}-${index}`}
+                                className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">
+                                    更新
+                                  </span>
+                                  <span className="text-slate-500">
+                                    {formatDateTime(item.at, uiLocale)}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-slate-700">
+                                  {item.text || '无内容'}
+                                </p>
+                              </div>
+                            ))}
+                        </div>
+                      </article>
+                      <article className={`${panelClass} flex flex-wrap gap-2`}>
+                        <button
+                          type="button"
+                          onClick={() => void rerunTask(selectedTask)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                        >
+                          重新执行任务
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => exportTaskLogs(selectedTask)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                        >
+                          导出任务日志
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteTaskHistory(selectedTask)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                        >
+                          删除任务记录
+                        </button>
+                      </article>
+                    </>
+                  )}
+                </section>
+              }
+            />
+
+            {/* Memory List Route */}
+            <Route
+              path="/memory"
+              element={
+                <section className={panelClass}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-3xl font-semibold text-slate-800">
+                        记忆库
+                      </h2>
+                      <p className="mt-2 text-sm text-slate-500">
+                        查看、分类与检索已写入记忆，支持跳转到详情编辑。
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        ref={memorySearchInputRef}
+                        value={memorySearchQuery}
+                        onChange={(event) =>
+                          setMemorySearchQuery(event.target.value)
+                        }
+                        placeholder="搜索记忆文本/ID（/）"
+                        aria-label="搜索记忆"
+                        className="min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                      />
+                      <select
+                        value={memoryDomainFilter}
+                        onChange={(event) =>
+                          setMemoryDomainFilter(
+                            event.target.value as MemoryDomainFilter,
+                          )
+                        }
+                        aria-label="记忆域筛选"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                      >
+                        <option value="all">全部域</option>
+                        <option value="work">工作记忆</option>
+                        <option value="relationship">关系记忆</option>
+                      </select>
+                      <select
+                        value={memoryStatusFilter}
+                        onChange={(event) =>
+                          setMemoryStatusFilter(
+                            event.target.value as MemoryStatusFilter,
+                          )
+                        }
+                        aria-label="记忆状态筛选"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
+                      >
+                        <option value="all">全部状态</option>
+                        <option value="active">生效中</option>
+                        <option value="pending">待确认</option>
+                        <option value="superseded">已替代</option>
+                        <option value="archived">已归档</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={toggleSelectAllVisibleMemories}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                      >
+                        全选/反选可见项
+                      </button>
+                    </div>
+                  </div>
+                  {identityMode !== 'owner' ? (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      当前身份：{identityMode}。记忆编辑仅在 Owner
+                      模式下可用；可先完成 `security.identity.init`。
+                    </p>
+                  ) : null}
+                  <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+                    {[
+                      { key: 'all', label: '全部', count: memories.length },
+                      {
+                        key: 'active',
+                        label: '生效中',
+                        count: memories.filter(
+                          (m) => m.status === 'active' && !m.isArchived,
+                        ).length,
+                      },
+                      {
+                        key: 'pending',
+                        label: '待确认',
+                        count: memories.filter(
+                          (m) => m.status === 'pending' && !m.isArchived,
+                        ).length,
+                      },
+                      {
+                        key: 'archived',
+                        label: '已归档',
+                        count: memories.filter((m) => m.isArchived).length,
+                      },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() =>
+                          setMemoryStatusFilter(item.key as MemoryStatusFilter)
+                        }
+                        className={`rounded-xl border px-3 py-2 text-left text-xs ${memoryStatusFilter === item.key ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600'}`}
+                      >
+                        <p>{item.label}</p>
+                        <p className="mt-1 text-base font-semibold">
+                          {item.count}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded bg-slate-100 px-2 py-1 text-slate-600">
+                      已选中 {selectedMemoryIds.length} 条
+                    </span>
+                    <button
+                      type="button"
+                      disabled={loading || selectedMemoryIds.length === 0}
+                      onClick={() => void runBatchMemoryOperation('confirm')}
+                      className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                    >
+                      批量确认
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading || selectedMemoryIds.length === 0}
+                      onClick={() => void runBatchMemoryOperation('archive')}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100 disabled:opacity-60"
+                    >
+                      批量归档
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading || selectedMemoryIds.length === 0}
+                      onClick={() => void runBatchMemoryOperation('unarchive')}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100 disabled:opacity-60"
+                    >
+                      批量取消归档
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => exportMemories('selected')}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
+                    >
+                      导出选中
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => exportMemories('all')}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
+                    >
+                      导出全部
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => memoryImportInputRef.current?.click()}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
+                    >
+                      导入 JSON
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {memoryRecords.length === 0 ? (
+                      <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
+                        当前筛选下暂无记忆。
+                      </p>
+                    ) : (
+                      memoryRecords.map((item) => (
+                        <div
+                          key={item.id}
+                          className="w-full rounded-xl border border-slate-200 bg-white p-3"
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <label className="flex items-center gap-2 text-xs text-slate-600">
+                              <input
+                                type="checkbox"
+                                checked={selectedMemoryIds.includes(item.id)}
+                                onChange={() => toggleMemorySelection(item.id)}
+                              />
+                              选中
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/memory/${item.id}`)}
+                              className="rounded border border-slate-300 px-2 py-0.5 text-xs text-sky-700 hover:bg-sky-50"
+                            >
+                              打开详情
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                              {memoryDomainLabel(item.domain)}
+                            </span>
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                              {memoryStatusLabel(item)}
+                            </span>
+                            {item.semanticLayer ? (
+                              <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">
+                                {item.semanticLayer}
+                              </span>
+                            ) : null}
+                            {item.memoryKind ? (
+                              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                                {item.memoryKind}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 line-clamp-2 text-sm text-slate-700">
+                            {item.text}
+                          </p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            更新时间：{formatDateTime(item.updatedAt, uiLocale)}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+              }
+            />
+
+            {/* Memory Detail Route */}
+            <Route
+              path="/memory/:memoryId"
+              element={
+                <section className="space-y-4">
+                  <article className={panelClass}>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/memory')}
+                      className="text-sm text-sky-700 hover:text-sky-800"
+                    >
+                      {'< 返回记忆列表'}
+                    </button>
+                    {!selectedMemory ? (
+                      <p className="mt-3 text-sm text-slate-500">
+                        该记忆不存在或已被清理，请返回刷新。
+                      </p>
+                    ) : (
+                      <>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <h2 className="text-2xl font-semibold text-slate-800">
+                            记忆详情
+                          </h2>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                            {memoryDomainLabel(selectedMemory.domain)}
+                          </span>
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                            {memoryStatusLabel(selectedMemory)}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          ID: {selectedMemory.id} · 创建：
+                          {formatDateTime(selectedMemory.createdAt, uiLocale)} ·
+                          最近访问：
+                          {formatDateTime(
+                            selectedMemory.lastAccessedAt,
+                            uiLocale,
+                          )}
+                        </p>
+                        <textarea
+                          value={memoryEditText}
+                          onChange={(event) =>
+                            setMemoryEditText(event.target.value)
+                          }
+                          className="mt-3 min-h-[140px] w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700"
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={loading}
+                            onClick={() => void saveMemoryEdit()}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                          >
+                            保存修改
+                          </button>
+                          {selectedMemory.status === 'pending' ? (
+                            <button
+                              type="button"
+                              disabled={loading}
+                              onClick={() => void confirmPendingMemory()}
+                              className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 hover:bg-emerald-100"
+                            >
+                              确认入库
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={loading}
+                            onClick={() =>
+                              void archiveMemory(!selectedMemory.isArchived)
+                            }
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                          >
+                            {selectedMemory.isArchived ? '取消归档' : '归档'}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </article>
+                </section>
+              }
+            />
+
+            {/* Diagnostics Route */}
+            <Route
+              path="/diagnostics"
+              element={
+                <section className="space-y-4">
+                  <article className={panelClass}>
+                    <h2 className="text-3xl font-semibold text-slate-800">
+                      网关诊断
+                    </h2>
+                    <p className="mt-2 text-sm text-slate-500">
+                      集中查看 Gateway/Daemon/节点与证据，减少控制中心信息拥挤。
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                        <p>
+                          Gateway 状态：{snapshot.gateway?.status ?? 'unknown'}
+                        </p>
+                        <p className="mt-1">
+                          URL：{snapshot.gateway?.url ?? '-'}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                        <p>
+                          Daemon：
+                          {snapshot.daemon?.connected ? '已连接' : '未连接'}
+                        </p>
+                        <p className="mt-1">
+                          CPU 占用率：
+                          {(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}%
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                        <p>
+                          节点：{snapshot.nodes?.connected ?? 0}/
+                          {snapshot.nodes?.total ?? 0}
+                        </p>
+                        <p className="mt-1">
+                          策略哈希：{snapshot.policyHash ?? '-'}
+                        </p>
+                      </div>
                     </div>
                   </article>
                   <article className={panelClass}>
                     <h3 className="text-base font-semibold text-slate-800">
-                      记忆写入记录
+                      节点状态
                     </h3>
-                    <p className="mt-2 text-xs text-slate-500">
-                      当前网关未提供单任务记忆写入明细接口，以下基于系统时间线生成摘要。
-                    </p>
-                    <div className="mt-3 space-y-2 text-xs">
-                      {(snapshot.nexus?.insights || [])
-                        .slice(0, 5)
-                        .map((item, index) => (
-                          <div
-                            key={`${item.at || 'insight'}-${index}`}
-                            className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+                    <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
+                      {(snapshot.nodes?.list ?? []).map((node, index) => (
+                        <div
+                          key={
+                            node.id ??
+                            `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`
+                          }
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                        >
+                          <p className="font-medium">
+                            {node.label || node.id || '未命名节点'}
+                          </p>
+                          <p
+                            className={
+                              node.connected
+                                ? 'text-emerald-700'
+                                : 'text-rose-700'
+                            }
                           >
-                            <div className="flex items-center gap-2">
-                              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">
-                                更新
-                              </span>
-                              <span className="text-slate-500">
-                                {formatDateTime(item.at, uiLocale)}
-                              </span>
-                            </div>
-                            <p className="mt-1 text-slate-700">
-                              {item.text || '无内容'}
-                            </p>
-                          </div>
-                        ))}
+                            {node.connected ? '在线' : '离线'}
+                          </p>
+                          <p className="text-slate-500">
+                            平台：{node.platform || '未知'}
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   </article>
-                  <article className={`${panelClass} flex flex-wrap gap-2`}>
-                    <button
-                      type="button"
-                      onClick={() => void rerunTask(selectedTask)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
-                    >
-                      重新执行任务
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => exportTaskLogs(selectedTask)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
-                    >
-                      导出任务日志
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void deleteTaskHistory(selectedTask)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
-                    >
-                      删除任务记录
-                    </button>
-                  </article>
-                </>
-              )}
-            </section>
-            } />
-
-            {/* Memory List Route */}
-            <Route path="/memory" element={
-            <section className={panelClass}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-3xl font-semibold text-slate-800">
-                    记忆库
-                  </h2>
-                  <p className="mt-2 text-sm text-slate-500">
-                    查看、分类与检索已写入记忆，支持跳转到详情编辑。
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    ref={memorySearchInputRef}
-                    value={memorySearchQuery}
-                    onChange={(event) => setMemorySearchQuery(event.target.value)}
-                    placeholder="搜索记忆文本/ID（/）"
-                    aria-label="搜索记忆"
-                    className="min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
-                  />
-                  <select
-                    value={memoryDomainFilter}
-                    onChange={(event) =>
-                      setMemoryDomainFilter(
-                        event.target.value as MemoryDomainFilter,
-                      )
-                    }
-                    aria-label="记忆域筛选"
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
-                  >
-                    <option value="all">全部域</option>
-                    <option value="work">工作记忆</option>
-                    <option value="relationship">关系记忆</option>
-                  </select>
-                  <select
-                    value={memoryStatusFilter}
-                    onChange={(event) =>
-                      setMemoryStatusFilter(
-                        event.target.value as MemoryStatusFilter,
-                      )
-                    }
-                    aria-label="记忆状态筛选"
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700"
-                  >
-                    <option value="all">全部状态</option>
-                    <option value="active">生效中</option>
-                    <option value="pending">待确认</option>
-                    <option value="superseded">已替代</option>
-                    <option value="archived">已归档</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={toggleSelectAllVisibleMemories}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
-                  >
-                    全选/反选可见项
-                  </button>
-                </div>
-              </div>
-              {identityMode !== 'owner' ? (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  当前身份：{identityMode}。记忆编辑仅在 Owner
-                  模式下可用；可先完成 `security.identity.init`。
-                </p>
-              ) : null}
-              <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-                {[
-                  { key: 'all', label: '全部', count: memories.length },
-                  {
-                    key: 'active',
-                    label: '生效中',
-                    count: memories.filter(
-                      (m) => m.status === 'active' && !m.isArchived,
-                    ).length,
-                  },
-                  {
-                    key: 'pending',
-                    label: '待确认',
-                    count: memories.filter(
-                      (m) => m.status === 'pending' && !m.isArchived,
-                    ).length,
-                  },
-                  {
-                    key: 'archived',
-                    label: '已归档',
-                    count: memories.filter((m) => m.isArchived).length,
-                  },
-                ].map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() =>
-                      setMemoryStatusFilter(item.key as MemoryStatusFilter)
-                    }
-                    className={`rounded-xl border px-3 py-2 text-left text-xs ${memoryStatusFilter === item.key ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600'}`}
-                  >
-                    <p>{item.label}</p>
-                    <p className="mt-1 text-base font-semibold">{item.count}</p>
-                  </button>
-                ))}
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded bg-slate-100 px-2 py-1 text-slate-600">
-                  已选中 {selectedMemoryIds.length} 条
-                </span>
-                <button
-                  type="button"
-                  disabled={loading || selectedMemoryIds.length === 0}
-                  onClick={() => void runBatchMemoryOperation('confirm')}
-                  className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
-                >
-                  批量确认
-                </button>
-                <button
-                  type="button"
-                  disabled={loading || selectedMemoryIds.length === 0}
-                  onClick={() => void runBatchMemoryOperation('archive')}
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100 disabled:opacity-60"
-                >
-                  批量归档
-                </button>
-                <button
-                  type="button"
-                  disabled={loading || selectedMemoryIds.length === 0}
-                  onClick={() => void runBatchMemoryOperation('unarchive')}
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100 disabled:opacity-60"
-                >
-                  批量取消归档
-                </button>
-                <button
-                  type="button"
-                  onClick={() => exportMemories('selected')}
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
-                >
-                  导出选中
-                </button>
-                <button
-                  type="button"
-                  onClick={() => exportMemories('all')}
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
-                >
-                  导出全部
-                </button>
-                <button
-                  type="button"
-                  onClick={() => memoryImportInputRef.current?.click()}
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
-                >
-                  导入 JSON
-                </button>
-              </div>
-              <div className="mt-4 space-y-2">
-                {memoryRecords.length === 0 ? (
-                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
-                    当前筛选下暂无记忆。
-                  </p>
-                ) : (
-                  memoryRecords.map((item) => (
-                    <div
-                      key={item.id}
-                      className="w-full rounded-xl border border-slate-200 bg-white p-3"
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <label className="flex items-center gap-2 text-xs text-slate-600">
-                          <input
-                            type="checkbox"
-                            checked={selectedMemoryIds.includes(item.id)}
-                            onChange={() => toggleMemorySelection(item.id)}
-                          />
-                          选中
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/memory/${item.id}`)}
-                          className="rounded border border-slate-300 px-2 py-0.5 text-xs text-sky-700 hover:bg-sky-50"
-                        >
-                          打开详情
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                          {memoryDomainLabel(item.domain)}
-                        </span>
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
-                          {memoryStatusLabel(item)}
-                        </span>
-                        {item.semanticLayer ? (
-                          <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">
-                            {item.semanticLayer}
-                          </span>
-                        ) : null}
-                        {item.memoryKind ? (
-                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
-                            {item.memoryKind}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 line-clamp-2 text-sm text-slate-700">
-                        {item.text}
-                      </p>
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        更新时间：{formatDateTime(item.updatedAt, uiLocale)}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-            } />
-
-            {/* Memory Detail Route */}
-            <Route path="/memory/:memoryId" element={
-            <section className="space-y-4">
-              <article className={panelClass}>
-                <button
-                  type="button"
-                  onClick={() => navigate('/memory')}
-                  className="text-sm text-sky-700 hover:text-sky-800"
-                >
-                  {'< 返回记忆列表'}
-                </button>
-                {!selectedMemory ? (
-                  <p className="mt-3 text-sm text-slate-500">
-                    该记忆不存在或已被清理，请返回刷新。
-                  </p>
-                ) : (
-                  <>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <h2 className="text-2xl font-semibold text-slate-800">
-                        记忆详情
-                      </h2>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                        {memoryDomainLabel(selectedMemory.domain)}
-                      </span>
-                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
-                        {memoryStatusLabel(selectedMemory)}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-xs text-slate-500">
-                      ID: {selectedMemory.id} · 创建：
-                      {formatDateTime(selectedMemory.createdAt, uiLocale)} · 最近访问：
-                      {formatDateTime(selectedMemory.lastAccessedAt, uiLocale)}
-                    </p>
-                    <textarea
-                      value={memoryEditText}
-                      onChange={(event) =>
-                        setMemoryEditText(event.target.value)
-                      }
-                      className="mt-3 min-h-[140px] w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700"
-                    />
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => void saveMemoryEdit()}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
-                      >
-                        保存修改
-                      </button>
-                      {selectedMemory.status === 'pending' ? (
-                        <button
-                          type="button"
-                          disabled={loading}
-                          onClick={() => void confirmPendingMemory()}
-                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 hover:bg-emerald-100"
-                        >
-                          确认入库
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() =>
-                          void archiveMemory(!selectedMemory.isArchived)
-                        }
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-100"
-                      >
-                        {selectedMemory.isArchived ? '取消归档' : '归档'}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </article>
-            </section>
-            } />
-
-            {/* Diagnostics Route */}
-            <Route path="/diagnostics" element={
-            <section className="space-y-4">
-              <article className={panelClass}>
-                <h2 className="text-3xl font-semibold text-slate-800">
-                  网关诊断
-                </h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  集中查看 Gateway/Daemon/节点与证据，减少控制中心信息拥挤。
-                </p>
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
-                    <p>Gateway 状态：{snapshot.gateway?.status ?? 'unknown'}</p>
-                    <p className="mt-1">URL：{snapshot.gateway?.url ?? '-'}</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
-                    <p>
-                      Daemon：
-                      {snapshot.daemon?.connected ? '已连接' : '未连接'}
-                    </p>
-                    <p className="mt-1">
-                      CPU 占用率：{(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}
-                      %
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
-                    <p>
-                      节点：{snapshot.nodes?.connected ?? 0}/
-                      {snapshot.nodes?.total ?? 0}
-                    </p>
-                    <p className="mt-1">
-                      策略哈希：{snapshot.policyHash ?? '-'}
-                    </p>
-                  </div>
-                </div>
-              </article>
-              <article className={panelClass}>
-                <h3 className="text-base font-semibold text-slate-800">
-                  节点状态
-                </h3>
-                <div className="mt-3 max-h-60 space-y-2 overflow-auto pr-1">
-                  {(snapshot.nodes?.list ?? []).map((node, index) => (
-                    <div
-                      key={
-                        node.id ??
-                        `${node.label ?? 'node'}-${node.platform ?? 'unknown'}-${index}`
-                      }
-                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
-                    >
-                      <p className="font-medium">
-                        {node.label || node.id || '未命名节点'}
-                      </p>
-                      <p
-                        className={
-                          node.connected ? 'text-emerald-700' : 'text-rose-700'
-                        }
-                      >
-                        {node.connected ? '在线' : '离线'}
-                      </p>
-                      <p className="text-slate-500">
-                        平台：{node.platform || '未知'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            </section>
-            } />
+                </section>
+              }
+            />
 
             {/* Psyche Route */}
             <Route
@@ -2578,30 +2649,48 @@ function AppContent() {
               element={
                 <div className="space-y-4">
                   <section className={panelClass}>
-                    <h2 className="text-3xl font-semibold text-slate-800">交互感知</h2>
-                    <p className="mt-2 text-sm text-slate-500">守门员状态、唤醒与主动触达参数独立管理。</p>
+                    <h2 className="text-3xl font-semibold text-slate-800">
+                      交互感知
+                    </h2>
+                    <p className="mt-2 text-sm text-slate-500">
+                      守门员状态、唤醒与主动触达参数独立管理。
+                    </p>
                   </section>
                   <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <article className={panelClass}>
-                      <h3 className="text-base font-semibold text-slate-800">守门员信号中心（Psyche Signal Hub）</h3>
+                      <h3 className="text-base font-semibold text-slate-800">
+                        守门员信号中心（Psyche Signal Hub）
+                      </h3>
                       {signalHub ? (
                         <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
                           <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                            <p>运行状态：{signalHub.running ? '运行中' : '已停止'}</p>
+                            <p>
+                              运行状态：
+                              {signalHub.running ? '运行中' : '已停止'}
+                            </p>
                             <p>序号：{signalHub.sequence ?? '-'}</p>
                             <p>最近采样年龄：{formatHubAge(signalHub.ageMs)}</p>
                             <p>过期：{signalHub.stale ? '是' : '否'}</p>
                           </div>
                           <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                            <p>连续失败：{signalHub.consecutiveFailures ?? 0}</p>
-                            <p>采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms</p>
-                            <p>突发间隔：{signalHub.burstIntervalMs ?? '-'}ms</p>
+                            <p>
+                              连续失败：{signalHub.consecutiveFailures ?? 0}
+                            </p>
+                            <p>
+                              采样间隔：{signalHub.sampleIntervalMs ?? '-'}ms
+                            </p>
+                            <p>
+                              突发间隔：{signalHub.burstIntervalMs ?? '-'}ms
+                            </p>
                             <p>过期阈值：{signalHub.staleAfterMs ?? '-'}ms</p>
                           </div>
                         </div>
                       ) : (
                         <div className="mt-2">
-                          <EmptyState title="等待守门员信号接入" description="尚未收到 daemon signal hub 指标。" />
+                          <EmptyState
+                            title="等待守门员信号接入"
+                            description="尚未收到 daemon signal hub 指标。"
+                          />
                         </div>
                       )}
                     </article>
@@ -2609,35 +2698,96 @@ function AppContent() {
                       <h3 className="text-sm font-semibold">Psyche 参数</h3>
                       <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
                         <label className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                          <input type="checkbox" checked={Boolean(psycheModeForm.resonanceEnabled)} onChange={(event) =>
-                            setPsycheModeForm((prev) => ({ ...prev, resonanceEnabled: event.target.checked }))} />
+                          <input
+                            type="checkbox"
+                            checked={Boolean(psycheModeForm.resonanceEnabled)}
+                            onChange={(event) =>
+                              setPsycheModeForm((prev) => ({
+                                ...prev,
+                                resonanceEnabled: event.target.checked,
+                              }))
+                            }
+                          />
                           <span>唤醒共鸣层</span>
                         </label>
                         <label className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
-                          <input type="checkbox" checked={Boolean(psycheModeForm.periodicRetrainEnabled)} onChange={(event) =>
-                            setPsycheModeForm((prev) => ({ ...prev, periodicRetrainEnabled: event.target.checked }))} />
+                          <input
+                            type="checkbox"
+                            checked={Boolean(
+                              psycheModeForm.periodicRetrainEnabled,
+                            )}
+                            onChange={(event) =>
+                              setPsycheModeForm((prev) => ({
+                                ...prev,
+                                periodicRetrainEnabled: event.target.checked,
+                              }))
+                            }
+                          />
                           <span>周期重训启用</span>
                         </label>
                         <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                           <span>Shadow rollout (%)</span>
-                          <input type="number" min={0} max={100} value={psycheModeForm.slowBrainShadowRollout ?? 15} onChange={(event) =>
-                            setPsycheModeForm((prev) => ({ ...prev, slowBrainShadowRollout: Number(event.target.value) }))}
-                            className="rounded border border-slate-300 bg-white px-2 py-1" />
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={psycheModeForm.slowBrainShadowRollout ?? 15}
+                            onChange={(event) =>
+                              setPsycheModeForm((prev) => ({
+                                ...prev,
+                                slowBrainShadowRollout: Number(
+                                  event.target.value,
+                                ),
+                              }))
+                            }
+                            className="rounded border border-slate-300 bg-white px-2 py-1"
+                          />
                         </label>
                         <label className="flex flex-col gap-1 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                           <span>主动触达最小间隔（分钟）</span>
-                          <input type="number" min={1} max={1440} value={psycheModeForm.proactivePingMinIntervalMinutes ?? 90} onChange={(event) =>
-                            setPsycheModeForm((prev) => ({ ...prev, proactivePingMinIntervalMinutes: Number(event.target.value) }))}
-                            className="rounded border border-slate-300 bg-white px-2 py-1" />
+                          <input
+                            type="number"
+                            min={1}
+                            max={1440}
+                            value={
+                              psycheModeForm.proactivePingMinIntervalMinutes ??
+                              90
+                            }
+                            onChange={(event) =>
+                              setPsycheModeForm((prev) => ({
+                                ...prev,
+                                proactivePingMinIntervalMinutes: Number(
+                                  event.target.value,
+                                ),
+                              }))
+                            }
+                            className="rounded border border-slate-300 bg-white px-2 py-1"
+                          />
                         </label>
                       </div>
-                      <p className="mt-2 text-[11px] text-slate-500">当前降级原因：{guardianReasonLabel(snapshot.nexus?.guardianSafeHoldReason)}</p>
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        当前降级原因：
+                        {guardianReasonLabel(
+                          snapshot.nexus?.guardianSafeHoldReason,
+                        )}
+                      </p>
                       <div className="mt-3">
-                        <button type="button" disabled={loading} onClick={() =>
-                          void runAction(async () => {
-                            await invokeGateway('psyche.mode.set', psycheModeForm as unknown as Record<string, unknown>);
-                          }, '交互感知参数已保存')}
-                          className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100">
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() =>
+                            void runAction(async () => {
+                              await invokeGateway(
+                                'psyche.mode.set',
+                                psycheModeForm as unknown as Record<
+                                  string,
+                                  unknown
+                                >,
+                              );
+                            }, '交互感知参数已保存')
+                          }
+                          className="rounded-lg border border-slate-300 px-3 py-1 text-xs hover:bg-slate-100"
+                        >
                           保存设置
                         </button>
                       </div>
@@ -2653,22 +2803,37 @@ function AppContent() {
               element={
                 <div className="space-y-4">
                   <section className={panelClass}>
-                    <h2 className="text-3xl font-semibold text-slate-800">安全与权限</h2>
-                    <p className="mt-2 text-sm text-slate-500">安全开关、能力域暂停/恢复与 Evidence 审计预览。</p>
+                    <h2 className="text-3xl font-semibold text-slate-800">
+                      安全与权限
+                    </h2>
+                    <p className="mt-2 text-sm text-slate-500">
+                      安全开关、能力域暂停/恢复与 Evidence 审计预览。
+                    </p>
                   </section>
                   <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <article className={panelClass}>
-                      <h3 className="text-sm font-semibold">全局 Kill-Switch</h3>
-                      <p className="mt-1 text-xs text-slate-500">当前模式：{killSwitchLabel(killSwitchMode)}</p>
+                      <h3 className="text-sm font-semibold">
+                        全局 Kill-Switch
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        当前模式：{killSwitchLabel(killSwitchMode)}
+                      </p>
                       <div className="mt-3 grid grid-cols-2 gap-2">
-                        {([
-                          { mode: 'off', text: '正常运行' },
-                          { mode: 'outbound_only', text: '暂停外发' },
-                          { mode: 'desktop_only', text: '暂停桌控' },
-                          { mode: 'all_stop', text: '全部停止' },
-                        ] as Array<{ mode: KillSwitchMode; text: string }>).map((item) => (
-                          <button key={item.mode} type="button" disabled={loading} onClick={() => void setKillSwitchMode(item.mode)}
-                            className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}>
+                        {(
+                          [
+                            { mode: 'off', text: '正常运行' },
+                            { mode: 'outbound_only', text: '暂停外发' },
+                            { mode: 'desktop_only', text: '暂停桌控' },
+                            { mode: 'all_stop', text: '全部停止' },
+                          ] as Array<{ mode: KillSwitchMode; text: string }>
+                        ).map((item) => (
+                          <button
+                            key={item.mode}
+                            type="button"
+                            disabled={loading}
+                            onClick={() => void setKillSwitchMode(item.mode)}
+                            className={`rounded-lg border px-2 py-2 text-left text-xs ${killSwitchMode === item.mode ? 'border-sky-300 bg-sky-50' : 'border-slate-300 hover:bg-slate-100'}`}
+                          >
                             <p className="font-medium">{item.text}</p>
                           </button>
                         ))}
@@ -2678,16 +2843,38 @@ function AppContent() {
                       <h3 className="text-sm font-semibold">能力域状态</h3>
                       <div className="mt-3 space-y-2">
                         {domains.map((domain) => (
-                          <div key={domain.domain} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                          <div
+                            key={domain.domain}
+                            className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                          >
                             <div>
-                              <p className="font-medium">{domainLabel(domain.domain)}</p>
-                              <p className={statusTone(domain.status)}>{domain.status === 'running' ? '运行中' : '已暂停'}</p>
+                              <p className="font-medium">
+                                {domainLabel(domain.domain)}
+                              </p>
+                              <p className={statusTone(domain.status)}>
+                                {domain.status === 'running'
+                                  ? '运行中'
+                                  : '已暂停'}
+                              </p>
                             </div>
-                            <button type="button" disabled={loading} onClick={() =>
-                              void runAction(async () => {
-                                await invokeGateway(domain.status === 'running' ? 'policy.domain.pause' : 'policy.domain.resume', { domain: domain.domain });
-                              }, `${domainLabel(domain.domain)} 已更新`)}
-                              className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100">
+                            <button
+                              type="button"
+                              disabled={loading}
+                              onClick={() =>
+                                void runAction(
+                                  async () => {
+                                    await invokeGateway(
+                                      domain.status === 'running'
+                                        ? 'policy.domain.pause'
+                                        : 'policy.domain.resume',
+                                      { domain: domain.domain },
+                                    );
+                                  },
+                                  `${domainLabel(domain.domain)} 已更新`,
+                                )
+                              }
+                              className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100"
+                            >
                               {domain.status === 'running' ? '暂停' : '恢复'}
                             </button>
                           </div>
@@ -2697,40 +2884,84 @@ function AppContent() {
                   </section>
                   <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <article className={panelClass}>
-                      <h3 className="text-sm font-semibold">最近执行序列（Evidence Pack V5）</h3>
+                      <h3 className="text-sm font-semibold">
+                        最近执行序列（Evidence Pack V5）
+                      </h3>
                       <div className="mt-3 max-h-[28rem] space-y-3 overflow-auto pr-1">
-                        {(snapshot.channels?.recentOutbound ?? []).slice(0, 10).map((row, index) => (
-                          <div key={`${row.id ?? 'audit'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-                            <p className="font-medium">{row.channel ?? 'channel'} {'->'} {row.destination ?? 'unknown'}</p>
-                            <p className="mt-1 text-slate-500">审计ID: {row.id ?? '-'} | 时间: {row.at ?? '-'}</p>
-                            {row.id ? (
-                              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                                <img src={evidenceImageUrl(row.id, 'pre')} alt="pre-send evidence" loading="lazy" className="max-h-44 w-full rounded border border-slate-200 object-cover" />
-                                <img src={evidenceImageUrl(row.id, 'post')} alt="post-send evidence" loading="lazy" className="max-h-44 w-full rounded border border-slate-200 object-cover" />
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
+                        {(snapshot.channels?.recentOutbound ?? [])
+                          .slice(0, 10)
+                          .map((row, index) => (
+                            <div
+                              key={`${row.id ?? 'audit'}-${index}`}
+                              className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs"
+                            >
+                              <p className="font-medium">
+                                {row.channel ?? 'channel'} {'->'}{' '}
+                                {row.destination ?? 'unknown'}
+                              </p>
+                              <p className="mt-1 text-slate-500">
+                                审计ID: {row.id ?? '-'} | 时间: {row.at ?? '-'}
+                              </p>
+                              {row.id ? (
+                                <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                  <img
+                                    src={evidenceImageUrl(row.id, 'pre')}
+                                    alt="pre-send evidence"
+                                    loading="lazy"
+                                    className="max-h-44 w-full rounded border border-slate-200 object-cover"
+                                  />
+                                  <img
+                                    src={evidenceImageUrl(row.id, 'post')}
+                                    alt="post-send evidence"
+                                    loading="lazy"
+                                    className="max-h-44 w-full rounded border border-slate-200 object-cover"
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
                       </div>
                     </article>
                     <article className={panelClass}>
                       <h3 className="text-sm font-semibold">系统时间线</h3>
                       <div className="mt-2 flex gap-2">
-                        <input value={insightText} onChange={(event) => setInsightText(event.target.value)} className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs" placeholder="例如：已手工暂停外发，等本人确认。" />
-                        <button type="button" disabled={loading || !insightText.trim()} onClick={() =>
-                          void runAction(async () => {
-                            await invokeGateway('insight.append', { text: insightText.trim() });
-                            setInsightText('');
-                          }, '备注已写入时间线')}
-                          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100">
+                        <input
+                          value={insightText}
+                          onChange={(event) =>
+                            setInsightText(event.target.value)
+                          }
+                          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                          placeholder="例如：已手工暂停外发，等本人确认。"
+                        />
+                        <button
+                          type="button"
+                          disabled={loading || !insightText.trim()}
+                          onClick={() =>
+                            void runAction(async () => {
+                              await invokeGateway('insight.append', {
+                                text: insightText.trim(),
+                              });
+                              setInsightText('');
+                            }, '备注已写入时间线')
+                          }
+                          className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                        >
                           记录
                         </button>
                       </div>
                       <div className="mt-3 max-h-64 space-y-2 overflow-auto pr-1">
                         {(snapshot.nexus?.insights ?? []).map((item, index) => (
-                          <div key={`${item.at ?? 'ins'}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                            <p className="text-slate-700">{item.text ?? '无内容'}</p>
-                            <p className="text-slate-500">{item.at ?? '暂无'} {item.auditID ? `| ${item.auditID}` : ''}</p>
+                          <div
+                            key={`${item.at ?? 'ins'}-${index}`}
+                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                          >
+                            <p className="text-slate-700">
+                              {item.text ?? '无内容'}
+                            </p>
+                            <p className="text-slate-500">
+                              {item.at ?? '暂无'}{' '}
+                              {item.auditID ? `| ${item.auditID}` : ''}
+                            </p>
                           </div>
                         ))}
                       </div>
@@ -2746,52 +2977,103 @@ function AppContent() {
               element={
                 <div className="space-y-4">
                   <section className={panelClass}>
-                    <h2 className="text-3xl font-semibold text-slate-800">控制中枢</h2>
-                    <p className="mt-2 text-sm text-slate-500">仅保留核心状态与全局急停。</p>
+                    <h2 className="text-3xl font-semibold text-slate-800">
+                      控制中枢
+                    </h2>
+                    <p className="mt-2 text-sm text-slate-500">
+                      仅保留核心状态与全局急停。
+                    </p>
                     <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                       <article className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
                         <p className="text-slate-500">系统在线状态</p>
-                        <p className={`mt-1 text-lg font-semibold ${connected ? 'text-emerald-700' : 'text-rose-700'}`}>{connected ? '在线' : '离线'}</p>
+                        <p
+                          className={`mt-1 text-lg font-semibold ${connected ? 'text-emerald-700' : 'text-rose-700'}`}
+                        >
+                          {connected ? '在线' : '离线'}
+                        </p>
                       </article>
                       <article className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
                         <p className="text-slate-500">当前激活代理</p>
-                        <p className="mt-1 text-lg font-semibold text-slate-800">{snapshot.runtime?.activeAgentId ?? 'default'}</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-800">
+                          {snapshot.runtime?.activeAgentId ?? 'default'}
+                        </p>
                       </article>
                       <article className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
                         <p className="text-slate-500">CPU / 内存摘要</p>
-                        <p className="mt-1 text-lg font-semibold text-slate-800">{(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}% / {snapshot.daemon?.vramUsedMB ?? 0}MB</p>
+                        <p className="mt-1 text-lg font-semibold text-slate-800">
+                          {(snapshot.daemon?.cpuPercent ?? 0).toFixed(1)}% /{' '}
+                          {snapshot.daemon?.vramUsedMB ?? 0}MB
+                        </p>
                       </article>
                     </div>
                   </section>
                   <section className={panelClass}>
-                    <h3 className="text-sm font-semibold text-rose-700">全局 Kill-Switch（一键急停）</h3>
-                    <p className="mt-1 text-xs text-slate-500">当前模式：{killSwitchLabel(killSwitchMode)}</p>
+                    <h3 className="text-sm font-semibold text-rose-700">
+                      全局 Kill-Switch（一键急停）
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      当前模式：{killSwitchLabel(killSwitchMode)}
+                    </p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <button type="button" disabled={loading} onClick={() => void setKillSwitchMode('all_stop')} className="rounded-lg border border-rose-400 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100">立即急停</button>
-                      <button type="button" disabled={loading} onClick={() => void setKillSwitchMode('off')} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">恢复运行</button>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void setKillSwitchMode('all_stop')}
+                        className="rounded-lg border border-rose-400 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                      >
+                        立即急停
+                      </button>
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => void setKillSwitchMode('off')}
+                        className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                      >
+                        恢复运行
+                      </button>
                     </div>
                   </section>
                   <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <article className={panelClass}>
-                      <h3 className="text-base font-semibold text-slate-800">用户工作流完整性与权限请求清晰度</h3>
+                      <h3 className="text-base font-semibold text-slate-800">
+                        用户工作流完整性与权限请求清晰度
+                      </h3>
                       <p className="mt-2 text-xs text-slate-600">
-                        当前权限：{permissionLabel(snapshot.nexus?.permission)}；待处理票据：{snapshot.nexus?.pendingTickets ?? 0}
+                        当前权限：{permissionLabel(snapshot.nexus?.permission)}
+                        ；待处理票据：{snapshot.nexus?.pendingTickets ?? 0}
                       </p>
                     </article>
                     <article className={panelClass}>
-                      <h3 className="text-base font-semibold text-slate-800">错误恢复路径完整性与配置可发现性</h3>
+                      <h3 className="text-base font-semibold text-slate-800">
+                        错误恢复路径完整性与配置可发现性
+                      </h3>
                       <p className="mt-2 text-xs text-slate-600">
                         {errorText || '当前未检测到阻断性错误。'}
                       </p>
                     </article>
                     <article className={panelClass}>
-                      <h3 className="text-base font-semibold text-slate-800">训练进度可见性与技能管理用户体验</h3>
+                      <h3 className="text-base font-semibold text-slate-800">
+                        训练进度可见性与技能管理用户体验
+                      </h3>
                       <p className="mt-2 text-xs text-slate-600">
-                        进度：{Math.round(Math.max(0, Math.min(100, Number(snapshot.daemon?.activeJobProgress ?? 0) * 100)))}%
+                        进度：
+                        {Math.round(
+                          Math.max(
+                            0,
+                            Math.min(
+                              100,
+                              Number(snapshot.daemon?.activeJobProgress ?? 0) *
+                                100,
+                            ),
+                          ),
+                        )}
+                        %
                       </p>
                     </article>
                     <article className={panelClass}>
-                      <h3 className="text-base font-semibold text-slate-800">桌面控制操作透明度与审计追踪</h3>
+                      <h3 className="text-base font-semibold text-slate-800">
+                        桌面控制操作透明度与审计追踪
+                      </h3>
                       <p className="mt-2 text-xs text-slate-600">
                         Evidence Pack V5（外发证据预览）
                       </p>
@@ -2826,5 +3108,3 @@ export default function App() {
     </AppProviders>
   );
 }
-
-

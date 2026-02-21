@@ -1,5 +1,4 @@
-import type { AutopilotPlan } from './types';
-import type { AutopilotCommandResult } from './types';
+import type { AutopilotCommandResult, AutopilotPlan } from './types';
 
 export function summarizeAutopilotPlan(plan: AutopilotPlan): string {
   const steps =

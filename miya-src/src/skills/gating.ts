@@ -12,10 +12,15 @@ function hasBinary(bin: string): boolean {
   return result.status === 0;
 }
 
-export function evaluateSkillGate(frontmatter: SkillFrontmatter): SkillGateResult {
+export function evaluateSkillGate(
+  frontmatter: SkillFrontmatter,
+): SkillGateResult {
   const reasons: string[] = [];
 
-  if (Array.isArray(frontmatter.platforms) && frontmatter.platforms.length > 0) {
+  if (
+    Array.isArray(frontmatter.platforms) &&
+    frontmatter.platforms.length > 0
+  ) {
     if (!frontmatter.platforms.includes(process.platform)) {
       reasons.push(`platform_not_supported:${process.platform}`);
     }

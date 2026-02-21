@@ -1,6 +1,4 @@
-/// <reference types="bun-types" />
-
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test, vi } from 'vitest';
 import { parseOpenCodeModelsVerboseOutput } from './opencode-models';
 import {
   pickBestCodingOpenCodeModel,
@@ -29,7 +27,7 @@ describe('system', () => {
   test('fetchLatestVersion returns version string or null', async () => {
     // Mock global fetch
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return {
         ok: true,
         json: async () => ({ version: '1.2.3' }),
@@ -47,7 +45,7 @@ describe('system', () => {
   test('fetchLatestVersion returns null on error', async () => {
     const originalFetch = globalThis.fetch;
     try {
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         return {
           ok: false,
         };

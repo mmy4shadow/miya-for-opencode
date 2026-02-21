@@ -53,7 +53,10 @@ function defaultState(): SafetyStateMachine {
   };
 }
 
-function writeState(projectDir: string, state: SafetyStateMachine): SafetyStateMachine {
+function writeState(
+  projectDir: string,
+  state: SafetyStateMachine,
+): SafetyStateMachine {
   const file = stateFile(projectDir);
   const next = {
     ...state,
@@ -71,7 +74,9 @@ export function readSafetyState(projectDir: string): SafetyStateMachine {
     return writeState(projectDir, created);
   }
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<SafetyStateMachine>;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as Partial<SafetyStateMachine>;
     const base = defaultState();
     const domains = {
       ...base.domains,
@@ -93,7 +98,11 @@ function appendAudit(projectDir: string, row: SafetyTransitionAudit): void {
   fs.appendFileSync(file, `${JSON.stringify(row)}\n`, 'utf-8');
 }
 
-function syncPolicyDomain(projectDir: string, domain: PolicyDomain, state: DomainSafetyState): void {
+function syncPolicyDomain(
+  projectDir: string,
+  domain: PolicyDomain,
+  state: DomainSafetyState,
+): void {
   const policy = readPolicy(projectDir);
   const mapped = state === 'running' ? 'running' : 'paused';
   if (policy.domains[domain] === mapped) return;
@@ -144,7 +153,10 @@ export function transitionSafetyState(
   return written;
 }
 
-export function isDomainExecutionAllowed(projectDir: string, domain: PolicyDomain): boolean {
+export function isDomainExecutionAllowed(
+  projectDir: string,
+  domain: PolicyDomain,
+): boolean {
   const state = readSafetyState(projectDir);
   if (state.globalState === 'killed') return false;
   return state.domains[domain] === 'running';

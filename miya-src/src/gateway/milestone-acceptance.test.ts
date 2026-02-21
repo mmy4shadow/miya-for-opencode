@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { ensureGatewayRunning, stopGateway } from './index';
 import { createGatewayAcceptanceProjectDir } from './test-helpers';
 
@@ -28,7 +28,10 @@ async function connectGatewayWithRole(
   >();
 
   const ready = new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('gateway_ws_hello_timeout')), 10_000);
+    const timeout = setTimeout(
+      () => reject(new Error('gateway_ws_hello_timeout')),
+      10_000,
+    );
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: 'hello', role, clientID: 'test-client' }));
     };
@@ -50,7 +53,9 @@ async function connectGatewayWithRole(
           resolve();
           return;
         }
-        reject(new Error(String(frame.error?.message ?? 'gateway_hello_failed')));
+        reject(
+          new Error(String(frame.error?.message ?? 'gateway_hello_failed')),
+        );
         return;
       }
       const waiter = pending.get(String(frame.id));
@@ -60,7 +65,9 @@ async function connectGatewayWithRole(
       if (frame.ok) {
         waiter.resolve(frame.result);
       } else {
-        waiter.reject(new Error(String(frame.error?.message ?? 'gateway_request_failed')));
+        waiter.reject(
+          new Error(String(frame.error?.message ?? 'gateway_request_failed')),
+        );
       }
     };
   });
@@ -150,16 +157,26 @@ describe('gateway milestone acceptance', () => {
     const state = ensureGatewayRunning(projectDir);
     const client = await connectGateway(state.url);
     try {
-      const providerAudit = (await client.request('provider.override.audit.list', {
-        limit: 20,
-      })) as unknown[];
-      const capabilities = (await client.request('mcp.capabilities.list', {})) as {
+      const providerAudit = (await client.request(
+        'provider.override.audit.list',
+        {
+          limit: 20,
+        },
+      )) as unknown[];
+      const capabilities = (await client.request(
+        'mcp.capabilities.list',
+        {},
+      )) as {
         mcps?: Array<{ name: string; sampling: boolean; mcpUi: boolean }>;
       };
       expect(Array.isArray(providerAudit)).toBe(true);
       expect(Array.isArray(capabilities.mcps)).toBe(true);
-      expect(capabilities.mcps?.every((item) => typeof item.sampling === 'boolean')).toBe(true);
-      expect(capabilities.mcps?.every((item) => typeof item.mcpUi === 'boolean')).toBe(true);
+      expect(
+        capabilities.mcps?.every((item) => typeof item.sampling === 'boolean'),
+      ).toBe(true);
+      expect(
+        capabilities.mcps?.every((item) => typeof item.mcpUi === 'boolean'),
+      ).toBe(true);
     } finally {
       client.close();
       stopGateway(projectDir);
@@ -184,12 +201,18 @@ describe('gateway milestone acceptance', () => {
         changed?: boolean;
         state?: {
           activeAgentId?: string;
-          agents?: Array<{ agentName?: string; source?: string; model?: string }>;
+          agents?: Array<{
+            agentName?: string;
+            source?: string;
+            model?: string;
+          }>;
         };
       };
       expect(typeof setResult.changed).toBe('boolean');
       expect(setResult.state?.activeAgentId).toBe('6-ui-designer');
-      const uiState = (setResult.state?.agents ?? []).find((item) => item.agentName === '6-ui-designer');
+      const uiState = (setResult.state?.agents ?? []).find(
+        (item) => item.agentName === '6-ui-designer',
+      );
       expect(uiState?.model).toBe('google/gemini-2.5-pro');
       expect(uiState?.source).toBe('runtime');
 
@@ -198,7 +221,11 @@ describe('gateway milestone acceptance', () => {
       })) as {
         changed?: boolean;
         state?: {
-          agents?: Array<{ agentName?: string; source?: string; model?: string }>;
+          agents?: Array<{
+            agentName?: string;
+            source?: string;
+            model?: string;
+          }>;
         };
       };
       expect(typeof resetResult.changed).toBe('boolean');

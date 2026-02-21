@@ -16,7 +16,9 @@ function normalizeSessionID(sessionID?: string): string {
 }
 
 function shouldCaptureTool(tool: string): boolean {
-  const normalized = String(tool ?? '').trim().toLowerCase();
+  const normalized = String(tool ?? '')
+    .trim()
+    .toLowerCase();
   if (normalized.includes('websearch')) return false;
   return NOISY_TOOLS.has(normalized);
 }
@@ -52,7 +54,10 @@ export function appendShadowSessionLog(input: {
   callID?: string;
   output: string;
 }): string {
-  const file = shadowFile(input.projectDir, normalizeSessionID(input.sessionID));
+  const file = shadowFile(
+    input.projectDir,
+    normalizeSessionID(input.sessionID),
+  );
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const row = {
     at: nowIso(),

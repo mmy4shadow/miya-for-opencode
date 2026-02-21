@@ -4,9 +4,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { install } from './install';
 import { runNodeHost } from '../nodes/client';
 import { currentPolicyHash } from '../policy';
+import { install } from './install';
 import type { BooleanArg, InstallArgs } from './types';
 
 function parseInstallArgs(args: string[]): InstallArgs {
@@ -122,7 +122,8 @@ function normalizeLogCategory(input: string): string {
 
 function colorByCategory(message: string): string {
   const category = normalizeLogCategory(message);
-  if (category.includes('error') || category.includes('failed')) return ANSI.red;
+  if (category.includes('error') || category.includes('failed'))
+    return ANSI.red;
   if (category.includes('warn')) return ANSI.yellow;
   if (category.includes('gateway')) return ANSI.cyan;
   if (category.includes('daemon')) return ANSI.magenta;
@@ -158,7 +159,10 @@ function resolveGatewayCliScript(workspace: string): string | null {
   return null;
 }
 
-function startGatewayLogTail(file: string, onLine: (line: string) => void): () => void {
+function startGatewayLogTail(
+  file: string,
+  onLine: (line: string) => void,
+): () => void {
   let cursor = 0;
   let partial = '';
   let timer: NodeJS.Timeout | undefined;
@@ -221,7 +225,14 @@ function windowsStartupDir(): string | null {
   if (process.platform !== 'win32') return null;
   const appData = process.env.APPDATA?.trim();
   if (!appData) return null;
-  return path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+  return path.join(
+    appData,
+    'Microsoft',
+    'Windows',
+    'Start Menu',
+    'Programs',
+    'Startup',
+  );
 }
 
 function gatewayAutostartScriptPath(): string {
@@ -237,11 +248,23 @@ function gatewayAutostartVbsPath(): string {
 }
 
 function gatewayAutostartLauncherPath(workspace: string): string {
-  return path.join(workspace, '.opencode', 'miya', 'autostart', 'miya-gateway-autostart.cmd');
+  return path.join(
+    workspace,
+    '.opencode',
+    'miya',
+    'autostart',
+    'miya-gateway-autostart.cmd',
+  );
 }
 
 function gatewayAutostartMetaFile(workspace: string): string {
-  return path.join(workspace, '.opencode', 'miya', 'autostart', 'gateway-autostart.json');
+  return path.join(
+    workspace,
+    '.opencode',
+    'miya',
+    'autostart',
+    'gateway-autostart.json',
+  );
 }
 
 function quoteForCmd(value: string): string {
@@ -284,12 +307,17 @@ function renderGatewayAutostartVbs(launcherPath: string): string {
   ].join('\r\n');
 }
 
-function readAutostartMode(workspace: string): 'serve' | 'terminal' | 'unknown' {
+function readAutostartMode(
+  workspace: string,
+): 'serve' | 'terminal' | 'unknown' {
   const file = gatewayAutostartMetaFile(workspace);
   if (!fs.existsSync(file)) return 'unknown';
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { mode?: unknown };
-    if (parsed.mode === 'serve' || parsed.mode === 'terminal') return parsed.mode;
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      mode?: unknown;
+    };
+    if (parsed.mode === 'serve' || parsed.mode === 'terminal')
+      return parsed.mode;
     return 'unknown';
   } catch {
     return 'unknown';
@@ -297,14 +325,24 @@ function readAutostartMode(workspace: string): 'serve' | 'terminal' | 'unknown' 
 }
 
 function terminalLockFilePath(workspace: string): string {
-  return path.join(workspace, '.opencode', 'miya', 'gateway-terminal.lock.json');
+  return path.join(
+    workspace,
+    '.opencode',
+    'miya',
+    'gateway-terminal.lock.json',
+  );
 }
 
-function acquireTerminalLock(workspace: string): { ok: boolean; ownerPid?: number } {
+function acquireTerminalLock(workspace: string): {
+  ok: boolean;
+  ownerPid?: number;
+} {
   const lockFile = terminalLockFilePath(workspace);
   if (fs.existsSync(lockFile)) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(lockFile, 'utf-8')) as { pid?: unknown };
+      const parsed = JSON.parse(fs.readFileSync(lockFile, 'utf-8')) as {
+        pid?: unknown;
+      };
       const pid = Number(parsed.pid);
       if (Number.isFinite(pid) && pid > 0 && isPidAlive(pid)) {
         return { ok: false, ownerPid: pid };
@@ -325,7 +363,9 @@ function acquireTerminalLock(workspace: string): { ok: boolean; ownerPid?: numbe
 function releaseTerminalLock(workspace: string): void {
   const lockFile = terminalLockFilePath(workspace);
   try {
-    const parsed = JSON.parse(fs.readFileSync(lockFile, 'utf-8')) as { pid?: unknown };
+    const parsed = JSON.parse(fs.readFileSync(lockFile, 'utf-8')) as {
+      pid?: unknown;
+    };
     if (Number(parsed.pid) !== process.pid) return;
   } catch {}
   try {
@@ -366,12 +406,19 @@ function readGatewayStartGuard(cwd: string): GatewayStartGuard | null {
   const file = runtimeGatewayStartGuardFile(cwd);
   if (!fs.existsSync(file)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as GatewayStartGuard;
+    const parsed = JSON.parse(
+      fs.readFileSync(file, 'utf-8'),
+    ) as GatewayStartGuard;
     if (!parsed || typeof parsed !== 'object') return null;
-    if (parsed.status !== 'idle' && parsed.status !== 'starting' && parsed.status !== 'failed') {
+    if (
+      parsed.status !== 'idle' &&
+      parsed.status !== 'starting' &&
+      parsed.status !== 'failed'
+    ) {
       return null;
     }
-    if (!parsed.updatedAt || !Number.isFinite(Date.parse(parsed.updatedAt))) return null;
+    if (!parsed.updatedAt || !Number.isFinite(Date.parse(parsed.updatedAt)))
+      return null;
     return parsed;
   } catch {
     return null;
@@ -402,20 +449,31 @@ function resolveNodeBinary(): string | null {
   const windowsNodeCandidates =
     process.platform === 'win32'
       ? [
-          path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'nodejs', 'node.exe'),
+          path.join(
+            process.env.ProgramFiles ?? 'C:\\Program Files',
+            'nodejs',
+            'node.exe',
+          ),
           path.join(
             process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)',
             'nodejs',
             'node.exe',
           ),
-          path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'nodejs', 'node.exe'),
+          path.join(
+            process.env.LOCALAPPDATA ?? '',
+            'Programs',
+            'nodejs',
+            'node.exe',
+          ),
         ]
       : [];
   const candidates = [
     configured || null,
     (() => {
       const execBase = path.basename(process.execPath).toLowerCase();
-      return execBase === 'node' || execBase === 'node.exe' ? process.execPath : null;
+      return execBase === 'node' || execBase === 'node.exe'
+        ? process.execPath
+        : null;
     })(),
     ...windowsNodeCandidates,
     process.platform === 'win32' ? 'node.exe' : 'node',
@@ -449,7 +507,9 @@ function readGatewayUrl(cwd: string): string | null {
   if (!fs.existsSync(file)) return null;
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { url?: string };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      url?: string;
+    };
     return parsed.url ?? null;
   } catch {
     return null;
@@ -489,7 +549,10 @@ function readGatewayState(cwd: string): { url: string; pid: number } | null {
   }
 }
 
-async function waitGatewayReady(cwd: string, timeoutMs = 15000): Promise<boolean> {
+async function waitGatewayReady(
+  cwd: string,
+  timeoutMs = 15000,
+): Promise<boolean> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const state = readGatewayState(cwd);
@@ -556,16 +619,11 @@ async function runGatewayStart(cwd: string): Promise<GatewayStartResult> {
       ok: false,
       workspace,
       reason: 'cli_js_not_found',
-      detail: 'Cannot resolve dist/cli/index.js for node startup. Run `npm run build` first.',
+      detail:
+        'Cannot resolve dist/cli/index.js for node startup. Run `npm run build` first.',
     };
   }
-  const nodeArgs = [
-    cliScript,
-    'gateway',
-    'serve',
-    '--workspace',
-    workspace,
-  ];
+  const nodeArgs = [cliScript, 'gateway', 'serve', '--workspace', workspace];
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -690,7 +748,10 @@ async function callGatewayMethod(
   });
 }
 
-async function ensureGatewayUrl(cwd: string, autoStart = true): Promise<string> {
+async function ensureGatewayUrl(
+  cwd: string,
+  autoStart = true,
+): Promise<string> {
   const candidateDirs = candidateGatewayRuntimeDirs(cwd);
   for (const dir of candidateDirs) {
     const url = readGatewayUrl(dir);
@@ -720,7 +781,8 @@ async function ensureGatewayUrl(cwd: string, autoStart = true): Promise<string> 
 }
 
 async function runGatewayServe(cwd: string, args: string[]): Promise<number> {
-  const workspace = readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const workspace =
+    readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
   const { ensureGatewayRunning, stopGateway } = await import('../gateway');
 
   try {
@@ -749,8 +811,12 @@ async function runGatewayServe(cwd: string, args: string[]): Promise<number> {
   return 0;
 }
 
-async function runGatewayTerminal(cwd: string, args: string[]): Promise<number> {
-  const workspace = readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+async function runGatewayTerminal(
+  cwd: string,
+  args: string[],
+): Promise<number> {
+  const workspace =
+    readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
   const lock = acquireTerminalLock(workspace);
   if (!lock.ok) {
     console.log(
@@ -767,7 +833,9 @@ async function runGatewayTerminal(cwd: string, args: string[]): Promise<number> 
     );
     return 0;
   }
-  const { ensureGatewayRunning, stopGateway, isGatewayOwner } = await import('../gateway');
+  const { ensureGatewayRunning, stopGateway, isGatewayOwner } = await import(
+    '../gateway'
+  );
   let ownRuntime = false;
 
   try {
@@ -828,11 +896,18 @@ async function runGatewayTerminal(cwd: string, args: string[]): Promise<number> 
   return 0;
 }
 
-async function runGatewayAutostart(cwd: string, args: string[]): Promise<number> {
+async function runGatewayAutostart(
+  cwd: string,
+  args: string[],
+): Promise<number> {
   const action = args[0] ?? 'status';
-  const workspace = readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
-  const modeRaw = (readFlagValue(args, '--mode') ?? 'serve').trim().toLowerCase();
-  const mode: 'serve' | 'terminal' = modeRaw === 'terminal' ? 'terminal' : 'serve';
+  const workspace =
+    readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const modeRaw = (readFlagValue(args, '--mode') ?? 'serve')
+    .trim()
+    .toLowerCase();
+  const mode: 'serve' | 'terminal' =
+    modeRaw === 'terminal' ? 'terminal' : 'serve';
   const startupDir = windowsStartupDir();
   if (!startupDir) {
     console.error('gateway_autostart_unsupported_platform');
@@ -873,7 +948,10 @@ async function runGatewayAutostart(cwd: string, args: string[]): Promise<number>
   }
 
   if (action === 'remove' || action === 'uninstall') {
-    const existed = fs.existsSync(startupVbs) || fs.existsSync(launcherFile) || fs.existsSync(legacyScriptFile);
+    const existed =
+      fs.existsSync(startupVbs) ||
+      fs.existsSync(launcherFile) ||
+      fs.existsSync(legacyScriptFile);
     try {
       fs.unlinkSync(startupVbs);
     } catch {}
@@ -928,7 +1006,8 @@ async function runGatewayAutostart(cwd: string, args: string[]): Promise<number>
             ok: false,
             action,
             reason: 'cli_js_not_found',
-            detail: 'Cannot resolve dist/cli/index.js for node autostart. Run `npm run build` first.',
+            detail:
+              'Cannot resolve dist/cli/index.js for node autostart. Run `npm run build` first.',
           },
           null,
           2,
@@ -946,7 +1025,11 @@ async function runGatewayAutostart(cwd: string, args: string[]): Promise<number>
       fs.mkdirSync(path.dirname(launcherFile), { recursive: true });
     }
     fs.writeFileSync(launcherFile, scriptText, 'utf-8');
-    fs.writeFileSync(startupVbs, renderGatewayAutostartVbs(launcherFile), 'utf-8');
+    fs.writeFileSync(
+      startupVbs,
+      renderGatewayAutostartVbs(launcherFile),
+      'utf-8',
+    );
     fs.writeFileSync(
       metaFile,
       `${JSON.stringify(
@@ -993,7 +1076,8 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
 
   if (action === 'start') {
     const allowCliStart =
-      args.includes('--force') || process.env.MIYA_GATEWAY_CLI_START_ENABLE === '1';
+      args.includes('--force') ||
+      process.env.MIYA_GATEWAY_CLI_START_ENABLE === '1';
     if (!allowCliStart) {
       console.error(
         'gateway_start_blocked:safety_guard (use `miya gateway start --force` or set MIYA_GATEWAY_CLI_START_ENABLE=1)',
@@ -1026,7 +1110,13 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
     url = await ensureGatewayUrl(cwd, false);
   } catch (error) {
     if (action === 'shutdown') {
-      console.log(JSON.stringify({ ok: true, stopped: false, reason: 'not_running' }, null, 2));
+      console.log(
+        JSON.stringify(
+          { ok: true, stopped: false, reason: 'not_running' },
+          null,
+          2,
+        ),
+      );
       return 0;
     }
     throw error;
@@ -1050,10 +1140,16 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
   throw new Error(`unknown_gateway_action:${action}`);
 }
 
-async function runSubcommand(cwd: string, top: string, args: string[]): Promise<number> {
+async function runSubcommand(
+  cwd: string,
+  top: string,
+  args: string[],
+): Promise<number> {
   const url = await ensureGatewayUrl(cwd);
   const workspace = resolveWorkspaceDir(cwd);
-  const withPolicyHash = (params: Record<string, unknown>): Record<string, unknown> => ({
+  const withPolicyHash = (
+    params: Record<string, unknown>,
+  ): Record<string, unknown> => ({
     ...params,
     policyHash: currentPolicyHash(workspace),
   });
@@ -1062,7 +1158,8 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
     if (top === 'sessions') {
       const action = args[0] ?? 'list';
       if (action === 'list') return ['sessions.list', {}] as const;
-      if (action === 'get') return ['sessions.get', { sessionID: args[1] }] as const;
+      if (action === 'get')
+        return ['sessions.get', { sessionID: args[1] }] as const;
       if (action === 'send')
         return [
           'sessions.send',
@@ -1087,9 +1184,12 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
       const action = args[0] ?? 'status';
       if (action === 'list') return ['channels.list', {}] as const;
       if (action === 'status') return ['channels.status', {}] as const;
-      if (action === 'pairs') return ['channels.pair.list', { status: args[1] }] as const;
-      if (action === 'approve') return ['channels.pair.approve', { pairID: args[1] }] as const;
-      if (action === 'reject') return ['channels.pair.reject', { pairID: args[1] }] as const;
+      if (action === 'pairs')
+        return ['channels.pair.list', { status: args[1] }] as const;
+      if (action === 'approve')
+        return ['channels.pair.approve', { pairID: args[1] }] as const;
+      if (action === 'reject')
+        return ['channels.pair.reject', { pairID: args[1] }] as const;
       if (action === 'send')
         return [
           'channels.message.send',
@@ -1106,10 +1206,14 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
       const action = args[0] ?? 'status';
       if (action === 'list') return ['nodes.list', {}] as const;
       if (action === 'status') return ['nodes.status', {}] as const;
-      if (action === 'describe') return ['nodes.describe', { nodeID: args[1] }] as const;
-      if (action === 'pairs') return ['nodes.pair.list', { status: args[1] }] as const;
-      if (action === 'approve') return ['nodes.pair.approve', { pairID: args[1] }] as const;
-      if (action === 'reject') return ['nodes.pair.reject', { pairID: args[1] }] as const;
+      if (action === 'describe')
+        return ['nodes.describe', { nodeID: args[1] }] as const;
+      if (action === 'pairs')
+        return ['nodes.pair.list', { status: args[1] }] as const;
+      if (action === 'approve')
+        return ['nodes.pair.approve', { pairID: args[1] }] as const;
+      if (action === 'reject')
+        return ['nodes.pair.reject', { pairID: args[1] }] as const;
       if (action === 'invoke')
         return [
           'nodes.invoke',
@@ -1125,8 +1229,10 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
     if (top === 'skills') {
       const action = args[0] ?? 'status';
       if (action === 'status') return ['skills.status', {}] as const;
-      if (action === 'enable') return ['skills.enable', { skillID: args[1] }] as const;
-      if (action === 'disable') return ['skills.disable', { skillID: args[1] }] as const;
+      if (action === 'enable')
+        return ['skills.enable', { skillID: args[1] }] as const;
+      if (action === 'disable')
+        return ['skills.disable', { skillID: args[1] }] as const;
       if (action === 'install')
         return [
           'skills.install',
@@ -1149,7 +1255,8 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
     if (top === 'sync') {
       const action = args[0] ?? 'list';
       if (action === 'list') return ['miya.sync.list', {}] as const;
-      if (action === 'diff') return ['miya.sync.diff', { sourcePackID: args[1] }] as const;
+      if (action === 'diff')
+        return ['miya.sync.diff', { sourcePackID: args[1] }] as const;
       if (action === 'pull')
         return [
           'miya.sync.pull',
@@ -1180,7 +1287,8 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
     if (top === 'cron') {
       const action = args[0] ?? 'list';
       if (action === 'list') return ['cron.list', {}] as const;
-      if (action === 'runs') return ['cron.runs.list', { limit: Number(args[1] ?? 50) }] as const;
+      if (action === 'runs')
+        return ['cron.runs.list', { limit: Number(args[1] ?? 50) }] as const;
       if (action === 'add')
         return [
           'cron.add',
@@ -1191,11 +1299,15 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
             requireApproval: args[4] === 'true',
           },
         ] as const;
-      if (action === 'run') return ['cron.run.now', { jobID: args[1] }] as const;
-      if (action === 'remove') return ['cron.remove', { jobID: args[1] }] as const;
+      if (action === 'run')
+        return ['cron.run.now', { jobID: args[1] }] as const;
+      if (action === 'remove')
+        return ['cron.remove', { jobID: args[1] }] as const;
       if (action === 'approvals') return ['cron.approvals.list', {}] as const;
-      if (action === 'approve') return ['cron.approvals.approve', { approvalID: args[1] }] as const;
-      if (action === 'reject') return ['cron.approvals.reject', { approvalID: args[1] }] as const;
+      if (action === 'approve')
+        return ['cron.approvals.approve', { approvalID: args[1] }] as const;
+      if (action === 'reject')
+        return ['cron.approvals.reject', { approvalID: args[1] }] as const;
     }
 
     if (top === 'voice') {
@@ -1203,7 +1315,8 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
       if (action === 'status') return ['voice.status', {}] as const;
       if (action === 'wake-on') return ['voice.wake.enable', {}] as const;
       if (action === 'wake-off') return ['voice.wake.disable', {}] as const;
-      if (action === 'talk-start') return ['voice.talk.start', { sessionID: args[1] }] as const;
+      if (action === 'talk-start')
+        return ['voice.talk.start', { sessionID: args[1] }] as const;
       if (action === 'talk-stop') return ['voice.talk.stop', {}] as const;
       if (action === 'ingest')
         return [
@@ -1215,7 +1328,11 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
             sessionID: args[4] ?? 'main',
           },
         ] as const;
-      if (action === 'history') return ['voice.history.list', { limit: Number(args[1] ?? 50) }] as const;
+      if (action === 'history')
+        return [
+          'voice.history.list',
+          { limit: Number(args[1] ?? 50) },
+        ] as const;
       if (action === 'clear') return ['voice.history.clear', {}] as const;
     }
 
@@ -1242,7 +1359,8 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
             merge: args[3] === 'true',
           },
         ] as const;
-      if (action === 'close') return ['canvas.close', { docID: args[1] }] as const;
+      if (action === 'close')
+        return ['canvas.close', { docID: args[1] }] as const;
     }
 
     if (top === 'companion') {
@@ -1260,8 +1378,10 @@ async function runSubcommand(cwd: string, top: string, args: string[]): Promise<
             enabled: args[5] === 'true',
           },
         ] as const;
-      if (action === 'memory-add') return ['companion.memory.add', { fact: args[1] }] as const;
-      if (action === 'memory-list') return ['companion.memory.list', {}] as const;
+      if (action === 'memory-add')
+        return ['companion.memory.add', { fact: args[1] }] as const;
+      if (action === 'memory-list')
+        return ['companion.memory.list', {}] as const;
       if (action === 'asset-add')
         return [
           'companion.asset.add',
@@ -1298,8 +1418,12 @@ function readFlagValue(args: string[], key: string): string | undefined {
   return undefined;
 }
 
-async function runNodeHostCommand(cwd: string, args: string[]): Promise<number> {
-  const gateway = readFlagValue(args, '--gateway') ?? (await ensureGatewayUrl(cwd));
+async function runNodeHostCommand(
+  cwd: string,
+  args: string[],
+): Promise<number> {
+  const gateway =
+    readFlagValue(args, '--gateway') ?? (await ensureGatewayUrl(cwd));
   const nodeID = readFlagValue(args, '--node-id');
   const deviceID = readFlagValue(args, '--device-id');
   const capabilitiesValue = readFlagValue(args, '--capabilities');
@@ -1325,7 +1449,9 @@ async function main(): Promise<void> {
   const cwd = process.cwd();
 
   if (args.length === 0 || args[0] === 'install') {
-    const installArgs = parseInstallArgs(args.slice(args[0] === 'install' ? 1 : 0));
+    const installArgs = parseInstallArgs(
+      args.slice(args[0] === 'install' ? 1 : 0),
+    );
     const exitCode = await install(installArgs);
     process.exit(exitCode);
   }

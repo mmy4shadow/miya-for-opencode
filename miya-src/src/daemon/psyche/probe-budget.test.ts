@@ -1,11 +1,13 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import { consumeProbeBudget } from './probe-budget';
 
 function tempBudgetPath(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miya-psyche-probe-budget-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'miya-psyche-probe-budget-'),
+  );
   return path.join(dir, 'probe-budget.json');
 }
 

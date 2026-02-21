@@ -86,8 +86,8 @@
   - 新增用例：域注册覆盖既有方法被拒绝；各域合法前缀注册通过。
 
 ## 本轮回归结果
-- `bun test test/unit/automation-service.test.ts test/unit/gateway-method-domain-separation.test.ts --timeout 60000`：PASS
-- `bun run typecheck`：PASS
+- `npx vitest run test/unit/automation-service.test.ts test/unit/gateway-method-domain-separation.test.ts --timeout 60000`：PASS
+- `npm run typecheck`：PASS
 - `opencode debug config`：PASS
 - `opencode debug skill`：PASS
 - `opencode debug paths`：PASS
@@ -177,34 +177,34 @@
 - `miya-src/test/unit/training-pipeline-integrity.test.ts`
 
 ## 回归结果
-- `bun test test/unit/multi-agent-orchestration.test.ts test/unit/memory-system-architecture.test.ts test/unit/training-pipeline-integrity.test.ts --timeout 30000`：PASS
-- `bun run typecheck`：PASS
-- `bun run lint`：PASS
+- `npx vitest run test/unit/multi-agent-orchestration.test.ts test/unit/memory-system-architecture.test.ts test/unit/training-pipeline-integrity.test.ts --timeout 30000`：PASS
+- `npm run typecheck`：PASS
+- `npm run lint`：PASS
 - `opencode debug config`：PASS
 - `opencode debug skill`：PASS
 - `opencode debug paths`：PASS
-- `bun run typecheck`：PASS
-- `bun run lint`：PASS
-- `bun run doc:lint`：PASS
-- `bun run check:contracts`：PASS
-- `bun run check:no-regression`：PASS
+- `npm run typecheck`：PASS
+- `npm run lint`：PASS
+- `npm run doc:lint`：PASS
+- `npm run check:contracts`：PASS
+- `npm run check:no-regression`：PASS
 
 ### 2) 测试入口
-- `bun run test`：PASS
-- `bun run test:unit`：PASS
-- `bun run test:integration`：PASS
-- `bun run test:regression`：PASS
-- `bun run test:adversarial`：PASS
-- `bun run test:performance`：PASS
-- `bun run test:e2e`：PASS
-- `bun run test:coverage`：PASS
-- `bun run test:coverage:core`：PASS
-- `bun run test:integration:report`：PASS（`integration-latest.json` 中 `ok=true`）
-- `bun run test:ci`：PASS
+- `npm run test`：PASS
+- `npm run test:unit`：PASS
+- `npm run test:integration`：PASS
+- `npm run test:regression`：PASS
+- `npm run test:adversarial`：PASS
+- `npm run test:performance`：PASS
+- `npm run test:e2e`：PASS
+- `npm run test:coverage`：PASS
+- `npm run test:coverage:core`：PASS
+- `npm run test:integration:report`：PASS（`integration-latest.json` 中 `ok=true`）
+- `npm run test:ci`：PASS
 
 ### 3) 基准与基线
-- `bun run benchmark:memory-recall`：PASS（Recall@3=0.9167）
-- `bun run baseline:refresh`：PASS
+- `npm run benchmark:memory-recall`：PASS（Recall@3=0.9167）
+- `npm run baseline:refresh`：PASS
 
 ## 已完成修复（代码定位）
 
@@ -212,7 +212,7 @@
 - 文件: `miya-src/opencode.json`
 - 结果: 消除 schema 报错，`debug config/skill` 可执行。
 
-2. 覆盖率脚本兼容 Bun 1.3.9
+2. 覆盖率脚本兼容 Node.js + Vitest
 - 文件: `miya-src/package.json`
 - 结果: `test:coverage`、`test:coverage:core` 从失败变为可执行。
 
@@ -235,7 +235,7 @@
 
 6. Lint 告警清零
 - 文件: 多个 `src/**` 文件（含 `src/cli/index.ts`, `src/daemon/host.ts`, `src/daemon/launcher.ts`, `src/companion/sqlite-runtime.ts`, `src/index.ts`, `src/gateway/index.ts` 等）
-- 结果: `bun run lint` 无告警阻断。
+- 结果: `npm run lint` 无告警阻断。
 
 ## 160 需求冒烟结论
 - 本轮阻断项已清空，基础诊断链路、测试链路、覆盖率链路、集成报告链路均可执行。
@@ -277,10 +277,10 @@
   - 空命令在创建阶段被拒绝。
 
 ## 回归结果
-- `bun test test/unit/automation-service.test.ts --timeout 30000`：PASS
-- `bun run test:unit`：PASS
-- `bun run typecheck`：PASS
-- `bun run lint`：PASS
+- `npx vitest run test/unit/automation-service.test.ts --timeout 30000`：PASS
+- `npm run test:unit`：PASS
+- `npm run typecheck`：PASS
+- `npm run lint`：PASS
 - `opencode debug config`：PASS
 - `opencode debug skill`：PASS
 - `opencode debug paths`：PASS
@@ -338,9 +338,9 @@
 - `miya-src/test/unit/gateway-ui-a11y-localization.test.ts`
 
 ## 本轮回归结果
-- `bun test src/gateway/control-ui.test.ts src/daemon/launcher.test.ts test/unit/gateway-ui-a11y-localization.test.ts --timeout 30000`：PASS
-- `bun run typecheck`：PASS
-- `bun run lint`：PASS
+- `npx vitest run src/gateway/control-ui.test.ts src/daemon/launcher.test.ts test/unit/gateway-ui-a11y-localization.test.ts --timeout 30000`：PASS
+- `npm run typecheck`：PASS
+- `npm run lint`：PASS
 - `opencode debug config`：PASS
 - `opencode debug skill`：PASS
 - `opencode debug paths`：PASS
@@ -376,13 +376,14 @@
 - `miya-src/test/security/action-ledger-security.test.ts`
 
 ## 执行结果
-- `bun test test/integration/ecosystem-compatibility.test.ts --timeout 30000`：PASS
-- `bun test test/disaster-recovery/action-ledger-resilience.test.ts --timeout 30000`：PASS
-- `bun test test/compliance/action-ledger-audit-trail.test.ts --timeout 30000`：PASS
-- `bun test test/performance/action-ledger-benchmark.test.ts --timeout 30000`：PASS（约 6.7s / 500 events）
-- `bun test test/security/action-ledger-security.test.ts --timeout 30000`：PASS
-- `bun run typecheck`：PASS
-- `bun run lint`：PASS
+- `npx vitest run test/integration/ecosystem-compatibility.test.ts --timeout 30000`：PASS
+- `npx vitest run test/disaster-recovery/action-ledger-resilience.test.ts --timeout 30000`：PASS
+- `npx vitest run test/compliance/action-ledger-audit-trail.test.ts --timeout 30000`：PASS
+- `npx vitest run test/performance/action-ledger-benchmark.test.ts --timeout 30000`：PASS（约 6.7s / 500 events）
+- `npx vitest run test/security/action-ledger-security.test.ts --timeout 30000`：PASS
+- `npm run typecheck`：PASS
+- `npm run lint`：PASS
 - `opencode debug config`：PASS
 - `opencode debug skill`：PASS
 - `opencode debug paths`：PASS
+

@@ -1,18 +1,23 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import {
   configureAutoflowSession,
-  getAutoflowSession,
   getAutoflowPersistentRuntimeSnapshot,
+  getAutoflowSession,
   handleAutoflowPersistentEvent,
   writeAutoflowPersistentConfig,
 } from './index';
 import type { AutoflowManager } from './types';
 
 class FakeManager implements AutoflowManager {
-  launch(input: { agent: string; prompt: string; description: string; parentSessionId: string }) {
+  launch(input: {
+    agent: string;
+    prompt: string;
+    description: string;
+    parentSessionId: string;
+  }) {
     return {
       id: `task-${Math.random().toString(36).slice(2, 8)}`,
       agent: input.agent,
@@ -203,4 +208,3 @@ describe('autoflow persistent resume', () => {
     expect(runtime?.resumeFailures).toBeGreaterThanOrEqual(1);
   });
 });
-

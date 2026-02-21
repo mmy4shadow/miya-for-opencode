@@ -7,4 +7,3 @@ export interface SoulProfile {
   forbidden: string[];
   rawMarkdown: string;
 }
-

@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { DashboardPage } from './DashboardPage';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GatewayProvider } from '../hooks/useGateway';
 import type { GatewaySnapshot } from '../types/gateway';
+import { DashboardPage } from './DashboardPage';
 
 /**
  * Mock GatewayRpcClient to avoid real network calls
@@ -17,7 +17,9 @@ vi.mock('../gateway-client', () => ({
 /**
  * Create a minimal mock snapshot for testing
  */
-function createMockSnapshot(overrides?: Partial<GatewaySnapshot>): GatewaySnapshot {
+function createMockSnapshot(
+  overrides?: Partial<GatewaySnapshot>,
+): GatewaySnapshot {
   return {
     updatedAt: '2024-01-01T00:00:00Z',
     gateway: {
@@ -147,11 +149,11 @@ function createMockSnapshot(overrides?: Partial<GatewaySnapshot>): GatewaySnapsh
 /**
  * Wrapper component that provides GatewayContext with mock data
  */
-function TestWrapper({ 
-  children, 
-  snapshot 
-}: { 
-  children: React.ReactNode; 
+function _TestWrapper({
+  children,
+  snapshot,
+}: {
+  children: React.ReactNode;
   snapshot: GatewaySnapshot;
 }) {
   // Mock the GatewayProvider to provide test data
@@ -170,38 +172,38 @@ function TestWrapper({
   // Use a custom provider that bypasses the real implementation
   return (
     <div data-testid="test-wrapper">
-      {React.cloneElement(children as React.ReactElement, { 
-        ...mockContextValue 
+      {React.cloneElement(children as React.ReactElement, {
+        ...mockContextValue,
       })}
     </div>
   );
 }
 
 describe('DashboardPage', () => {
-  let mockSnapshot: GatewaySnapshot;
+  let _mockSnapshot: GatewaySnapshot;
 
   beforeEach(() => {
-    mockSnapshot = createMockSnapshot();
+    _mockSnapshot = createMockSnapshot();
   });
 
   describe('Core Information Display', () => {
     it('should render page title and subtitle', () => {
       /**
        * **Validates: Requirements 2.1**
-       * 
+       *
        * The Dashboard should display clear page identification.
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       // Wait for content to load
       waitFor(() => {
         const heading = screen.queryByText('控制中枢');
         expect(heading).toBeInTheDocument();
-        
+
         const subtitle = screen.queryByText('核心状态总览');
         expect(subtitle).toBeInTheDocument();
       });
@@ -210,13 +212,13 @@ describe('DashboardPage', () => {
     it('should display connection status', () => {
       /**
        * **Validates: Requirements 2.1, 2.8**
-       * 
+       *
        * The Dashboard should display system online status.
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -229,13 +231,13 @@ describe('DashboardPage', () => {
     it('should display session statistics', () => {
       /**
        * **Validates: Requirements 2.1, 2.8**
-       * 
+       *
        * The Dashboard should display session count (active/total).
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -247,13 +249,13 @@ describe('DashboardPage', () => {
     it('should display task statistics', () => {
       /**
        * **Validates: Requirements 2.1, 2.8**
-       * 
+       *
        * The Dashboard should display task count (enabled/total).
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -265,13 +267,13 @@ describe('DashboardPage', () => {
     it('should display risk ticket count', () => {
       /**
        * **Validates: Requirements 2.1, 2.8**
-       * 
+       *
        * The Dashboard should display pending risk tickets.
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -283,13 +285,13 @@ describe('DashboardPage', () => {
     it('should display CPU usage when available', () => {
       /**
        * **Validates: Requirements 2.1**
-       * 
+       *
        * The Dashboard should display CPU usage percentage.
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -301,13 +303,13 @@ describe('DashboardPage', () => {
     it('should display memory usage when available', () => {
       /**
        * **Validates: Requirements 2.1**
-       * 
+       *
        * The Dashboard should display memory usage in MB.
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -319,13 +321,13 @@ describe('DashboardPage', () => {
     it('should display active agent ID when available', () => {
       /**
        * **Validates: Requirements 2.1**
-       * 
+       *
        * The Dashboard should display the currently active agent.
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -339,13 +341,13 @@ describe('DashboardPage', () => {
     it('should display Kill-Switch control card', () => {
       /**
        * **Validates: Requirements 2.2**
-       * 
+       *
        * The Dashboard should display Kill-Switch control in a prominent position.
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -357,18 +359,19 @@ describe('DashboardPage', () => {
     it('should display current Kill-Switch mode', () => {
       /**
        * **Validates: Requirements 2.2**
-       * 
+       *
        * The Dashboard should show the current Kill-Switch mode status.
        */
-      const { container } = render(
+      render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         // Look for mode indicators
-        const modeText = screen.queryByText(/正常运行|全部停止|仅停外发|仅停桌控/);
+        const modeText =
+          screen.queryByText(/正常运行|全部停止|仅停外发|仅停桌控/);
         expect(modeText).toBeInTheDocument();
       });
     });
@@ -376,25 +379,26 @@ describe('DashboardPage', () => {
     it('should display Kill-Switch mode buttons', () => {
       /**
        * **Validates: Requirements 2.2**
-       * 
+       *
        * The Dashboard should provide buttons to change Kill-Switch mode.
        */
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
         // Look for mode buttons
         const buttons = container.querySelectorAll('button');
-        const killSwitchButtons = Array.from(buttons).filter(btn => 
-          btn.textContent?.includes('全部停止') ||
-          btn.textContent?.includes('仅停外发') ||
-          btn.textContent?.includes('仅停桌控') ||
-          btn.textContent?.includes('正常运行')
+        const killSwitchButtons = Array.from(buttons).filter(
+          (btn) =>
+            btn.textContent?.includes('全部停止') ||
+            btn.textContent?.includes('仅停外发') ||
+            btn.textContent?.includes('仅停桌控') ||
+            btn.textContent?.includes('正常运行'),
         );
-        
+
         expect(killSwitchButtons.length).toBeGreaterThan(0);
       });
     });
@@ -404,14 +408,14 @@ describe('DashboardPage', () => {
     it('should NOT display Psyche configuration forms', () => {
       /**
        * **Validates: Requirements 2.3**
-       * 
+       *
        * The Dashboard should NOT contain Psyche-related configuration controls
        * (resonance, capture probe, signal override, etc.)
        */
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -431,7 +435,7 @@ describe('DashboardPage', () => {
           'signal override',
         ];
 
-        psycheTerms.forEach(term => {
+        psycheTerms.forEach((term) => {
           const element = screen.queryByText(new RegExp(term, 'i'));
           expect(element).not.toBeInTheDocument();
         });
@@ -441,14 +445,14 @@ describe('DashboardPage', () => {
     it('should NOT display security switches', () => {
       /**
        * **Validates: Requirements 2.4**
-       * 
+       *
        * The Dashboard should NOT contain security switch controls
        * (outbound pause, desktop control pause, etc.)
        */
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -461,7 +465,7 @@ describe('DashboardPage', () => {
           'desktop pause',
         ];
 
-        securityTerms.forEach(term => {
+        securityTerms.forEach((term) => {
           const element = screen.queryByText(new RegExp(term, 'i'));
           expect(element).not.toBeInTheDocument();
         });
@@ -471,13 +475,13 @@ describe('DashboardPage', () => {
     it('should NOT display policy domain status', () => {
       /**
        * **Validates: Requirements 2.5**
-       * 
+       *
        * The Dashboard should NOT display policy domain information.
        */
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -491,7 +495,7 @@ describe('DashboardPage', () => {
           'message outbound',
         ];
 
-        policyTerms.forEach(term => {
+        policyTerms.forEach((term) => {
           const element = screen.queryByText(new RegExp(term, 'i'));
           expect(element).not.toBeInTheDocument();
         });
@@ -501,13 +505,13 @@ describe('DashboardPage', () => {
     it('should NOT display recent execution sequences', () => {
       /**
        * **Validates: Requirements 2.6**
-       * 
+       *
        * The Dashboard should NOT display execution sequences or evidence packs.
        */
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -522,7 +526,7 @@ describe('DashboardPage', () => {
           'evidence screenshot',
         ];
 
-        executionTerms.forEach(term => {
+        executionTerms.forEach((term) => {
           const element = screen.queryByText(new RegExp(term, 'i'));
           expect(element).not.toBeInTheDocument();
         });
@@ -532,13 +536,13 @@ describe('DashboardPage', () => {
     it('should NOT display skill summaries', () => {
       /**
        * **Validates: Requirements 2.7**
-       * 
+       *
        * The Dashboard should NOT display skill summaries.
        */
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -551,7 +555,7 @@ describe('DashboardPage', () => {
           'enabled skills',
         ];
 
-        skillTerms.forEach(term => {
+        skillTerms.forEach((term) => {
           const element = screen.queryByText(new RegExp(term, 'i'));
           expect(element).not.toBeInTheDocument();
         });
@@ -561,13 +565,13 @@ describe('DashboardPage', () => {
     it('should NOT display ecosystem bridge summaries', () => {
       /**
        * **Validates: Requirements 2.7**
-       * 
+       *
        * The Dashboard should NOT display ecosystem bridge information.
        */
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {
@@ -579,7 +583,7 @@ describe('DashboardPage', () => {
           'bridge summary',
         ];
 
-        ecosystemTerms.forEach(term => {
+        ecosystemTerms.forEach((term) => {
           const element = screen.queryByText(new RegExp(term, 'i'));
           expect(element).not.toBeInTheDocument();
         });
@@ -595,7 +599,7 @@ describe('DashboardPage', () => {
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       // Initially should show loading
@@ -608,13 +612,13 @@ describe('DashboardPage', () => {
     it('should use Card components for information display', () => {
       /**
        * **Validates: Requirements 8.1**
-       * 
+       *
        * The Dashboard should use Card layout for all information modules.
        */
       const { container } = render(
         <GatewayProvider>
           <DashboardPage />
-        </GatewayProvider>
+        </GatewayProvider>,
       );
 
       waitFor(() => {

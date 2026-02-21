@@ -1,20 +1,19 @@
 /**
  * Property-Based Tests for Performance Optimization Hooks
- * 
+ *
  * Tests Property 12: Precise Rendering (防闪烁核心)
  * Validates Requirements: 12.1, 12.11
- * 
+ *
  * Uses fast-check to generate random data and verify that only components
  * depending on changed fields will re-render during data updates.
  */
 
-import { describe, it, expect, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import * as fc from 'fast-check';
+import { describe, expect, it, vi } from 'vitest';
+import type { GatewaySnapshot } from '../types/gateway';
 import { useMemoizedSnapshot } from './useMemoizedSnapshot';
 import { useStableCallback } from './useStableCallback';
-import type { GatewaySnapshot } from '../types/gateway';
-import React from 'react';
 
 /**
  * Arbitrary generator for GatewaySnapshot
@@ -22,8 +21,11 @@ import React from 'react';
  */
 const gatewaySnapshotArbitrary = (): fc.Arbitrary<GatewaySnapshot> => {
   // Helper to generate valid ISO date strings
-  const validDateString = () => fc.integer({ min: 1577836800000, max: 1924905600000 }).map(ms => new Date(ms).toISOString());
-  
+  const validDateString = () =>
+    fc
+      .integer({ min: 1577836800000, max: 1924905600000 })
+      .map((ms) => new Date(ms).toISOString());
+
   return fc.record({
     updatedAt: validDateString(),
     gateway: fc.record({
@@ -35,7 +37,9 @@ const gatewaySnapshotArbitrary = (): fc.Arbitrary<GatewaySnapshot> => {
     }),
     runtime: fc.record({
       isOwner: fc.boolean(),
-      ownerPID: fc.option(fc.integer({ min: 1, max: 99999 }), { nil: undefined }),
+      ownerPID: fc.option(fc.integer({ min: 1, max: 99999 }), {
+        nil: undefined,
+      }),
       ownerFresh: fc.boolean(),
       activeAgentId: fc.option(fc.string(), { nil: undefined }),
       storageRevision: fc.integer({ min: 0, max: 1000 }),
@@ -49,13 +53,17 @@ const gatewaySnapshotArbitrary = (): fc.Arbitrary<GatewaySnapshot> => {
         fc.record({
           running: fc.boolean(),
           sequenceNo: fc.integer({ min: 0, max: 999999 }),
-          sampledAt: fc.integer({ min: 1577836800000, max: 1924905600000 }).map(ms => new Date(ms).toISOString()),
+          sampledAt: fc
+            .integer({ min: 1577836800000, max: 1924905600000 })
+            .map((ms) => new Date(ms).toISOString()),
           latencyMs: fc.integer({ min: 0, max: 5000 }),
         }),
-        { nil: undefined }
+        { nil: undefined },
       ),
     }),
-    policyHash: fc.option(fc.string({ minLength: 8, maxLength: 64 }), { nil: undefined }),
+    policyHash: fc.option(fc.string({ minLength: 8, maxLength: 64 }), {
+      nil: undefined,
+    }),
     configCenter: fc.constant({}),
     killSwitch: fc.record({
       active: fc.boolean(),
@@ -66,7 +74,12 @@ const gatewaySnapshotArbitrary = (): fc.Arbitrary<GatewaySnapshot> => {
       activeTool: fc.option(fc.string(), { nil: undefined }),
       permission: fc.option(fc.string(), { nil: undefined }),
       pendingTickets: fc.integer({ min: 0, max: 100 }),
-      killSwitchMode: fc.constantFrom('off', 'outbound_only', 'desktop_only', 'all'),
+      killSwitchMode: fc.constantFrom(
+        'off',
+        'outbound_only',
+        'desktop_only',
+        'all',
+      ),
       guardianSafeHoldReason: fc.option(fc.string(), { nil: undefined }),
       trust: fc.option(
         fc.record({
@@ -76,7 +89,7 @@ const gatewaySnapshotArbitrary = (): fc.Arbitrary<GatewaySnapshot> => {
           minScore: fc.integer({ min: 0, max: 100 }),
           tier: fc.string(),
         }),
-        { nil: undefined }
+        { nil: undefined },
       ),
       trustMode: fc.record({
         silentMin: fc.integer({ min: 0, max: 100 }),
@@ -86,18 +99,29 @@ const gatewaySnapshotArbitrary = (): fc.Arbitrary<GatewaySnapshot> => {
         resonanceEnabled: fc.boolean(),
         captureProbeEnabled: fc.boolean(),
         signalOverrideEnabled: fc.option(fc.boolean(), { nil: undefined }),
-        proactivityExploreRate: fc.option(fc.integer({ min: 0, max: 100 }), { nil: undefined }),
+        proactivityExploreRate: fc.option(fc.integer({ min: 0, max: 100 }), {
+          nil: undefined,
+        }),
         slowBrainEnabled: fc.option(fc.boolean(), { nil: undefined }),
         slowBrainShadowEnabled: fc.option(fc.boolean(), { nil: undefined }),
-        slowBrainShadowRollout: fc.option(fc.integer({ min: 0, max: 100 }), { nil: undefined }),
+        slowBrainShadowRollout: fc.option(fc.integer({ min: 0, max: 100 }), {
+          nil: undefined,
+        }),
         periodicRetrainEnabled: fc.option(fc.boolean(), { nil: undefined }),
         proactivePingEnabled: fc.option(fc.boolean(), { nil: undefined }),
-        proactivePingMinIntervalMinutes: fc.option(fc.integer({ min: 1, max: 1440 }), { nil: undefined }),
-        proactivePingMaxPerDay: fc.option(fc.integer({ min: 1, max: 100 }), { nil: undefined }),
+        proactivePingMinIntervalMinutes: fc.option(
+          fc.integer({ min: 1, max: 1440 }),
+          { nil: undefined },
+        ),
+        proactivePingMaxPerDay: fc.option(fc.integer({ min: 1, max: 100 }), {
+          nil: undefined,
+        }),
         quietHoursEnabled: fc.option(fc.boolean(), { nil: undefined }),
         quietHoursStart: fc.option(fc.string(), { nil: undefined }),
         quietHoursEnd: fc.option(fc.string(), { nil: undefined }),
-        quietHoursTimezoneOffset: fc.option(fc.integer({ min: -12, max: 14 }), { nil: undefined }),
+        quietHoursTimezoneOffset: fc.option(fc.integer({ min: -12, max: 14 }), {
+          nil: undefined,
+        }),
       }),
       learningGate: fc.record({
         candidateMode: fc.constantFrom('toast_gate', 'silent', 'auto_approve'),
@@ -190,22 +214,29 @@ const gatewaySnapshotArbitrary = (): fc.Arbitrary<GatewaySnapshot> => {
 describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
   /**
    * **Validates: Requirements 12.1, 12.11**
-   * 
+   *
    * Property: When only specific fields of GatewaySnapshot change,
    * useMemoizedSnapshot should return the same reference for unchanged fields.
-   * 
+   *
    * This ensures that components depending on unchanged fields will not re-render.
    */
   it('should return stable references for unchanged fields across updates', () => {
     fc.assert(
       fc.property(
         gatewaySnapshotArbitrary(),
-        fc.constantFrom('daemon', 'nexus', 'gateway', 'runtime', 'jobs', 'sessions'),
+        fc.constantFrom(
+          'daemon',
+          'nexus',
+          'gateway',
+          'runtime',
+          'jobs',
+          'sessions',
+        ),
         (initialSnapshot, fieldToChange) => {
           // First render with initial snapshot
           const { result: result1, rerender } = renderHook(
             ({ snapshot }) => useMemoizedSnapshot(snapshot),
-            { initialProps: { snapshot: initialSnapshot } }
+            { initialProps: { snapshot: initialSnapshot } },
           );
 
           const firstResult = result1.current;
@@ -213,7 +244,7 @@ describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
 
           // Create a modified snapshot with only one field changed
           const modifiedSnapshot = { ...initialSnapshot };
-          
+
           switch (fieldToChange) {
             case 'daemon':
               modifiedSnapshot.daemon = {
@@ -260,33 +291,50 @@ describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
           expect(secondResult).not.toBeNull();
 
           // The changed field should have a new reference
-          expect(secondResult![fieldToChange]).not.toBe(firstResult![fieldToChange]);
+          expect(secondResult?.[fieldToChange]).not.toBe(
+            firstResult?.[fieldToChange],
+          );
 
           // All other fields should maintain the same reference
           const allFields = [
-            'daemon', 'nexus', 'gateway', 'runtime', 'jobs', 'sessions',
-            'killSwitch', 'safety', 'autoflow', 'routing', 'learning',
-            'background', 'channels', 'nodes', 'skills', 'media',
-            'canvas', 'security', 'doctor'
+            'daemon',
+            'nexus',
+            'gateway',
+            'runtime',
+            'jobs',
+            'sessions',
+            'killSwitch',
+            'safety',
+            'autoflow',
+            'routing',
+            'learning',
+            'background',
+            'channels',
+            'nodes',
+            'skills',
+            'media',
+            'canvas',
+            'security',
+            'doctor',
           ];
 
-          allFields.forEach(field => {
+          allFields.forEach((field) => {
             if (field !== fieldToChange) {
               // Unchanged fields should have the same reference
-              expect(secondResult![field as keyof GatewaySnapshot]).toBe(
-                firstResult![field as keyof GatewaySnapshot]
+              expect(secondResult?.[field as keyof GatewaySnapshot]).toBe(
+                firstResult?.[field as keyof GatewaySnapshot],
               );
             }
           });
-        }
+        },
       ),
-      { numRuns: 100 }
+      { numRuns: 100 },
     );
   });
 
   /**
    * **Validates: Requirements 12.1, 12.11**
-   * 
+   *
    * Property: When no fields change, useMemoizedSnapshot should return
    * the exact same snapshot reference.
    */
@@ -295,7 +343,7 @@ describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
       fc.property(gatewaySnapshotArbitrary(), (snapshot) => {
         const { result, rerender } = renderHook(
           ({ snap }) => useMemoizedSnapshot(snap),
-          { initialProps: { snap: snapshot } }
+          { initialProps: { snap: snapshot } },
         );
 
         const firstResult = result.current;
@@ -307,13 +355,13 @@ describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
         // The entire snapshot should have the same reference
         expect(secondResult).toBe(firstResult);
       }),
-      { numRuns: 100 }
+      { numRuns: 100 },
     );
   });
 
   /**
    * **Validates: Requirements 12.1, 12.11**
-   * 
+   *
    * Property: When multiple fields change simultaneously,
    * only those fields should have new references.
    */
@@ -321,14 +369,14 @@ describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
     fc.assert(
       fc.property(
         gatewaySnapshotArbitrary(),
-        fc.array(
-          fc.constantFrom('daemon', 'nexus', 'jobs'),
-          { minLength: 2, maxLength: 3 }
-        ),
+        fc.array(fc.constantFrom('daemon', 'nexus', 'jobs'), {
+          minLength: 2,
+          maxLength: 3,
+        }),
         (initialSnapshot, fieldsToChange) => {
           const { result, rerender } = renderHook(
             ({ snapshot }) => useMemoizedSnapshot(snapshot),
-            { initialProps: { snapshot: initialSnapshot } }
+            { initialProps: { snapshot: initialSnapshot } },
           );
 
           const firstResult = result.current;
@@ -336,8 +384,8 @@ describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
 
           // Create a modified snapshot with multiple fields changed
           const modifiedSnapshot = { ...initialSnapshot };
-          
-          fieldsToChange.forEach(field => {
+
+          fieldsToChange.forEach((field) => {
             switch (field) {
               case 'daemon':
                 modifiedSnapshot.daemon = {
@@ -366,42 +414,50 @@ describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
           expect(secondResult).not.toBeNull();
 
           // Changed fields should have new references
-          fieldsToChange.forEach(field => {
-            expect(secondResult![field]).not.toBe(firstResult![field]);
+          fieldsToChange.forEach((field) => {
+            expect(secondResult?.[field]).not.toBe(firstResult?.[field]);
           });
 
           // Unchanged fields should maintain the same reference
-          const unchangedFields = ['gateway', 'runtime', 'sessions', 'killSwitch'];
-          unchangedFields.forEach(field => {
+          const unchangedFields = [
+            'gateway',
+            'runtime',
+            'sessions',
+            'killSwitch',
+          ];
+          unchangedFields.forEach((field) => {
             if (!fieldsToChange.includes(field as any)) {
-              expect(secondResult![field as keyof GatewaySnapshot]).toBe(
-                firstResult![field as keyof GatewaySnapshot]
+              expect(secondResult?.[field as keyof GatewaySnapshot]).toBe(
+                firstResult?.[field as keyof GatewaySnapshot],
               );
             }
           });
-        }
+        },
       ),
-      { numRuns: 100 }
+      { numRuns: 100 },
     );
   });
 
   /**
    * **Validates: Requirements 12.1, 12.11**
-   * 
+   *
    * Property: Null snapshots should be handled correctly
    */
   it('should handle null snapshots correctly', () => {
     fc.assert(
-      fc.property(fc.option(gatewaySnapshotArbitrary(), { nil: null }), (snapshot) => {
-        const { result } = renderHook(() => useMemoizedSnapshot(snapshot));
+      fc.property(
+        fc.option(gatewaySnapshotArbitrary(), { nil: null }),
+        (snapshot) => {
+          const { result } = renderHook(() => useMemoizedSnapshot(snapshot));
 
-        if (snapshot === null) {
-          expect(result.current).toBeNull();
-        } else {
-          expect(result.current).not.toBeNull();
-        }
-      }),
-      { numRuns: 100 }
+          if (snapshot === null) {
+            expect(result.current).toBeNull();
+          } else {
+            expect(result.current).not.toBeNull();
+          }
+        },
+      ),
+      { numRuns: 100 },
     );
   });
 });
@@ -409,7 +465,7 @@ describe('Property 12: Precise Rendering - useMemoizedSnapshot', () => {
 describe('Property 12: Precise Rendering - useStableCallback', () => {
   /**
    * **Validates: Requirements 12.1, 12.11**
-   * 
+   *
    * Property: useStableCallback should always return the same function reference,
    * even when the callback changes, preventing unnecessary re-renders of child components.
    */
@@ -419,11 +475,11 @@ describe('Property 12: Precise Rendering - useStableCallback', () => {
         fc.array(fc.integer(), { minLength: 2, maxLength: 10 }),
         (values) => {
           let currentIndex = 0;
-          const callbacks = values.map(val => vi.fn(() => val));
+          const callbacks = values.map((val) => vi.fn(() => val));
 
           const { result, rerender } = renderHook(
             ({ callback }) => useStableCallback(callback),
-            { initialProps: { callback: callbacks[currentIndex] } }
+            { initialProps: { callback: callbacks[currentIndex] } },
           );
 
           const stableReference = result.current;
@@ -440,15 +496,15 @@ describe('Property 12: Precise Rendering - useStableCallback', () => {
             const returnValue = result.current();
             expect(returnValue).toBe(values[i]);
           }
-        }
+        },
       ),
-      { numRuns: 100 }
+      { numRuns: 100 },
     );
   });
 
   /**
    * **Validates: Requirements 12.1, 12.11**
-   * 
+   *
    * Property: Stable callbacks should correctly pass through all arguments
    */
   it('should pass through all arguments to the latest callback', () => {
@@ -464,9 +520,9 @@ describe('Property 12: Precise Rendering - useStableCallback', () => {
 
           expect(callback).toHaveBeenCalledWith(...args);
           expect(returnValue).toEqual(args);
-        }
+        },
       ),
-      { numRuns: 100 }
+      { numRuns: 100 },
     );
   });
 });
@@ -474,7 +530,7 @@ describe('Property 12: Precise Rendering - useStableCallback', () => {
 describe('Property 12: Integration - Precise Rendering in Component Tree', () => {
   /**
    * **Validates: Requirements 12.1, 12.11**
-   * 
+   *
    * Property: When using both useMemoizedSnapshot and React.memo,
    * child components should only re-render when their specific dependencies change.
    */
@@ -495,15 +551,15 @@ describe('Property 12: Integration - Precise Rendering in Component Tree', () =>
 
           const { result, rerender } = renderHook(
             ({ snapshot }) => useTestHook(snapshot),
-            { initialProps: { snapshot: initialSnapshot } }
+            { initialProps: { snapshot: initialSnapshot } },
           );
 
-          const initialRenderCount = childRenderSpy.mock.calls.length;
+          const _initialRenderCount = childRenderSpy.mock.calls.length;
           const initialCpuPercent = result.current;
 
           // Modify a field
           const modifiedSnapshot = { ...initialSnapshot };
-          
+
           if (fieldToChange !== 'daemon') {
             // Change a field that doesn't affect cpuPercent
             switch (fieldToChange) {
@@ -538,9 +594,9 @@ describe('Property 12: Integration - Precise Rendering in Component Tree', () =>
             // cpuPercent should have changed
             expect(result.current).not.toBe(initialCpuPercent);
           }
-        }
+        },
       ),
-      { numRuns: 100 }
+      { numRuns: 100 },
     );
   });
 });

@@ -1,4 +1,10 @@
-import { chmodSync, existsSync, mkdirSync, promises as fsPromises, unlinkSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  promises as fsPromises,
+  mkdirSync,
+  unlinkSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -63,9 +69,7 @@ export async function downloadAstGrep(
   const platformInfo = PLATFORM_MAP[platformKey];
 
   if (!platformInfo) {
-    console.error(
-      `[miya] Unsupported platform for ast-grep: ${platformKey}`,
-    );
+    console.error(`[miya] Unsupported platform for ast-grep: ${platformKey}`);
     return null;
   }
 

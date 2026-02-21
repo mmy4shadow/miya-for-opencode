@@ -1,12 +1,12 @@
 /**
  * Unit tests for useStableCallback hook
- * 
+ *
  * Tests stable callback reference creation and behavior
  * Requirements: 12.3, 12.4
  */
 
-import { describe, it, expect, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { useStableCallback } from './useStableCallback';
 
 describe('useStableCallback', () => {
@@ -46,10 +46,9 @@ describe('useStableCallback', () => {
 
   it('should maintain the same reference across re-renders', () => {
     const callback1 = vi.fn();
-    const { result, rerender } = renderHook(
-      ({ cb }) => useStableCallback(cb),
-      { initialProps: { cb: callback1 } }
-    );
+    const { result, rerender } = renderHook(({ cb }) => useStableCallback(cb), {
+      initialProps: { cb: callback1 },
+    });
 
     const firstReference = result.current;
 
@@ -65,10 +64,9 @@ describe('useStableCallback', () => {
 
   it('should call the latest callback version', () => {
     const callback1 = vi.fn(() => 'result1');
-    const { result, rerender } = renderHook(
-      ({ cb }) => useStableCallback(cb),
-      { initialProps: { cb: callback1 } }
-    );
+    const { result, rerender } = renderHook(({ cb }) => useStableCallback(cb), {
+      initialProps: { cb: callback1 },
+    });
 
     // Call with first callback
     const result1 = result.current();
@@ -90,10 +88,9 @@ describe('useStableCallback', () => {
     let count = 0;
     const callback1 = vi.fn(() => count);
 
-    const { result, rerender } = renderHook(
-      ({ cb }) => useStableCallback(cb),
-      { initialProps: { cb: callback1 } }
-    );
+    const { result, rerender } = renderHook(({ cb }) => useStableCallback(cb), {
+      initialProps: { cb: callback1 },
+    });
 
     // First call
     expect(result.current()).toBe(0);
@@ -152,7 +149,9 @@ describe('useStableCallback', () => {
       },
     };
 
-    const { result } = renderHook(() => useStableCallback(obj.getValue.bind(obj)));
+    const { result } = renderHook(() =>
+      useStableCallback(obj.getValue.bind(obj)),
+    );
 
     const returnValue = result.current();
 
@@ -167,10 +166,9 @@ describe('useStableCallback', () => {
       vi.fn(() => 'd'),
     ];
 
-    const { result, rerender } = renderHook(
-      ({ cb }) => useStableCallback(cb),
-      { initialProps: { cb: callbacks[0] } }
-    );
+    const { result, rerender } = renderHook(({ cb }) => useStableCallback(cb), {
+      initialProps: { cb: callbacks[0] },
+    });
 
     const stableRef = result.current;
 
@@ -246,7 +244,7 @@ describe('useStableCallback', () => {
         };
         return useStableCallback(handleClick);
       },
-      { initialProps: { count: 0 } }
+      { initialProps: { count: 0 } },
     );
 
     const stableCallback = result.current;

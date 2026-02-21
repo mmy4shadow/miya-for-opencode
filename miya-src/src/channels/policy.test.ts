@@ -1,5 +1,9 @@
-import { describe, expect, test } from 'bun:test';
-import { assertChannelCanSend, canChannelSend, getChannelDirection } from './policy';
+import { describe, expect, test } from 'vitest';
+import {
+  assertChannelCanSend,
+  canChannelSend,
+  getChannelDirection,
+} from './policy';
 
 describe('channel policy', () => {
   test('only qq and wechat are outbound-allowlist', () => {
@@ -17,4 +21,3 @@ describe('channel policy', () => {
     );
   });
 });
-

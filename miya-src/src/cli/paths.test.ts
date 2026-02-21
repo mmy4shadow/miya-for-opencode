@@ -1,9 +1,7 @@
-/// <reference types="bun-types" />
-
-import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { afterEach, describe, expect, test } from 'vitest';
 import {
   ensureConfigDir,
   getConfigDir,
@@ -56,7 +54,9 @@ describe('paths', () => {
 
   test('getLiteConfig() returns correct path', () => {
     process.env.XDG_CONFIG_HOME = '/tmp/xdg-config';
-    expect(getLiteConfig()).toBe(join('/tmp/xdg-config', 'opencode', 'miya.json'));
+    expect(getLiteConfig()).toBe(
+      join('/tmp/xdg-config', 'opencode', 'miya.json'),
+    );
   });
 
   describe('getExistingConfigPath()', () => {

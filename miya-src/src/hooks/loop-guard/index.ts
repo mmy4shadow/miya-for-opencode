@@ -1,3 +1,4 @@
+import { ALL_AGENT_NAMES, ORCHESTRATOR_NAME } from '../../config/constants';
 import {
   getSessionState,
   isNegativeConfirmation,
@@ -5,7 +6,6 @@ import {
   setSessionState,
   shouldEnableStrictQualityGate,
 } from '../../workflow';
-import { ALL_AGENT_NAMES, ORCHESTRATOR_NAME } from '../../config/constants';
 
 interface MessageInfo {
   role: string;
@@ -24,7 +24,9 @@ interface MessageWithParts {
   parts: MessagePart[];
 }
 
-const SUBAGENT_NAMES = ALL_AGENT_NAMES.filter(name => name !== ORCHESTRATOR_NAME);
+const SUBAGENT_NAMES = ALL_AGENT_NAMES.filter(
+  (name) => name !== ORCHESTRATOR_NAME,
+);
 
 function getAllText(message: MessageWithParts): string {
   return message.parts
@@ -34,7 +36,9 @@ function getAllText(message: MessageWithParts): string {
 }
 
 function hasQualityGatePass(messages: MessageWithParts[]): boolean {
-  return messages.some((message) => getAllText(message).includes('QUALITY_GATE=PASS'));
+  return messages.some((message) =>
+    getAllText(message).includes('QUALITY_GATE=PASS'),
+  );
 }
 
 function isCompletionIntent(text: string): boolean {
@@ -67,12 +71,14 @@ function findLastUserMessage(messages: MessageWithParts[]): {
 }
 
 function findTextPartIndex(parts: MessagePart[]): number {
-  return parts.findIndex((part) => part.type === 'text' && part.text !== undefined);
+  return parts.findIndex(
+    (part) => part.type === 'text' && part.text !== undefined,
+  );
 }
 
 function isDirectAgentSelection(agent: string | undefined): boolean {
   if (!agent) return false;
-  return SUBAGENT_NAMES.includes(agent as typeof SUBAGENT_NAMES[number]);
+  return SUBAGENT_NAMES.includes(agent as (typeof SUBAGENT_NAMES)[number]);
 }
 
 export function createLoopGuardHook(projectDir: string) {
@@ -94,9 +100,13 @@ export function createLoopGuardHook(projectDir: string) {
       const state = getSessionState(projectDir, sessionID);
 
       // Explicit cancel command resets loop state immediately.
-      if (isNegativeConfirmation(normalizedText) || normalizedText === 'cancel-work') {
+      if (
+        isNegativeConfirmation(normalizedText) ||
+        normalizedText === 'cancel-work'
+      ) {
         resetSessionState(projectDir, sessionID);
-        lastUser.message.parts[textPartIndex].text = `[MIYA LOOP CANCELED]\nOutput a concise final status only:\n<loop_report>\n- done: completed work\n- missing: remaining required work\n- unresolved: still broken/risky parts\n</loop_report>`;
+        lastUser.message.parts[textPartIndex].text =
+          `[MIYA LOOP CANCELED]\nOutput a concise final status only:\n<loop_report>\n- done: completed work\n- missing: remaining required work\n- unresolved: still broken/risky parts\n</loop_report>`;
         return;
       }
 
@@ -104,19 +114,24 @@ export function createLoopGuardHook(projectDir: string) {
       // In this mode, the agent executes immediately without full 6-step workflow
       if (isDirectAgentSelection(agent)) {
         // Check loop limit (don't increment here - let miya_iteration_done handle counting)
-        const window = Math.max(0, state.iterationCompleted - state.windowStartIteration);
-        
+        const window = Math.max(
+          0,
+          state.iterationCompleted - state.windowStartIteration,
+        );
+
         if (state.loopEnabled && window >= state.maxIterationsPerWindow) {
           // Loop limit reached - output report and stop
-          lastUser.message.parts[textPartIndex].text = `[MIYA DIRECT MODE - LOOP LIMIT REACHED]\nThis is iteration ${state.iterationCompleted} (limit: ${state.maxIterationsPerWindow}).\n\n<loop_report>\n- done: ${state.lastDone.join(', ') || '(none recorded)'}\n- missing: ${state.lastMissing.join(', ') || '(none recorded)'}\n- unresolved: ${state.lastUnresolved.join(', ') || '(none recorded)'}\n</loop_report>\n\n${originalText}`;
+          lastUser.message.parts[textPartIndex].text =
+            `[MIYA DIRECT MODE - LOOP LIMIT REACHED]\nThis is iteration ${state.iterationCompleted} (limit: ${state.maxIterationsPerWindow}).\n\n<loop_report>\n- done: ${state.lastDone.join(', ') || '(none recorded)'}\n- missing: ${state.lastMissing.join(', ') || '(none recorded)'}\n- unresolved: ${state.lastUnresolved.join(', ') || '(none recorded)'}\n</loop_report>\n\n${originalText}`;
           return;
         }
 
         // Add direct mode indicator but don't block execution
         if (!originalText.includes('[MIYA DIRECT MODE]')) {
-          lastUser.message.parts[textPartIndex].text = `[MIYA DIRECT MODE: ${agent}]\n你正在使用直接模式 - 立即使用你的专业能力执行，无需等待完整6步工作流。\n当前循环: ${state.iterationCompleted}/${state.maxIterationsPerWindow}。\n\n${originalText}`;
+          lastUser.message.parts[textPartIndex].text =
+            `[MIYA DIRECT MODE: ${agent}]\n你正在使用直接模式 - 立即使用你的专业能力执行，无需等待完整6步工作流。\n当前循环: ${state.iterationCompleted}/${state.maxIterationsPerWindow}。\n\n${originalText}`;
         }
-        
+
         // Note: We DON'T increment iteration here - that's handled by miya_iteration_done tool
         // This prevents double-counting
         return;
@@ -151,7 +166,8 @@ export function createLoopGuardHook(projectDir: string) {
         !hasQualityGatePass(output.messages)
       ) {
         setSessionState(projectDir, sessionID, state);
-        lastUser.message.parts[textPartIndex].text = `[MIYA STRICT QUALITY GATE BLOCK]\nCompletion is blocked because QUALITY_GATE=PASS was not found.\nCall tool \`quality_gate\` with architecture_score, docs_score, and domain_score.\nProceed only after QUALITY_GATE=PASS.`;
+        lastUser.message.parts[textPartIndex].text =
+          `[MIYA STRICT QUALITY GATE BLOCK]\nCompletion is blocked because QUALITY_GATE=PASS was not found.\nCall tool \`quality_gate\` with architecture_score, docs_score, and domain_score.\nProceed only after QUALITY_GATE=PASS.`;
         return;
       }
 
@@ -159,7 +175,8 @@ export function createLoopGuardHook(projectDir: string) {
       setSessionState(projectDir, sessionID, state);
 
       if (state.strictQualityGate) {
-        lastUser.message.parts[textPartIndex].text = `[MIYA STRICT QUALITY GATE ACTIVE]\nBefore declaring completion, call tool \`quality_gate\` and require QUALITY_GATE=PASS.\n\n---\n\n${originalText}`;
+        lastUser.message.parts[textPartIndex].text =
+          `[MIYA STRICT QUALITY GATE ACTIVE]\nBefore declaring completion, call tool \`quality_gate\` and require QUALITY_GATE=PASS.\n\n---\n\n${originalText}`;
       }
     },
   };

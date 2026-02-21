@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { resetServerCheck } from './tmux';
 
 describe('tmux utils', () => {
@@ -21,7 +21,7 @@ describe('tmux utils', () => {
   });
 
   // Note: Testing getTmuxPath, spawnTmuxPane, and closeTmuxPane requires:
-  // 1. Mocking Bun's spawn function
+  // 1. Mocking Node.js spawn function
   // 2. Mocking file system operations
   // 3. Running in a tmux environment
   // 4. Mocking HTTP fetch for server checks

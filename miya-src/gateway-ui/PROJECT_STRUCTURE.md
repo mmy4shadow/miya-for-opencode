@@ -59,16 +59,16 @@ The project uses TypeScript strict mode with additional checks:
 ### Running Tests
 ```bash
 # Run tests in watch mode
-bun run test
+npm run test
 
 # Run tests once
-bun run test:run
+npm run test:run
 
 # Run tests with UI
-bun run test:ui
+npm run test:ui
 
 # Run tests with coverage
-bun run test:coverage
+npm run test:coverage
 ```
 
 ### Test Setup
@@ -94,17 +94,17 @@ describe('MyComponent', () => {
 
 ### Starting Development Server
 ```bash
-bun run dev
+npm run dev
 ```
 
 ### Building for Production
 ```bash
-bun run build
+npm run build
 ```
 
 ### Preview Production Build
 ```bash
-bun run preview
+npm run preview
 ```
 
 ## Code Style Guidelines

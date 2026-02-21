@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import { runAutoflow } from './engine';
 import type { AutoflowCommandResult, AutoflowManager } from './types';
 
@@ -19,7 +19,9 @@ class FakeManager implements AutoflowManager {
     };
   }
 
-  async waitForCompletion(taskID: string): Promise<ReturnType<FakeManager['launch']> | null> {
+  async waitForCompletion(
+    taskID: string,
+  ): Promise<ReturnType<FakeManager['launch']> | null> {
     return {
       id: taskID,
       agent: '2-code-search',
@@ -45,7 +47,8 @@ function tempProjectDir(): string {
 }
 
 function commandResult(
-  input: Partial<AutoflowCommandResult> & Pick<AutoflowCommandResult, 'command' | 'ok'>,
+  input: Partial<AutoflowCommandResult> &
+    Pick<AutoflowCommandResult, 'command' | 'ok'>,
 ): AutoflowCommandResult {
   return {
     command: input.command,
@@ -72,7 +75,9 @@ describe('autoflow engine', () => {
     expect(result.success).toBe(false);
     expect(result.phase).toBe('planning');
     expect(result.summary).toBe('planning_requires_tasks');
-    expect(result.state.history.some((item) => item.event === 'planning_waiting')).toBe(true);
+    expect(
+      result.state.history.some((item) => item.event === 'planning_waiting'),
+    ).toBe(true);
   });
 
   test('completes after successful execution and verification', async () => {
@@ -91,7 +96,7 @@ describe('autoflow engine', () => {
           description: 'scan',
         },
       ],
-      verificationCommand: 'bun test',
+      verificationCommand: 'npm run test',
       runDag: async () => {
         dagRuns += 1;
         return {
@@ -137,8 +142,8 @@ describe('autoflow engine', () => {
           description: 'repair',
         },
       ],
-      verificationCommand: 'bun test',
-      fixCommands: ['bun run lint --fix'],
+      verificationCommand: 'npm run test',
+      fixCommands: ['npm run lint -- --fix'],
       runDag: async () => ({
         total: 1,
         completed: 1,
@@ -155,7 +160,7 @@ describe('autoflow engine', () => {
       }),
       runCommand: (command) => {
         commands.push(command);
-        if (command === 'bun test') {
+        if (command === 'npm run test') {
           verifyCount += 1;
           if (verifyCount === 1) {
             return commandResult({
@@ -173,8 +178,12 @@ describe('autoflow engine', () => {
     expect(result.success).toBe(true);
     expect(result.phase).toBe('completed');
     expect(result.state.fixRound).toBe(1);
-    expect(commands).toEqual(['bun test', 'bun run lint --fix', 'bun test']);
-    expect(result.fixResult?.command).toBe('bun run lint --fix');
+    expect(commands).toEqual([
+      'npm run test',
+      'npm run lint -- --fix',
+      'npm run test',
+    ]);
+    expect(result.fixResult?.command).toBe('npm run lint -- --fix');
   });
 
   test('fails on repeated identical verification failures', async () => {
@@ -195,8 +204,12 @@ describe('autoflow engine', () => {
           description: 'scan',
         },
       ],
-      verificationCommand: 'bun test',
-      fixCommands: ['bun run lint --fix', 'bun run lint --fix', 'bun run lint --fix'],
+      verificationCommand: 'npm run test',
+      fixCommands: [
+        'npm run lint -- --fix',
+        'npm run lint -- --fix',
+        'npm run lint -- --fix',
+      ],
       runDag: async () => ({
         total: 1,
         completed: 1,
@@ -212,7 +225,7 @@ describe('autoflow engine', () => {
         ],
       }),
       runCommand: (command) => {
-        if (command === 'bun test') {
+        if (command === 'npm run test') {
           verifyCount += 1;
           return commandResult({
             command,

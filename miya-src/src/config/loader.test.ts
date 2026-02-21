@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'vitest';
 import { loadAgentPrompt, loadPluginConfig } from './loader';
 
 // Test deepMerge indirectly through loadPluginConfig behavior
@@ -68,7 +68,9 @@ describe('loadPluginConfig', () => {
     expect(config.agents?.['2-code-search']?.model).toBe(
       'openai/gpt-5.1-codex-mini',
     );
-    expect(config.agents?.['6-ui-designer']?.model).toBe('google/gemini-2.5-pro');
+    expect(config.agents?.['6-ui-designer']?.model).toBe(
+      'google/gemini-2.5-pro',
+    );
   });
 
   test('ignores invalid config (schema violation or malformed JSON)', () => {
@@ -921,11 +923,7 @@ describe('loadAgentPrompt', () => {
     const customConfigHome = path.join(tempDir, 'custom-xdg');
     process.env.XDG_CONFIG_HOME = customConfigHome;
 
-    const promptsDir = path.join(
-      customConfigHome,
-      'opencode',
-      'miya',
-    );
+    const promptsDir = path.join(customConfigHome, 'opencode', 'miya');
     fs.mkdirSync(promptsDir, { recursive: true });
     fs.writeFileSync(path.join(promptsDir, 'xdg-agent.md'), 'xdg prompt');
 

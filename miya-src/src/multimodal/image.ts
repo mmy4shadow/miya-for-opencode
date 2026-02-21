@@ -1,11 +1,11 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { addCompanionAsset } from '../companion/store';
 import { getMiyaClient } from '../daemon';
 import { getMediaItem, ingestMedia } from '../media/store';
 import { getMiyaImageTempDir } from '../model/paths';
 import { readConfig } from '../settings';
 import { getMiyaRuntimeDir } from '../workflow';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { GenerateImageInput, GenerateImageResult } from './types';
 
 const DEFAULT_IMAGE_MODEL = 'local:flux.1-schnell';
@@ -122,7 +122,8 @@ export async function generateImage(
       };
     }
   }
-  const payloadBase64 = toBase64FromFile(inference.outputPath) ?? BLANK_PNG_BASE64;
+  const payloadBase64 =
+    toBase64FromFile(inference.outputPath) ?? BLANK_PNG_BASE64;
 
   const media = ingestMedia(projectDir, {
     source: 'multimodal.image.generate',

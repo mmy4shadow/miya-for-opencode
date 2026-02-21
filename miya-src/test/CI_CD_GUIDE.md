@@ -12,7 +12,7 @@ This document describes the CI/CD pipeline configuration for the Miya Plugin tes
 
 ### 1. Setup
 - Checkout repository
-- Setup Bun runtime (latest version)
+- Setup Node.js runtime (latest version)
 - Install dependencies with frozen lockfile
 
 ### 2. Quality Gates
@@ -26,7 +26,7 @@ The pipeline runs tests in the following order:
 
 #### Unit Tests
 ```bash
-bun run test:unit
+npm run test:unit
 ```
 - **Timeout**: 5 seconds per test
 - **Location**: `test/unit/`
@@ -35,7 +35,7 @@ bun run test:unit
 
 #### Integration Tests
 ```bash
-bun run test:integration
+npm run test:integration
 ```
 - **Timeout**: 30 seconds per test
 - **Location**: `test/integration/`
@@ -44,7 +44,7 @@ bun run test:integration
 
 #### Regression Tests
 ```bash
-bun run test:regression
+npm run test:regression
 ```
 - **Timeout**: 30 seconds per test
 - **Location**: `test/regression/`
@@ -53,7 +53,7 @@ bun run test:regression
 
 #### Adversarial Tests
 ```bash
-bun run test:adversarial
+npm run test:adversarial
 ```
 - **Timeout**: 30 seconds per test
 - **Location**: `test/adversarial/`
@@ -62,7 +62,7 @@ bun run test:adversarial
 
 #### Performance Tests
 ```bash
-bun run test:performance
+npm run test:performance
 ```
 - **Timeout**: 60 seconds per test
 - **Location**: `test/performance/`
@@ -72,7 +72,7 @@ bun run test:performance
 ### 4. Coverage Reporting
 
 ```bash
-bun run test:coverage
+npm run test:coverage
 ```
 
 Generates coverage reports in multiple formats:
@@ -147,19 +147,19 @@ Before pushing, you can run the same tests locally:
 cd miya-src
 
 # Run all checks (same as CI)
-bun run check:ci
+npm run check:ci
 
 # Run unit tests
-bun run test:unit
+npm run test:unit
 
 # Run integration tests (requires daemon)
-MIYA_RUN_INTEGRATION=1 bun run test:integration
+MIYA_RUN_INTEGRATION=1 npm run test:integration
 
 # Run regression tests
-bun run test:regression
+npm run test:regression
 
 # Generate coverage report
-bun run test:coverage
+npm run test:coverage
 ```
 
 ## Viewing Results
@@ -188,7 +188,7 @@ bun run test:coverage
 ### Tests Fail in CI but Pass Locally
 
 **Possible causes**:
-- Environment differences (Node.js vs Bun)
+- Environment differences (Node.js vs Node/Vitest)
 - Missing environment variables
 - Timing issues (CI is slower)
 - File system differences (Linux vs Windows)
@@ -319,7 +319,7 @@ exclude: [
 
 ## References
 
-- [Bun Test Runner](https://bun.sh/docs/cli/test)
+- [npx vitest run Runner](https://vitest.dev/guide/)
 - [GitHub Actions](https://docs.github.com/en/actions)
 - [Test Configuration](./config/test.config.ts)
 - [Test Execution Guide](./TEST_EXECUTION_GUIDE.md)
@@ -330,3 +330,5 @@ For issues with CI/CD:
 1. Check workflow logs in GitHub Actions
 2. Review this guide for troubleshooting steps
 3. Open an issue with workflow run URL and error logs
+
+

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
 import { Card } from './Card';
 
 describe('Card', () => {
@@ -8,7 +8,7 @@ describe('Card', () => {
     it('should apply all required CSS classes consistently', () => {
       /**
        * **Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6**
-       * 
+       *
        * Property: For any Card component rendered, it should apply all required CSS classes:
        * - Rounded corners (rounded-xl or rounded-2xl)
        * - Border (border border-slate-200)
@@ -32,7 +32,7 @@ describe('Card', () => {
                 className={props.className}
               >
                 {props.content}
-              </Card>
+              </Card>,
             );
 
             const cardElement = container.firstChild as HTMLElement;
@@ -61,16 +61,16 @@ describe('Card', () => {
 
             // Requirement 8.6: Shadow effect (shadow-sm)
             expect(cardElement).toHaveClass('shadow-sm');
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
     it('should maintain style consistency with custom className', () => {
       /**
        * **Validates: Requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6**
-       * 
+       *
        * Property: Even when custom className is provided, all required CSS classes
        * should still be applied to the Card component.
        */
@@ -81,7 +81,7 @@ describe('Card', () => {
             const { container } = render(
               <Card className={customClassName}>
                 <div>Test content</div>
-              </Card>
+              </Card>,
             );
 
             const cardElement = container.firstChild as HTMLElement;
@@ -97,13 +97,15 @@ describe('Card', () => {
             expect(cardElement).toHaveClass('shadow-sm');
 
             // Custom className should also be applied
-            const classNames = customClassName.split(/\s+/).filter((c) => c.length > 0);
+            const classNames = customClassName
+              .split(/\s+/)
+              .filter((c) => c.length > 0);
             classNames.forEach((className) => {
               expect(cardElement).toHaveClass(className);
             });
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
@@ -123,15 +125,17 @@ describe('Card', () => {
             const { container } = render(
               <Card title={props.title} subtitle={props.subtitle}>
                 <div data-testid="card-content">{props.content}</div>
-              </Card>
+              </Card>,
             );
 
-            const contentElement = container.querySelector('[data-testid="card-content"]');
+            const contentElement = container.querySelector(
+              '[data-testid="card-content"]',
+            );
             expect(contentElement).toBeInTheDocument();
             expect(contentElement?.textContent).toBe(props.content);
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
 
@@ -150,7 +154,7 @@ describe('Card', () => {
             const { container } = render(
               <Card title={props.title} subtitle={props.subtitle}>
                 <div>Content</div>
-              </Card>
+              </Card>,
             );
 
             // Check title is rendered in h3 element
@@ -162,9 +166,9 @@ describe('Card', () => {
             const subtitleElement = container.querySelector('p');
             expect(subtitleElement).toBeInTheDocument();
             expect(subtitleElement?.textContent).toBe(props.subtitle);
-          }
+          },
         ),
-        { numRuns: 100 }
+        { numRuns: 100 },
       );
     });
   });

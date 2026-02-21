@@ -78,8 +78,20 @@ interface CompanionMetadata {
     };
   };
   trainingStatus: {
-    image: 'pending' | 'training' | 'completed' | 'failed' | 'degraded' | 'canceled';
-    voice: 'pending' | 'training' | 'completed' | 'failed' | 'degraded' | 'canceled';
+    image:
+      | 'pending'
+      | 'training'
+      | 'completed'
+      | 'failed'
+      | 'degraded'
+      | 'canceled';
+    voice:
+      | 'pending'
+      | 'training'
+      | 'completed'
+      | 'failed'
+      | 'degraded'
+      | 'canceled';
   };
   sessionBinding: {
     opencodeSessionId: string;
@@ -101,7 +113,11 @@ function profilesRoot(projectDir: string): string {
 }
 
 function sessionRoot(projectDir: string, sessionId: string): string {
-  return path.join(profilesRoot(projectDir), 'sessions', normalizeSessionId(sessionId));
+  return path.join(
+    profilesRoot(projectDir),
+    'sessions',
+    normalizeSessionId(sessionId),
+  );
 }
 
 function currentProfileDir(projectDir: string, sessionId: string): string {
@@ -109,7 +125,10 @@ function currentProfileDir(projectDir: string, sessionId: string): string {
 }
 
 function wizardFilePath(projectDir: string, sessionId: string): string {
-  return path.join(currentProfileDir(projectDir, sessionId), 'wizard-state.json');
+  return path.join(
+    currentProfileDir(projectDir, sessionId),
+    'wizard-state.json',
+  );
 }
 
 function metadataPath(projectDir: string, sessionId: string): string {
@@ -122,7 +141,9 @@ function ensureProfileLayout(projectDir: string, sessionId: string): void {
   fs.mkdirSync(path.join(current, 'embeddings'), { recursive: true });
   fs.mkdirSync(path.join(current, 'lora'), { recursive: true });
   fs.mkdirSync(path.join(current, 'voice'), { recursive: true });
-  fs.mkdirSync(path.join(sessionRoot(projectDir, sessionId), 'history'), { recursive: true });
+  fs.mkdirSync(path.join(sessionRoot(projectDir, sessionId), 'history'), {
+    recursive: true,
+  });
 }
 
 function safeReadJson<T>(filePath: string): T | null {
@@ -220,9 +241,14 @@ function writeMetadata(
   return next;
 }
 
-function readMetadata(projectDir: string, sessionId: string): CompanionMetadata {
+function readMetadata(
+  projectDir: string,
+  sessionId: string,
+): CompanionMetadata {
   ensureProfileLayout(projectDir, sessionId);
-  const existing = safeReadJson<CompanionMetadata>(metadataPath(projectDir, sessionId));
+  const existing = safeReadJson<CompanionMetadata>(
+    metadataPath(projectDir, sessionId),
+  );
   if (existing) return existing;
   const created = defaultMetadata(sessionId);
   writeMetadata(projectDir, sessionId, created);
@@ -262,7 +288,10 @@ function listSessionDirs(projectDir: string): string[] {
     .map((entry) => entry.name);
 }
 
-function sessionHasWizardFile(projectDir: string, sessionDirName: string): boolean {
+function sessionHasWizardFile(
+  projectDir: string,
+  sessionDirName: string,
+): boolean {
   const file = path.join(
     profilesRoot(projectDir),
     'sessions',
@@ -289,7 +318,10 @@ function findSessionByJobId(projectDir: string, jobID: string): string | null {
   return null;
 }
 
-function resolveSessionForWrite(projectDir: string, requestedSessionId?: string): string {
+function resolveSessionForWrite(
+  projectDir: string,
+  requestedSessionId?: string,
+): string {
   if (requestedSessionId?.trim()) {
     return normalizeSessionId(requestedSessionId);
   }
@@ -297,7 +329,9 @@ function resolveSessionForWrite(projectDir: string, requestedSessionId?: string)
   if (sessions.length === 0) return 'main';
   const active = sessions.filter((sid) => {
     const state = readCompanionWizardState(projectDir, sid);
-    return state.state !== 'idle' || stateHasAssets(state) || state.jobs.length > 0;
+    return (
+      state.state !== 'idle' || stateHasAssets(state) || state.jobs.length > 0
+    );
   });
   if (active.length === 1) return active[0] as string;
   if (active.includes('main')) return 'main';
@@ -324,7 +358,10 @@ export function readCompanionWizardState(
   return writeState(projectDir, effectiveSessionId, created);
 }
 
-export function isCompanionWizardEmpty(projectDir: string, sessionId = 'main'): boolean {
+export function isCompanionWizardEmpty(
+  projectDir: string,
+  sessionId = 'main',
+): boolean {
   const state = readCompanionWizardState(projectDir, sessionId);
   if (stateHasAssets(state)) return false;
   if (state.jobs.length > 0) return false;
@@ -344,7 +381,10 @@ export function startCompanionWizard(
   }
 
   const existing = readCompanionWizardState(projectDir, sessionId);
-  if (!input?.forceReset && (stateHasAssets(existing) || existing.state !== 'idle')) {
+  if (
+    !input?.forceReset &&
+    (stateHasAssets(existing) || existing.state !== 'idle')
+  ) {
     return existing;
   }
 
@@ -364,7 +404,11 @@ export function resetCompanionWizard(
   const effectiveSessionId = normalizeSessionId(sessionId);
   moveCurrentToHistory(projectDir, effectiveSessionId);
   ensureProfileLayout(projectDir, effectiveSessionId);
-  writeMetadata(projectDir, effectiveSessionId, defaultMetadata(effectiveSessionId));
+  writeMetadata(
+    projectDir,
+    effectiveSessionId,
+    defaultMetadata(effectiveSessionId),
+  );
   return writeState(projectDir, effectiveSessionId, {
     ...defaultState(effectiveSessionId),
     state: 'idle',
@@ -416,8 +460,14 @@ function enqueueJob(
     jobs: [...state.jobs, job],
     trainingJobs: {
       ...state.trainingJobs,
-      imageJobId: input.type === 'training.image' ? job.id : state.trainingJobs.imageJobId,
-      voiceJobId: input.type === 'training.voice' ? job.id : state.trainingJobs.voiceJobId,
+      imageJobId:
+        input.type === 'training.image'
+          ? job.id
+          : state.trainingJobs.imageJobId,
+      voiceJobId:
+        input.type === 'training.voice'
+          ? job.id
+          : state.trainingJobs.voiceJobId,
     },
   };
 }
@@ -434,10 +484,17 @@ export function submitWizardPhotos(
   if (input.mediaIDs.length < 1 || input.mediaIDs.length > 5) {
     throw new Error('wizard_photo_count_invalid:must_be_1_to_5');
   }
-  const photosDir = path.join(currentProfileDir(projectDir, sessionId), 'photos');
+  const photosDir = path.join(
+    currentProfileDir(projectDir, sessionId),
+    'photos',
+  );
   fs.rmSync(photosDir, { recursive: true, force: true });
   const copied = copyMediaToProfile(projectDir, input.mediaIDs, photosDir);
-  if (copied.length < 1 || copied.length > 5 || copied.length !== input.mediaIDs.length) {
+  if (
+    copied.length < 1 ||
+    copied.length > 5 ||
+    copied.length !== input.mediaIDs.length
+  ) {
     throw new Error('wizard_photo_copy_invalid:must_be_1_to_5');
   }
 
@@ -464,7 +521,9 @@ export function submitWizardPhotos(
       ...metadata.assets,
       photos: {
         count: copied.length,
-        paths: copied.map((item) => path.relative(currentProfileDir(projectDir, sessionId), item)),
+        paths: copied.map((item) =>
+          path.relative(currentProfileDir(projectDir, sessionId), item),
+        ),
         checksums: copied.map((item) => checksumFile(item)),
       },
     },
@@ -473,7 +532,9 @@ export function submitWizardPhotos(
       image: 'pending',
     },
   });
-  const job = written.jobs.find((item) => item.id === written.trainingJobs.imageJobId);
+  const job = written.jobs.find(
+    (item) => item.id === written.trainingJobs.imageJobId,
+  );
   if (!job) throw new Error('image_job_not_created');
   return { state: written, job };
 }
@@ -526,7 +587,9 @@ export function submitWizardVoice(
       voice: 'pending',
     },
   });
-  const job = written.jobs.find((item) => item.id === written.trainingJobs.voiceJobId);
+  const job = written.jobs.find(
+    (item) => item.id === written.trainingJobs.voiceJobId,
+  );
   if (!job) throw new Error('voice_job_not_created');
   return { state: written, job };
 }
@@ -542,7 +605,10 @@ export function submitWizardPersonality(
   }
   const text = input.personalityText.trim();
   if (!text) throw new Error('invalid_personality_text');
-  const personaPath = path.join(currentProfileDir(projectDir, sessionId), 'persona.json');
+  const personaPath = path.join(
+    currentProfileDir(projectDir, sessionId),
+    'persona.json',
+  );
   const persona = {
     sourceText: text,
     generatedPrompt: `system: ${text}`,
@@ -598,7 +664,8 @@ export function markTrainingJobRunning(
   sessionId = 'main',
 ): CompanionWizardState {
   const sid = normalizeSessionId(sessionId);
-  const resolvedSession = sessionId === 'main' ? findSessionByJobId(projectDir, jobID) ?? sid : sid;
+  const resolvedSession =
+    sessionId === 'main' ? (findSessionByJobId(projectDir, jobID) ?? sid) : sid;
   const current = readCompanionWizardState(projectDir, resolvedSession);
   const updated = writeState(projectDir, resolvedSession, {
     ...current,
@@ -672,7 +739,9 @@ export function markTrainingJobFinished(
 ): CompanionWizardState {
   const sid = normalizeSessionId(input.sessionId ?? 'main');
   const resolvedSession =
-    input.sessionId == null ? findSessionByJobId(projectDir, input.jobID) ?? sid : sid;
+    input.sessionId == null
+      ? (findSessionByJobId(projectDir, input.jobID) ?? sid)
+      : sid;
   const current = readCompanionWizardState(projectDir, resolvedSession);
   const job = current.jobs.find((item) => item.id === input.jobID);
   if (!job) return current;
@@ -768,7 +837,10 @@ export function cancelCompanionWizardTraining(
   });
 }
 
-export function getCompanionProfileCurrentDir(projectDir: string, sessionId = 'main'): string {
+export function getCompanionProfileCurrentDir(
+  projectDir: string,
+  sessionId = 'main',
+): string {
   const sid = normalizeSessionId(sessionId);
   ensureProfileLayout(projectDir, sid);
   return currentProfileDir(projectDir, sid);

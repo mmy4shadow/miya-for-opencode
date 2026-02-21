@@ -1,19 +1,19 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Mock fs BEFORE importing modules
-mock.module('fs', () => ({
-  readFileSync: mock(() => ''),
-  writeFileSync: mock(),
-  unlinkSync: mock(),
-  existsSync: mock(() => true),
-  statSync: mock(() => ({ isDirectory: () => false })),
+vi.mock('fs', () => ({
+  readFileSync: vi.fn(() => ''),
+  writeFileSync: vi.fn(),
+  unlinkSync: vi.fn(),
+  existsSync: vi.fn(() => true),
+  statSync: vi.fn(() => ({ isDirectory: () => false })),
 }));
-mock.module('node:fs', () => ({
-  readFileSync: mock(() => ''),
-  writeFileSync: mock(),
-  unlinkSync: mock(),
-  existsSync: mock(() => true),
-  statSync: mock(() => ({ isDirectory: () => false })),
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn(() => ''),
+  writeFileSync: vi.fn(),
+  unlinkSync: vi.fn(),
+  existsSync: vi.fn(() => true),
+  statSync: vi.fn(() => ({ isDirectory: () => false })),
 }));
 
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';

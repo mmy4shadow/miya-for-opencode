@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { SecurityPage } from './SecurityPage';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as useGatewayModule from '../hooks/useGateway';
 import type { GatewaySnapshot } from '../types/gateway';
+import { SecurityPage } from './SecurityPage';
 
 vi.mock('../hooks/useGateway', () => ({
   useGateway: vi.fn(),
@@ -266,7 +266,10 @@ describe('SecurityPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '运行中' }));
 
     await waitFor(() => {
-      expect(mockTogglePolicyDomain).toHaveBeenCalledWith('desktop_control', true);
+      expect(mockTogglePolicyDomain).toHaveBeenCalledWith(
+        'desktop_control',
+        true,
+      );
     });
   });
 
