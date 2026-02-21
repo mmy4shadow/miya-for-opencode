@@ -68,12 +68,13 @@ global DockState := {
   openCodeMissSince: 0
 }
 
-defaultGatewayFile := A_ScriptDir "\..\..\.opencode\miya\gateway.json"
+defaultGatewayPrimary := A_ScriptDir "\..\..\.opencode\miya\gateway.json"
+defaultGatewayAlternate := A_ScriptDir "\..\..\miya-src\.opencode\miya\gateway.json"
 argGatewayFile := A_Args.Length >= 1 ? A_Args[1] : ""
 if (argGatewayFile != "" && FileExist(argGatewayFile)) {
   DockState.gatewayFile := argGatewayFile
 } else {
-  DockState.gatewayFile := defaultGatewayFile
+  DockState.gatewayFile := ResolveGatewayFile(defaultGatewayPrimary, defaultGatewayAlternate)
 }
 DockState.gatewayUrl := ReadGatewayUrl(DockState.gatewayFile)
 if (DockState.gatewayUrl = "") {
@@ -875,10 +876,41 @@ ReadGatewayUrl(filePath) {
     return ""
   }
   text := FileRead(filePath, "UTF-8")
+  if RegExMatch(text, '"controlUrl"\s*:\s*"([^"]+)"', &mControl) {
+    return NormalizeGatewayUiUrl(mControl[1])
+  }
   if RegExMatch(text, '"url"\s*:\s*"([^"]+)"', &m) {
-    return m[1]
+    return NormalizeGatewayUiUrl(m[1])
   }
   return ""
+}
+
+ResolveGatewayFile(primaryPath, alternatePath) {
+  primaryExists := FileExist(primaryPath)
+  alternateExists := FileExist(alternatePath)
+  if (!primaryExists && !alternateExists) {
+    return primaryPath
+  }
+  if (primaryExists && !alternateExists) {
+    return primaryPath
+  }
+  if (!primaryExists && alternateExists) {
+    return alternatePath
+  }
+  primaryMtime := FileGetTime(primaryPath, "M")
+  alternateMtime := FileGetTime(alternatePath, "M")
+  return (alternateMtime >= primaryMtime) ? alternatePath : primaryPath
+}
+
+NormalizeGatewayUiUrl(url) {
+  clean := Trim(url)
+  if (clean = "") {
+    return ""
+  }
+  if RegExMatch(clean, "^https?://[^/]+/?$") {
+    return RTrim(clean, "/") "/control"
+  }
+  return clean
 }
 
 IsGatewayReachable(url) {

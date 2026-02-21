@@ -6,6 +6,7 @@ import type {
   CompanionMemoryCorrection,
   CompanionMemoryVector,
   MemoryEvidenceRef,
+  MemoryQuoteSpan,
   MemoryShortTermLog,
 } from './memory-types';
 
@@ -27,14 +28,19 @@ interface SqlDatabase {
 function createSqlDatabase(file: string): SqlDatabase {
   try {
     const bunSqlite = require('bun:sqlite') as {
-      Database: new (dbPath: string, options?: { create?: boolean; strict?: boolean }) => SqlDatabase;
+      Database: new (
+        dbPath: string,
+        options?: { create?: boolean; strict?: boolean },
+      ) => SqlDatabase;
     };
     return new bunSqlite.Database(file, { create: true, strict: false });
   } catch {}
 
   try {
     const nodeSqlite = require('node:sqlite') as {
-      DatabaseSync: new (dbPath: string) => {
+      DatabaseSync: new (
+        dbPath: string,
+      ) => {
         exec: (sql: string) => unknown;
         prepare: (sql: string) => {
           run: (...params: unknown[]) => unknown;
@@ -46,7 +52,7 @@ function createSqlDatabase(file: string): SqlDatabase {
     };
     const nodeDb = new nodeSqlite.DatabaseSync(file);
     const tx = <T extends (...args: any[]) => unknown>(fn: T): T =>
-      (((...args: Parameters<T>) => {
+      ((...args: Parameters<T>) => {
         nodeDb.exec('BEGIN');
         try {
           const result = fn(...args);
@@ -58,7 +64,7 @@ function createSqlDatabase(file: string): SqlDatabase {
           } catch {}
           throw error;
         }
-      }) as T);
+      }) as T;
     return {
       exec: (sql: string) => nodeDb.exec(sql),
       query: (sql: string) => {
@@ -79,6 +85,32 @@ function createSqlDatabase(file: string): SqlDatabase {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function normalizeText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+function textToEmbeddingLite(text: string, dims = 96): number[] {
+  const vec = new Array<number>(dims).fill(0);
+  const parts = normalizeText(text)
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+  if (parts.length === 0) return vec;
+  for (const part of parts) {
+    let hash = 0;
+    for (let i = 0; i < part.length; i += 1) {
+      hash = (hash * 31 + part.charCodeAt(i)) >>> 0;
+    }
+    for (let i = 0; i < 8; i += 1) {
+      const idx = (hash + i * 17) % dims;
+      vec[idx] += 1 + ((hash >>> (i % 16)) & 0x3);
+    }
+  }
+  const norm = Math.sqrt(vec.reduce((sum, value) => sum + value * value, 0));
+  if (norm <= 0) return vec;
+  return vec.map((value) => value / norm);
 }
 
 function memoryDir(projectDir: string): string {
@@ -204,10 +236,18 @@ function ensureSchema(db: SqlDatabase): void {
     );
   `);
 
-  db.exec('CREATE INDEX IF NOT EXISTS idx_mem_cells_status_domain ON mem_cells(status, domain);');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_mem_cells_conflict_key ON mem_cells(conflict_key);');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_raw_logs_processed ON raw_logs(processed_at, at);');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_memory_events_created ON memory_events(created_at);');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_mem_cells_status_domain ON mem_cells(status, domain);',
+  );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_mem_cells_conflict_key ON mem_cells(conflict_key);',
+  );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_raw_logs_processed ON raw_logs(processed_at, at);',
+  );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_memory_events_created ON memory_events(created_at);',
+  );
 
   try {
     db.exec(`
@@ -250,7 +290,9 @@ function rowToMemory(row: Record<string, unknown>): CompanionMemoryVector {
     id: String(row.id ?? ''),
     text: String(row.text ?? ''),
     memoryKind:
-      row.kind === 'Fact' || row.kind === 'Insight' || row.kind === 'UserPreference'
+      row.kind === 'Fact' ||
+      row.kind === 'Insight' ||
+      row.kind === 'UserPreference'
         ? (row.kind as 'Fact' | 'Insight' | 'UserPreference')
         : undefined,
     source: String(row.source ?? 'manual'),
@@ -269,7 +311,9 @@ function rowToMemory(row: Record<string, unknown>): CompanionMemoryVector {
     predicate: String(row.predicate ?? 'fact'),
     object: String(row.object ?? ''),
     polarity:
-      row.polarity === 'positive' || row.polarity === 'negative' || row.polarity === 'neutral'
+      row.polarity === 'positive' ||
+      row.polarity === 'negative' ||
+      row.polarity === 'neutral'
         ? (row.polarity as 'positive' | 'negative' | 'neutral')
         : 'neutral',
     sourceMessageID:
@@ -283,20 +327,26 @@ function rowToMemory(row: Record<string, unknown>): CompanionMemoryVector {
       row.source_type === 'direct_correction'
         ? (row.source_type as CompanionMemoryVector['sourceType'])
         : 'manual',
-    status: String(row.status ?? 'candidate') as CompanionMemoryVector['status'],
+    status: String(
+      row.status ?? 'candidate',
+    ) as CompanionMemoryVector['status'],
     conflictKey:
       typeof row.conflict_key === 'string' && row.conflict_key.trim()
         ? String(row.conflict_key)
         : undefined,
     conflictWizardID:
-      typeof row.conflict_wizard_id === 'string' && row.conflict_wizard_id.trim()
+      typeof row.conflict_wizard_id === 'string' &&
+      row.conflict_wizard_id.trim()
         ? String(row.conflict_wizard_id)
         : undefined,
     supersededBy:
       typeof row.superseded_by === 'string' && row.superseded_by.trim()
         ? String(row.superseded_by)
         : undefined,
-    evidenceRef: safeJsonParse<MemoryEvidenceRef | undefined>(row.evidence_ref_json, undefined),
+    evidenceRef: safeJsonParse<MemoryEvidenceRef | undefined>(
+      row.evidence_ref_json,
+      undefined,
+    ),
     accessCount: Number(row.access_count ?? 0),
     isArchived: Number(row.is_archived ?? 0) === 1,
     createdAt: String(row.created_at ?? nowIso()),
@@ -305,12 +355,17 @@ function rowToMemory(row: Record<string, unknown>): CompanionMemoryVector {
   };
 }
 
-function rowToCorrection(row: Record<string, unknown>): CompanionMemoryCorrection {
+function rowToCorrection(
+  row: Record<string, unknown>,
+): CompanionMemoryCorrection {
   return {
     id: String(row.id ?? ''),
     conflictKey: String(row.conflict_key ?? ''),
     candidateMemoryID: String(row.candidate_memory_id ?? ''),
-    existingMemoryIDs: safeJsonParse<string[]>(row.existing_memory_ids_json, []),
+    existingMemoryIDs: safeJsonParse<string[]>(
+      row.existing_memory_ids_json,
+      [],
+    ),
     status:
       row.status === 'resolved' || row.status === 'rejected'
         ? (row.status as 'resolved' | 'rejected')
@@ -320,7 +375,10 @@ function rowToCorrection(row: Record<string, unknown>): CompanionMemoryCorrectio
   };
 }
 
-export function withMemoryDb<T>(projectDir: string, fn: (db: SqlDatabase) => T): T {
+export function withMemoryDb<T>(
+  projectDir: string,
+  fn: (db: SqlDatabase) => T,
+): T {
   let db: SqlDatabase | null = null;
   try {
     db = openDatabase(projectDir);
@@ -335,13 +393,18 @@ export function withMemoryDb<T>(projectDir: string, fn: (db: SqlDatabase) => T):
 export function listMemoryCells(projectDir: string): CompanionMemoryVector[] {
   return withMemoryDb(projectDir, (db) => {
     const rows = db
-      .query('SELECT * FROM mem_cells ORDER BY datetime(updated_at) DESC, id DESC')
+      .query(
+        'SELECT * FROM mem_cells ORDER BY datetime(updated_at) DESC, id DESC',
+      )
       .all() as Record<string, unknown>[];
     return rows.map(rowToMemory);
   });
 }
 
-export function getMemoryCell(projectDir: string, id: string): CompanionMemoryVector | null {
+export function getMemoryCell(
+  projectDir: string,
+  id: string,
+): CompanionMemoryVector | null {
   return withMemoryDb(projectDir, (db) => {
     const row = db.query('SELECT * FROM mem_cells WHERE id = ?').get(id) as
       | Record<string, unknown>
@@ -350,7 +413,10 @@ export function getMemoryCell(projectDir: string, id: string): CompanionMemoryVe
   });
 }
 
-export function upsertMemoryCell(projectDir: string, item: CompanionMemoryVector): CompanionMemoryVector {
+export function upsertMemoryCell(
+  projectDir: string,
+  item: CompanionMemoryVector,
+): CompanionMemoryVector {
   return withMemoryDb(projectDir, (db) => {
     db.query(`
       INSERT INTO mem_cells (
@@ -414,7 +480,10 @@ export function upsertMemoryCell(projectDir: string, item: CompanionMemoryVector
   });
 }
 
-export function upsertMemoryCells(projectDir: string, items: CompanionMemoryVector[]): void {
+export function upsertMemoryCells(
+  projectDir: string,
+  items: CompanionMemoryVector[],
+): void {
   withMemoryDb(projectDir, (db) => {
     const run = db.transaction(() => {
       const stmt = db.query(`
@@ -483,10 +552,14 @@ export function upsertMemoryCells(projectDir: string, items: CompanionMemoryVect
   });
 }
 
-export function listMemoryCorrections(projectDir: string): CompanionMemoryCorrection[] {
+export function listMemoryCorrections(
+  projectDir: string,
+): CompanionMemoryCorrection[] {
   return withMemoryDb(projectDir, (db) => {
     const rows = db
-      .query('SELECT * FROM memory_corrections ORDER BY datetime(updated_at) DESC, id DESC')
+      .query(
+        'SELECT * FROM memory_corrections ORDER BY datetime(updated_at) DESC, id DESC',
+      )
       .all() as Record<string, unknown>[];
     return rows.map(rowToCorrection);
   });
@@ -591,7 +664,9 @@ export function markRawLogsProcessed(
   if (logIDs.length === 0) return 0;
   return withMemoryDb(projectDir, (db) => {
     const tx = db.transaction(() => {
-      const stmt = db.query('UPDATE raw_logs SET processed_at = ?, processed_job_id = ? WHERE id = ?');
+      const stmt = db.query(
+        'UPDATE raw_logs SET processed_at = ?, processed_job_id = ? WHERE id = ?',
+      );
       let touched = 0;
       for (const id of logIDs) {
         stmt.run(processedAt, jobID, id);
@@ -709,13 +784,192 @@ export function upsertEvidencePack(
   });
 }
 
+export interface ReflectCandidateInput {
+  kind: 'Fact' | 'Insight' | 'UserPreference';
+  subject: 'User' | 'Miya';
+  predicate: string;
+  object: string;
+  confidence: number;
+  tier: 'L0' | 'L1' | 'L2';
+  domain: 'work' | 'relationship' | 'personal' | 'system';
+  sourceLogID: string;
+  quotes: MemoryQuoteSpan[];
+}
+
+export function constructReflectBatch(
+  projectDir: string,
+  input: {
+    jobID: string;
+    auditID: string;
+    processedAt: string;
+    policyHash?: string;
+    pickedLogs: MemoryShortTermLog[];
+    triplets: ReflectCandidateInput[];
+    evidenceMeta: Record<string, unknown>;
+    evidencePayload: Record<string, unknown>;
+    reflectStats?: {
+      generatedFacts: number;
+      generatedInsights: number;
+      generatedPreferences: number;
+    };
+  },
+): { createdMemories: CompanionMemoryVector[]; processedLogs: number } {
+  return withMemoryDb(projectDir, (db) => {
+    const createdMemories: CompanionMemoryVector[] = [];
+    const tx = db.transaction(() => {
+      db.query(`
+        INSERT INTO evidence_packs (audit_id, meta_json, payload_json, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(audit_id) DO UPDATE SET
+          meta_json=excluded.meta_json,
+          payload_json=excluded.payload_json,
+          created_at=excluded.created_at
+      `).run(
+        input.auditID,
+        JSON.stringify(input.evidenceMeta ?? {}),
+        JSON.stringify(input.evidencePayload ?? {}),
+        input.processedAt,
+      );
+
+      const memoryInsert = db.query(`
+        INSERT INTO mem_cells (
+          id, domain, kind, subject, predicate, object, text, polarity, confidence, tier, status,
+          conflict_key, source, source_type, source_message_id, evidence_ref_json, score, embedding_json,
+          access_count, is_archived, conflict_wizard_id, superseded_by, created_at, updated_at, last_accessed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const eventInsert = db.query(`
+        INSERT OR IGNORE INTO memory_events (
+          event_id, event_type, entity_type, entity_id, payload_json, policy_hash, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const triplet of input.triplets) {
+        const id = `mem_${Math.random().toString(36).slice(2, 10)}_${Math.random().toString(36).slice(2, 10)}`;
+        const text =
+          `${triplet.subject} ${triplet.predicate} ${triplet.object}`.trim();
+        const embedding = textToEmbeddingLite(text);
+        const evidenceRef: MemoryEvidenceRef = {
+          auditID: input.auditID,
+          sourceLogIDs: [triplet.sourceLogID],
+          quoteSpans: triplet.quotes,
+        };
+        const record: CompanionMemoryVector = {
+          id,
+          text,
+          memoryKind: triplet.kind,
+          source: 'reflect',
+          embedding,
+          score: 1,
+          confidence: triplet.confidence,
+          tier: triplet.tier,
+          domain: triplet.domain,
+          subject: triplet.subject,
+          predicate: triplet.predicate,
+          object: triplet.object,
+          polarity: 'neutral',
+          sourceMessageID: triplet.sourceLogID,
+          sourceType: 'reflect',
+          status: 'candidate',
+          conflictKey: undefined,
+          conflictWizardID: undefined,
+          supersededBy: undefined,
+          evidenceRef,
+          accessCount: 0,
+          isArchived: false,
+          createdAt: input.processedAt,
+          updatedAt: input.processedAt,
+          lastAccessedAt: input.processedAt,
+        };
+        memoryInsert.run(
+          record.id,
+          record.domain ?? 'work',
+          record.memoryKind ?? 'Fact',
+          record.subject ?? 'User',
+          record.predicate ?? 'fact',
+          record.object ?? '',
+          record.text,
+          record.polarity ?? 'neutral',
+          record.confidence,
+          record.tier,
+          record.status,
+          null,
+          record.source,
+          record.sourceType ?? 'reflect',
+          record.sourceMessageID ?? null,
+          JSON.stringify(record.evidenceRef),
+          record.score,
+          JSON.stringify(record.embedding),
+          record.accessCount,
+          record.isArchived ? 1 : 0,
+          null,
+          null,
+          record.createdAt,
+          record.updatedAt,
+          record.lastAccessedAt,
+        );
+        eventInsert.run(
+          `evt_${record.id}`,
+          'memory_candidate_created',
+          'mem_cell',
+          record.id,
+          JSON.stringify({
+            status: record.status,
+            sourceType: record.sourceType,
+            source: 'reflect',
+            hasEvidence: true,
+          }),
+          input.policyHash ?? null,
+          input.processedAt,
+        );
+        createdMemories.push(record);
+      }
+
+      const markStmt = db.query(
+        'UPDATE raw_logs SET processed_at = ?, processed_job_id = ? WHERE id = ?',
+      );
+      for (const row of input.pickedLogs) {
+        markStmt.run(input.processedAt, input.jobID, row.id);
+      }
+
+      eventInsert.run(
+        `evt_${input.jobID}`,
+        'reflect_completed',
+        'reflect_job',
+        input.jobID,
+        JSON.stringify({
+          auditID: input.auditID,
+          processedLogs: input.pickedLogs.length,
+          generatedTriplets: input.triplets.length,
+          generatedFacts: input.reflectStats?.generatedFacts ?? 0,
+          generatedInsights: input.reflectStats?.generatedInsights ?? 0,
+          generatedPreferences: input.reflectStats?.generatedPreferences ?? 0,
+        }),
+        input.policyHash ?? null,
+        input.processedAt,
+      );
+    });
+    tx();
+    return {
+      createdMemories,
+      processedLogs: input.pickedLogs.length,
+    };
+  });
+}
+
 export function getEvidencePack(
   projectDir: string,
   auditID: string,
-): { auditID: string; meta: Record<string, unknown>; payload: Record<string, unknown>; createdAt: string } | null {
+): {
+  auditID: string;
+  meta: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  createdAt: string;
+} | null {
   return withMemoryDb(projectDir, (db) => {
     const row = db
-      .query('SELECT audit_id, meta_json, payload_json, created_at FROM evidence_packs WHERE audit_id = ?')
+      .query(
+        'SELECT audit_id, meta_json, payload_json, created_at FROM evidence_packs WHERE audit_id = ?',
+      )
       .get(auditID) as Record<string, unknown> | undefined;
     if (!row) return null;
     return {
@@ -736,7 +990,11 @@ export function buildMemoryPack(
     l0Limit?: number;
     l1Limit?: number;
   },
-): { l0: string[]; l1: Array<{ text: string; confidence: number; at: string }>; l2: string[] } {
+): {
+  l0: string[];
+  l1: Array<{ text: string; confidence: number; at: string }>;
+  l2: string[];
+} {
   const domain = input.domain ?? 'work';
   const mode = input.mode ?? 'execution';
   const l0Limit = Math.max(1, Math.min(20, input.l0Limit ?? 10));
@@ -754,7 +1012,11 @@ export function buildMemoryPack(
       .all(domain) as Record<string, unknown>[];
 
     const filtered = queryText
-      ? candidates.filter((row) => String(row.text ?? '').toLowerCase().includes(queryText.toLowerCase()))
+      ? candidates.filter((row) =>
+          String(row.text ?? '')
+            .toLowerCase()
+            .includes(queryText.toLowerCase()),
+        )
       : candidates;
     const base = (filtered.length > 0 ? filtered : candidates).slice(0, 100);
 
@@ -773,7 +1035,12 @@ export function buildMemoryPack(
       }));
 
     const l2 = base
-      .map((row) => safeJsonParse<MemoryEvidenceRef | undefined>(row.evidence_ref_json, undefined))
+      .map((row) =>
+        safeJsonParse<MemoryEvidenceRef | undefined>(
+          row.evidence_ref_json,
+          undefined,
+        ),
+      )
       .filter((item): item is MemoryEvidenceRef => Boolean(item?.auditID))
       .map((item) => `miya://audit/evidence/${item.auditID}`);
 
@@ -797,9 +1064,15 @@ function buildMemoryProfile(
   candidateCount: number;
   topConstraints: string[];
 } {
-  const rows = listMemoryCells(projectDir).filter((row) => (domain ? row.domain === domain : true));
-  const active = rows.filter((row) => row.status === 'active' && !row.isArchived);
-  const candidates = rows.filter((row) => row.status === 'candidate' || row.status === 'pending');
+  const rows = listMemoryCells(projectDir).filter((row) =>
+    domain ? row.domain === domain : true,
+  );
+  const active = rows.filter(
+    (row) => row.status === 'active' && !row.isArchived,
+  );
+  const candidates = rows.filter(
+    (row) => row.status === 'candidate' || row.status === 'pending',
+  );
   const topConstraints = active
     .filter((row) => row.tier === 'L0')
     .slice(0, 12)
@@ -835,7 +1108,9 @@ export function resolveContextFsUri(
     const params = new URLSearchParams(question);
     const since = params.get('since') || undefined;
     const limitValue = Number(params.get('limit') ?? '200');
-    const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(2000, limitValue)) : 200;
+    const limit = Number.isFinite(limitValue)
+      ? Math.max(1, Math.min(2000, limitValue))
+      : 200;
     return {
       uri: target,
       data: listMemoryEvents(projectDir, { since, limit }),
@@ -862,7 +1137,10 @@ export function resolveContextFsUri(
     const params = new URLSearchParams(question);
     const domainRaw = params.get('domain');
     const domain =
-      domainRaw === 'work' || domainRaw === 'relationship' || domainRaw === 'personal' || domainRaw === 'system'
+      domainRaw === 'work' ||
+      domainRaw === 'relationship' ||
+      domainRaw === 'personal' ||
+      domainRaw === 'system'
         ? domainRaw
         : undefined;
     return {
@@ -922,31 +1200,63 @@ export function getCompanionMemorySqliteStats(projectDir: string): {
   const dbPath = sqlitePath(projectDir);
   return withMemoryDb(projectDir, (db) => {
     const memoryCount = Number(
-      (db.query('SELECT COUNT(1) AS c FROM mem_cells').get() as { c?: number } | null)?.c ?? 0,
+      (
+        db.query('SELECT COUNT(1) AS c FROM mem_cells').get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const candidateCount = Number(
-      (db.query("SELECT COUNT(1) AS c FROM mem_cells WHERE status IN ('candidate','pending')").get() as {
-        c?: number;
-      } | null)?.c ?? 0,
+      (
+        db
+          .query(
+            "SELECT COUNT(1) AS c FROM mem_cells WHERE status IN ('candidate','pending')",
+          )
+          .get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const activeCount = Number(
-      (db.query("SELECT COUNT(1) AS c FROM mem_cells WHERE status = 'active'").get() as {
-        c?: number;
-      } | null)?.c ?? 0,
+      (
+        db
+          .query("SELECT COUNT(1) AS c FROM mem_cells WHERE status = 'active'")
+          .get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const rawLogCount = Number(
-      (db.query('SELECT COUNT(1) AS c FROM raw_logs').get() as { c?: number } | null)?.c ?? 0,
+      (
+        db.query('SELECT COUNT(1) AS c FROM raw_logs').get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const pendingRawLogCount = Number(
-      (db.query('SELECT COUNT(1) AS c FROM raw_logs WHERE processed_at IS NULL').get() as {
-        c?: number;
-      } | null)?.c ?? 0,
+      (
+        db
+          .query(
+            'SELECT COUNT(1) AS c FROM raw_logs WHERE processed_at IS NULL',
+          )
+          .get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const evidenceCount = Number(
-      (db.query('SELECT COUNT(1) AS c FROM evidence_packs').get() as { c?: number } | null)?.c ?? 0,
+      (
+        db.query('SELECT COUNT(1) AS c FROM evidence_packs').get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
     const eventCount = Number(
-      (db.query('SELECT COUNT(1) AS c FROM memory_events').get() as { c?: number } | null)?.c ?? 0,
+      (
+        db.query('SELECT COUNT(1) AS c FROM memory_events').get() as {
+          c?: number;
+        } | null
+      )?.c ?? 0,
     );
 
     return {
@@ -965,4 +1275,7 @@ export function getCompanionMemorySqliteStats(projectDir: string): {
 }
 
 // Deprecated no-op: kept for compatibility with older callers.
-export function syncCompanionMemoriesToSqlite(_projectDir: string, _items: CompanionMemoryVector[]): void {}
+export function syncCompanionMemoriesToSqlite(
+  _projectDir: string,
+  _items: CompanionMemoryVector[],
+): void {}

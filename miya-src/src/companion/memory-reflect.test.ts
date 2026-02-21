@@ -2,13 +2,18 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { listPendingCompanionMemoryVectors } from './memory-vector';
 import {
   appendShortTermMemoryLog,
   maybeAutoReflectCompanionMemory,
   maybeReflectOnSessionEnd,
   reflectCompanionMemory,
 } from './memory-reflect';
+import {
+  getEvidencePack,
+  listMemoryEvents,
+  listRawMemoryLogs,
+} from './memory-sqlite';
+import { listPendingCompanionMemoryVectors } from './memory-vector';
 
 function tempProjectDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'miya-memory-reflect-test-'));
@@ -37,6 +42,22 @@ describe('companion memory reflect', () => {
     expect(pending.length).toBeGreaterThanOrEqual(2);
     expect(pending.some((item) => item.text.includes('likes'))).toBe(true);
     expect(pending.some((item) => item.text.includes('dislikes'))).toBe(true);
+
+    const evidence = getEvidencePack(projectDir, result.auditID);
+    expect(evidence?.auditID).toBe(result.auditID);
+    const events = listMemoryEvents(projectDir, { limit: 200 });
+    expect(
+      events.some(
+        (item) =>
+          item.eventType === 'reflect_completed' &&
+          item.entityID === result.jobID,
+      ),
+    ).toBe(true);
+    const leftPendingLogs = listRawMemoryLogs(projectDir, {
+      pendingOnly: true,
+      limit: 20,
+    });
+    expect(leftPendingLogs.length).toBe(0);
   });
 
   test('deduplicates short-term logs by message hash', () => {

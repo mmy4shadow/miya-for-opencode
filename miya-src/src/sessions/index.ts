@@ -1,7 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  decryptSensitiveValue,
+  encryptSensitiveValue,
+} from '../security/system-keyring';
 import { getMiyaRuntimeDir } from '../workflow';
-import { decryptSensitiveValue, encryptSensitiveValue } from '../security/system-keyring';
 
 export type SessionKind = 'opencode' | 'channel' | 'wizard' | 'system';
 export type SessionActivation = 'active' | 'queued' | 'muted';
@@ -28,6 +31,12 @@ export interface MiyaSession {
   routing: {
     opencodeSessionID: string;
     agent: string;
+  };
+  recovery?: {
+    recoverable: boolean;
+    reasonCode?: string;
+    from?: 'autoflow' | 'daemon' | 'session';
+    updatedAt: string;
   };
   queue: MiyaQueuedMessage[];
   createdAt: string;
@@ -71,13 +80,19 @@ function readStore(projectDir: string): SessionStore {
     for (const [id, session] of Object.entries(parsed.sessions ?? {})) {
       normalized.sessions[id] = {
         ...session,
-        groupId: decryptSensitiveValue(projectDir, String(session.groupId ?? '')),
+        groupId: decryptSensitiveValue(
+          projectDir,
+          String(session.groupId ?? ''),
+        ),
         title:
           typeof session.title === 'string'
             ? decryptSensitiveValue(projectDir, session.title)
             : session.title,
         routing: {
-          ...(session.routing ?? { opencodeSessionID: 'main', agent: '1-task-manager' }),
+          ...(session.routing ?? {
+            opencodeSessionID: 'main',
+            agent: '1-task-manager',
+          }),
           opencodeSessionID: decryptSensitiveValue(
             projectDir,
             String(session.routing?.opencodeSessionID ?? 'main'),
@@ -87,7 +102,10 @@ function readStore(projectDir: string): SessionStore {
           ? session.queue.map((item) => ({
               ...item,
               text: decryptSensitiveValue(projectDir, String(item.text ?? '')),
-              source: decryptSensitiveValue(projectDir, String(item.source ?? '')),
+              source: decryptSensitiveValue(
+                projectDir,
+                String(item.source ?? ''),
+              ),
             }))
           : [],
       } as MiyaSession;
@@ -111,7 +129,10 @@ function writeStore(projectDir: string, store: SessionStore): void {
         : session.title,
       routing: {
         ...session.routing,
-        opencodeSessionID: encryptSensitiveValue(projectDir, session.routing.opencodeSessionID),
+        opencodeSessionID: encryptSensitiveValue(
+          projectDir,
+          session.routing.opencodeSessionID,
+        ),
       },
       queue: session.queue.map((item) => ({
         ...item,
@@ -129,12 +150,29 @@ function sanitizeSession(value: MiyaSession): MiyaSession {
     policy: {
       activation: value.policy?.activation ?? DEFAULT_POLICY.activation,
       reply: value.policy?.reply ?? DEFAULT_POLICY.reply,
-      queueStrategy: value.policy?.queueStrategy ?? DEFAULT_POLICY.queueStrategy,
+      queueStrategy:
+        value.policy?.queueStrategy ?? DEFAULT_POLICY.queueStrategy,
     },
     routing: {
       opencodeSessionID: value.routing?.opencodeSessionID ?? 'main',
       agent: value.routing?.agent ?? '1-task-manager',
     },
+    recovery: value.recovery
+      ? {
+          recoverable: value.recovery.recoverable !== false,
+          reasonCode:
+            typeof value.recovery.reasonCode === 'string'
+              ? value.recovery.reasonCode
+              : undefined,
+          from:
+            value.recovery.from === 'autoflow' ||
+            value.recovery.from === 'daemon' ||
+            value.recovery.from === 'session'
+              ? value.recovery.from
+              : 'session',
+          updatedAt: value.recovery.updatedAt || nowIso(),
+        }
+      : undefined,
     queue: Array.isArray(value.queue) ? value.queue : [],
   };
 }
@@ -146,7 +184,10 @@ export function listSessions(projectDir: string): MiyaSession[] {
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
-export function getSession(projectDir: string, sessionID: string): MiyaSession | null {
+export function getSession(
+  projectDir: string,
+  sessionID: string,
+): MiyaSession | null {
   const store = readStore(projectDir);
   const session = store.sessions[sessionID];
   return session ? sanitizeSession(session) : null;
@@ -175,7 +216,9 @@ export function upsertSession(
     policy: existing?.policy ?? DEFAULT_POLICY,
     routing: {
       opencodeSessionID:
-        input.routingSessionID ?? existing?.routing?.opencodeSessionID ?? 'main',
+        input.routingSessionID ??
+        existing?.routing?.opencodeSessionID ??
+        'main',
       agent: input.agent ?? existing?.routing?.agent ?? '1-task-manager',
     },
     queue: existing?.queue ?? [],
@@ -261,4 +304,36 @@ export function dequeueSessionMessage(
   };
   writeStore(projectDir, store);
   return first;
+}
+
+export function setSessionRecoveryReason(
+  projectDir: string,
+  input: {
+    sessionID: string;
+    recoverable: boolean;
+    reasonCode: string;
+    from?: 'autoflow' | 'daemon' | 'session';
+  },
+): MiyaSession {
+  const existing =
+    getSession(projectDir, input.sessionID) ??
+    upsertSession(projectDir, {
+      id: input.sessionID,
+      kind: input.sessionID.startsWith('opencode:') ? 'opencode' : 'channel',
+      groupId: input.sessionID,
+    });
+  const store = readStore(projectDir);
+  const next: MiyaSession = sanitizeSession({
+    ...existing,
+    recovery: {
+      recoverable: Boolean(input.recoverable),
+      reasonCode: input.reasonCode.trim(),
+      from: input.from ?? 'session',
+      updatedAt: nowIso(),
+    },
+    updatedAt: nowIso(),
+  });
+  store.sessions[input.sessionID] = next;
+  writeStore(projectDir, store);
+  return next;
 }

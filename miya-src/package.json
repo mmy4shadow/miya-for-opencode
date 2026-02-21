@@ -34,11 +34,11 @@
     "tools/miya-dock"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm && bun build src/cli/index.ts --outdir dist/cli --target node --format esm && tsc --emitDeclarationOnly",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm && bun build src/cli/index.ts --outdir dist/cli --target node --format esm && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
-    "test": "bun test --cwd src --max-concurrency=1 && bun test --cwd test --max-concurrency=1 && bun --cwd gateway-ui run test:run",
+    "test": "bun test --cwd src --max-concurrency=1 && bun test --cwd test --max-concurrency=1 && bun run --cwd gateway-ui test:run",
     "test:core": "bun test --cwd src --max-concurrency=1 && bun test --cwd test --max-concurrency=1",
-    "test:ui": "bun --cwd gateway-ui run test:run",
+    "test:ui": "bun run --cwd gateway-ui test:run",
     "test:integration": "bun test --max-concurrency=1 src/integration",
     "test:integration:report": "bun run tools/run-integration-suite.ts",
     "check:contracts": "bun run tools/hook-contract-check.ts",

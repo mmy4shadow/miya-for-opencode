@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 interface ProbeOptions {
   url: string;
@@ -23,13 +23,22 @@ function parseArgs(argv: string[]): ProbeOptions {
   }
   return {
     url: map.get('url') || 'http://127.0.0.1:17321',
-    rounds: Math.max(1, Math.min(200, Math.floor(Number(map.get('rounds') || 20)))),
-    waitMs: Math.max(50, Math.min(5000, Math.floor(Number(map.get('waitMs') || 250)))),
+    rounds: Math.max(
+      1,
+      Math.min(200, Math.floor(Number(map.get('rounds') || 20))),
+    ),
+    waitMs: Math.max(
+      50,
+      Math.min(5000, Math.floor(Number(map.get('waitMs') || 250))),
+    ),
     strictDaemon: map.get('strictDaemon') === 'true',
   };
 }
 
-async function fetchJson(url: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
+async function fetchJson(
+  url: string,
+  timeoutMs: number,
+): Promise<Record<string, unknown> | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -85,11 +94,15 @@ async function main(): Promise<void> {
 
     const checks = {
       gateway_alive: Boolean(status),
-      owner_follower_lock_fresh: Boolean(runtime && runtime.ownerFresh === true),
+      owner_follower_lock_fresh: Boolean(
+        runtime && runtime.ownerFresh === true,
+      ),
       daemon_connected:
         !options.strictDaemon || Boolean(daemon && daemon.connected === true),
-      gateway_running:
-        Boolean(gateway && (gateway.status === 'running' || gateway.status === 'killswitch')),
+      gateway_running: Boolean(
+        gateway &&
+          (gateway.status === 'running' || gateway.status === 'killswitch'),
+      ),
       miya_ui_open: uiOpen,
     };
     const reasons = Object.entries(checks)

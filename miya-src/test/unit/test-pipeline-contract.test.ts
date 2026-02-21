@@ -13,13 +13,13 @@ describe('test pipeline contract', () => {
 
     expect(testScript.includes('bun test --cwd src --max-concurrency=1')).toBe(true);
     expect(testScript.includes('bun test --cwd test --max-concurrency=1')).toBe(true);
-    expect(testScript.includes('bun --cwd gateway-ui run test:run')).toBe(true);
+    expect(testScript.includes('bun run --cwd gateway-ui test:run')).toBe(true);
   });
 
   test('dedicated test entry points are present for CI splitting', () => {
     expect(packageJson.scripts?.['test:core']).toBe(
       'bun test --cwd src --max-concurrency=1 && bun test --cwd test --max-concurrency=1',
     );
-    expect(packageJson.scripts?.['test:ui']).toBe('bun --cwd gateway-ui run test:run');
+    expect(packageJson.scripts?.['test:ui']).toBe('bun run --cwd gateway-ui test:run');
   });
 });

@@ -28,7 +28,10 @@ type GatewayEventFrame = {
   type?: string;
   event?: string;
   payload?: unknown;
+  stateVersion?: Record<string, number>;
 };
+
+type GatewayEventListener = (event: GatewayEventFrame) => void;
 
 function resolveWsUrl(wsPath: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -44,6 +47,7 @@ export class GatewayRpcClient {
   private seq = 0;
   private disposed = false;
   private pending = new Map<string, PendingRequest>();
+  private eventListeners = new Set<GatewayEventListener>();
 
   constructor(options: GatewayClientOptions) {
     this.wsPath = options.wsPath;
@@ -51,7 +55,10 @@ export class GatewayRpcClient {
     this.timeoutMs = Math.max(1_000, options.timeoutMs ?? 20_000);
   }
 
-  async request(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+  async request(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<unknown> {
     const ws = await this.ensureReadySocket();
     const id = `req-${Date.now()}-${++this.seq}`;
     return new Promise<unknown>((resolve, reject) => {
@@ -85,6 +92,14 @@ export class GatewayRpcClient {
       pending.reject(new Error(`gateway_client_disposed:${id}`));
     }
     this.pending.clear();
+    this.eventListeners.clear();
+  }
+
+  onEvent(listener: GatewayEventListener): () => void {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
   }
 
   private async ensureReadySocket(): Promise<WebSocket> {
@@ -129,7 +144,8 @@ export class GatewayRpcClient {
 
     const hello = await this.sendHello(ws);
     if (!hello.ok) {
-      const message = hello.error?.message ?? hello.errorMessage ?? 'gateway_hello_failed';
+      const message =
+        hello.error?.message ?? hello.errorMessage ?? 'gateway_hello_failed';
       try {
         ws.close();
       } catch {}
@@ -139,7 +155,10 @@ export class GatewayRpcClient {
 
   private sendHello(ws: WebSocket): Promise<GatewayResponseFrame> {
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('gateway_hello_timeout')), this.timeoutMs);
+      const timeout = setTimeout(
+        () => reject(new Error('gateway_hello_timeout')),
+        this.timeoutMs,
+      );
       const handler = (event: MessageEvent<string>) => {
         let frame: GatewayResponseFrame | null = null;
         try {
@@ -172,7 +191,19 @@ export class GatewayRpcClient {
     } catch {
       return;
     }
-    if (!frame || frame.type !== 'response') {
+    if (!frame) {
+      return;
+    }
+    if (frame.type === 'event') {
+      const eventFrame = frame as GatewayEventFrame;
+      for (const listener of this.eventListeners) {
+        try {
+          listener(eventFrame);
+        } catch {}
+      }
+      return;
+    }
+    if (frame.type !== 'response') {
       return;
     }
     // Type guard: we know it's a response frame now
@@ -204,4 +235,3 @@ export class GatewayRpcClient {
     this.pending.clear();
   }
 }
-

@@ -1,19 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getMiyaRuntimeDir } from '../workflow';
 import { createSkillDraftsFromReflect } from '../learning';
-import { upsertCompanionMemoryVector, type CompanionMemoryVector } from './memory-vector';
-
-export interface MemoryShortTermLog {
-  id: string;
-  sessionID: string;
-  sender: 'user' | 'assistant' | 'system';
-  text: string;
-  at: string;
-  messageHash: string;
-  processedAt?: string;
-}
+import { getMiyaRuntimeDir } from '../workflow';
+import {
+  appendMemoryEvent,
+  appendRawMemoryLog,
+  constructReflectBatch,
+  listRawMemoryLogs,
+} from './memory-sqlite';
+import type {
+  CompanionMemoryVector,
+  MemoryQuoteSpan,
+  MemoryShortTermLog,
+} from './memory-types';
 
 interface ReflectTriplet {
   kind: 'Fact' | 'Insight' | 'UserPreference';
@@ -21,8 +21,10 @@ interface ReflectTriplet {
   predicate: string;
   object: string;
   confidence: number;
-  tier: 'L1' | 'L2' | 'L3';
+  tier: 'L0' | 'L1' | 'L2';
+  domain: 'work' | 'relationship' | 'personal' | 'system';
   sourceLogID: string;
+  quotes: MemoryQuoteSpan[];
 }
 
 export interface ReflectResult {
@@ -34,6 +36,7 @@ export interface ReflectResult {
   generatedPreferences: number;
   createdMemories: CompanionMemoryVector[];
   archivedLogs: number;
+  auditID: string;
 }
 
 interface ReflectState {
@@ -58,14 +61,6 @@ function memoryDir(projectDir: string): string {
   return path.join(getMiyaRuntimeDir(projectDir), 'memory');
 }
 
-function shortTermLogPath(projectDir: string): string {
-  return path.join(memoryDir(projectDir), 'short-term-history.jsonl');
-}
-
-function archiveLogPath(projectDir: string): string {
-  return path.join(memoryDir(projectDir), 'archived-history.jsonl');
-}
-
 function reflectJobPath(projectDir: string): string {
   return path.join(memoryDir(projectDir), 'reflect-jobs.jsonl');
 }
@@ -82,31 +77,14 @@ function normalizeText(input: string): string {
   return input.trim().replace(/\s+/g, ' ');
 }
 
-function hashMessage(input: { text: string; sender: string; at: string }): string {
+function hashMessage(input: {
+  text: string;
+  sender: string;
+  at: string;
+}): string {
   return createHash('sha256')
     .update(`${input.sender}\n${input.at}\n${normalizeText(input.text)}`)
     .digest('hex');
-}
-
-function parseJsonlRows<T>(file: string): T[] {
-  if (!fs.existsSync(file)) return [];
-  const rows: T[] = [];
-  const raw = fs.readFileSync(file, 'utf-8');
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      rows.push(JSON.parse(trimmed) as T);
-    } catch {
-      // Ignore malformed lines to keep reflect job resilient.
-    }
-  }
-  return rows;
-}
-
-function writeJsonlRows<T>(file: string, rows: T[]): void {
-  const body = rows.map((row) => JSON.stringify(row)).join('\n');
-  fs.writeFileSync(file, body ? `${body}\n` : '', 'utf-8');
 }
 
 function readReflectState(projectDir: string): ReflectState {
@@ -120,7 +98,10 @@ function readReflectState(projectDir: string): ReflectState {
   }
 }
 
-function writeReflectState(projectDir: string, patch: Partial<ReflectState>): ReflectState {
+function writeReflectState(
+  projectDir: string,
+  patch: Partial<ReflectState>,
+): ReflectState {
   ensureDir(projectDir);
   const file = reflectStatePath(projectDir);
   const next: ReflectState = {
@@ -129,6 +110,22 @@ function writeReflectState(projectDir: string, patch: Partial<ReflectState>): Re
   };
   fs.writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
   return next;
+}
+
+function quoteSpan(
+  log: MemoryShortTermLog,
+  raw: string,
+): MemoryQuoteSpan | null {
+  const value = normalizeText(raw);
+  if (!value) return null;
+  const start = log.text.indexOf(value);
+  if (start < 0) return null;
+  return {
+    logID: log.id,
+    exactText: value,
+    charStart: start,
+    charEnd: start + value.length,
+  };
 }
 
 function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
@@ -143,10 +140,12 @@ function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
     predicate: string,
     object: string,
     confidence: number,
-    tier: 'L1' | 'L2' | 'L3',
+    tier: 'L0' | 'L1' | 'L2',
+    quoteRaw: string,
   ) => {
     const value = normalizeText(object);
-    if (!value) return;
+    const q = quoteSpan(log, quoteRaw);
+    if (!value || !q) return;
     triplets.push({
       kind,
       subject,
@@ -155,45 +154,102 @@ function extractTriplets(log: MemoryShortTermLog): ReflectTriplet[] {
       confidence,
       tier,
       sourceLogID: log.id,
+      domain: 'work',
+      quotes: [q],
     });
   };
 
   const likes = text.match(/我(?:特别)?喜欢([^，。！？!?.]+)/);
-  if (likes?.[1]) add('UserPreference', 'User', 'likes', likes[1], 0.86, 'L2');
+  if (likes?.[1])
+    add('UserPreference', 'User', 'likes', likes[1], 0.86, 'L1', likes[0]);
 
   const dislikes = text.match(/我(?:很|真的)?不喜欢([^，。！？!?.]+)/);
-  if (dislikes?.[1]) add('UserPreference', 'User', 'dislikes', dislikes[1], 0.86, 'L2');
+  if (dislikes?.[1])
+    add(
+      'UserPreference',
+      'User',
+      'dislikes',
+      dislikes[1],
+      0.86,
+      'L1',
+      dislikes[0],
+    );
 
-  const prefers = text.match(/(?:以后|之后|从现在开始)?(?:只要|只喝|只用|优先)\s*([^，。！？!?.]+)/);
-  if (prefers?.[1]) add('UserPreference', 'User', 'prefers', prefers[1], 0.9, 'L2');
+  const prefers = text.match(
+    /(?:以后|之后|从现在开始)?(?:只要|只喝|只用|优先)\s*([^，。！？!?.]+)/,
+  );
+  if (prefers?.[1])
+    add('UserPreference', 'User', 'prefers', prefers[1], 0.9, 'L1', prefers[0]);
 
   const avoids = text.match(/(?:不要|别|避免)\s*([^，。！？!?.]+)/);
-  if (avoids?.[1]) add('UserPreference', 'User', 'avoids', avoids[1], 0.88, 'L2');
+  if (avoids?.[1])
+    add('UserPreference', 'User', 'avoids', avoids[1], 0.88, 'L1', avoids[0]);
 
   const needs = text.match(/我(?:需要|想要|要)([^，。！？!?.]+)/);
-  if (needs?.[1]) add('Fact', 'User', 'requires', needs[1], 0.7, 'L2');
+  if (needs?.[1])
+    add('Fact', 'User', 'requires', needs[1], 0.7, 'L1', needs[0]);
 
-  const blocks = text.match(/(?:卡在|被|遇到)([^，。！？!?.]+)(?:问题|错误|异常|报错)/);
-  if (blocks?.[1]) add('Insight', 'User', 'is_blocking', `${blocks[1]}问题`, 0.75, 'L2');
+  const blocks = text.match(
+    /(?:卡在|被|遇到)([^，。！？!?.]+)(?:问题|错误|异常|报错)/,
+  );
+  if (blocks?.[1])
+    add(
+      'Insight',
+      'User',
+      'is_blocking',
+      `${blocks[1]}问题`,
+      0.75,
+      'L2',
+      blocks[0],
+    );
 
-  const anxiety = text.match(/(?:焦虑|着急|担心|压力很大|怕来不及)([^，。！？!?.]*)/);
-  if (anxiety) add('Insight', 'User', 'emotion_signal', `进度压力 ${anxiety[0]}`.trim(), 0.72, 'L3');
+  const anxiety = text.match(
+    /(?:焦虑|着急|担心|压力很大|怕来不及)([^，。！？!?.]*)/,
+  );
+  if (anxiety)
+    add(
+      'Insight',
+      'User',
+      'emotion_signal',
+      `进度压力 ${anxiety[0]}`.trim(),
+      0.72,
+      'L2',
+      anxiety[0],
+    );
 
-  const project = text.match(/(?:项目|仓库|repo|分支)\s*[:：]?\s*([^，。！？!?.]+)/i);
-  if (project?.[1]) add('Fact', 'User', 'project', project[1], 0.68, 'L2');
-
-  const apiRef = text.match(/(?:API|文档|doc|docs?)\s*[:：]?\s*([^，。！？!?.]+)/i);
-  if (apiRef?.[1]) add('Fact', 'User', 'api_reference', apiRef[1], 0.64, 'L3');
+  const project = text.match(
+    /(?:项目|仓库|repo|分支)\s*[:：]?\s*([^，。！？!?.]+)/i,
+  );
+  if (project?.[1])
+    add('Fact', 'User', 'project', project[1], 0.68, 'L1', project[0]);
 
   if (triplets.length === 0 && text.length <= 120) {
-    add('Fact', log.sender === 'assistant' ? 'Miya' : 'User', 'stated', text, 0.55, 'L3');
+    add(
+      'Fact',
+      log.sender === 'assistant' ? 'Miya' : 'User',
+      'stated',
+      text,
+      0.55,
+      'L2',
+      text,
+    );
   }
 
   return triplets;
 }
 
-function tripletText(triplet: ReflectTriplet): string {
-  return `${triplet.subject} ${triplet.predicate} ${triplet.object}`;
+function validateTripletQuotes(
+  triplet: ReflectTriplet,
+  logsByID: Map<string, MemoryShortTermLog>,
+): boolean {
+  for (const quote of triplet.quotes) {
+    const source = logsByID.get(quote.logID);
+    if (!source) return false;
+    if (quote.charStart < 0 || quote.charEnd <= quote.charStart) return false;
+    const picked = source.text.slice(quote.charStart, quote.charEnd);
+    if (normalizeText(picked) !== normalizeText(quote.exactText)) return false;
+  }
+  return true;
 }
 
 export function appendShortTermMemoryLog(
@@ -209,11 +265,10 @@ export function appendShortTermMemoryLog(
   const text = normalizeText(input.text);
   if (!text) return null;
   const at = input.at ?? nowIso();
-  const messageHash = input.messageID || hashMessage({ text, sender: input.sender, at });
+  const messageHash =
+    input.messageID || hashMessage({ text, sender: input.sender, at });
   ensureDir(projectDir);
-  const file = shortTermLogPath(projectDir);
-  const rows = parseJsonlRows<MemoryShortTermLog>(file);
-  if (rows.some((row) => row.messageHash === messageHash)) return null;
+
   const row: MemoryShortTermLog = {
     id: `st_${randomUUID()}`,
     sessionID: input.sessionID?.trim() || 'main',
@@ -222,15 +277,31 @@ export function appendShortTermMemoryLog(
     at,
     messageHash,
   };
-  rows.push(row);
-  writeJsonlRows(file, rows);
+
+  const saved = appendRawMemoryLog(projectDir, row);
+  if (!saved) return null;
+
+  appendMemoryEvent(projectDir, {
+    eventID: `evt_${randomUUID()}`,
+    eventType: 'raw_log_appended',
+    entityType: 'raw_log',
+    entityID: saved.id,
+    payload: {
+      sessionID: saved.sessionID,
+      sender: saved.sender,
+      at: saved.at,
+    },
+  });
+
   writeReflectState(projectDir, { lastLogAt: at });
-  return row;
+  return saved;
 }
 
 export function getMemoryReflectStatus(projectDir: string): ReflectStatus {
-  const rows = parseJsonlRows<MemoryShortTermLog>(shortTermLogPath(projectDir));
-  const pendingLogs = rows.filter((row) => !row.processedAt).length;
+  const pendingLogs = listRawMemoryLogs(projectDir, {
+    pendingOnly: true,
+    limit: 5000,
+  }).length;
   const state = readReflectState(projectDir);
   return {
     pendingLogs,
@@ -247,14 +318,20 @@ export function reflectCompanionMemory(
     maxLogs?: number;
     idempotencyKey?: string;
     cooldownMinutes?: number;
+    policyHash?: string;
   },
 ): ReflectResult {
   ensureDir(projectDir);
   const state = readReflectState(projectDir);
   const now = nowIso();
-  if (input?.idempotencyKey && state.lastReflectIdempotencyKey === input.idempotencyKey) {
+
+  if (
+    input?.idempotencyKey &&
+    state.lastReflectIdempotencyKey === input.idempotencyKey
+  ) {
     if (state.lastReflectResult) return state.lastReflectResult;
   }
+
   const cooldownMinutes = Math.max(0, input?.cooldownMinutes ?? 0);
   if (cooldownMinutes > 0 && state.lastReflectAt) {
     const deltaMs = Date.now() - Date.parse(state.lastReflectAt);
@@ -268,6 +345,7 @@ export function reflectCompanionMemory(
         generatedPreferences: 0,
         createdMemories: [],
         archivedLogs: 0,
+        auditID: `audit_${randomUUID()}`,
       };
       writeReflectState(projectDir, {
         lastReflectReason: `cooldown_blocked_${cooldownMinutes}m`,
@@ -276,8 +354,10 @@ export function reflectCompanionMemory(
     }
   }
 
-  const rows = parseJsonlRows<MemoryShortTermLog>(shortTermLogPath(projectDir));
-  const pending = rows.filter((row) => !row.processedAt);
+  const pending = listRawMemoryLogs(projectDir, {
+    pendingOnly: true,
+    limit: 2000,
+  });
   const minLogs = Math.max(1, input?.minLogs ?? 1);
   if (!input?.force && pending.length < minLogs) {
     return {
@@ -289,57 +369,88 @@ export function reflectCompanionMemory(
       generatedPreferences: 0,
       createdMemories: [],
       archivedLogs: 0,
+      auditID: `audit_${randomUUID()}`,
     };
   }
 
   const maxLogs = Math.max(1, input?.maxLogs ?? 50);
   const picked = pending.slice(0, maxLogs);
-  const triplets = picked.flatMap((row) => extractTriplets(row));
-  const generatedFacts = triplets.filter((item) => item.kind === 'Fact').length;
-  const generatedInsights = triplets.filter((item) => item.kind === 'Insight').length;
-  const generatedPreferences = triplets.filter((item) => item.kind === 'UserPreference').length;
-  const createdMemories = triplets.map((triplet) =>
-    upsertCompanionMemoryVector(projectDir, {
-      text: tripletText(triplet),
-      source: 'reflect',
-      activate: false,
-      confidence: triplet.confidence,
-      tier: triplet.tier,
-      sourceMessageID: triplet.sourceLogID,
-      sourceType: 'reflect',
-      memoryKind: triplet.kind,
-    }),
+  const logsByID = new Map(picked.map((row) => [row.id, row]));
+
+  const extracted = picked.flatMap((row) => extractTriplets(row));
+  const triplets = extracted.filter((item) =>
+    validateTripletQuotes(item, logsByID),
   );
 
-  const processedAt = nowIso();
-  const pickedIdSet = new Set(picked.map((row) => row.id));
-  const nextRows = rows.filter((row) => !pickedIdSet.has(row.id));
-  writeJsonlRows(shortTermLogPath(projectDir), nextRows);
+  const generatedFacts = triplets.filter((item) => item.kind === 'Fact').length;
+  const generatedInsights = triplets.filter(
+    (item) => item.kind === 'Insight',
+  ).length;
+  const generatedPreferences = triplets.filter(
+    (item) => item.kind === 'UserPreference',
+  ).length;
 
-  const archived = parseJsonlRows<MemoryShortTermLog>(archiveLogPath(projectDir));
-  const moved = picked.map((row) => ({ ...row, processedAt }));
-  writeJsonlRows(archiveLogPath(projectDir), [...archived, ...moved]);
+  const processedAt = nowIso();
+  const jobID = `reflect_${randomUUID()}`;
+  const auditID = `audit_${randomUUID()}`;
+
+  const constructed = constructReflectBatch(projectDir, {
+    jobID,
+    auditID,
+    processedAt,
+    policyHash: input?.policyHash,
+    pickedLogs: picked,
+    triplets,
+    evidenceMeta: {
+      schema_version: 'EvidencePackV5',
+      generated_at: processedAt,
+      policy_hash: input?.policyHash ?? null,
+      tool: 'miya.memory.reflect',
+      job_id: jobID,
+      source: 'memory_reflect',
+    },
+    evidencePayload: {
+      logs: picked,
+      extracted_triplets: triplets,
+      dropped_triplets: extracted.length - triplets.length,
+    },
+    reflectStats: {
+      generatedFacts,
+      generatedInsights,
+      generatedPreferences,
+    },
+  });
+  const createdMemories = constructed.createdMemories;
 
   const result: ReflectResult = {
-    jobID: `reflect_${randomUUID()}`,
+    jobID,
     processedLogs: picked.length,
     generatedTriplets: triplets.length,
     generatedFacts,
     generatedInsights,
     generatedPreferences,
     createdMemories,
-    archivedLogs: moved.length,
+    archivedLogs: constructed.processedLogs,
+    auditID,
   };
+
   createSkillDraftsFromReflect(projectDir, {
     createdMemories,
   });
-  fs.appendFileSync(reflectJobPath(projectDir), `${JSON.stringify({ ...result, at: processedAt })}\n`, 'utf-8');
+
+  fs.appendFileSync(
+    reflectJobPath(projectDir),
+    `${JSON.stringify({ ...result, at: processedAt })}\n`,
+    'utf-8',
+  );
+
   writeReflectState(projectDir, {
     lastReflectAt: now,
     lastReflectIdempotencyKey: input?.idempotencyKey,
     lastReflectResult: result,
     lastReflectReason: 'ok',
   });
+
   return result;
 }
 
@@ -365,7 +476,8 @@ export function maybeAutoReflectCompanionMemory(
 
   if (status.lastReflectAt) {
     const cooldownMs = nowMs - Date.parse(status.lastReflectAt);
-    if (Number.isFinite(cooldownMs) && cooldownMs < cooldownMinutes * 60 * 1000) return null;
+    if (Number.isFinite(cooldownMs) && cooldownMs < cooldownMinutes * 60 * 1000)
+      return null;
   }
 
   return reflectCompanionMemory(projectDir, {

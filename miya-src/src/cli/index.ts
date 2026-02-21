@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { install } from './install';
@@ -52,7 +53,7 @@ miya cli
 
 Usage:
   miya install [OPTIONS]
-  miya gateway <start|status|doctor|shutdown>
+  miya gateway <start|serve|terminal|status|doctor|shutdown|autostart>
   miya sessions <list|get|send|policy>
   miya channels <list|status|pairs|approve|reject|send>
   miya nodes <list|status|describe|pairs|approve|reject|invoke>
@@ -65,6 +66,8 @@ Usage:
 
 Examples:
   miya gateway status
+  miya gateway terminal
+  miya gateway autostart install
   miya sessions send webchat:main "hello"
   miya channels send telegram 123456 "hi"
   miya nodes invoke node-1 system.run '{"command":"pwd"}'
@@ -72,6 +75,183 @@ Examples:
   miya node-host --gateway http://127.0.0.1:17321
   miya install --no-tui --kimi=yes --openai=no --anthropic=no --copilot=no --zai-plan=no --antigravity=no --chutes=no --tmux=no --skills=yes --isolated=yes
 `);
+}
+
+const ANSI = {
+  dim: '\x1b[90m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  cyan: '\x1b[36m',
+  yellow: '\x1b[33m',
+  magenta: '\x1b[35m',
+  reset: '\x1b[0m',
+};
+
+function supportsAnsi(): boolean {
+  if (!process.stdout.isTTY) return false;
+  if (process.platform !== 'win32') return true;
+  return (
+    process.env.FORCE_COLOR === '1' ||
+    process.env.WT_SESSION !== undefined ||
+    process.env.TERM_PROGRAM === 'vscode'
+  );
+}
+
+function color(text: string, value: string): string {
+  if (!supportsAnsi()) return text;
+  return `${value}${text}${ANSI.reset}`;
+}
+
+function formatClock(ts: string): string {
+  const parsed = new Date(ts);
+  if (Number.isNaN(parsed.getTime())) return ts;
+  const hh = String(parsed.getHours()).padStart(2, '0');
+  const mm = String(parsed.getMinutes()).padStart(2, '0');
+  const ss = String(parsed.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
+function gatewayLogFilePath(): string {
+  return path.join(os.tmpdir(), 'miya.log');
+}
+
+function normalizeLogCategory(input: string): string {
+  const match = /^\[([^\]]+)\]/.exec(input.trim());
+  return match ? match[1].toLowerCase() : 'log';
+}
+
+function colorByCategory(message: string): string {
+  const category = normalizeLogCategory(message);
+  if (category.includes('error') || category.includes('failed')) return ANSI.red;
+  if (category.includes('warn')) return ANSI.yellow;
+  if (category.includes('gateway')) return ANSI.cyan;
+  if (category.includes('daemon')) return ANSI.magenta;
+  return ANSI.green;
+}
+
+function readTailLines(file: string, limit = 80): string[] {
+  if (!fs.existsSync(file)) return [];
+  const text = fs.readFileSync(file, 'utf-8');
+  const all = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (all.length <= limit) return all;
+  return all.slice(all.length - limit);
+}
+
+function formatGatewayConsoleLine(raw: string): string {
+  const parsed = /^\[([^\]]+)\]\s(.*)$/.exec(raw);
+  if (!parsed) return raw;
+  const [, ts, message] = parsed;
+  const clock = color(formatClock(ts), ANSI.dim);
+  const coloredMessage = color(message, colorByCategory(message));
+  return `${clock} ${coloredMessage}`;
+}
+
+function resolveGatewayCliEntry(workspace: string): {
+  scriptPath: string;
+  needsTsx: boolean;
+} {
+  const sourceCli = path.join(workspace, 'src', 'cli', 'index.ts');
+  if (fs.existsSync(sourceCli)) {
+    return { scriptPath: sourceCli, needsTsx: true };
+  }
+  return { scriptPath: resolveCliScriptPath(), needsTsx: false };
+}
+
+function startGatewayLogTail(file: string, onLine: (line: string) => void): () => void {
+  let cursor = 0;
+  let partial = '';
+  let timer: NodeJS.Timeout | undefined;
+
+  const consume = (chunk: string): void => {
+    partial += chunk;
+    const lines = partial.split(/\r?\n/);
+    partial = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.trim().length > 0) onLine(line);
+    }
+  };
+
+  const poll = (): void => {
+    if (!fs.existsSync(file)) return;
+    const stat = fs.statSync(file);
+    if (stat.size < cursor) {
+      cursor = 0;
+      partial = '';
+    }
+    if (stat.size === cursor) return;
+    const length = stat.size - cursor;
+    if (length <= 0) return;
+
+    const fd = fs.openSync(file, 'r');
+    try {
+      const chunk = Buffer.alloc(length);
+      fs.readSync(fd, chunk, 0, length, cursor);
+      cursor = stat.size;
+      consume(chunk.toString('utf-8'));
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+
+  if (fs.existsSync(file)) {
+    const stat = fs.statSync(file);
+    cursor = stat.size;
+  }
+
+  timer = setInterval(() => {
+    try {
+      poll();
+    } catch {}
+  }, 350);
+
+  return () => {
+    if (timer) clearInterval(timer);
+    timer = undefined;
+  };
+}
+
+function windowsStartupDir(): string | null {
+  if (process.platform !== 'win32') return null;
+  const appData = process.env.APPDATA?.trim();
+  if (!appData) return null;
+  return path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+}
+
+function gatewayAutostartScriptPath(): string {
+  const startup = windowsStartupDir();
+  if (!startup) return '';
+  return path.join(startup, 'miya-gateway-terminal.cmd');
+}
+
+function quoteForCmd(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function renderGatewayAutostartScript(input: {
+  workspace: string;
+  nodeBinary: string;
+  cliScript: string;
+  needsTsx: boolean;
+}): string {
+  const nodeArgs = [
+    input.needsTsx ? '--import tsx' : '',
+    quoteForCmd(input.cliScript),
+    'gateway terminal',
+    `--workspace ${quoteForCmd(input.workspace)}`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return [
+    '@echo off',
+    'setlocal',
+    `cd /d ${quoteForCmd(input.workspace)}`,
+    'set "MIYA_AUTO_UI_OPEN=0"',
+    'set "MIYA_DOCK_AUTO_LAUNCH=0"',
+    'set "MIYA_GATEWAY_CLI_START_ENABLE=1"',
+    `${quoteForCmd(input.nodeBinary)} ${nodeArgs}`,
+    'endlocal',
+    '',
+  ].join('\r\n');
 }
 
 function runtimeGatewayFile(cwd: string): string {
@@ -473,6 +653,171 @@ async function runGatewayServe(cwd: string, args: string[]): Promise<number> {
   return 0;
 }
 
+async function runGatewayTerminal(cwd: string, args: string[]): Promise<number> {
+  const workspace = readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const { ensureGatewayRunning, stopGateway, isGatewayOwner } = await import('../gateway');
+  let ownRuntime = false;
+
+  try {
+    ensureGatewayRunning(workspace);
+    ownRuntime = isGatewayOwner(workspace);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message !== 'gateway_owned_by_other_process') {
+      throw error;
+    }
+    ownRuntime = false;
+  }
+
+  const state = readGatewayState(workspace);
+  const logFile = gatewayLogFilePath();
+
+  console.log(
+    color(
+      `Miya Gateway Terminal - ${ownRuntime ? 'owner' : 'follower'} mode`,
+      ANSI.cyan,
+    ),
+  );
+  if (state) {
+    console.log(
+      `${color('url', ANSI.dim)}=${state.url} ${color('pid', ANSI.dim)}=${state.pid} ${color('log', ANSI.dim)}=${logFile}`,
+    );
+  } else {
+    console.log(`${color('log', ANSI.dim)}=${logFile}`);
+  }
+
+  const tailLines = readTailLines(logFile, 80);
+  if (tailLines.length > 0) {
+    for (const line of tailLines) {
+      console.log(formatGatewayConsoleLine(line));
+    }
+  } else {
+    console.log(color('[gateway] waiting for runtime log stream...', ANSI.dim));
+  }
+
+  const stopTail = startGatewayLogTail(logFile, (line) => {
+    console.log(formatGatewayConsoleLine(line));
+  });
+
+  await new Promise<void>((resolve) => {
+    const stop = () => {
+      stopTail();
+      if (ownRuntime) {
+        try {
+          stopGateway(workspace);
+        } catch {}
+      }
+      resolve();
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+  return 0;
+}
+
+async function runGatewayAutostart(cwd: string, args: string[]): Promise<number> {
+  const action = args[0] ?? 'status';
+  const workspace = readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const startupDir = windowsStartupDir();
+  if (!startupDir) {
+    console.error('gateway_autostart_unsupported_platform');
+    return 2;
+  }
+  const scriptFile = gatewayAutostartScriptPath();
+  if (!scriptFile) {
+    console.error('gateway_autostart_startup_dir_unavailable');
+    return 2;
+  }
+
+  if (action === 'status') {
+    const exists = fs.existsSync(scriptFile);
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          action,
+          exists,
+          startupDir,
+          scriptFile,
+          workspace,
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  if (action === 'remove' || action === 'uninstall') {
+    try {
+      fs.unlinkSync(scriptFile);
+    } catch {}
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          action: 'remove',
+          removed: true,
+          scriptFile,
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  if (action === 'install') {
+    const nodeBinary = resolveNodeBinary();
+    if (!nodeBinary) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            reason: 'node_not_found',
+            detail: 'Cannot resolve a runnable Node.js binary.',
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
+    const entry = resolveGatewayCliEntry(workspace);
+    const scriptText = renderGatewayAutostartScript({
+      workspace,
+      nodeBinary,
+      cliScript: entry.scriptPath,
+      needsTsx: entry.needsTsx,
+    });
+    if (!fs.existsSync(path.dirname(scriptFile))) {
+      fs.mkdirSync(path.dirname(scriptFile), { recursive: true });
+    }
+    fs.writeFileSync(scriptFile, scriptText, 'utf-8');
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          action,
+          installed: true,
+          scriptFile,
+          startupDir,
+          workspace,
+          nodeBinary,
+          cliScript: entry.scriptPath,
+          needsTsx: entry.needsTsx,
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  throw new Error(`unknown_gateway_autostart_action:${action}`);
+}
+
 async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
   const action = args[0] ?? 'status';
 
@@ -498,6 +843,12 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
   }
   if (action === 'serve') {
     return await runGatewayServe(cwd, args.slice(1));
+  }
+  if (action === 'terminal') {
+    return await runGatewayTerminal(cwd, args.slice(1));
+  }
+  if (action === 'autostart') {
+    return await runGatewayAutostart(cwd, args.slice(1));
   }
 
   let url = '';
