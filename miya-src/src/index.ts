@@ -412,14 +412,6 @@ function resolveGatewayLifecycleMode(
     return 'service_shell';
   }
 
-  // Backward compatibility: explicit enable keeps legacy terminal boot path.
-  if (
-    process.platform === 'win32' &&
-    process.env.MIYA_GATEWAY_TERMINAL_AUTO_START === '1'
-  ) {
-    return 'terminal_legacy';
-  }
-
   const configRaw =
     typeof dashboardConfig.gatewayStartMode === 'string'
       ? dashboardConfig.gatewayStartMode.trim().toLowerCase()
@@ -432,13 +424,6 @@ function resolveGatewayLifecycleMode(
   }
   if (configRaw === 'service_shell') {
     return 'service_shell';
-  }
-
-  if (
-    process.platform === 'win32' &&
-    dashboardConfig.gatewayTerminalAutoStart === true
-  ) {
-    return 'terminal_legacy';
   }
 
   return process.platform === 'win32' ? 'service_shell' : 'service_only';
@@ -586,6 +571,18 @@ const MiyaPlugin: Plugin = async (ctx) => {
     ((config.ui as Record<string, unknown> | undefined)?.dashboard as
       | Record<string, unknown>
       | undefined) ?? {};
+  if (dashboardConfig.gatewayTerminalAutoStart === true) {
+    log(
+      '[miya] deprecated config ignored: ui.dashboard.gatewayTerminalAutoStart (set ui.dashboard.gatewayStartMode=terminal_legacy to force legacy popup terminal)',
+      {},
+    );
+  }
+  if (process.env.MIYA_GATEWAY_TERMINAL_AUTO_START === '1') {
+    log(
+      '[miya] deprecated env ignored: MIYA_GATEWAY_TERMINAL_AUTO_START=1 (set MIYA_GATEWAY_LIFECYCLE_MODE=terminal_legacy to force legacy popup terminal)',
+      {},
+    );
+  }
   const gatewayLifecycleMode = resolveGatewayLifecycleMode(dashboardConfig);
   if (
     process.platform === 'win32' &&

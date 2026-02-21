@@ -46,6 +46,7 @@ function runStep(
     command: string;
     cwdRelative?: string;
     quiet?: boolean;
+    env?: Record<string, string>;
   },
   cwd: string,
 ): StrictStepResult {
@@ -60,13 +61,13 @@ function runStep(
         cwd: stepCwd,
         stdio: 'ignore',
         timeout: 5 * 60 * 1000,
-        env: { ...process.env },
+        env: { ...process.env, ...(step.env ?? {}) },
       })
     : spawnSync(shellArgs[0], shellArgs.slice(1), {
         cwd: stepCwd,
         encoding: 'utf-8',
         timeout: 5 * 60 * 1000,
-        env: { ...process.env },
+        env: { ...process.env, ...(step.env ?? {}) },
       });
   return {
     name: step.name,
@@ -116,18 +117,33 @@ function main(): void {
       command: 'opencode debug config',
       cwdRelative: '..',
       quiet: true,
+      env: {
+        MIYA_GATEWAY_LIFECYCLE_MODE: 'service_only',
+        MIYA_AUTO_UI_OPEN: '0',
+        MIYA_DOCK_AUTO_LAUNCH: '0',
+      },
     },
     {
       name: 'opencode_debug_skill',
       command: 'opencode debug skill',
       cwdRelative: '..',
       quiet: true,
+      env: {
+        MIYA_GATEWAY_LIFECYCLE_MODE: 'service_only',
+        MIYA_AUTO_UI_OPEN: '0',
+        MIYA_DOCK_AUTO_LAUNCH: '0',
+      },
     },
     {
       name: 'opencode_debug_paths',
       command: 'opencode debug paths',
       cwdRelative: '..',
       quiet: true,
+      env: {
+        MIYA_GATEWAY_LIFECYCLE_MODE: 'service_only',
+        MIYA_AUTO_UI_OPEN: '0',
+        MIYA_DOCK_AUTO_LAUNCH: '0',
+      },
     },
   ];
 
