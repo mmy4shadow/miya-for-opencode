@@ -8,7 +8,7 @@
  * hold across all valid inputs.
  */
 
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import * as fc from 'fast-check';
 import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -279,7 +279,9 @@ describe('Sidebar Property-Based Tests', () => {
           });
 
           // Dispatch the event
-          window.dispatchEvent(keyEvent);
+          act(() => {
+            window.dispatchEvent(keyEvent);
+          });
 
           // Verify the component doesn't throw errors
           expect(container).toBeInTheDocument();

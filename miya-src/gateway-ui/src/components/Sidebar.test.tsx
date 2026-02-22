@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import fc from 'fast-check';
 import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -201,7 +201,9 @@ describe('Sidebar', () => {
           });
 
           // Dispatch the event
-          window.dispatchEvent(keyEvent);
+          act(() => {
+            window.dispatchEvent(keyEvent);
+          });
 
           // Note: In a real test, we would verify navigation occurred
           // For property testing, we verify the event handler is registered

@@ -117,15 +117,22 @@ afterAll(() => {
 
 describe('App component behavior', () => {
   test('does not crash on malformed encoded route segments', async () => {
-    resetBrowserState('/tasks/%E0%A4%A');
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      resetBrowserState('/tasks/%E0%A4%A');
 
-    render(<App />);
+      render(<App />);
 
-    await waitFor(() => {
-      expect(
-        screen.getByText('该任务不存在或已被清理，请返回列表刷新后重试。'),
-      ).not.toBeNull();
-    });
+      await waitFor(() => {
+        expect(
+          screen.getByText('该任务不存在或已被清理，请返回列表刷新后重试。'),
+        ).not.toBeNull();
+      });
+    } finally {
+      consoleWarn.mockRestore();
+      consoleError.mockRestore();
+    }
   });
 
   test('renders assertive and polite live regions for accessibility feedback', async () => {

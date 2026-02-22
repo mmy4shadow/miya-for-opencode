@@ -14,7 +14,7 @@
  * - Task history deletion (5.7)
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
 
@@ -169,9 +169,13 @@ describe('Tasks Module Regression Tests', () => {
       ) as HTMLSelectElement;
 
       // Change filter to "completed"
-      fireEvent.change(filterSelect, { target: { value: 'completed' } });
+      await act(async () => {
+        fireEvent.change(filterSelect, { target: { value: 'completed' } });
+      });
 
-      expect(filterSelect.value).toBe('completed');
+      await waitFor(() => {
+        expect(filterSelect.value).toBe('completed');
+      });
     });
   });
 
@@ -216,9 +220,13 @@ describe('Tasks Module Regression Tests', () => {
       const searchInput = screen.getByLabelText('搜索任务') as HTMLInputElement;
 
       // Type search query
-      fireEvent.change(searchInput, { target: { value: 'test-task' } });
+      await act(async () => {
+        fireEvent.change(searchInput, { target: { value: 'test-task' } });
+      });
 
-      expect(searchInput.value).toBe('test-task');
+      await waitFor(() => {
+        expect(searchInput.value).toBe('test-task');
+      });
     });
   });
 

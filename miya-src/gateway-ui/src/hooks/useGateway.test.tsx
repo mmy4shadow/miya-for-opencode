@@ -132,6 +132,7 @@ describe('GatewayProvider - State Initialization', () => {
   });
 
   it('should initialize with loading state', () => {
+    mockRequest.mockImplementation(() => new Promise(() => {}));
     const TestComponent = () => {
       const { loading, snapshot, connected, error } = useGateway();
       return (
@@ -189,6 +190,7 @@ describe('GatewayProvider - State Initialization', () => {
   });
 
   it('should provide all required context methods', () => {
+    mockRequest.mockImplementation(() => new Promise(() => {}));
     const TestComponent = () => {
       const context = useGateway();
       return (
