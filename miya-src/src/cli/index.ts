@@ -3,9 +3,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { runNodeHost } from '../nodes/client';
 import { currentPolicyHash } from '../policy';
+import { log } from '../utils/logger';
+import {
+  installGatewayCrashGuards,
+} from './gateway-crash-guard';
 import { install } from './install';
 import type { BooleanArg, InstallArgs } from './types';
 
@@ -53,7 +58,7 @@ miya cli
 
 Usage:
   miya install [OPTIONS]
-  miya gateway <start|serve|terminal|shell|status|doctor|shutdown|autostart>
+  miya gateway <start|serve|shell|status|doctor|shutdown|autostart>
   miya sessions <list|get|send|policy>
   miya channels <list|status|pairs|approve|reject|send>
   miya nodes <list|status|describe|pairs|approve|reject|invoke>
@@ -66,7 +71,6 @@ Usage:
 
 Examples:
   miya gateway status
-  miya gateway terminal
   miya gateway shell start
   miya gateway autostart install
   miya sessions send webchat:main "hello"
@@ -83,8 +87,10 @@ const ANSI = {
   red: '\x1b[31m',
   green: '\x1b[32m',
   cyan: '\x1b[36m',
+  blue: '\x1b[34m',
   yellow: '\x1b[33m',
   magenta: '\x1b[35m',
+  white: '\x1b[97m',
   reset: '\x1b[0m',
 };
 
@@ -116,36 +122,107 @@ function gatewayLogFilePath(): string {
   return path.join(os.tmpdir(), 'miya.log');
 }
 
-function normalizeLogCategory(input: string): string {
-  const match = /^\[([^\]]+)\]/.exec(input.trim());
-  return match ? match[1].toLowerCase() : 'log';
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function colorByCategory(message: string): string {
-  const category = normalizeLogCategory(message);
-  if (category.includes('error') || category.includes('failed'))
-    return ANSI.red;
-  if (category.includes('warn')) return ANSI.yellow;
-  if (category.includes('gateway')) return ANSI.cyan;
-  if (category.includes('daemon')) return ANSI.magenta;
-  return ANSI.green;
-}
-
-function readTailLines(file: string, limit = 80): string[] {
-  if (!fs.existsSync(file)) return [];
-  const text = fs.readFileSync(file, 'utf-8');
-  const all = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  if (all.length <= limit) return all;
-  return all.slice(all.length - limit);
+function parseModuleAndBody(line: string): {
+  moduleTag: string;
+  body: string;
+} {
+  const trimmed = line.trim();
+  const moduleParsed = /^(\[[^\]]+\])\s?(.*)$/.exec(trimmed);
+  return {
+    moduleTag: moduleParsed?.[1] ?? '[gateway]',
+    body: moduleParsed?.[2] ?? trimmed,
+  };
 }
 
 function formatGatewayConsoleLine(raw: string): string {
   const parsed = /^\[([^\]]+)\]\s(.*)$/.exec(raw);
   if (!parsed) return raw;
   const [, ts, message] = parsed;
+  const parsedMessage = parseModuleAndBody(message);
+  const moduleTag = parsedMessage.moduleTag;
+  const body = parsedMessage.body;
+  const bodyColor = terminalLevelColor(classifyGatewayLine(body));
   const clock = color(formatClock(ts), ANSI.dim);
-  const coloredMessage = color(message, colorByCategory(message));
-  return `${clock} ${coloredMessage}`;
+  const moduleColored = color(moduleTag, ANSI.magenta);
+  const bodyColored = color(colorizeGatewayHighlights(body), bodyColor);
+  return `${clock} ${moduleColored} ${bodyColored}`;
+}
+
+function colorizeGatewayHighlights(message: string): string {
+  if (!supportsAnsi()) return message;
+  return message.replace(
+    /(https?:\/\/\S+|(?:^|\s)(?:miya|opencode)\s+gateway\s+[a-z0-9:_-]+|v\d+\.\d+\.\d+(?:[-+._a-z0-9]+)?)/gi,
+    (match) => `${ANSI.blue}${match}${ANSI.reset}`,
+  );
+}
+
+function nowClock(): string {
+  const now = new Date();
+  return [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join(':');
+}
+
+type GatewayTerminalLevel = 'info' | 'warn' | 'error' | 'link';
+
+function terminalLevelColor(level: GatewayTerminalLevel): string {
+  if (level === 'error') return ANSI.red;
+  if (level === 'warn') return ANSI.yellow;
+  if (level === 'link') return ANSI.blue;
+  return ANSI.white;
+}
+
+function classifyGatewayLine(message: string): GatewayTerminalLevel {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes('error') ||
+    lower.includes('failed') ||
+    lower.includes('exception') ||
+    lower.includes('traceback') ||
+    lower.includes('stack')
+  ) {
+    return 'error';
+  }
+  if (lower.includes('warn') || lower.includes('degraded')) {
+    return 'warn';
+  }
+  if (
+    /https?:\/\//i.test(message) ||
+    /\b(v\d+\.\d+\.\d+)\b/i.test(message) ||
+    /\b(?:miya|opencode)\s+gateway\s+[a-z0-9:_-]+\b/i.test(message)
+  ) {
+    return 'link';
+  }
+  return 'info';
+}
+
+function formatGatewayTerminalEvent(
+  moduleTag: string,
+  message: string,
+  level?: GatewayTerminalLevel,
+): string {
+  const effective = level ?? classifyGatewayLine(message);
+  const clock = color(nowClock(), ANSI.dim);
+  const moduleColored = color(`[${moduleTag}]`, ANSI.magenta);
+  const bodyColored = color(
+    colorizeGatewayHighlights(message),
+    terminalLevelColor(effective),
+  );
+  return `${clock} ${moduleColored} ${bodyColored}`;
+}
+
+function printGatewayTerminalEvent(
+  moduleTag: string,
+  message: string,
+  level?: GatewayTerminalLevel,
+): void {
+  console.log(formatGatewayTerminalEvent(moduleTag, message, level));
 }
 
 interface GatewayCliRuntime {
@@ -172,14 +249,29 @@ function resolveGatewayCliRuntime(workspace: string): GatewayCliRuntime | null {
   return null;
 }
 
+function readAllLogLines(file: string): string[] {
+  if (!fs.existsSync(file)) return [];
+  try {
+    return fs
+      .readFileSync(file, 'utf-8')
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 function startGatewayLogTail(
   file: string,
   onLine: (line: string) => void,
+  options?: { startAt?: 'start' | 'end' },
 ): () => void {
   let cursor = 0;
   let partial = '';
   let timer: NodeJS.Timeout | undefined;
   const maxChunkBytes = 256 * 1024;
+  const startAt = options?.startAt ?? 'end';
 
   const consume = (chunk: string): void => {
     partial += chunk;
@@ -219,7 +311,10 @@ function startGatewayLogTail(
 
   if (fs.existsSync(file)) {
     const stat = fs.statSync(file);
-    cursor = stat.size;
+    cursor = startAt === 'start' ? 0 : stat.size;
+    if (startAt === 'start') {
+      poll();
+    }
   }
 
   timer = setInterval(() => {
@@ -288,7 +383,7 @@ function renderGatewayAutostartScript(input: {
   workspace: string;
   nodeBinary: string;
   cliRuntime: GatewayCliRuntime;
-  mode: 'serve' | 'terminal' | 'service_shell';
+  mode: 'serve' | 'service_shell';
 }): string {
   const commandPrefix = [
     quoteForCmd(input.nodeBinary),
@@ -335,7 +430,7 @@ function renderGatewayAutostartVbs(launcherPath: string): string {
 
 function readAutostartMode(
   workspace: string,
-): 'serve' | 'terminal' | 'service_shell' | 'unknown' {
+): 'serve' | 'service_shell' | 'unknown' {
   const file = gatewayAutostartMetaFile(workspace);
   if (!fs.existsSync(file)) return 'unknown';
   try {
@@ -344,7 +439,6 @@ function readAutostartMode(
     };
     if (
       parsed.mode === 'serve' ||
-      parsed.mode === 'terminal' ||
       parsed.mode === 'service_shell'
     )
       return parsed.mode;
@@ -452,6 +546,66 @@ function clearGatewayShellState(workspace: string): void {
   } catch {}
 }
 
+function gatewayShellLaunchGuardFile(workspace: string): string {
+  return path.join(
+    workspace,
+    '.opencode',
+    'miya',
+    'gateway-shell-launch.guard.json',
+  );
+}
+
+function readGatewayShellLaunchGuardAgeMs(workspace: string): number | null {
+  const file = gatewayShellLaunchGuardFile(workspace);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      updatedAt?: unknown;
+      pid?: unknown;
+    };
+    const updatedAt = String(parsed.updatedAt ?? '').trim();
+    if (!updatedAt || !Number.isFinite(Date.parse(updatedAt))) return null;
+    const ownerPid = Number(parsed.pid);
+    if (Number.isFinite(ownerPid) && ownerPid > 0 && !isPidAlive(ownerPid)) {
+      return null;
+    }
+    return Date.now() - Date.parse(updatedAt);
+  } catch {
+    return null;
+  }
+}
+
+function writeGatewayShellLaunchGuard(workspace: string): void {
+  const file = gatewayShellLaunchGuardFile(workspace);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify(
+      { pid: process.pid, updatedAt: new Date().toISOString() },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+}
+
+function clearGatewayShellLaunchGuard(workspace: string): void {
+  const file = gatewayShellLaunchGuardFile(workspace);
+  if (!fs.existsSync(file)) return;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      pid?: unknown;
+    };
+    const ownerPid = Number(parsed.pid);
+    if (Number.isFinite(ownerPid) && ownerPid > 0 && ownerPid !== process.pid) {
+      return;
+    }
+  } catch {}
+  try {
+    fs.unlinkSync(file);
+  } catch {}
+}
+
 function setWindowVisibleByPid(pid: number, visible: boolean): boolean {
   if (process.platform !== 'win32') return false;
   const showCode = visible ? 5 : 0;
@@ -460,15 +614,35 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class MiyaShellWin32 {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")]
+  public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+  [DllImport("user32.dll")]
+  public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")]
   public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 }
 "@
 $p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue
 if (-not $p) { exit 2 }
-$h = $p.MainWindowHandle
-if ($h -eq 0) { exit 3 }
-[MiyaShellWin32]::ShowWindowAsync([IntPtr]$h, ${showCode}) | Out-Null
+$target = [uint32]${pid}
+$matches = New-Object System.Collections.Generic.List[IntPtr]
+$enum = [MiyaShellWin32+EnumWindowsProc]{
+  param([IntPtr]$hWnd, [IntPtr]$lParam)
+  $owner = [uint32]0
+  [MiyaShellWin32]::GetWindowThreadProcessId($hWnd, [ref]$owner) | Out-Null
+  if ($owner -eq $target) {
+    $matches.Add($hWnd) | Out-Null
+  }
+  return $true
+}
+[MiyaShellWin32]::EnumWindows($enum, [IntPtr]::Zero) | Out-Null
+if ($matches.Count -eq 0) { exit 3 }
+foreach ($h in $matches) {
+  [MiyaShellWin32]::ShowWindowAsync([IntPtr]$h, ${showCode}) | Out-Null
+}
 exit 0
 `.trim();
   try {
@@ -485,6 +659,243 @@ exit 0
   } catch {
     return false;
   }
+}
+
+function findGatewayShellPidByTitle(title: string): number | null {
+  if (process.platform !== 'win32') return null;
+  const normalizedTitle = title.trim().toLowerCase();
+  if (!normalizedTitle) return null;
+  const script = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class MiyaShellFindWindow {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")]
+  public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+  [DllImport("user32.dll")]
+  public static extern int GetWindowTextLength(IntPtr hWnd);
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+}
+"@
+$target = "${normalizedTitle.replace(/"/g, '""')}"
+$found = [uint32]0
+$enum = [MiyaShellFindWindow+EnumWindowsProc]{
+  param([IntPtr]$hWnd, [IntPtr]$lParam)
+  $length = [MiyaShellFindWindow]::GetWindowTextLength($hWnd)
+  if ($length -le 0) { return $true }
+  $builder = New-Object System.Text.StringBuilder ($length + 1)
+  [MiyaShellFindWindow]::GetWindowText($hWnd, $builder, $builder.Capacity) | Out-Null
+  $title = $builder.ToString().Trim().ToLowerInvariant()
+  if ($title -eq $target) {
+    $pid = [uint32]0
+    [MiyaShellFindWindow]::GetWindowThreadProcessId($hWnd, [ref]$pid) | Out-Null
+    if ($pid -gt 0) {
+      $script:found = $pid
+      return $false
+    }
+  }
+  return $true
+}
+[MiyaShellFindWindow]::EnumWindows($enum, [IntPtr]::Zero) | Out-Null
+if ($found -gt 0) {
+  Write-Output $found
+  exit 0
+}
+exit 1
+`.trim();
+  try {
+    const result = spawnSync(
+      'powershell.exe',
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        encoding: 'utf-8',
+        timeout: 4_000,
+        windowsHide: true,
+      },
+    );
+    if (result.status !== 0) return null;
+    const pid = Number(String(result.stdout ?? '').trim());
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    return pid;
+  } catch {
+    return null;
+  }
+}
+
+function recoverGatewayShellState(
+  workspace: string,
+  title = 'miya-gateway',
+): GatewayShellState | null {
+  const existing = readGatewayShellState(workspace);
+  if (existing && isPidAlive(existing.pid)) {
+    return existing;
+  }
+
+  const discoveredPid = findGatewayShellPidByTitle(title);
+  if (discoveredPid === null || discoveredPid <= 0) {
+    if (existing) {
+      clearGatewayShellState(workspace);
+    }
+    return null;
+  }
+  if (!isPidAlive(discoveredPid)) {
+    if (existing) {
+      clearGatewayShellState(workspace);
+    }
+    return null;
+  }
+
+  const recovered: GatewayShellState = {
+    pid: discoveredPid,
+    workspace,
+    startedAt: existing?.startedAt || new Date().toISOString(),
+    visible: existing?.visible ?? true,
+  };
+  writeGatewayShellState(workspace, recovered);
+  return recovered;
+}
+
+function resolveGatewayNativeTerminalSourceFile(workspace: string): string {
+  const cliScript = resolveCliScriptPath();
+  const cliDir = path.dirname(cliScript);
+  const candidateRoots = [
+    workspace,
+    path.join(workspace, 'miya-src'),
+    path.resolve(cliDir, '..'),
+    path.resolve(cliDir, '..', '..'),
+    path.resolve(cliDir, '..', '..', '..'),
+  ];
+  const dedupedRoots = Array.from(
+    new Set(candidateRoots.map((root) => path.resolve(root))),
+  );
+  for (const root of dedupedRoots) {
+    const candidate = path.join(
+      root,
+      'src',
+      'gateway',
+      'windows',
+      'miya-gateway-terminal.cs',
+    );
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return path.join(
+    workspace,
+    'src',
+    'gateway',
+    'windows',
+    'miya-gateway-terminal.cs',
+  );
+}
+
+function gatewayNativeTerminalBinDir(workspace: string): string {
+  return path.join(workspace, '.opencode', 'miya', 'bin');
+}
+
+function gatewayNativeTerminalBinaryFile(workspace: string): string {
+  return path.join(gatewayNativeTerminalBinDir(workspace), 'miya-gateway-terminal.exe');
+}
+
+function resolveCscCompiler(): string | null {
+  if (process.platform !== 'win32') return null;
+  const windowsDir = process.env.WINDIR?.trim() || 'C:\\Windows';
+  const candidates = [
+    path.join(
+      windowsDir,
+      'Microsoft.NET',
+      'Framework64',
+      'v4.0.30319',
+      'csc.exe',
+    ),
+    path.join(windowsDir, 'Microsoft.NET', 'Framework', 'v4.0.30319', 'csc.exe'),
+    'csc.exe',
+  ];
+  for (const candidate of candidates) {
+    try {
+      const probe = spawnSync(candidate, ['/nologo', '/help'], {
+        stdio: 'ignore',
+        timeout: 2_000,
+        windowsHide: true,
+      });
+      if (probe.status === 0 || probe.status === 1) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
+function ensureNativeGatewayTerminalBinary(workspace: string): {
+  ok: boolean;
+  binaryPath: string;
+  reason?: string;
+  detail?: string;
+} {
+  const sourcePath = resolveGatewayNativeTerminalSourceFile(workspace);
+  const binaryPath = gatewayNativeTerminalBinaryFile(workspace);
+  if (!fs.existsSync(sourcePath)) {
+    return {
+      ok: false,
+      binaryPath,
+      reason: 'native_terminal_source_missing',
+      detail: sourcePath,
+    };
+  }
+  const csc = resolveCscCompiler();
+  if (!csc) {
+    return {
+      ok: false,
+      binaryPath,
+      reason: 'csc_not_found',
+      detail:
+        'Cannot locate csc.exe (Microsoft .NET Framework compiler). Please install .NET Framework build tools.',
+    };
+  }
+
+  let needsBuild = !fs.existsSync(binaryPath);
+  if (!needsBuild) {
+    try {
+      const sourceMtime = fs.statSync(sourcePath).mtimeMs;
+      const binaryMtime = fs.statSync(binaryPath).mtimeMs;
+      needsBuild = sourceMtime > binaryMtime;
+    } catch {
+      needsBuild = true;
+    }
+  }
+  if (!needsBuild) {
+    return { ok: true, binaryPath };
+  }
+
+  fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
+  const args = [
+    '/nologo',
+    '/optimize+',
+    '/target:winexe',
+    `/out:${binaryPath}`,
+    '/reference:System.dll',
+    '/reference:System.Core.dll',
+    '/reference:System.Drawing.dll',
+    '/reference:System.Windows.Forms.dll',
+    sourcePath,
+  ];
+  const result = spawnSync(csc, args, {
+    cwd: workspace,
+    encoding: 'utf-8',
+    timeout: 180_000,
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    const detail = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+    return {
+      ok: false,
+      binaryPath,
+      reason: 'native_terminal_build_failed',
+      detail: detail || `exit_code_${String(result.status ?? 'unknown')}`,
+    };
+  }
+  return { ok: true, binaryPath };
 }
 
 function runtimeGatewayFile(cwd: string): string {
@@ -805,6 +1216,7 @@ async function callGatewayMethod(
   url: string,
   method: string,
   params: Record<string, unknown>,
+  timeoutMs = 10_000,
 ): Promise<unknown> {
   const wsUrl = url.replace(/^http/, 'ws');
   const socket = new WebSocket(`${wsUrl}/ws`);
@@ -815,7 +1227,7 @@ async function callGatewayMethod(
         socket.close();
       } catch {}
       reject(new Error('gateway_timeout'));
-    }, 10000);
+    }, Math.max(400, timeoutMs));
 
     socket.addEventListener('open', () => {
       const token = process.env.MIYA_GATEWAY_TOKEN;
@@ -905,116 +1317,572 @@ async function runGatewayServe(cwd: string, args: string[]): Promise<number> {
   const workspace =
     readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
   const { ensureGatewayRunning, stopGateway } = await import('../gateway');
-
-  try {
-    const state = ensureGatewayRunning(workspace);
-    console.log(JSON.stringify(state, null, 2));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === 'gateway_owned_by_other_process') {
-      return 0;
-    }
-    throw error;
-  }
-
-  await new Promise<void>((resolve) => {
-    const stop = () => {
-      try {
-        stopGateway(workspace);
-      } finally {
-        resolve();
+  const removeCrashGuards = installGatewayCrashGuards('gateway.serve', {
+    exitOnFatal: true,
+    fatalExitCode: 1,
+    onEvent: (event) => {
+      if (event.severity === 'non_fatal') {
+        log('[gateway] suppressed non-fatal unhandled process error', {
+          context: event.context,
+          reason: event.reasonText,
+        });
+        return;
       }
-    };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
+      log('[gateway] fatal unhandled process error', {
+        context: event.context,
+        reason: event.reasonText,
+      });
+      console.error(`[gateway] ${event.context}: ${event.reasonText}`);
+    },
   });
 
-  return 0;
-}
-
-async function runGatewayTerminal(
-  cwd: string,
-  args: string[],
-): Promise<number> {
-  const workspace =
-    readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
-  const lock = acquireTerminalLock(workspace);
-  if (!lock.ok) {
-    console.log(
-      JSON.stringify(
-        {
-          ok: true,
-          skipped: true,
-          reason: 'terminal_already_running',
-          ownerPid: lock.ownerPid ?? null,
-        },
-        null,
-        2,
-      ),
-    );
-    return 0;
-  }
-  const { ensureGatewayRunning, stopGateway, isGatewayOwner } = await import(
-    '../gateway'
-  );
-  let ownRuntime = false;
-
   try {
-    ensureGatewayRunning(workspace);
-    ownRuntime = isGatewayOwner(workspace);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message !== 'gateway_owned_by_other_process') {
+    try {
+      const state = ensureGatewayRunning(workspace);
+      console.log(JSON.stringify(state, null, 2));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === 'gateway_owned_by_other_process') {
+        return 0;
+      }
       throw error;
     }
-    ownRuntime = false;
+
+    await new Promise<void>((resolve) => {
+      const stop = () => {
+        try {
+          stopGateway(workspace);
+        } finally {
+          resolve();
+        }
+      };
+      process.once('SIGINT', stop);
+      process.once('SIGTERM', stop);
+    });
+
+    return 0;
+  } finally {
+    removeCrashGuards();
+  }
+}
+
+function resolveMiyaVersion(workspace: string): string {
+  const pkg = path.join(workspace, 'package.json');
+  if (!fs.existsSync(pkg)) return '0.0.0';
+  try {
+    const parsed = JSON.parse(fs.readFileSync(pkg, 'utf-8')) as {
+      version?: unknown;
+    };
+    const version = String(parsed.version ?? '').trim();
+    return version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+function resolveGitCommitShort(workspace: string): string {
+  try {
+    const result = spawnSync('git', ['rev-parse', '--short=12', 'HEAD'], {
+      cwd: workspace,
+      encoding: 'utf-8',
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    if (result.status !== 0) return 'unknown';
+    const commit = String(result.stdout ?? '').trim();
+    return commit || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function parseGatewayWsEndpoints(state: { url: string }): string[] {
+  try {
+    const parsed = new URL(state.url);
+    const port = parsed.port || '80';
+    const wsPath = '/ws';
+    const protocol = parsed.protocol === 'https:' ? 'wss' : 'ws';
+    const host = parsed.hostname;
+    const endpoints = new Set<string>();
+    endpoints.add(`${protocol}://${host}:${port}${wsPath}`);
+    if (host === '127.0.0.1') {
+      endpoints.add(`${protocol}://[::1]:${port}${wsPath}`);
+    }
+    return Array.from(endpoints);
+  } catch {
+    return [];
+  }
+}
+
+function printGatewayCommandResult(label: string, payload: unknown): void {
+  printGatewayTerminalEvent('gateway', `${label}:`, 'link');
+  const text = JSON.stringify(payload, null, 2)
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .join('\n');
+  if (!text) return;
+  const colored = color(text, ANSI.blue);
+  process.stdout.write(`${colored}\n`);
+}
+
+const TERMINAL_HOST_EXIT_GATEWAY_STOPPED = 51;
+
+async function executeGatewayTerminalCommand(params: {
+  workspace: string;
+  gatewayUrl: string;
+  commandLine: string;
+}): Promise<{ gatewayUrl: string; exit: boolean; exitCode?: number }> {
+  const command = params.commandLine.trim();
+  if (!command) return { gatewayUrl: params.gatewayUrl, exit: false };
+
+  if (command === 'help' || command === '?') {
+    printGatewayTerminalEvent(
+      'gateway',
+      'commands: status | doctor | start | stop | shutdown | restart | raw <method> [json] | clear',
+      'link',
+    );
+    return { gatewayUrl: params.gatewayUrl, exit: false };
   }
 
-  const state = readGatewayState(workspace);
-  const logFile = gatewayLogFilePath();
+  if (command === 'clear') {
+    process.stdout.write('\x1bc');
+    return { gatewayUrl: params.gatewayUrl, exit: false };
+  }
 
-  console.log(
-    color(
-      `Miya Gateway Terminal - ${ownRuntime ? 'owner' : 'follower'} mode`,
-      ANSI.cyan,
-    ),
+  if (command === 'exit' || command === 'quit') {
+    printGatewayTerminalEvent(
+      'gateway',
+      'exit disabled in persistent mode. Use window close button to hide, or run shutdown to stop gateway.',
+      'warn',
+    );
+    return { gatewayUrl: params.gatewayUrl, exit: false };
+  }
+
+  let gatewayUrl = params.gatewayUrl;
+  const requiresLiveGateway =
+    command !== 'start' && command !== 'clear' && command !== 'help' && command !== '?';
+  if (requiresLiveGateway) {
+    try {
+      await callGatewayMethod(gatewayUrl, 'gateway.status.get', {}, 1_200);
+    } catch {
+      gatewayUrl = await ensureGatewayUrl(params.workspace, false);
+    }
+  }
+
+  if (command === 'start') {
+    const started = await runGatewayStart(params.workspace);
+    if (!started.ok) {
+      printGatewayTerminalEvent(
+        'gateway',
+        `start failed: ${started.reason}${started.detail ? ` (${started.detail})` : ''}`,
+        'error',
+      );
+      return { gatewayUrl: params.gatewayUrl, exit: false };
+    }
+    const nextGatewayUrl = await ensureGatewayUrl(params.workspace, true);
+    printGatewayTerminalEvent('gateway', `gateway started: ${nextGatewayUrl}`);
+    return { gatewayUrl: nextGatewayUrl, exit: false };
+  }
+
+  if (command === 'restart') {
+    try {
+      await callGatewayMethod(gatewayUrl, 'gateway.shutdown', {});
+    } catch {}
+    const started = await runGatewayStart(params.workspace);
+    if (!started.ok) {
+      printGatewayTerminalEvent(
+        'gateway',
+        `restart failed: ${started.reason}${started.detail ? ` (${started.detail})` : ''}`,
+        'error',
+      );
+      return { gatewayUrl, exit: false };
+    }
+    const nextGatewayUrl = await ensureGatewayUrl(params.workspace, true);
+    printGatewayTerminalEvent('gateway', `gateway restarted: ${nextGatewayUrl}`);
+    return { gatewayUrl: nextGatewayUrl, exit: false };
+  }
+
+  if (command === 'stop' || command === 'shutdown') {
+    const result = await callGatewayMethod(gatewayUrl, 'gateway.shutdown', {});
+    printGatewayCommandResult('shutdown', result);
+    printGatewayTerminalEvent(
+      'gateway',
+      'gateway stopped; terminal host exiting to close window.',
+      'warn',
+    );
+    return {
+      gatewayUrl,
+      exit: true,
+      exitCode: TERMINAL_HOST_EXIT_GATEWAY_STOPPED,
+    };
+  }
+
+  if (command === 'status') {
+    const result = await callGatewayMethod(gatewayUrl, 'gateway.status.get', {});
+    printGatewayCommandResult('status', result);
+    return { gatewayUrl, exit: false };
+  }
+
+  if (command === 'doctor') {
+    const result = await callGatewayMethod(gatewayUrl, 'doctor.run', {});
+    printGatewayCommandResult('doctor', result);
+    return { gatewayUrl, exit: false };
+  }
+
+  if (command.startsWith('raw ')) {
+    const raw = command.slice('raw '.length).trim();
+    const firstSpace = raw.indexOf(' ');
+    const method = (firstSpace >= 0 ? raw.slice(0, firstSpace) : raw).trim();
+    const paramsRaw = firstSpace >= 0 ? raw.slice(firstSpace + 1).trim() : '';
+    let methodParams: Record<string, unknown> = {};
+    if (paramsRaw) {
+      try {
+        const parsed = JSON.parse(paramsRaw) as unknown;
+        if (
+          !parsed ||
+          typeof parsed !== 'object' ||
+          Array.isArray(parsed)
+        ) {
+          throw new Error('raw_method_params_must_be_object');
+        }
+        methodParams = parsed as Record<string, unknown>;
+      } catch (error) {
+        printGatewayTerminalEvent(
+          'gateway',
+          `raw command params parse failed: ${error instanceof Error ? error.message : String(error)}`,
+          'error',
+        );
+        return { gatewayUrl, exit: false };
+      }
+    }
+    if (!method) {
+      printGatewayTerminalEvent('gateway', 'raw command requires method name', 'warn');
+      return { gatewayUrl, exit: false };
+    }
+    const result = await callGatewayMethod(
+      gatewayUrl,
+      method,
+      methodParams,
+    );
+    printGatewayCommandResult(`raw ${method}`, result);
+    return { gatewayUrl, exit: false };
+  }
+
+  printGatewayTerminalEvent(
+    'gateway',
+    `unknown command: ${command} (type "help")`,
+    'warn',
   );
-  if (state) {
-    console.log(
-      `${color('url', ANSI.dim)}=${state.url} ${color('pid', ANSI.dim)}=${state.pid} ${color('log', ANSI.dim)}=${logFile}`,
+  return { gatewayUrl, exit: false };
+}
+
+async function runGatewayTerminalHost(
+  cwd: string,
+  args: string[],
+  input?: { useLock?: boolean; replayAllLogs?: boolean },
+): Promise<number> {
+  const removeCrashGuards = installGatewayCrashGuards('gateway.terminal-host', {
+    exitOnFatal: false,
+    onEvent: (event) => {
+      if (event.severity === 'non_fatal') {
+        log('[gateway] terminal host suppressed non-fatal process error', {
+          context: event.context,
+          reason: event.reasonText,
+        });
+        printGatewayTerminalEvent(
+          'gateway',
+          `non-fatal runtime error suppressed: ${event.reasonText}`,
+          'warn',
+        );
+        return;
+      }
+      log('[gateway] terminal host caught fatal process error and continued', {
+        context: event.context,
+        reason: event.reasonText,
+      });
+      printGatewayTerminalEvent(
+        'gateway',
+        `fatal runtime error caught (process kept alive): ${event.reasonText}`,
+        'error',
+      );
+    },
+  });
+
+  const workspace =
+    readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
+  const useLock = input?.useLock !== false;
+  const replayAllLogs = input?.replayAllLogs !== false;
+  let hasLock = false;
+  if (useLock) {
+    const lock = acquireTerminalLock(workspace);
+    if (!lock.ok) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: true,
+            skipped: true,
+            reason: 'terminal_already_running',
+            ownerPid: lock.ownerPid ?? null,
+          },
+          null,
+          2,
+        ),
+      );
+      removeCrashGuards();
+      return 0;
+    }
+    hasLock = true;
+  }
+
+  let gatewayUrl = '';
+  try {
+    gatewayUrl = await ensureGatewayUrl(workspace, true);
+  } catch (error) {
+    printGatewayTerminalEvent(
+      'gateway',
+      `gateway attach degraded: ${error instanceof Error ? error.message : String(error)}`,
+      'warn',
+    );
+  }
+  const state = readGatewayState(workspace);
+  if (!gatewayUrl && state?.url) {
+    gatewayUrl = state.url;
+  }
+  if (!gatewayUrl) {
+    gatewayUrl = 'http://127.0.0.1:0';
+  }
+  const logFile = gatewayLogFilePath();
+  const version = resolveMiyaVersion(workspace);
+  const commit = resolveGitCommitShort(workspace);
+  let snapshot: Record<string, unknown> | null = null;
+  if (!gatewayUrl.endsWith(':0')) {
+    try {
+      const statusResult = await callGatewayMethod(
+        gatewayUrl,
+        'gateway.status.get',
+        {},
+      );
+      if (isRecord(statusResult)) snapshot = statusResult;
+    } catch (error) {
+      printGatewayTerminalEvent(
+        'gateway',
+        `status preload degraded: ${error instanceof Error ? error.message : String(error)}`,
+        'warn',
+      );
+    }
+  }
+
+  printGatewayTerminalEvent(
+    'gateway',
+    `Miya ${version} (${commit}) - Because texting yourself reminders is so 2024.`,
+    'link',
+  );
+  const canvasUrl = `${gatewayUrl}/__miya__/canvas/`;
+  printGatewayTerminalEvent(
+    'canvas',
+    `host mounted at ${canvasUrl} (root ${workspace})`,
+    'link',
+  );
+  printGatewayTerminalEvent(
+    'heartbeat',
+    'started',
+    'info',
+  );
+  const runtimeState = snapshot?.runtime;
+  const activeAgent =
+    isRecord(runtimeState) && typeof runtimeState.activeAgentId === 'string'
+      ? runtimeState.activeAgentId
+      : 'unknown';
+  printGatewayTerminalEvent('gateway', `agent model: ${activeAgent}`);
+  const gatewaySnapshot = isRecord(snapshot?.gateway) ? snapshot.gateway : null;
+  const gatewayPidFromSnapshot =
+    gatewaySnapshot && Number.isFinite(Number(gatewaySnapshot.pid))
+      ? Number(gatewaySnapshot.pid)
+      : process.pid;
+  const endpointState = state ?? {
+    url: gatewayUrl,
+    pid: gatewayPidFromSnapshot,
+  };
+  if (endpointState.url.endsWith(':0')) {
+    printGatewayTerminalEvent(
+      'gateway',
+      'gateway endpoint unresolved; run "start" after checking local Node runtime.',
+      'warn',
     );
   } else {
-    console.log(`${color('log', ANSI.dim)}=${logFile}`);
-  }
-
-  const tailLines = readTailLines(logFile, 80);
-  if (tailLines.length > 0) {
-    for (const line of tailLines) {
-      console.log(formatGatewayConsoleLine(line));
+    const wsEndpoints = parseGatewayWsEndpoints(endpointState);
+    for (const endpoint of wsEndpoints) {
+      printGatewayTerminalEvent(
+        'gateway',
+        `listening on ${endpoint}${
+          endpoint.includes('127.0.0.1')
+            ? ` (PID ${endpointState.pid})`
+            : ''
+        }`,
+        'link',
+      );
     }
-  } else {
-    console.log(color('[gateway] waiting for runtime log stream...', ANSI.dim));
+  }
+  printGatewayTerminalEvent('gateway', `log file: ${logFile}`, 'link');
+  const daemonSnapshot = isRecord(snapshot?.daemon) ? snapshot.daemon : null;
+  const daemon =
+    daemonSnapshot && typeof daemonSnapshot.statusText === 'string'
+      ? daemonSnapshot.statusText
+      : 'unknown';
+  const daemonConnected = daemonSnapshot ? Boolean(daemonSnapshot.connected) : false;
+  printGatewayTerminalEvent(
+    'browser/service',
+    `Browser control service ${daemonConnected ? 'ready' : 'degraded'} (${daemon})`,
+    daemonConnected ? 'info' : 'warn',
+  );
+  printGatewayTerminalEvent('gateway', 'stdin interactive enabled');
+  printGatewayTerminalEvent('gateway', 'type "help" for terminal commands', 'link');
+
+  if (replayAllLogs) {
+    const historicalLines = readAllLogLines(logFile);
+    if (historicalLines.length === 0) {
+      printGatewayTerminalEvent('gateway', 'waiting for runtime log stream...');
+    } else {
+      for (const line of historicalLines) {
+        console.log(formatGatewayConsoleLine(line));
+      }
+    }
   }
 
-  const stopTail = startGatewayLogTail(logFile, (line) => {
-    console.log(formatGatewayConsoleLine(line));
+  const stopTail = startGatewayLogTail(
+    logFile,
+    (line) => {
+      console.log(formatGatewayConsoleLine(line));
+    },
+    { startAt: 'end' },
+  );
+
+  let terminalExitCode = 0;
+  let shouldExit = false;
+  let rl: readline.Interface | null = null;
+  let resolveNonTtyExit: (() => void) | null = null;
+  let staleGatewayPidStrikes = 0;
+
+  const requestExit = (exitCode: number): void => {
+    if (shouldExit) return;
+    shouldExit = true;
+    terminalExitCode = exitCode;
+    if (rl) {
+      rl.close();
+      return;
+    }
+    if (resolveNonTtyExit) {
+      resolveNonTtyExit();
+    }
+  };
+
+  const gatewayLivenessTimer = setInterval(() => {
+    if (shouldExit) return;
+    const latest = readGatewayState(workspace);
+    if (!latest) {
+      staleGatewayPidStrikes = 0;
+      return;
+    }
+    if (isPidAlive(latest.pid)) {
+      staleGatewayPidStrikes = 0;
+      return;
+    }
+    staleGatewayPidStrikes += 1;
+    if (staleGatewayPidStrikes < 3) {
+      return;
+    }
+    printGatewayTerminalEvent(
+      'gateway',
+      `gateway pid ${latest.pid} is offline; terminal host exiting.`,
+      'warn',
+    );
+    requestExit(TERMINAL_HOST_EXIT_GATEWAY_STOPPED);
+  }, 1_200);
+
+  const cleanup = (): void => {
+    clearInterval(gatewayLivenessTimer);
+    stopTail();
+    removeCrashGuards();
+    if (hasLock) {
+      releaseTerminalLock(workspace);
+    }
+  };
+
+  if (!process.stdin.isTTY) {
+    await new Promise<void>((resolve) => {
+      resolveNonTtyExit = resolve;
+      const stop = () => requestExit(0);
+      process.once('SIGINT', stop);
+      process.once('SIGTERM', stop);
+    });
+    cleanup();
+    return terminalExitCode;
+  }
+
+  const prompt = color('miya-gateway> ', ANSI.blue);
+  rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: true,
+    historySize: 500,
+    removeHistoryDuplicates: true,
+  });
+  rl.setPrompt(prompt);
+
+  let queue = Promise.resolve<{
+    gatewayUrl: string;
+    exit: boolean;
+    exitCode?: number;
+  }>({
+    gatewayUrl,
+    exit: false,
+  });
+  rl.prompt();
+
+  rl.on('line', (line) => {
+    queue = queue
+      .then((result) =>
+        executeGatewayTerminalCommand({
+          workspace,
+          gatewayUrl: result.gatewayUrl,
+          commandLine: line,
+        }),
+      )
+      .then((result) => {
+        gatewayUrl = result.gatewayUrl;
+        if (result.exit) {
+          requestExit(result.exitCode ?? 0);
+          return result;
+        }
+        if (!shouldExit) {
+          rl.prompt();
+        }
+        return result;
+      })
+      .catch((error) => {
+        printGatewayTerminalEvent(
+          'gateway',
+          `command failed: ${error instanceof Error ? error.message : String(error)}`,
+          'error',
+        );
+        if (!shouldExit) {
+          rl.prompt();
+        }
+        return { gatewayUrl, exit: false };
+      });
   });
 
   await new Promise<void>((resolve) => {
     const stop = () => {
-      stopTail();
-      releaseTerminalLock(workspace);
-      if (ownRuntime) {
-        try {
-          stopGateway(workspace);
-        } catch {}
-      }
-      resolve();
+      requestExit(0);
     };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
+    rl.once('close', () => resolve());
   });
-  return 0;
+
+  cleanup();
+  return terminalExitCode;
 }
 
 async function runGatewayShell(
@@ -1028,9 +1896,8 @@ async function runGatewayShell(
   const action = (args[0] ?? 'status').trim().toLowerCase();
   const workspace =
     readFlagValue(args, '--workspace') ?? resolveWorkspaceDir(cwd);
-  const state = readGatewayShellState(workspace);
+  const state = recoverGatewayShellState(workspace);
   const alive = state ? isPidAlive(state.pid) : false;
-  if (state && !alive) clearGatewayShellState(workspace);
 
   if (action === 'status') {
     console.log(
@@ -1052,7 +1919,8 @@ async function runGatewayShell(
   }
 
   if (action === 'stop' || action === 'shutdown') {
-    if (!state || !alive) {
+    const latest = recoverGatewayShellState(workspace);
+    if (!latest || !isPidAlive(latest.pid)) {
       clearGatewayShellState(workspace);
       console.log(
         JSON.stringify({ ok: true, action: 'stop', stopped: false }, null, 2),
@@ -1060,16 +1928,16 @@ async function runGatewayShell(
       return 0;
     }
     try {
-      process.kill(state.pid, 'SIGTERM');
+      process.kill(latest.pid, 'SIGTERM');
     } catch {
       try {
-        process.kill(state.pid, 'SIGKILL');
+        process.kill(latest.pid, 'SIGKILL');
       } catch {}
     }
     clearGatewayShellState(workspace);
     console.log(
       JSON.stringify(
-        { ok: true, action: 'stop', stopped: true, pid: state.pid },
+        { ok: true, action: 'stop', stopped: true, pid: latest.pid },
         null,
         2,
       ),
@@ -1078,7 +1946,13 @@ async function runGatewayShell(
   }
 
   if (action === 'start') {
-    if (state && alive) {
+    const current = recoverGatewayShellState(workspace);
+    if (current && isPidAlive(current.pid)) {
+      setWindowVisibleByPid(current.pid, true);
+      writeGatewayShellState(workspace, {
+        ...current,
+        visible: true,
+      });
       console.log(
         JSON.stringify(
           {
@@ -1086,7 +1960,8 @@ async function runGatewayShell(
             action,
             started: false,
             reason: 'already_running',
-            pid: state.pid,
+            pid: current.pid,
+            visible: true,
           },
           null,
           2,
@@ -1094,22 +1969,57 @@ async function runGatewayShell(
       );
       return 0;
     }
-    const started = await runGatewayStart(workspace);
-    if (!started.ok) {
+    const launchGuardAgeMs = readGatewayShellLaunchGuardAgeMs(workspace);
+    if (launchGuardAgeMs !== null && launchGuardAgeMs < 15_000) {
       console.log(
         JSON.stringify(
           {
-            ok: false,
+            ok: true,
             action,
             started: false,
-            reason: started.reason,
-            detail: started.detail ?? null,
+            reason: 'shell_start_in_progress',
+            ageMs: Math.max(0, Math.floor(launchGuardAgeMs)),
           },
           null,
           2,
         ),
       );
-      return 1;
+      return 0;
+    }
+    writeGatewayShellLaunchGuard(workspace);
+    try {
+    let gatewayReady = false;
+    try {
+      await ensureGatewayUrl(workspace, false);
+      gatewayReady = true;
+    } catch {}
+    if (!gatewayReady) {
+      const started = await runGatewayStart(workspace);
+      if (!started.ok && started.reason === 'guard_starting') {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        try {
+          await ensureGatewayUrl(workspace, false);
+          gatewayReady = true;
+        } catch {}
+      } else if (started.ok) {
+        gatewayReady = true;
+      }
+      if (!gatewayReady) {
+        console.log(
+          JSON.stringify(
+            {
+              ok: false,
+              action,
+              started: false,
+              reason: started.reason,
+              detail: started.detail ?? null,
+            },
+            null,
+            2,
+          ),
+        );
+        return 1;
+      }
     }
     const nodeBinary = resolveNodeBinary();
     const cliRuntime = resolveGatewayCliRuntime(workspace);
@@ -1128,18 +2038,35 @@ async function runGatewayShell(
       );
       return 1;
     }
+    const native = ensureNativeGatewayTerminalBinary(workspace);
+    if (!native.ok) {
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            started: false,
+            reason: native.reason ?? 'native_terminal_unavailable',
+            detail: native.detail ?? null,
+            binaryPath: native.binaryPath,
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
     const shell = spawn(
-      'cmd.exe',
+      native.binaryPath,
       [
-        '/d',
-        '/k',
-        [
-          `"${nodeBinary}"`,
-          ...(cliRuntime.useTsxLoader ? ['--import tsx'] : []),
-          `"${cliRuntime.scriptPath}"`,
-          'gateway terminal',
-          `--workspace "${workspace}"`,
-        ].join(' '),
+        '--workspace',
+        workspace,
+        '--node',
+        nodeBinary,
+        '--cli',
+        cliRuntime.scriptPath,
+        '--tsx',
+        cliRuntime.useTsxLoader ? '1' : '0',
       ],
       {
         cwd: workspace,
@@ -1165,6 +2092,49 @@ async function runGatewayShell(
       );
       return 1;
     }
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    if (!isPidAlive(shellPid)) {
+      const recovered = recoverGatewayShellState(workspace);
+      if (recovered && isPidAlive(recovered.pid)) {
+        setWindowVisibleByPid(recovered.pid, true);
+        writeGatewayShellState(workspace, {
+          ...recovered,
+          visible: true,
+        });
+        console.log(
+          JSON.stringify(
+            {
+              ok: true,
+              action,
+              started: false,
+              reason: 'reused_existing',
+              pid: recovered.pid,
+              workspace,
+            },
+            null,
+            2,
+          ),
+        );
+        return 0;
+      }
+      clearGatewayShellState(workspace);
+      console.log(
+        JSON.stringify(
+          {
+            ok: false,
+            action,
+            started: false,
+            reason: 'shell_exit_early',
+            pid: shellPid,
+            detail:
+              'native terminal process exited immediately; check desktop session/ConPTY availability',
+          },
+          null,
+          2,
+        ),
+      );
+      return 1;
+    }
     const next: GatewayShellState = {
       pid: shellPid,
       workspace,
@@ -1172,24 +2142,28 @@ async function runGatewayShell(
       visible: true,
     };
     writeGatewayShellState(workspace, next);
-    console.log(
-      JSON.stringify(
-        {
-          ok: true,
-          action,
-          started: true,
-          pid: shellPid,
-          workspace,
-        },
-        null,
-        2,
-      ),
-    );
+      console.log(
+        JSON.stringify(
+          {
+            ok: true,
+            action,
+            started: true,
+            pid: shellPid,
+            workspace,
+            binaryPath: native.binaryPath,
+          },
+          null,
+          2,
+        ),
+      );
     return 0;
+    } finally {
+      clearGatewayShellLaunchGuard(workspace);
+    }
   }
 
   if (action === 'show' || action === 'hide' || action === 'toggle') {
-    const current = readGatewayShellState(workspace);
+    const current = recoverGatewayShellState(workspace);
     if (!current || !isPidAlive(current.pid)) {
       clearGatewayShellState(workspace);
       console.log(
@@ -1211,7 +2185,7 @@ async function runGatewayShell(
         ? true
         : action === 'hide'
           ? false
-          : !Boolean(current.visible);
+          : !current.visible;
     const changed = setWindowVisibleByPid(current.pid, shouldShow);
     if (!changed) {
       console.log(
@@ -1258,12 +2232,8 @@ async function runGatewayAutostart(
   const modeRaw = (readFlagValue(args, '--mode') ?? 'service_shell')
     .trim()
     .toLowerCase();
-  const mode: 'serve' | 'terminal' | 'service_shell' =
-    modeRaw === 'terminal'
-      ? 'terminal'
-      : modeRaw === 'serve'
-        ? 'serve'
-        : 'service_shell';
+  const mode: 'serve' | 'service_shell' =
+    modeRaw === 'serve' ? 'serve' : 'service_shell';
   const startupDir = windowsStartupDir();
   if (!startupDir) {
     console.error('gateway_autostart_unsupported_platform');
@@ -1455,8 +2425,11 @@ async function runGatewayCommand(cwd: string, args: string[]): Promise<number> {
   if (action === 'serve') {
     return await runGatewayServe(cwd, args.slice(1));
   }
-  if (action === 'terminal') {
-    return await runGatewayTerminal(cwd, args.slice(1));
+  if (action === 'terminal-host') {
+    return await runGatewayTerminalHost(cwd, args.slice(1), {
+      useLock: false,
+      replayAllLogs: true,
+    });
   }
   if (action === 'shell') {
     return await runGatewayShell(cwd, args.slice(1));

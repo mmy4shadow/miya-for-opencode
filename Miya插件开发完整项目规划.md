@@ -1,6 +1,6 @@
 # **Miya 插件开发深度研究报告与实施蓝图**
 
-Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建的是一种 “云-端协同” (Cloud-Edge Collaboration) 架构：云端 (OpenCode)：负责高维智慧（对话、决策、代码生成）等工作。端侧 (Miya)：负责低维感知（看屏幕、听声音）、执行（点鼠标）、边缘计算（本地模型推理），记忆和情感维护等工作。Miya 是 OpenCode 的“手”和“眼”，驻扎本地，开机即用，极致省流，兼容一切。 不止是这样，miya还负责调用本地模型生成音频，图片，包括识别我 的声音和电脑软件，浏览器之类的点击位置。而且miya可以做到像人类一样使用电脑，不受不同软件的限制。实现Gateway常驻自启 + 网页UI随OpenCode起落 + 本地算力调度。miya是不连接大模型api的，实际对话和模型调用全部在opencode。 在我的理解里，miya是一个能扩展opencode的agent能力的插件，辅助，调度，连接电脑与opencode。而且miya可以充分利用上本地部署的条件，比如要控制电脑，opencode的大模型给出指令到miya，miya传递到本地模型，本地模型出结果给miya再传递到opencode的模型做下一步。而且miya有一个增强交互系统学习我的习惯，落实记忆管理，但实际该做什么说什么都是由opencode的大模型发出。miya是一个扩展复杂的扩展插件。
+Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建的是一种 “云-端协同” (Cloud-Edge Collaboration) 架构：云端 (OpenCode)：负责高维智慧（对话、决策、代码生成）等工作。端侧 (Miya)：负责低维感知（看屏幕、听声音）、执行（点鼠标）、边缘计算（本地模型推理），记忆和情感维护等工作。Miya 是 OpenCode 的“手”和“眼”，驻扎本地，开机即用，极致省流，兼容一切。 不止是这样，miya还负责调用本地模型生成音频，图片，包括识别我 的声音和电脑软件，浏览器之类的点击位置。而且miya可以做到像人类一样使用电脑，不受不同软件的限制。实现 Gateway 常驻自启 + 网页 UI 可独立呼出/隐藏 + 本地算力调度。miya是不连接大模型api的，实际对话和模型调用全部在opencode。 在我的理解里，miya是一个能扩展opencode的agent能力的插件，辅助，调度，连接电脑与opencode。而且miya可以充分利用上本地部署的条件，比如要控制电脑，opencode的大模型给出指令到miya，miya传递到本地模型，本地模型出结果给miya再传递到opencode的模型做下一步。而且miya有一个增强交互系统学习我的习惯，落实记忆管理，但实际该做什么说什么都是由opencode的大模型发出。miya是一个扩展复杂的扩展插件。
 
 大模型只负责决策思考和指挥，图像及声音识别生图声音克隆等工作交给本地模型，其他简单工作交给miya(注意miya不接大模型，所有大模型调用都在opencode)，还有其他复杂一点给大模型和miya共同完成（比如分析错误落实到记忆，记录习惯，根据记忆习惯调整交互体验等等这些用到大模型能把工作效率和效果显著提升的工作，我们这里的所有目的都是减少tokens消耗，加速加精度，提效果）
 
@@ -66,6 +66,13 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
   - 复发点台账已落文件：`miya-src/test/E2E_ACCEPTANCE_REGRESSION_GUARD.md`（逐条记录“症状/根因/修复位点/防复发守卫”）。
   - 对应修复文件：`miya-src/package.json`、`miya-src/tools/run-integration-suite.ts`、`miya-src/src/gateway/index.ts`、`miya-src/src/companion/store.ts`、`miya-src/src/gateway/methods/memory.ts`。
 
+- 2026-02-22 安全/权限/隐私闭环验收（严格门禁，新增）：
+  - 已落地：权限要求准入机制覆盖工具与 Skill，未声明 permission metadata 不进入执行路径（`miya-src/src/security/permission-metadata.ts`、`miya-src/src/index.ts`、`miya-src/src/skills/loader.ts`、`miya-src/src/skills/cartography/SKILL.md`）。
+  - 已落地：高风险配置/外发/节点执行链路前置 Intake Gate propose/decide，未批准直接阻断（`miya-src/src/intake/enforcement.ts`、`miya-src/src/gateway/index.ts`、`miya-src/src/gateway/methods/channels.ts`、`miya-src/src/gateway/methods/nodes.ts`）。
+  - 已验证：能力域停机按域生效（`outbound_send`/`desktop_control` 可停机，其他域可继续）且恢复受控，解锁路径可审计（`miya-src/src/gateway/security-interaction.test.ts`）。
+  - 验收用例已补齐：`越权绕过 permission`、`外部诱导未审批阻断`、`按域停机与恢复约束`（`miya-src/src/security/permission-metadata.test.ts`、`miya-src/src/skills/loader.test.ts`、`miya-src/src/gateway/security-interaction.test.ts`）。
+  - 本轮实跑：`npm --prefix miya-src run -s test:strict`、`npm --prefix miya-src run -s test:integration:report`、`opencode debug config|skill|paths` 全部通过；报告位于 `miya-src/.opencode/miya/reports/strict-gate-latest.json` 与 `miya-src/.opencode/miya/reports/integration-latest.json`。
+
 ## 2026-02-15 全面修订补丁（高优先级解释层，不删除原文）
 
 本补丁为本规划的“解释层/冻结条款集合”。若与后文出现冲突，**先以 `0.4 总状态矩阵` 为准**，再更新本补丁与对应章节，避免“文档内自相矛盾”。
@@ -95,9 +102,13 @@ Miya不是“大脑”，她是“义体”（Cybernetic Body）。希望构建�
 - 同源反向代理路径已兼容（首版）：Gateway UI 传输层改为“路径前缀感知”，在 `/miya/*` 等同源挂载场景下自动使用 `/<base>/api/*` 与 `/<base>/ws`；Gateway 服务端新增前缀别名路由（`/miya/ws`、`/miya/api/status`、`/miya/api/evidence/image` 等）且保留旧根路径兼容（`miya-src/gateway-ui/src/App.tsx`、`miya-src/src/gateway/index.ts`）。
 - 控制台告警交互已收口：原页内重复黄条改为全局 toast，避免切页时正文跳动；新增“复制 PowerShell 修复命令”按钮，支持一键拷贝 `NO_PROXY` 修复命令（`miya-src/gateway-ui/src/App.tsx`）。
 - 控制台空状态与文案已优化：作业中心改为“表头常驻 + 空状态组件”，守门员信号中心补全空状态占位；`proactive_ping/quiet_hours` 调整为中文优先标签（`miya-src/gateway-ui/src/App.tsx`）。
-- 2026-02-21 启动口径补充：Windows 默认启动模式改为 `service_shell`（后台服务优先），`terminal_legacy` 仅保留显式兼容；新增 `ui.dashboard.gatewayStartMode` 配置键，避免默认 `cmd /k` 反复弹窗干扰桌面操作（`miya-src/src/index.ts`、`miya-src/src/config/schema.ts`、`miya-src/src/settings/registry.ts`、`miya-src/src/cli/index.ts`）。
+- 2026-02-21 启动口径补充：Windows 默认启动模式改为 `service_shell`（后台服务优先）；新增 `ui.dashboard.gatewayStartMode` 配置键，避免旧 `cmd /k` 路径导致反复弹窗（`miya-src/src/index.ts`、`miya-src/src/config/schema.ts`、`miya-src/src/settings/registry.ts`、`miya-src/src/cli/index.ts`）。
+- 2026-02-22 终端形态升级（口径收敛）：`gateway shell start` 启动固定标题 `miya-gateway` 的独立原生窗口（WinForms + ConPTY）；窗口与 Gateway 后台进程解耦，最小化/关闭仅隐藏窗口不终止 Gateway。终端首屏与日志渲染按 OpenClaw Gateway 风格收敛：`HH:MM:SS [模块] 内容`、时间灰/模块洋红/错误红/版本与链接蓝，保留实时 ANSI 流式输出与 stdin CLI 交互（`miya-src/src/cli/index.ts`、`miya-src/src/gateway/windows/miya-gateway-terminal.cs`）。
+- 2026-02-22 终端稳定性加固（防闪烁/防崩）：CLI 引入 gateway 进程 crash guard（瞬态网络/Abort 类异常不再直接打崩 gateway 进程）；`gateway shell start` 新增“按窗口标题 `miya-gateway` 反查 PID 并复用”回收路径，降低 `gateway-shell.json` 丢失时的重复拉起闪烁；terminal-host 监测到 `gateway.json` 中 PID 持续失活会主动退出并触发原生窗口同步收口（`miya-src/src/cli/index.ts`、`miya-src/src/cli/gateway-crash-guard.ts`、`miya-src/src/gateway/windows/miya-gateway-terminal.cs`）。
+- 2026-02-22 终端生命周期对齐（OpenClaw Gateway 语义）：终端内执行 `stop/shutdown` 后，terminal-host 返回专用退出码并由 WinForms 终端识别为“网关已停机”，窗口执行同步关闭而非自动重连；`exit/quit` 在持久模式下改为软阻断提示，避免误触导致子会话退出后反复重连闪烁（`miya-src/src/cli/index.ts`、`miya-src/src/gateway/windows/miya-gateway-terminal.cs`）。
+- 2026-02-22 启动链路清理（分支消除）：移除 CLI `miya gateway terminal` 兼容入口，仅保留 `gateway shell`（独立终端）与 `gateway serve`（后台服务）；Windows Dock 自动拉起改为“仅显式配置开启”，不再按平台默认拉起，降低额外终端/脚本窗口反复闪烁风险（`miya-src/src/cli/index.ts`、`miya-src/src/index.ts`）。
 - 2026-02-21 启动链兼容补丁：`miya gateway start/shell/autostart` 的 CLI 入口不再强依赖 `dist/cli/index.js`；当处于源码运行态（`src/cli/index.ts`）时自动切换 `node --import tsx` 启动参数，避免开发态误报 `cli_js_not_found` 并导致 autostart 无法切换（`miya-src/src/cli/index.ts`）。
-- 2026-02-21 弹窗止血补丁：插件启动不再把旧兼容键 `MIYA_GATEWAY_TERMINAL_AUTO_START` / `ui.dashboard.gatewayTerminalAutoStart` 解释为 `terminal_legacy`；仅在显式 `MIYA_GATEWAY_LIFECYCLE_MODE=terminal_legacy` 或 `ui.dashboard.gatewayStartMode=terminal_legacy` 时允许弹窗终端。`test:strict` 的 `opencode debug *` 步骤强制 `service_only + 禁止 auto UI`，避免门禁期间终端闪烁（`miya-src/src/index.ts`、`miya-src/tools/run-strict-gate.ts`）。
+- 2026-02-21 弹窗止血补丁：插件启动彻底移除 `terminal_legacy` 分支与 `cmd /k` 弹窗链路；旧兼容键 `MIYA_GATEWAY_TERMINAL_AUTO_START` / `ui.dashboard.gatewayTerminalAutoStart` 不再参与启动决策。`test:strict` 的 `opencode debug *` 步骤强制 `service_only + 禁止 auto UI`，避免门禁期间终端闪烁（`miya-src/src/index.ts`、`miya-src/tools/run-strict-gate.ts`）。
 - Daemon 闪退可观测性已增强：launcher 将 host stdout/stderr 落盘到 `daemon/host.stdout.log` 与 `daemon/host.stderr.log`，host 进程新增 `host.crash.log`（未捕获异常/拒绝）以支撑闪退定位（`miya-src/src/daemon/launcher.ts`、`miya-src/src/daemon/host.ts`）。
 - Daemon 子进程环境已补 loopback 豁免：统一注入 `NO_PROXY/no_proxy=localhost,127.0.0.1,::1`，降低“开代理时本地链路被误代理”导致的终端/网关断联风险（`miya-src/src/daemon/service.ts`）。
 - 控制台 WS 链路已改为“事件推送优先”：`gateway-ui` 通过 `gateway.subscribe` 订阅 `gateway.snapshot`，仅在变更时更新 UI；保留 15s 低频刷新兜底，替代 2.5s 高频全量刷新（`miya-src/gateway-ui/src/gateway-client.ts`、`miya-src/gateway-ui/src/App.tsx`）。
@@ -338,10 +349,10 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 - `Web Console` 是**无状态客户端**：只做订阅事件、渲染状态、提交人工干预指令（`approve/pause/kill/annotate`）。
 - `Web Console` 不得直接执行工具，不得绕过 Gateway 状态机。
 
-#### 2) 生命周期采用“双模式”（默认不变）
-- 默认模式：`Coupled Mode`（冻结）：随 OpenCode 起落（OpenCode 启动即拉起，退出即回收）。
-- 实验模式：`Service Mode (experimental)`（新增开关）：
-- Gateway 可由 `systemd/launchd` 常驻拉起，OpenCode TUI/Web Console 作为控制面客户端 attach。
+#### 2) 生命周期采用“双模式”（2026-02-22 状态修订）
+- 默认模式：`service_shell`（冻结）：Gateway 后台服务常驻，终端窗口与 Gateway 进程生命周期解耦（窗口隐藏/关闭不终止 Gateway）。
+- 生命周期模式：`service_shell`（默认）与 `service_only`（无终端）；`terminal_legacy` 已删除，不再提供回退弹窗分支。
+- Gateway 可由系统自启动链路常驻拉起，OpenCode TUI/Web Console 作为控制面客户端 attach。
 - 即使是 Service Mode，最终权限裁决仍使用 OpenCode permission/skill 体系（`allow/ask/deny`），不得自造平行权限系统。
 
 #### 3) 远程批准/远程查看必须基于 OpenCode permission 票据
@@ -443,8 +454,8 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 
 ## **0. 最终定位与不变前提（宪法条款）**
 
-### **0.0 决策记录（冻结，2026-02-13）**
-- **开机自启动**：同意开机自启动；为保证完整功能，坚持**随 OpenCode 起落**（OpenCode 启动→Miya 插件与 daemon 自动拉起；OpenCode 退出→Miya 与 daemon 回收）。
+### **0.0 决策记录（冻结，含 2026-02-22 生命周期修订）**
+- **开机自启动**：同意开机自启动；默认采用 `service_shell` 常驻后台 Gateway。终端窗口为独立原生窗口，隐藏/最小化/关闭只影响窗口，不终止 Gateway。
 - **Kill-Switch 粒度**：从“全局停机”调整为**按能力域停机**：至少 `outbound_send` / `desktop_control` 停止，但 `local_build` / `read_only_research` 可继续。
 - **外发硬约束不改**：Outbound 仍然坚持：**仅 QQ/微信（UI 自动化）+ allowlist + 风控 + 节流 + 误触发保护**；其余通道一律 Inbound-only/Read-only。
 - **多模态链路坚持本地**：图片与语音生成链路坚持本地（不外发媒体）；重点攻克“像人一样控制电脑点击 QQ/微信 给我发自拍/语音”。
@@ -489,7 +500,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 - Miya 只依赖 OpenCode 的公开插件接口/公开工具接口，降低跟随升级的维护面
   - 插件目录与加载顺序、事件钩子列表以官方文档为准
 - **具体**：插件自动拉起并托管轻量 daemon
-  - daemon 生命周期严格跟随 OpenCode（启动自动拉起，退出自动回收）
+  - Gateway 控制平面生命周期默认独立于 OpenCode 前台窗口；OpenCode 作为控制面 attach，不承担 Gateway 存活性。
   - daemon 不做「文本/推理 LLM」，只做：执行、设备能力、媒体（图像/语音）处理、通道收发、持久化、审计与队列
   - **模型使用策略（明确分层）**：
     - **大模型（文本/推理）**：使用OpenCode连接的大模型（通过OpenCode标准接口调用）
@@ -526,12 +537,12 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
   - Miya 只实现官方机制下的“工具实现与能力声明”，不实现平行发现层。
   - 所有目录与 manifest 字段变更必须通过 `Doc Linter` 校验（规划口径与代码口径一致）。
 
-**补充（开机自启动，随 OpenCode 起落）**：
+**补充（开机自启动，后台常驻）**：
 - Miya 在 Gateway 提供“开机自启动 OpenCode”选项；启用后由系统启动项/计划任务拉起 OpenCode（从而拉起 Miya）。
 - 设计原则：不让 daemon 变成“脱离 OpenCode 的对话入口”；即使后台有作业队列，**所有对话与文本推理仍只发生在 OpenCode**。
 - **补充（物理路径：轻量 OS Service/计划任务）**：
-  - 增加一个极轻量的 `miya-launcher`（Windows Service 或计划任务均可实现）：常驻后台但 **不做推理、不做训练、不做桌面控制**，仅负责监听时间触发器/开机事件，然后拉起 OpenCode 进程。
-  - 设计边界：`miya-launcher` 只负责“叫醒 OpenCode”，真正的 Miya daemon 仍坚持“随 OpenCode 起落”；避免引入一个长期常驻的“全功能 daemon”扩大风险面与资源占用。
+  - 增加一个极轻量的 `miya-launcher`（Windows Service 或计划任务均可实现）：常驻后台但 **不做推理、不做训练、不做桌面控制**，仅负责监听时间触发器/开机事件，然后确保 Gateway 服务可用并可选拉起 OpenCode。
+  - 设计边界：`miya-launcher` 不承载业务执行；业务执行仍在 Gateway/daemon 进程。终端窗口仅作为日志与交互壳，不承担控制平面主状态。
   - **权限高墙诊断（新增，Windows 必须）**：`miya-launcher` 启动后必须执行一次“完整性级别探测”（Miya/OpenCode/QQ/微信进程的 Medium/High/System），并上报 Gateway。
   - **提权策略（保守默认）**：默认不自动提权；若检测到 QQ/微信 运行级别高于 Miya（或处于 UAC Secure Desktop），则将 `desktop_control` 标记为 `blocked_by_privilege`，在 OpenCode/Gateway **提前预警**并阻止进入发送流程，等待你手动处理（例如以管理员重启同级进程）。
   - 失败策略：拉起失败只在本机弹通知/写本地日志，不尝试外发；并且不得绕过 OpenCode 的 permission/ask 体系。
@@ -776,7 +787,7 @@ Miya 架构最终口径：**单 Agent Runtime + 多 Skill 能力域 + OpenCode �
 ### **1.1 执行摘要**
 > 口径标注：本节出现的“多智能体插件/六大专职 Agent 微服务化架构”描述属于历史草案，用于追溯，不作为当前实现约束；当前实现以“单 Runtime + OpenCode agent 配置 + Skill 能力域映射”为准。
 
-本报告旨在为零基础开发者提供一份详尽的、百科全书式的技术指南，用于在 opencode 生态系统中构建名为“Miya”的高级多智能体（Multi-Agent）插件。该项目的设计蓝图源于一份手写架构草图，其核心愿景是利用 opencode 现有的强大基础设施（如 MCP 协议、Skill 系统、Session 管理），通过引入 OpenClaw 风格的“Gateway 双形态”（随 OpenCode 起落的终端进程 + 面向用户的 Web 控制面板）和六大专职 Agent（代理），构建一个既具备情感交互能力（Soul/Persona），又拥有企业级代码交付能力（Ralph Loop/Orchestration）的超级辅助系统。
+本报告旨在为零基础开发者提供一份详尽的、百科全书式的技术指南，用于在 opencode 生态系统中构建名为“Miya”的高级多智能体（Multi-Agent）插件。该项目的设计蓝图源于一份手写架构草图，其核心愿景是利用 opencode 现有的强大基础设施（如 MCP 协议、Skill 系统、Session 管理），通过引入 OpenClaw 风格的“Gateway 双形态”（后台常驻 Gateway + 独立原生终端窗口 + 面向用户的 Web 控制面板）和六大专职 Agent（代理），构建一个既具备情感交互能力（Soul/Persona），又拥有企业级代码交付能力（Ralph Loop/Orchestration）的超级辅助系统。
 
 本报告的篇幅将达到约 15,000 字，不仅涵盖代码实现，还将深入探讨代理式工作流（Agentic Workflow）的理论基础、多智能体协同的数学模型、以及如何从零构建一个生产级的 AI 插件开发环境。我们将深度剖析并融合六个开源项目的核心特性：OpenClaw 的本地化控制与隐私保护、Oh-my-claudecode 的自修正闭环、Clawra 与 Girl-agent 的人格化与视觉交互、Oh-my-opencode 的复杂任务编排、以及 Nanobot 的极简主义路由网关。
 
@@ -859,7 +870,7 @@ Miya 项目提出的“Gateway \+ 6 大 Agent”架构，实际上是一种**微
 | **Nanobot** | 4千行极简架构、MCP原生、轻量路由 | 代码精简、MCP集成、快速响应 |
 #### **1.3.4 Gateway：系统的神经中枢**
 
-在手写笔记中，Gateway 被定义为“控制平台”，且“不需要重复 opencode 已有功能” \[手写笔记\]。在本项目中将其落实为 OpenClaw 风格的双形态：**终端态 Gateway**（作为 OpenCode 插件进程的一部分，随 OpenCode 启停）+ **Web 控制面板**（给用户操作和观察状态）。这意味着 Gateway 不应是一个厚重的中间件，而应是一个轻量级的、基于事件驱动（Event-Driven）的拦截器。它位于用户输入与模型响应之间，充当决策路由器的角色；对话 UI 与会话基础能力仍完全依托 OpenCode 原生界面。
+在手写笔记中，Gateway 被定义为“控制平台”，且“不需要重复 opencode 已有功能” \[手写笔记\]。在本项目中将其落实为 OpenClaw 风格的双形态：**终端态 Gateway**（Windows 独立原生终端窗口，通过 ConPTY 托管会话，窗口生命周期与 Gateway 后台进程解耦）+ **Web 控制面板**（给用户操作和观察状态）。这意味着 Gateway 不应是一个厚重的中间件，而应是一个轻量级的、基于事件驱动（Event-Driven）的拦截器。它位于用户输入与模型响应之间，充当决策路由器的角色；对话 UI 与会话基础能力仍完全依托 OpenCode 原生界面。
 
 
 #### **1.3.5 六大 Agent 的职能映射（Hexagon of Competence）**
@@ -1226,7 +1237,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 
 1. **接入层 (Access Layer)：** 对应 opencode 的 TUI（终端界面），这个opencode 的 TUI（终端界面）被当作我们的Chat Interface，充分利用opencode原有的基础。  
 2. **网关层 (Gateway Layer)：** OpenClaw 风格双形态网关（终端态 + Web 控制面板）。  
-   * **Terminal Gateway（随 OpenCode 起落）：** 运行在插件/daemon 侧，负责拦截、路由、策略联锁与状态广播。  
+   * **Terminal Gateway（独立原生窗口）：** 通过 ConPTY 托管 `gateway terminal-host`，负责日志显示、stdin 命令交互与托盘/快捷呼出；关闭窗口不影响后台 Gateway。  
    * **Web Control Panel（用户控制台）：** 浏览器访问的控制平面，用于查看任务、节点、策略与审计，并进行人工确认/解锁。  
    * **Interceptor (拦截器)：** 捕获 tui.prompt.submit 事件。  
    * **Router (路由器)：** 基于正则或轻量级 LLM 的分类器。  
@@ -1254,7 +1265,7 @@ OpenClaw 及其衍生项目 Clawra 和 Girl-agent 强调了 Agent 的“人格�
 针对这些方向的进一步规划：精简版 OpenClaw 管家 + 女友式人格层 + 图像/语音“本地训练闭环” + 外发通道硬约束）
 
 核心不变：Miya 永远是 OpenCode 的插件；聊天 UI 与「文本/推理 LLM」调用只用 OpenCode。
-Miya 通过随 OpenCode 启动/退出的轻量 daemon 获得“精简版 OpenClaw”的控制平面与执行面，同时保持你这套 6 代理体系不新增、全员带“女友式人格层”。
+Miya 通过后台常驻 Gateway + 独立终端窗口（ConPTY 托管）获得“精简版 OpenClaw”的控制平面与执行面，同时保持你这套 6 代理体系不新增、全员带“女友式人格层”。
 
 - ✅ **本地训练闭环**：向导收集的“照片/音频/性格”必定触发本机训练作业（job），但必须 **严格不超过显存上限**（超限就自动降级，绝不硬顶 OOM）。
 - ✅ **外发通道硬约束**：除「你指定的 QQ/微信 已登录账号 → 你指定的联系人 allowlist」外，**所有渠道禁止外发消息**（只能浏览/检索）。
@@ -1262,8 +1273,8 @@ Miya 通过随 OpenCode 启动/退出的轻量 daemon 获得“精简版 OpenCla
 - ✅ **消灭双口径风险**：插件与 daemon 使用同一份“政策/allowlist/风控配置”的单一真相源（Single Source of Truth），并通过 policy-hash 联锁。
 
 
-0.2 路线 B：插件自动拉起并托管轻量 daemon
-- daemon 生命周期严格跟随 OpenCode（启动自动拉起，退出自动回收）。
+0.2 路线 B：插件与后台 Gateway 协同（service_shell 默认）
+- Gateway 控制平面可独立常驻；OpenCode 负责控制面 attach 与任务发起，不再要求“退出 OpenCode 即回收 Gateway”。
 - daemon 不做文本/推理 LLM，只做：执行、设备能力、媒体（图像/语音）训练与推理、通道收发、持久化、审计与队列。
 - 所有媒体处理 **默认全本地**：不把图片/音频发到第三方在线服务。
 
@@ -2171,7 +2182,7 @@ G:\pythonG\py\yun\.opencode\miya\
 
 ### **4.10 Gateway 的技术实现细节（补充）**
 
-Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双形态（随 OpenCode 起落的终端 Gateway + Web 控制面板）并做到“不重复造轮子”，它必须利用 opencode 的 **Hook System**，但需要遵循OpenCode官方的事件命名体系。
+Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双形态（后台常驻 Gateway + 独立终端窗口 + Web 控制面板）并做到“不重复造轮子”，它必须利用 opencode 的 **Hook System**，但需要遵循OpenCode官方的事件命名体系。
 
 **OpenCode官方插件事件/钩子体系**：
 根据OpenCode官方文档，插件应该使用以下标准事件：
@@ -2197,11 +2208,10 @@ Gateway 不仅仅是一个 if-else 语句。为了实现 OpenClaw 风格的双�
 
 </details>
 
-**Gateway生命周期管理**（明确与OpenCode进程绑定，非独立常驻）：
+**Gateway 生命周期管理**（后台常驻 + 窗口解耦）：
 1. **启动与停止**：
-   - **绑定模式**：Gateway作为OpenCode插件的一部分，与OpenCode进程同生命周期
-   - OpenCode启动时初始化，OpenCode退出时自动关闭（**非独立常驻**）
-   - **终端态职责**：终端 Gateway 负责事件拦截、任务路由、策略执行、审计落盘与状态上报
+   - **默认模式（service_shell）**：Gateway 作为后台服务常驻，OpenCode 作为控制面 attach；OpenCode 退出不强制回收 Gateway。
+   - **终端态职责**：独立原生终端窗口（ConPTY）负责日志显示、stdin 命令、托盘/快捷键呼出隐藏；窗口关闭仅隐藏，不终止 Gateway。
    - **网页控制台职责**：Web UI 仅作为用户控制面板（控制平面），不替代 OpenCode 的对话 UI
    - 端口策略：自动检测可用端口（默认3000+），支持用户配置，端口冲突时自动递增
    - 认证机制：复用OpenCode的permission体系，支持token/password配置，Web控制台独立登录
